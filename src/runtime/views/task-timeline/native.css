@@ -1,0 +1,234 @@
+.noria-task-timeline-native-root {
+  --noria-task-timeline-title-size: 11px;
+  --noria-task-timeline-title-line: 16px;
+  --noria-task-timeline-range-title-size: 11px;
+  --noria-task-timeline-range-title-line: 13px;
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 280px;
+  overflow: hidden;
+  background: var(--noria-task-timeline-time-surface);
+  color: var(--noria-task-timeline-time-ink);
+  container-type: inline-size;
+}
+
+.noria-task-timeline-native-root[data-noria-timeline-density="normal"] {
+  --noria-task-timeline-title-size: 12px;
+  --noria-task-timeline-title-line: 16px;
+}
+
+.noria-task-timeline-native-root[data-noria-timeline-density="wide"] {
+  --noria-task-timeline-title-size: 12px;
+  --noria-task-timeline-title-line: 16px;
+}
+
+.noria-task-timeline-native-root *,
+.noria-task-timeline-native-root *::before,
+.noria-task-timeline-native-root *::after {
+  box-sizing: border-box;
+}
+
+.noria-task-timeline-native-main,
+.noria-task-timeline-native-overview-band {
+  position: relative;
+  border: 0;
+  overflow: hidden;
+}
+
+.noria-task-timeline-native-main {
+  background: var(--noria-task-timeline-time-band);
+}
+
+.noria-task-timeline-native-overview-band {
+  background: var(--noria-task-timeline-overview-band);
+}
+
+.noria-task-timeline-native-background,
+.noria-task-timeline-native-grid,
+.noria-task-timeline-native-weekends,
+.noria-task-timeline-native-markers,
+.noria-task-timeline-native-events,
+.noria-task-timeline-native-state-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.noria-task-timeline-native-grid {
+  z-index: 100;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-weekends {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-markers {
+  z-index: 10;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-events {
+  z-index: 115;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-state-layer {
+  z-index: 120;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-date {
+  color: var(--noria-task-timeline-time-muted);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.noria-task-timeline-native-weekend {
+  background: var(--noria-task-timeline-today-wash);
+  opacity: 0.3;
+}
+
+.noria-task-timeline-native-today {
+  background: var(--noria-task-timeline-today-wash);
+  opacity: 0.2;
+}
+
+.noria-task-timeline-native-main {
+  cursor: grab;
+}
+
+.noria-task-timeline-native-root[data-noria-pan-state="active"] .noria-task-timeline-native-main {
+  cursor: grabbing;
+}
+
+.noria-task-timeline-native-overview-today-marker {
+  background: var(--noria-task-timeline-now-cursor);
+  opacity: 0.58;
+  transform: translateX(-0.5px);
+}
+
+.noria-task-timeline-native-marker.noria-task-timeline-now-cursor {
+  background: var(--noria-task-timeline-now-cursor);
+  opacity: 0.58;
+}
+
+.noria-task-timeline-native-task-unit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--noria-task-timeline-time-ink);
+  font-size: var(--noria-task-timeline-title-size);
+  line-height: var(--noria-task-timeline-title-line);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+  cursor: pointer;
+  font-weight: var(--noria-task-timeline-task-open-weight, 600);
+}
+
+.noria-task-timeline-native-title[hidden] {
+  display: none !important;
+}
+
+.noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-title {
+  color: var(--noria-task-timeline-time-muted);
+  font-weight: var(--noria-task-timeline-task-done-weight, 500);
+}
+
+.noria-task-timeline-native-title[data-noria-task-visual-role="primary-range-title"] {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+  color: color-mix(in srgb, var(--noria-task-timeline-task-blue-deep) 28%, var(--noria-task-timeline-time-ink));
+  font-family: var(--font-interface), Arial, Helvetica, sans-serif;
+  font-size: var(--noria-task-timeline-range-title-size);
+  line-height: var(--noria-task-timeline-range-title-line);
+  pointer-events: none;
+  cursor: default;
+}
+
+.noria-task-timeline-native-point {
+  border: 1px solid var(--noria-task-timeline-task-blue-deep);
+  border-radius: 50%;
+  background: var(--noria-task-timeline-task-blue);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.noria-task-timeline-native-rail {
+  border: 0;
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--noria-task-timeline-task-blue) 8%, transparent);
+  opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.noria-task-timeline-native-handle-zone {
+  z-index: 1;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.noria-task-timeline-native-handle {
+  z-index: 2;
+  background: var(--noria-task-timeline-task-blue-deep);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-title:hover ~ .noria-task-timeline-native-handle,
+.noria-task-timeline-native-title:focus-visible ~ .noria-task-timeline-native-handle,
+.noria-task-timeline-native-point:hover ~ .noria-task-timeline-native-handle,
+.noria-task-timeline-native-point:focus-visible ~ .noria-task-timeline-native-handle,
+.noria-task-timeline-native-handle-zone:hover ~ .noria-task-timeline-native-handle,
+.noria-task-timeline-native-task-unit:has(.noria-task-timeline-native-handle:hover)
+  .noria-task-timeline-native-handle,
+.noria-task-timeline-native-task-unit[data-noria-drag-state="active"] .noria-task-timeline-native-handle {
+  opacity: 0.54;
+  pointer-events: auto;
+}
+
+.noria-task-timeline-native-handle--start,
+.noria-task-timeline-native-handle--end {
+  cursor: ew-resize;
+}
+
+.noria-task-timeline-native-handle--move {
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--noria-task-timeline-task-blue-deep) 34%, transparent);
+  cursor: grab;
+}
+
+.noria-task-timeline-native-task-unit[data-noria-drag-state="active"]
+  .noria-task-timeline-native-handle--move {
+  cursor: grabbing;
+}
+
+.noria-task-timeline-native-state {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  max-width: calc(100% - 24px);
+  transform: translateX(-50%);
+  color: var(--noria-task-timeline-time-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.noria-task-timeline-native-state--error {
+  color: var(--text-error);
+}

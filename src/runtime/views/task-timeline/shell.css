@@ -1,0 +1,1365 @@
+.noria-task-timeline-root {
+  --noria-task-timeline-border: color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
+  --noria-task-timeline-muted: color-mix(in srgb, var(--text-muted) 90%, var(--text-normal) 10%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  min-height: 320px;
+  padding: 8px;
+  overflow: hidden;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.noria-task-timeline-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--noria-task-timeline-border);
+  background: var(--background-primary);
+  box-sizing: border-box;
+}
+
+.noria-task-timeline-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  overflow: hidden;
+  box-sizing: content-box;
+}
+
+.noria-task-timeline-status {
+  flex-shrink: 0;
+  min-height: 18px;
+  color: var(--noria-task-timeline-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+
+.noria-task-timeline-root--tasks-timeline {
+  --noria-task-timeline-time-ink: color-mix(in srgb, var(--text-normal) 90%, #1e3a8a);
+  --noria-task-timeline-time-muted: color-mix(in srgb, var(--text-muted) 82%, #64748b);
+  --noria-task-timeline-time-surface: color-mix(in srgb, var(--background-primary) 96%, #eff6ff);
+  --noria-task-timeline-time-band: color-mix(in srgb, var(--background-primary) 91%, #eef2ff);
+  --noria-task-timeline-overview-band: color-mix(in srgb, var(--background-primary) 88%, #dbeafe);
+  --noria-task-timeline-today-wash: color-mix(in srgb, #fde68a 16%, transparent);
+  --noria-task-timeline-now-cursor: color-mix(in srgb, #0ea5e9 68%, var(--interactive-accent));
+  --noria-task-timeline-task-blue: #2563eb;
+  --noria-task-timeline-task-blue-deep: #1d4ed8;
+  --noria-task-timeline-task-open-weight: 600;
+  --noria-task-timeline-task-done-weight: 500;
+  --noria-task-timeline-pomo-red: #ef4444;
+  --noria-task-timeline-break-green: #22c55e;
+  --noria-task-timeline-mark-amber: #f59e0b;
+  --noria-task-timeline-note-cyan: #0891b2;
+  --noria-task-timeline-git-violet: #7c3aed;
+  --noria-task-timeline-noria-teal: #14b8a6;
+  --noria-task-timeline-z-empty: 20;
+  --noria-task-timeline-z-selection-range: 58;
+  --noria-task-timeline-z-annotation-edit-preview: 59;
+  --noria-task-timeline-z-dragging-event: 80;
+  --noria-task-timeline-z-drag-preview: 90;
+  --noria-task-timeline-z-pomodoro-dock: 95;
+  --noria-task-timeline-z-overview-info: 118;
+  --noria-task-timeline-z-context-menu: 9999;
+  container-type: inline-size;
+  gap: 0;
+  min-height: 280px;
+  padding: 0;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-stage {
+  min-height: 280px;
+  border: 0;
+  background:
+    linear-gradient(180deg, var(--noria-task-timeline-time-surface), var(--background-primary) 78%),
+    var(--background-primary);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-default {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  line-height: normal;
+  color: var(--noria-task-timeline-time-ink);
+  touch-action: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-surface[data-noria-task-timeline-mark-mode="true"] {
+  cursor: crosshair;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--noria-task-timeline-mark-amber) 34%, transparent);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-surface[data-noria-task-timeline-mark-mode="true"] .timeline-band-0,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-surface[data-noria-task-timeline-mark-mode="true"] .timeline-band-1 {
+  cursor: crosshair;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-0 {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #dbeafe 10%, transparent), transparent 62%),
+    var(--noria-task-timeline-time-band);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-1 {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #dbeafe 12%, transparent), transparent 70%),
+    var(--noria-task-timeline-overview-band);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(280px, 76cqw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--noria-task-timeline-task-blue-deep) 32%, var(--noria-task-timeline-time-ink));
+  font-weight: var(--noria-task-timeline-task-open-weight, 600);
+  letter-spacing: 0;
+  text-shadow: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable::before {
+  content: "";
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-task--done::before {
+  background: color-mix(in srgb, var(--text-muted) 68%, var(--background-primary));
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-task--cancelled::before {
+  background: color-mix(in srgb, var(--text-faint) 72%, var(--background-primary));
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-task--fallback-date::before {
+  background: color-mix(in srgb, var(--noria-task-timeline-mark-amber) 72%, var(--text-muted));
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-0 .timeline-event-label {
+  transform: translateX(var(--noria-event-label-offset-x, 0px)) translateY(var(--noria-event-label-offset-y, 0px));
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-0 .timeline-event-label.noria-task-timeline-task--duration {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-0 .timeline-event-label.noria-task-timeline-task-label--duplicate {
+  display: none !important;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-task-label-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-task-label-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 108px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--noria-task-timeline-time-muted);
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.64;
+  text-shadow: none;
+}
+
+.noria-task-timeline-root--tasks-timeline:not([data-noria-task-timeline-density="wide"]) .timeline-band-0 .noria-task-timeline-task-label-meta {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline:not([data-noria-task-timeline-density="wide"]) .timeline-band-0 .timeline-event-label.noria-task-timeline-editable::before {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline:not([data-noria-task-timeline-density="wide"]) .timeline-band-0 .timeline-event-label:not(.noria-task-timeline-native-title) {
+  display: inline-block;
+  box-sizing: border-box;
+  max-width: var(--noria-event-label-max, min(160px, 54cqw));
+  width: auto !important;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noria-task-timeline-root--tasks-timeline:not([data-noria-task-timeline-density="wide"]) .timeline-band-0 .timeline-event-label.noria-task-timeline-editable:not(.noria-task-timeline-native-title) {
+  display: inline-flex;
+  max-width: var(--noria-event-label-max, min(160px, 54cqw));
+}
+
+.noria-task-timeline-root--tasks-timeline:not([data-noria-task-timeline-density="wide"]) .timeline-band-0 .timeline-event-label.noria-task-timeline-editable:not(.noria-task-timeline-native-title):hover {
+  max-width: var(--noria-event-label-max, min(160px, 54cqw));
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable:hover {
+  max-width: min(420px, 92cqw);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable[data-noria-task-hover-state="ready"]:hover,
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable[data-noria-task-hover-state="ready"]:focus-visible {
+  overflow: visible;
+  z-index: 80;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable[data-noria-task-hover-state="ready"]:hover::after,
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable[data-noria-task-hover-state="ready"]:focus-visible::after {
+  content: attr(data-noria-task-hover-text);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--background-primary) 60%, transparent);
+  color: var(--text-normal);
+  font-family: var(--font-interface), Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  font-weight: 520;
+  line-height: 1.45;
+  white-space: pre-line;
+  pointer-events: none;
+  z-index: 81;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .timeline-event-label:not(.noria-task-timeline-native-title) {
+  max-width: var(--noria-event-label-max, min(112px, 40cqw));
+  width: auto !important;
+  min-width: 0;
+  padding: 0 2px;
+  overflow: hidden;
+  color: var(--noria-task-timeline-time-ink);
+  background: transparent;
+  border-radius: 0;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .timeline-event-label.noria-task-timeline-editable:not(.noria-task-timeline-native-title) {
+  max-width: var(--noria-event-label-max, min(112px, 40cqw));
+  width: auto !important;
+  min-width: 0;
+  padding: 0 2px;
+  overflow: hidden;
+  color: var(--noria-task-timeline-time-ink);
+  background: transparent;
+  border-radius: 0;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-shadow: none;
+  pointer-events: auto;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .timeline-event-label.noria-task-timeline-editable::before {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .timeline-event-label .noria-task-timeline-task-label-meta {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .timeline-event-label.noria-task-timeline-has-pomodoro:not(.noria-task-timeline-native-title) {
+  max-width: var(--noria-event-label-max, min(124px, 44cqw));
+  width: auto !important;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-status {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-copyright {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-highlight-decorator {
+  background-color: var(--noria-task-timeline-today-wash);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-highlight-point-decorator.noria-task-timeline-now-cursor {
+  background-color: var(--noria-task-timeline-now-cursor) !important;
+  box-shadow: none;
+  border-radius: 1px;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-1 .timeline-highlight-point-decorator.noria-task-timeline-now-cursor {
+  box-shadow: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-highlight-label {
+  color: color-mix(in srgb, var(--text-muted) 76%, var(--text-normal));
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-0 .timeline-highlight-label {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-1 .timeline-highlight-label {
+  color: color-mix(in srgb, var(--interactive-accent) 74%, var(--text-muted));
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-1 .timeline-date-label {
+  border-color: color-mix(in srgb, var(--background-modifier-border) 52%, #999);
+  color: var(--noria-task-timeline-time-muted);
+  font-size: 10px;
+  font-weight: 560;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-date-label--day-only {
+  min-width: 1.35em;
+  padding-inline: 1px;
+  text-align: center;
+  color: color-mix(in srgb, var(--noria-task-timeline-time-muted) 82%, var(--noria-task-timeline-task-blue));
+  font-weight: 650;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-1 .timeline-date-label-em {
+  color: color-mix(in srgb, var(--text-normal) 90%, var(--interactive-accent));
+  font-weight: 650;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-layer.noria-task-timeline-overview-info-layer {
+  z-index: var(--noria-task-timeline-z-overview-info);
+  pointer-events: none;
+  overflow: visible;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-layer .timeline-band-layer-inner,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-layer-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  cursor: default;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-tick {
+  position: absolute;
+  top: 6px;
+  width: 1px;
+  height: 8px;
+  transform: translateX(-0.5px);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--noria-task-timeline-task-blue) 52%, var(--background-modifier-border));
+  opacity: 0.28;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-segment {
+  position: absolute;
+  top: 20px;
+  min-width: 4px;
+  height: 2px;
+  border-top: 2px solid color-mix(in srgb, var(--noria-task-timeline-task-blue) 52%, var(--background-modifier-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--noria-task-timeline-task-blue) 46%, var(--background-modifier-border));
+  opacity: 0.26;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info--task {
+  background-color: var(--noria-task-timeline-task-blue);
+  border-color: var(--noria-task-timeline-task-blue);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info--fallback {
+  background-color: color-mix(in srgb, var(--noria-task-timeline-task-blue) 28%, var(--background-modifier-border));
+  border-color: color-mix(in srgb, var(--noria-task-timeline-task-blue) 28%, var(--background-modifier-border));
+  opacity: 0.26;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-tick.noria-task-timeline-overview-info--fallback {
+  top: 7px;
+  height: 5px;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-segment.noria-task-timeline-overview-info--fallback {
+  border-top-style: dashed;
+  opacity: 0.28;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info--annotation {
+  background-color: var(--noria-task-timeline-mark-amber);
+  border-color: var(--noria-task-timeline-mark-amber);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info--pomodoro {
+  background-color: var(--noria-task-timeline-pomo-red);
+  border-color: var(--noria-task-timeline-pomo-red);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info--note {
+  background-color: var(--noria-task-timeline-note-cyan);
+  border-color: var(--noria-task-timeline-note-cyan);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info--git {
+  background-color: var(--noria-task-timeline-git-violet);
+  border-color: var(--noria-task-timeline-git-violet);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info--noria {
+  background-color: color-mix(in srgb, var(--noria-task-timeline-noria-teal) 72%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--noria-task-timeline-noria-teal) 72%, var(--background-primary));
+  opacity: 0.54;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-label {
+  position: absolute;
+  bottom: 4px;
+  max-width: 46px;
+  padding: 0 3px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--background-primary) 84%, transparent);
+  color: color-mix(in srgb, var(--noria-task-timeline-time-muted) 86%, var(--text-normal));
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 color-mix(in srgb, var(--background-primary) 70%, transparent);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-label--today {
+  bottom: 16px;
+  color: color-mix(in srgb, var(--interactive-accent) 74%, var(--text-muted));
+  background: color-mix(in srgb, var(--background-primary) 88%, #ede9fe);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-label--year {
+  bottom: 16px;
+  color: color-mix(in srgb, var(--text-normal) 86%, #111827);
+  background: color-mix(in srgb, var(--background-primary) 82%, #e5e7eb);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-overview-info-label--time {
+  color: color-mix(in srgb, var(--text-muted) 78%, var(--noria-task-timeline-task-blue));
+  font-weight: 650;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-band-1 .timeline-ether-lines {
+  border-color: color-mix(in srgb, var(--background-modifier-border) 46%, #888);
+  opacity: 0.5;
+}
+
+.theme-dark .noria-task-timeline-root--tasks-timeline .timeline-band-0 .timeline-ether-bg {
+  background-color: var(--noria-task-timeline-time-band) !important;
+}
+
+.theme-dark .noria-task-timeline-root--tasks-timeline .timeline-band-1 .timeline-ether-bg {
+  background-color: var(--noria-task-timeline-overview-band) !important;
+}
+
+.theme-dark .noria-task-timeline-root--tasks-timeline .timeline-ether-weekends {
+  background-color: color-mix(in srgb, var(--interactive-accent) 4%, transparent) !important;
+}
+
+.theme-dark .noria-task-timeline-root--tasks-timeline .timeline-ether-highlight {
+  background-color: color-mix(in srgb, var(--background-primary) 76%, var(--interactive-accent) 24%) !important;
+}
+
+.theme-dark .noria-task-timeline-root--tasks-timeline .timeline-ether-lines {
+  border-color: color-mix(in srgb, var(--background-modifier-border) 68%, transparent) !important;
+}
+
+.noria-task-timeline-task--done {
+  opacity: 0.68;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-task--done {
+  font-weight: var(--noria-task-timeline-task-done-weight, 500);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-task--done .noria-task-timeline-duration-tape-title {
+  font-weight: var(--noria-task-timeline-task-done-weight, 500);
+}
+
+.noria-task-timeline-task--cancelled {
+  opacity: 0.45;
+}
+
+.noria-task-timeline-event--pomodoro {
+  color: color-mix(in srgb, var(--noria-task-timeline-pomo-red) 82%, #7f1d1d);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-event--pomodoro.timeline-event-tape,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-event--pomodoro {
+  border-color: color-mix(in srgb, var(--noria-task-timeline-pomo-red) 70%, #7f1d1d);
+  opacity: 0.66;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable {
+  transform: translateY(var(--noria-duration-tape-offset-y, 0px));
+  border-color: transparent;
+  background: transparent;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--noria-task-timeline-task-blue) 8%, transparent);
+  overflow: visible;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable:hover,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable:focus-within {
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--noria-task-timeline-task-blue) 10%, transparent);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-task-unit-hover="active"] {
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--noria-task-timeline-task-blue) 12%, transparent);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape .noria-task-timeline-duration-tape-title {
+  position: absolute;
+  left: var(--noria-duration-title-left, 50%);
+  top: 50%;
+  z-index: 2;
+  max-width: var(--noria-duration-title-max, min(220px, 70cqw));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translate(-50%, -50%) translateY(calc(var(--noria-duration-title-offset-y, 0px) - var(--noria-duration-tape-offset-y, 0px)));
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+  color: color-mix(in srgb, var(--noria-task-timeline-task-blue-deep) 28%, var(--noria-task-timeline-time-ink));
+  font-family: var(--font-interface), Arial, Helvetica, sans-serif;
+  font-size: 10px;
+  font-weight: var(--noria-task-timeline-task-open-weight, 600);
+  line-height: 13px;
+  text-shadow: none;
+  pointer-events: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape .noria-task-timeline-duration-tape-title::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 1px;
+  height: 1px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--noria-task-timeline-task-blue) 48%, transparent);
+  pointer-events: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-duration-tape-title[data-noria-task-unit-hover="active"] {
+  background: color-mix(in srgb, var(--background-primary) 60%, var(--interactive-accent));
+  color: color-mix(in srgb, var(--interactive-accent) 30%, var(--noria-task-timeline-time-ink));
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-duration-tape-title[data-noria-task-unit-hover="active"]::before {
+  height: 2px;
+  background: color-mix(in srgb, var(--interactive-accent) 58%, transparent);
+}
+
+.noria-task-timeline-root--tasks-timeline:not([data-noria-task-timeline-density="wide"]) .timeline-band-0 .timeline-event-tape .noria-task-timeline-duration-tape-title {
+  max-width: var(--noria-duration-title-max, min(160px, 54cqw));
+  font-size: 9.5px;
+  line-height: 12px;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-icon.noria-task-timeline-instant-point {
+  transform: translateX(var(--noria-event-marker-offset-x, 0px)) translateY(var(--noria-event-marker-offset-y, 0px));
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 999px;
+  box-sizing: border-box;
+  background-image: none !important;
+  background-color: color-mix(in srgb, var(--noria-task-timeline-task-blue) 58%, var(--background-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--noria-task-timeline-task-blue-deep) 30%, var(--background-primary));
+  box-shadow: none;
+  filter: none;
+  opacity: 0.88;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-icon.noria-task-timeline-instant-point > img {
+  display: none !important;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-icon.noria-task-timeline-editable {
+  filter: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable[data-noria-task-unit-hover="active"] {
+  color: color-mix(in srgb, var(--interactive-accent) 34%, var(--noria-task-timeline-time-ink));
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-icon.noria-task-timeline-editable[data-noria-task-unit-hover="active"] {
+  background-color: color-mix(in srgb, var(--interactive-accent) 56%, var(--background-primary)) !important;
+  border-color: color-mix(in srgb, var(--interactive-accent) 44%, var(--background-primary));
+  box-shadow: none;
+  filter: none;
+  opacity: 1;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-action-state="pending"] {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-action-state="failed"] {
+  opacity: 0.86;
+  filter: saturate(0.72);
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-editable[data-noria-action-state="failed"] {
+  color: color-mix(in srgb, var(--text-error) 78%, var(--noria-task-timeline-time-ink));
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro--break.timeline-event-tape,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-pomodoro--break {
+  border-color: color-mix(in srgb, var(--noria-task-timeline-break-green) 70%, #14532d);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro--abandoned,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-pomodoro--abandoned {
+  border-style: dashed;
+  opacity: 0.48;
+  filter: saturate(0.72);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-drop-hover {
+  outline: 1px solid color-mix(in srgb, #ef4444 72%, transparent);
+  outline-offset: 3px;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-has-pomodoro {
+  overflow: visible;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dock {
+  position: absolute;
+  right: -18px;
+  top: -13px;
+  z-index: var(--noria-task-timeline-z-pomodoro-dock, 95);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 16px;
+  max-width: 128px;
+  height: 17px;
+  padding: 0 3px;
+  border: 1px solid color-mix(in srgb, #ef4444 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 90%, #fee2e2);
+  color: color-mix(in srgb, #991b1b 88%, var(--text-normal));
+  font-family: var(--font-interface);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  box-shadow: 0 1px 4px rgb(127 29 29 / 0.16);
+  cursor: default;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-label .noria-task-timeline-pomodoro-dock {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dock.is-running {
+  background: color-mix(in srgb, var(--background-primary) 84%, #fecaca);
+  box-shadow: 0 1px 5px rgb(127 29 29 / 0.18);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dock.is-break {
+  border-color: color-mix(in srgb, #22c55e 36%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 88%, #dcfce7);
+  color: color-mix(in srgb, #166534 86%, var(--text-normal));
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dock:active {
+  cursor: default;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--noria-task-timeline-pomo-red);
+  color: #fff;
+  font-size: 7px;
+  line-height: 10px;
+  cursor: grab;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dot:active {
+  cursor: grabbing;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dock.is-break .noria-task-timeline-pomodoro-dot {
+  background: var(--noria-task-timeline-break-green);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-text {
+  max-width: 36px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-text:empty {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-dock {
+  right: -10px;
+  top: -10px;
+  gap: 0;
+  min-width: 24px;
+  max-width: 28px;
+  height: 15px;
+  padding: 0 2px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgb(127 29 29 / 0.12);
+  pointer-events: auto;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-dock.is-expanded {
+  max-width: 74px;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .timeline-event-label .noria-task-timeline-pomodoro-dock {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-dot {
+  width: 9px;
+  height: 9px;
+  font-size: 0;
+  line-height: 9px;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-menu {
+  width: 11px;
+  min-width: 11px;
+  height: 11px;
+  font-size: 8px;
+  line-height: 10px;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-text {
+  display: none;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-controls {
+  gap: 0;
+}
+
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-action,
+.noria-task-timeline-root--tasks-timeline[data-noria-task-timeline-density="compact"] .timeline-band-0 .noria-task-timeline-pomodoro-detach {
+  width: 11px;
+  min-width: 11px;
+  height: 11px;
+  font-size: 8px;
+  line-height: 10px;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-controls {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  margin-left: 1px;
+  pointer-events: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-dock.is-expanded .noria-task-timeline-pomodoro-controls {
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-menu,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-action,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-detach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: color-mix(in srgb, #991b1b 86%, var(--text-normal));
+  font-family: var(--font-interface);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 13px;
+  cursor: pointer;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-menu:hover,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-menu:focus-visible,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-action:hover,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-action:focus-visible,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-detach:hover,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-detach:focus-visible {
+  background: color-mix(in srgb, var(--background-primary) 82%, #fecaca);
+  outline: 0;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-menu:focus-visible,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-action:focus-visible,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-pomodoro-detach:focus-visible {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ef4444 54%, transparent);
+}
+
+.noria-task-timeline-event--note {
+  color: color-mix(in srgb, var(--noria-task-timeline-note-cyan) 86%, #0f172a);
+}
+
+.noria-task-timeline-event--git {
+  color: color-mix(in srgb, var(--noria-task-timeline-git-violet) 86%, #1e1b4b);
+}
+
+.noria-task-timeline-event--noria {
+  color: color-mix(in srgb, #14b8a6 82%, var(--text-normal));
+}
+
+.noria-task-timeline-noria-cache {
+  font-weight: 620;
+  letter-spacing: 0;
+}
+
+.noria-task-timeline-trace-burst {
+  font-weight: 650;
+  letter-spacing: 0;
+  filter: saturate(0.92);
+}
+
+.noria-task-timeline-trace-source--openable {
+  cursor: pointer;
+}
+
+.noria-task-timeline-trace-source--source-only {
+  cursor: help;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-trace-source--openable:hover,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-trace-source--openable:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 38%, transparent);
+  outline-offset: 2px;
+}
+
+.noria-task-timeline-task--fallback-date {
+  filter: saturate(0.72);
+  opacity: 0.68;
+}
+
+.noria-task-timeline-editable {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.noria-task-timeline-editable:active {
+  cursor: grabbing;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-drag-role]:hover,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-drag-role]:focus-visible,
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-drag-role]:focus-within {
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  outline-offset: 2px;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-drag-role]:hover,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-drag-role]:focus-visible,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-drag-role]:focus-within {
+  outline: none;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable.is-dragging,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-drag-preview-state="active"],
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-drag-commit-state="pending"],
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-drag-commit-state="failed"],
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-drag-conflict-state="stale-source"] {
+  outline: none;
+  outline-offset: 0;
+}
+
+.noria-task-timeline-duration-tape {
+  min-height: 4px;
+}
+
+.noria-task-timeline-drag-handle {
+  position: absolute;
+  display: block;
+  opacity: 0;
+  pointer-events: auto;
+  touch-action: none;
+  transition: opacity 80ms linear;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-drag-handle {
+  box-shadow: none;
+}
+
+.noria-task-timeline-editable:hover > .noria-task-timeline-drag-handle,
+.noria-task-timeline-editable:focus-within > .noria-task-timeline-drag-handle,
+.noria-task-timeline-editable.is-dragging > .noria-task-timeline-drag-handle {
+  opacity: 0.9;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-task-unit-hover="active"] > .noria-task-timeline-drag-handle {
+  opacity: 0.78;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable:hover > .noria-task-timeline-drag-handle,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable:focus-within > .noria-task-timeline-drag-handle,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable[data-noria-task-unit-hover="active"] > .noria-task-timeline-drag-handle {
+  opacity: 0;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable > .noria-task-timeline-drag-handle:hover,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable > .noria-task-timeline-drag-handle:focus-visible,
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable.is-dragging > .noria-task-timeline-drag-handle {
+  opacity: 0.82;
+}
+
+.noria-task-timeline-drag-handle--start,
+.noria-task-timeline-drag-handle--end {
+  top: -5px;
+  bottom: -5px;
+  width: 12px;
+  height: auto;
+  border: 0;
+  background: transparent;
+}
+
+.noria-task-timeline-drag-handle--start {
+  left: -6px;
+  cursor: ew-resize;
+}
+
+.noria-task-timeline-drag-handle--end {
+  right: -6px;
+  cursor: ew-resize;
+}
+
+.noria-task-timeline-drag-handle--start::after,
+.noria-task-timeline-drag-handle--end::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--interactive-accent) 70%, var(--background-primary));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--background-primary) 72%, transparent);
+}
+
+.noria-task-timeline-drag-handle--start::after {
+  left: 5px;
+}
+
+.noria-task-timeline-drag-handle--end::after {
+  right: 5px;
+}
+
+.noria-task-timeline-drag-handle--move {
+  inset: -5px 12px;
+  cursor: grab;
+  opacity: 0;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable > .noria-task-timeline-drag-handle--start {
+  left: calc(var(--noria-duration-unit-start, 0px) - 6px);
+  right: auto;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable > .noria-task-timeline-drag-handle--end {
+  left: calc(var(--noria-duration-unit-end, 100%) - 6px);
+  right: auto;
+}
+
+.noria-task-timeline-root--tasks-timeline .timeline-event-tape.noria-task-timeline-editable > .noria-task-timeline-drag-handle--move {
+  inset: auto;
+  top: -5px;
+  bottom: -5px;
+  left: calc(var(--noria-duration-unit-start, 0px) - 5px);
+  width: calc(var(--noria-duration-unit-width, 100%) + 10px);
+  min-width: 18px;
+}
+
+.noria-task-timeline-drag-handle--instant {
+  inset: -8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  cursor: ew-resize;
+}
+
+.noria-task-timeline-editable.is-dragging {
+  cursor: grabbing;
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 72%, transparent);
+  outline-offset: 2px;
+  z-index: var(--noria-task-timeline-z-dragging-event, 80);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-drag-preview-state="active"] {
+  outline: 1px dashed color-mix(in srgb, var(--interactive-accent) 58%, transparent);
+  outline-offset: 2px;
+  z-index: var(--noria-task-timeline-z-dragging-event, 80);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-drag-commit-state="pending"] {
+  cursor: progress;
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 42%, transparent);
+  outline-offset: 2px;
+  opacity: 0.9;
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-drag-commit-state="failed"] {
+  outline: 1px solid color-mix(in srgb, #ef4444 56%, transparent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #ef4444 10%, transparent);
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-editable[data-noria-drag-conflict-state="stale-source"] {
+  outline: 1px solid color-mix(in srgb, #f59e0b 62%, transparent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #f59e0b 12%, transparent);
+}
+
+.noria-task-timeline-drag-preview {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 5px);
+  transform: translateX(-50%);
+  z-index: var(--noria-task-timeline-z-drag-preview, 90);
+  max-width: min(260px, 70vw);
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 54%, var(--background-modifier-border));
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.16);
+  pointer-events: none;
+}
+
+.noria-task-timeline-drag-preview:empty {
+  display: none;
+}
+
+.noria-task-timeline-selection-range,
+.noria-task-timeline-annotation-edit-preview {
+  position: absolute;
+  z-index: var(--noria-task-timeline-z-selection-range, 58);
+  display: flex;
+  align-items: flex-end;
+  min-width: 2px;
+  padding: 0 4px 5px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 62%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+  color: color-mix(in srgb, var(--text-normal) 82%, var(--interactive-accent));
+  font-family: var(--font-interface);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.noria-task-timeline-selection-range {
+  border-style: dashed;
+}
+
+.noria-task-timeline-annotation-edit-preview {
+  z-index: var(--noria-task-timeline-z-annotation-edit-preview, 59);
+  border-color: color-mix(in srgb, #f59e0b 66%, transparent);
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: color-mix(in srgb, var(--text-normal) 86%, #f59e0b);
+}
+
+.noria-task-timeline-empty {
+  position: absolute;
+  inset: 0;
+  z-index: var(--noria-task-timeline-z-empty, 20);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: min(360px, calc(100% - 32px));
+  height: max-content;
+  margin: auto;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 62%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 92%, transparent);
+  color: color-mix(in srgb, var(--text-muted) 84%, var(--text-normal) 16%);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  line-height: normal;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.noria-task-timeline-empty[data-noria-task-timeline-empty-state="warning"] {
+  border-color: color-mix(in srgb, #f59e0b 36%, var(--background-modifier-border));
+  background: color-mix(in srgb, #f59e0b 8%, var(--background-primary));
+  color: color-mix(in srgb, #f59e0b 42%, var(--text-muted));
+}
+
+.noria-task-timeline-empty[data-noria-task-timeline-empty-state="loading"] {
+  border-color: color-mix(in srgb, var(--interactive-accent) 30%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+  color: color-mix(in srgb, var(--interactive-accent) 42%, var(--text-muted));
+}
+
+.noria-task-timeline-empty[data-noria-task-timeline-empty-state="error"] {
+  border-color: color-mix(in srgb, var(--text-error) 34%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
+  color: color-mix(in srgb, var(--text-error) 68%, var(--text-muted));
+}
+
+.noria-task-timeline-bubble {
+  display: grid;
+  gap: 6px;
+  min-width: 210px;
+}
+
+.noria-task-timeline-bubble-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.noria-task-timeline-bubble-k {
+  color: var(--text-muted);
+}
+
+.noria-task-timeline-bubble-v {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-normal);
+}
+
+.noria-task-timeline-bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.noria-task-timeline-bubble-action {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.noria-task-timeline-bubble-action:hover,
+.noria-task-timeline-bubble-action:focus-visible {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  outline: 0;
+}
+
+.noria-task-timeline-bubble-action:active {
+  transform: translateY(1px);
+}
+
+.noria-task-timeline-context-menu {
+  position: fixed;
+  z-index: var(--noria-task-timeline-z-context-menu, 9999);
+  display: grid;
+  gap: 6px;
+  min-width: 124px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 76%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--background-primary) 97%, var(--background-secondary));
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--background-primary) 58%, transparent);
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+}
+
+.noria-task-timeline-range-menu {
+  min-width: 148px;
+}
+
+.noria-task-timeline-annotation-editor {
+  min-width: 196px;
+  max-width: min(280px, calc(100vw - 16px));
+}
+
+.noria-task-timeline-annotation-editor-row {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.noria-task-timeline-annotation-editor-row--stack {
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+
+.noria-task-timeline-annotation-editor input,
+.noria-task-timeline-annotation-editor select,
+.noria-task-timeline-annotation-editor textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary));
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+  font-size: 12px;
+}
+
+.noria-task-timeline-annotation-editor input:focus-visible,
+.noria-task-timeline-annotation-editor select:focus-visible,
+.noria-task-timeline-annotation-editor textarea:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 44%, transparent);
+  outline-offset: 1px;
+  border-color: color-mix(in srgb, var(--interactive-accent) 38%, var(--background-modifier-border));
+}
+
+.noria-task-timeline-annotation-editor input,
+.noria-task-timeline-annotation-editor select {
+  height: 24px;
+}
+
+.noria-task-timeline-annotation-editor textarea {
+  resize: vertical;
+}
+
+.noria-task-timeline-annotation-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.noria-task-timeline-annotation-editor-actions button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.noria-task-timeline-annotation-editor-actions button:hover,
+.noria-task-timeline-annotation-editor-actions button:focus-visible {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  outline: 0;
+}
+
+.noria-task-timeline-context-action {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 520;
+  text-align: left;
+  cursor: pointer;
+}
+
+.noria-task-timeline-context-action:hover,
+.noria-task-timeline-context-action:focus-visible {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  outline: 0;
+}
+
+.noria-task-timeline-context-action--danger {
+  color: color-mix(in srgb, var(--text-error) 84%, var(--text-normal));
+}
+
+.noria-task-timeline-context-action--danger:hover,
+.noria-task-timeline-context-action--danger:focus-visible {
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+  color: var(--text-error);
+}
+
+.noria-task-timeline-context-label {
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.noria-task-timeline-context-separator {
+  height: 1px;
+  margin: 1px 0;
+  background: var(--background-modifier-border);
+}
+
+.noria-task-timeline-context-colors {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.noria-task-timeline-color-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 54%, transparent);
+  cursor: pointer;
+}

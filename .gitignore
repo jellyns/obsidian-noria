@@ -1,0 +1,26 @@
+# 本机插件设置（含路径、过滤等，勿入库）
+data.json
+review/
+cache/
+
+# 本地开发档案与 planning 工作文件（靠近插件代码，但不推送 GitHub）
+docs/local/
+docs/plans/
+docs/*-plan.md
+_archive/
+.impeccable.md
+task_plan.md
+findings.md
+progress.md
+tmp_visual/
+.tmp/
+
+# 常见垃圾
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+
+# Pure build outputs. The tag workflow rebuilds these before publishing.
+main.js
+src/generated/embedded-runtime-sources.js
