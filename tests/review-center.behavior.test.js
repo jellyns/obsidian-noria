@@ -74,7 +74,8 @@ function loadPluginClass(options = {}) {
   context.globalThis = context;
   vm.createContext(context);
   vm.runInContext(code, context, { filename: "main.js" });
-  return module.exports.default || module.exports;
+  const PluginClass = module.exports.default || module.exports;
+  return options.exposeContext ? { PluginClass, context } : PluginClass;
 }
 
 function makeAiPlugin(options = {}) {
@@ -921,7 +922,7 @@ test("daily state parsing prefers frontmatter over stale visible body fields", (
   assert.equal(diary.hasVisibleDailyStateFields(input), true);
 });
 
-test("review artifact parser extracts fixed LLM sections and evidence hash", () => {
+test("review artifact parser keeps legacy LLM sections readable", () => {
   const review = loadReviewCenter();
   const artifact = [
     "---",
@@ -959,6 +960,89 @@ test("review artifact parser extracts fixed LLM sections and evidence hash", () 
   assert.deepEqual(JSON.parse(JSON.stringify(parsed.gddSuggestion)), { hi: "A", dev: "B", blk: "C" });
   assert.equal(review.isArtifactStale(parsed, "abc123"), false);
   assert.equal(review.isArtifactStale(parsed, "def456"), true);
+});
+
+test("review artifact parser maps multi-project sections into the review workbench", () => {
+  const review = loadReviewCenter();
+  const artifact = [
+    "---",
+    "period: 2026-07-25",
+    "mode: daily",
+    "evidence_hash: def456",
+    "---",
+    "",
+    "## 今日判断",
+    "",
+    "今天完成一条主线并收敛两个项目的未闭环事项。",
+    "",
+    "## 项目复盘",
+    "",
+    "### Noria",
+    "- [已完成] 复盘证据合同通过验证。",
+    "- [未闭环] 真实写回仍待验收。",
+    "",
+    "### ZFD_AMR",
+    "- [已确认] 保留最小状态设计。",
+    "",
+    "## 明日聚焦",
+    "",
+    "- 主线：完成真实写回验收。",
+    "",
+    "## 偏差与阻塞",
+    "",
+    "- 亮点：项目边界更清楚",
+    "- 偏差：科研主线投入不足",
+    "- 阻塞：无明确阻塞",
+    "",
+    "## 证据索引",
+    "",
+    "- Noria: progress.md#2026-07-25"
+  ].join("\n");
+
+  const parsed = review.parseReviewArtifact(artifact);
+
+  assert.equal(parsed.sections.summary, "今天完成一条主线并收敛两个项目的未闭环事项。");
+  assert.match(parsed.sections.analysis, /### Noria/);
+  assert.match(parsed.sections.analysis, /### ZFD_AMR/);
+  assert.equal(parsed.sections.advice, "- 主线：完成真实写回验收。");
+  assert.deepEqual(JSON.parse(JSON.stringify(parsed.gddSuggestion)), {
+    hi: "项目边界更清楚",
+    dev: "科研主线投入不足",
+    blk: "无明确阻塞"
+  });
+  assert.equal(parsed.sections.evidence, "- Noria: progress.md#2026-07-25");
+  assert.equal(review.hasGeneratedReviewContent(parsed), true);
+});
+
+test("review center refreshes a stale global parser contract before reading new review headings", async () => {
+  const { PluginClass, context } = loadPluginClass({ exposeContext: true });
+  const plugin = new PluginClass();
+  const staleReviewCenter = {
+    parseReviewArtifact() {
+      return { sections: { summary: "", analysis: "", advice: "", evidence: "" }, gddSuggestion: {} };
+    },
+    hasGeneratedReviewContent() {
+      return false;
+    }
+  };
+  context.dashboardCore = { utils: { reviewCenter: staleReviewCenter } };
+
+  const review = await plugin.ensureReviewCenterUtils();
+  const parsed = review.parseReviewArtifact([
+    "## 今日判断",
+    "",
+    "当天完成了有证据的闭环。",
+    "",
+    "## 项目复盘",
+    "",
+    "### Noria",
+    "- [已完成] 运行态验收。"
+  ].join("\n"));
+
+  assert.notEqual(review, staleReviewCenter);
+  assert.equal(review.runtimeContractVersion, 2);
+  assert.equal(parsed.sections.summary, "当天完成了有证据的闭环。");
+  assert.equal(review.hasGeneratedReviewContent(parsed), true);
 });
 
 test("review evidence hash tolerates circular snapshot references", () => {
@@ -1199,13 +1283,16 @@ test("review prompt is a JSON evidence skill and review-note path instruction", 
   assert.ok(prompt.length < 260, "review prompt should stay minimal and delegate rules to the skill");
 });
 
-test("noria-review skill carries JSON evidence contract and low-burden review rules", () => {
+test("noria-review skill carries multi-project evidence and low-burden review rules", () => {
   const codexSkill = fs.readFileSync(path.join(pluginRoot, "..", "..", "..", ".codex", "skills", "noria-review", "SKILL.md"), "utf8").replace(/\r\n/g, "\n");
   const claudeSkill = fs.readFileSync(path.join(pluginRoot, "..", "..", "..", ".claude", "skills", "noria-review", "SKILL.md"), "utf8").replace(/\r\n/g, "\n");
   const sourceMain = fs.readFileSync(path.join(pluginRoot, "src", "main.js"), "utf8").replace(/\r\n/g, "\n");
+  const embeddedExpression = sourceMain.match(/const NORIA_DEFAULT_REVIEW_SKILL = (\[[\s\S]*?\])\.join\("\\n"\);/)?.[1] || "";
+  const embeddedSkill = embeddedExpression ? vm.runInNewContext(embeddedExpression).join("\n") : "";
   const skill = `${codexSkill}\n${claudeSkill}`;
 
   assert.equal(codexSkill, claudeSkill);
+  assert.equal(`${embeddedSkill}\n`, codexSkill);
   assert.match(skill, /evidence_file/);
   assert.match(skill, /JSON/);
   assert.match(skill, /daily/);
@@ -1217,9 +1304,20 @@ test("noria-review skill carries JSON evidence contract and low-burden review ru
   assert.match(skill, /心流|flow/i);
   assert.match(skill, /掌控感|agency/i);
   assert.match(skill, /review_note/);
-  assert.match(skill, /综合总结/);
-  assert.match(skill, /内容变化分析/);
-  assert.match(skill, /GDD 建议/);
+  assert.match(skill, /list_threads/);
+  assert.match(skill, /read_thread/);
+  assert.match(skill, /task_plan\.md/);
+  assert.match(skill, /findings\.md/);
+  assert.match(skill, /progress\.md/);
+  assert.match(skill, /实际产物\/测试/);
+  assert.match(skill, /对话不能单独证明完成/);
+  assert.match(skill, /今日判断/);
+  assert.match(skill, /项目复盘/);
+  assert.match(skill, /明日聚焦/);
+  assert.match(skill, /偏差与阻塞/);
+  assert.match(skill, /证据索引/);
+  assert.match(skill, /全局只保留一个.*主线/);
+  assert.match(skill, /不要为每个项目分别生成下一步/);
   assert.match(skill, /MOC 反思（稀疏触发）/);
   assert.match(skill, /稳定主题\/owner 入口反复难找/);
   assert.match(skill, /证据不足则省略/);
@@ -1246,13 +1344,14 @@ test("codex fallback prompt still asks for decision-focused summaries", () => {
   assert.match(prompt, /明天最小下一步/);
   assert.match(prompt, /#habit、喝水、锻炼/);
   assert.match(prompt, /证据复读机/);
-  assert.match(prompt, /不超过 500 字/);
+  assert.match(prompt, /600[–-]900 字/);
   assert.match(prompt, /同一个统计数字全文最多出现一次/);
   assert.match(prompt, /整体上、总的来说、可以看出、值得注意的是/);
-  assert.match(prompt, /不超过 150 字/);
-  assert.match(prompt, /第一句必须定性今天/);
-  assert.match(prompt, /不超过 2 段/);
-  assert.match(prompt, /最多 3 条/);
+  assert.match(prompt, /项目复盘/);
+  assert.match(prompt, /任务三件套/);
+  assert.match(prompt, /每个项目不超过 150 字/);
+  assert.match(prompt, /全局只保留一个/);
+  assert.match(prompt, /不要为每个项目分别生成下一步/);
   assert.match(prompt, /明天最重要的一件事/);
   assert.match(prompt, /无明确阻塞/);
   assert.match(prompt, /不超过 5 行/);

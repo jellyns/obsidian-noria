@@ -37,21 +37,27 @@ Home is Noria's overview surface. It brings "what needs attention today," "what 
 
 The statistics make workload visible. You can see recent note growth, task completion, habit continuity, daily-state changes, and vault distribution together. Inbox helps manage temporary capture; projects bring you back to active themes; habits support quick habit setup and 21-day style habit building; countdowns keep important dates inside daily awareness.
 
-Home is also a widget dashboard. Built-in widgets can be enabled, disabled, reordered, and resized. You can add content widgets and, after explicitly enabling the advanced trust permission, custom JavaScript view widgets from your vault. The default layout is only a starting point.
+Home is also a widget dashboard. Built-in widgets can be enabled, disabled, reordered, and resized. You can add content widgets and, after explicitly granting trust under Maintenance, custom JavaScript view widgets from your vault. The default layout is only a starting point.
 
 Markdown widgets can display daily briefings, current suggestions, weekly reviews, or project-monitor notes produced elsewhere. Noria reads and links the configured `.md` files; it does not require a model connection or generate those documents itself.
 
 ### Task Board
 
-Task Board turns tasks scattered across diaries, projects, and other notes into views you can plan from. Month view is useful for cycles and multi-day work, week view for near-term planning, day view for the current rhythm, and matrix view for priority decisions.
+Task Board turns tasks scattered across diaries, projects, and other notes into views you can plan from. Month view is useful for cycles and multi-day work, week view for near-term planning, day view for today's work, and matrix view for priority decisions.
 
 Tasks remain in their original notes. New tasks can be written back to the matching diary, weekly note, or monthly note, while edits, drag actions, and completion changes stay in sync with Home statistics and the timeline.
 
-![Task Board](docs/assets/en/task-board.png)
+![Task Board month view](docs/assets/en/task-board-month.png)
+
+![Task Board week view](docs/assets/en/task-board-week.png)
+
+![Task Board day view](docs/assets/en/task-board-day.png)
+
+![Task Board matrix view](docs/assets/en/task-board-quadrant.png)
 
 ### Task Timeline
 
-Task Timeline puts tasks into a time context. It helps answer questions like "how does today unfold," "where should this task sit," and "what is already occupying attention." You can arrange tasks by date and time block, or keep the side timeline open as a lightweight rhythm view.
+Task Timeline puts tasks into a time context. It helps answer questions like "how does today unfold," "where should this task sit," and "what is already occupying attention." You can arrange tasks by date and time block, or keep the side timeline open as a lightweight view of the current schedule.
 
 The timeline is not meant to add more constraints. It makes time placement visible so capture, planning, and actual progress stay connected, while each task still keeps its original note and project context.
 
@@ -59,13 +65,25 @@ The Noria-owned renderer keeps the accepted side-panel design while supporting s
 
 ![Task Timeline](docs/assets/en/task-timeline.png)
 
-### Review And Reusable Data
+### Calendar
+
+Calendar lives in the Obsidian sidebar and opens or creates daily, weekly, monthly, quarterly, and yearly notes. It can follow Noria-managed paths, Obsidian Daily Notes, or a custom folder and naming pattern. Missing notes are created directly by default; an optional confirmation can be enabled in Settings.
+
+### Habits
+
+Habits separate "did I do this today" from "is this becoming established." Home keeps today's check-in lightweight, while full habit cards, individual heatmaps, and aggregate trends live in the trends area. Habit records remain ordinary Markdown.
+
+### Trends And Statistics
+
+Trends help you observe change across a period instead of judging each day. Note growth, task completion, habit and workload heatmaps, vault distribution, and daily-state signals share one time range and can be arranged as independent Home widgets.
+
+### Review Center
 
 Review Center opens directly on the editable final review, so you can write first instead of waiting for a report to assemble. A lightweight evidence summary follows; full evidence and analysis load only when you open the support area. Noria can prepare daily, weekly, monthly, and yearly evidence for an external AI workflow or another tool, but it does not call a model or auto-save an adopted draft. Markdown is written back only after you confirm it.
 
 ![Review Center](docs/assets/en/review-center.png)
 
-The same data layer powers Home statistics, task views, timeline summaries, periodic views, review evidence, and exports. This avoids each workflow scanning the vault in its own way and makes Noria data easier to use from AI prompts, scripts, and external synchronization workflows.
+The same data layer powers Home statistics, task views, timeline summaries, periodic views, review evidence, and exports. This avoids each workflow scanning the vault in its own way and makes Noria data easier to use from external agents, scripts, and synchronization workflows.
 
 ### Configure It Around Your Vault
 
@@ -85,20 +103,6 @@ Noria is designed around a simple knowledge-work loop:
 
 ---
 
-## Feature Map
-
-| Area | What it gives you |
-| --- | --- |
-| Home dashboard | A configurable overview for tasks, projects, Inbox, MOCs, habits, countdowns, statistics, and daily state. |
-| Task Board | Month, week, day, and matrix views for tasks from diary, project, and regular notes. |
-| Task Timeline | Date and time-block arrangement for tasks, available as a main view or right-sidebar rhythm view. |
-| Diary Stats | Periodic statistics for notes, tasks, daily state, habits, and workload. |
-| Review Center | Evidence-based daily, weekly, monthly, and yearly review workflow. |
-| Data API | Structured snapshots, task facts, period metadata, review evidence, and JSON export for custom views or external tools. |
-| Settings | Path profiles, scan ranges, Home widget management, task filters, appearance, weather, review prompts, and diagnostics. |
-
----
-
 ## Quick Start
 
 1. Install and enable **Noria** from `Settings -> Community plugins`.
@@ -113,12 +117,10 @@ Noria can create diary notes from its task and review flows, and it also works w
 
 ## Roadmap
 
-- [ ] Easier diary-note creation flows, including clearer guidance for template-based daily / weekly / monthly / yearly notes.
-- [ ] Better examples for using Obsidian Templates or calendar-style plugins alongside Noria diary templates.
-- [ ] More convenient Home widget examples and custom widget setup.
-- [ ] More review workflows around weekly, monthly, and yearly rollups.
-- [ ] More export and synchronization examples built on the Data API.
-- [ ] Continued polish for task editing, timeline arrangement, and dashboard visual density.
+- **Workbench experience**: continue refining module interfaces, responsiveness, interaction logic, and narrow-pane behavior so common workflows stay direct.
+- **Composable Home**: improve card creation, visibility, ordering, and sizing, and explore long-term content entrances such as bookshelves, media shelves, and game shelves.
+- **Feeds and briefings**: let RSS and other external workflows write daily feeds, summaries, and project monitoring into agreed Markdown files for Home to present.
+- **External agent collaboration**: help external agents organize plans, projects, habits, and periodic reviews within clear data and write-back boundaries.
 
 ---
 
@@ -156,9 +158,7 @@ It should not contain `src/`, `tests/`, `scripts/`, `node_modules/`, or the full
 
 ## Documentation
 
-- [User Guide](docs/USER-GUIDE.md): feature workflows, Home widgets, task views, review, Data API, and exports.
-- [FAQ](docs/FAQ.md): installation, blank views, missing tasks, path mismatches, refresh behavior, weather, and review troubleshooting.
-- [Settings Mapping](docs/SETTINGS-MAPPING.md): field-level reference for Settings UI, `data.json`, runtime bridge, Data API, and Home widgets.
+- [User Guide](docs/USER-GUIDE.md): installation, every module, Settings, common workflows, troubleshooting, paths, and developer reference.
 - [Changelog](CHANGELOG.md): release history.
 - [Contributing](CONTRIBUTING.md): local development, validation, and PR expectations.
 - [Security](SECURITY.md): how to report security issues.
@@ -169,10 +169,10 @@ It should not contain `src/`, `tests/`, `scripts/`, `node_modules/`, or the full
 
 - Noria requires no account and contains no telemetry, analytics, ads, or payments.
 - Noria does not call an AI service. Review Center prepares local evidence and prompts that you may copy to a tool you choose.
-- Weather is enabled by default. When it loads, Noria may contact IP-location and weather services such as `ipwho.is`, `ipapi.co`, Open-Meteo, or `wttr.in`; QWeather is contacted only when you configure its host and API key. Weather can be disabled in Settings.
+- Weather is off in a fresh installation. The first explicit workspace initialization enables it; later repairs preserve the user's choice. When weather loads, Noria may contact IP-location and weather services such as `ipwho.is`, `ipapi.co`, Open-Meteo, or `wttr.in`; QWeather is contacted only when you configure its host and API key.
 - Review evidence can optionally run read-only local Git commands inside the current vault. Noria does not push commits or change Git history.
 - Copy commands use the browser or Electron clipboard first. On Windows, if both are unavailable, Noria may briefly write the copied text to a UTF-8 temporary file and invoke PowerShell `Set-Clipboard`; the file is removed when the fallback completes.
-- Custom JavaScript view widgets are disabled by default. If you explicitly enable them under Advanced settings, they execute a configured vault-relative JavaScript file with Noria and Obsidian plugin access. Noria blocks protocols, absolute paths, and path traversal; only enable this for files you trust. Built-in Noria views do not require this permission.
+- Custom JavaScript view widgets are disabled by default. If you explicitly enable them under Maintenance, they execute a configured vault-relative JavaScript file with Noria and Obsidian plugin access. Noria blocks protocols, absolute paths, and path traversal; only enable this for files you trust. Built-in Noria views do not require this permission.
 - Settings stay in the plugin `data.json`; supported secrets are stored through Obsidian SecretStorage. Snapshot and review exports remain inside the vault unless you choose another vault path.
 
 ---

@@ -46,11 +46,7 @@ test("active product files use only the Noria namespace", () => {
     "package.json",
     "package-lock.json",
     "styles.css",
-    "docs/FAQ.md",
-    "docs/SETTINGS-MAPPING.md",
     "docs/USER-GUIDE.md",
-    "docs/zh-CN/FAQ.md",
-    "docs/zh-CN/SETTINGS-MAPPING.md",
     "docs/zh-CN/USER-GUIDE.md"
   ];
   const ignoredDirectories = new Set(["node_modules", ".git", "generated"]);

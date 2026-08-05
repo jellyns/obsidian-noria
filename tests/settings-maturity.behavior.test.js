@@ -141,7 +141,7 @@ test("starter defaults use Noria root and year-bucket diary paths", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(settings.homeDashboard.mocEntryPaths)), ["Noria/Workflow·MOC.md", "Noria/Knowledge Base·MOC.md"]);
   assert.equal(settings.homeDashboard.mocEntries.length, 2);
   assert.notEqual(settings.homeDashboard.mocEntries[0].color, settings.homeDashboard.mocEntries[1].color);
-  assert.equal(settings.weather.enabled, true);
+  assert.equal(settings.weather.enabled, false);
   assert.equal(Object.prototype.hasOwnProperty.call(settings.managedPaths, "reviewArtifactBase"), false);
   assert.equal(plugin.getDiaryPathForDate(new Date("2026-05-03T12:00:00Z")), "Noria/Diary/2026/2026-05-03.md");
   assert.equal(plugin.getReviewNotePathForDate(new Date("2026-05-03T12:00:00Z")), "Noria/Diary/2026/2026-05-03-review.md");
@@ -159,6 +159,8 @@ test("settings registry makes important controls searchable", () => {
   assert.ok(registry.find((entry) => entry.id === "home.dailyState.defaultRange" && entry.status !== "planned"));
   assert.ok(registry.find((entry) => entry.id === "calendar.calendarIntegrationMode" && entry.tab === "calendar"));
   assert.ok(registry.find((entry) => entry.id === "calendar.calendarCustomFilePattern" && entry.tab === "calendar"));
+  assert.ok(registry.find((entry) => entry.id === "tasksCalendar.openingBehavior" && entry.tab === "tasks"));
+  assert.ok(registry.find((entry) => entry.id === "tasksCalendar.taskTimelineOpenMode" && entry.tab === "timeline"));
 
   assert.ok(plugin.searchSettingsRegistry("diary").some((entry) => entry.id === "managedPaths.diaryRoot"));
   assert.ok(plugin.searchSettingsRegistry("calendar").some((entry) => entry.id === "calendar.calendarIntegrationMode"));
@@ -188,7 +190,7 @@ test("settings search hands off to stable rendered targets instead of only chang
     "home.dailyState.defaultRange",
     "home.defaults.rememberBlockSelections",
     "inboxWorkflow.${key}",
-    "tasksCalendar.defaultView",
+    "tasksCalendar.openingBehavior",
     "tasksCalendar.taskTimelineOpenMode",
     "tasksCalendar.taskColorMode",
     "timelineView.scaleMode",
@@ -403,13 +405,15 @@ test("settings renderers include release control center anchors", () => {
     "settings.home.sections",
     "settings.home.dailyStateDefaultRange",
     "settings.home.rememberBlockSelections",
-    "settings.tasks.defaultView",
+    "settings.tasks.openingBehavior",
     "settings.tasks.calendarDensity",
     "settings.tasks.taskColorMode",
     "settings.tasks.showSourceChips",
     "settings.tasks.showCompletedTasks",
     "settings.tasks.monthOverflowBehavior",
-    "settings.tasks.rememberLastView",
+    "settings.tasks.advancedFilters",
+    "settings.tasks.addTag",
+    "settings.timeline.openMode",
     "settings.timeline.scaleMode",
     "settings.timeline.timelineTagPlacement",
     "settings.timeline.defaultLayers",
@@ -439,6 +443,8 @@ test("settings renderers include release control center anchors", () => {
 
   const tasks = extractBody(source, "renderTasksTab");
   assert.match(tasks, /renderTasksCalendarDefaultSettings/);
+  assert.match(tasks, /renderTaskTagEditor/);
+  assert.match(tasks, /settings\.tasks\.advancedFilters/);
   assert.doesNotMatch(tasks, /renderManagedPathStatusSummary/);
   assert.doesNotMatch(tasks, /renderPlannerVisualTuning/);
 
@@ -446,23 +452,65 @@ test("settings renderers include release control center anchors", () => {
   const calendar = extractBody(source, "renderCalendarTab");
   assert.match(calendar, /calendar/);
   assert.match(calendar, /calendarIntegrationMode/);
-  assert.match(calendar, /calendarCustomFilePattern/);
-  assert.match(calendar, /addDropdown\("calendarLocale"/);
-  assert.doesNotMatch(calendar, /addText\("calendarLocale"/);
+  assert.match(calendar, /renderCalendarCustomPeriodSettings/);
+  assert.match(calendar, /renderCalendarDisplaySettings/);
+
+  const customCalendar = extractBody(source, "renderCalendarCustomPeriodSettings");
+  assert.match(customCalendar, /calendarCustomFilePattern/);
+
+  const calendarDisplay = extractBody(source, "renderCalendarDisplaySettings");
+  assert.match(calendarDisplay, /addDropdown\("calendarLocale"/);
+  assert.doesNotMatch(calendarDisplay, /addText\("calendarLocale"/);
 });
 
-test("timeline settings copy matches the Noria task timeline model", () => {
+test("timeline settings copy describes user-facing defaults without diagnostic modes", () => {
   const source = readPluginSource();
 
-  assert.match(source, /"settings\.timeline\.uiPhaseDesc": "Runtime shows the Noria task timeline\. Blank keeps only a safe diagnostic shell\."/);
+  assert.match(source, /"settings\.timeline\.openMode": "Open location"/);
+  assert.match(source, /"settings\.timeline\.interaction": "Interaction"/);
   assert.match(source, /"settings\.timeline\.scaleModeDesc": "Auto fits visible events\. Today centers the formal bands on today's work\. Manual preserves Ctrl-wheel zoom state\."/);
   assert.match(source, /"settings\.timeline\.defaultLayersDesc": "Choose the layers shown when the timeline opens\. Pomodoro stays optional by default; presets can switch scope without changing this default\."/);
-  assert.match(source, /"settings\.timeline\.uiPhaseDesc": "正常显示完整的 Noria 任务时间轴；诊断空壳只保留安全检查界面。"/);
+  assert.match(source, /"settings\.timeline\.openMode": "打开位置"/);
+  assert.match(source, /"settings\.timeline\.interaction": "交互"/);
   assert.match(source, /"settings\.timeline\.scaleModeDesc": "自适应会匹配可见事件；聚焦今天会将时间带居中到今日工作；手动会保留 Ctrl\/Cmd \+ 滚轮调整的视口。"/);
   assert.match(source, /"settings\.timeline\.timelineTagPlacementDesc": "仅开始与截止日期只使用任务的开始和截止信息；任意任务日期还会参考计划日期与修改时间，用于更宽松的记录线索。"/);
   assert.match(source, /"settings\.timeline\.defaultLayersDesc": "选择时间轴打开时显示的图层。番茄钟默认保持可选不显示；预设可以临时切换范围，不会改掉这里的默认值。"/);
-  assert.doesNotMatch(source, /"settings\.timeline\.uiPhaseDesc": "Runtime is the normal date-bucket timeline/);
-  assert.doesNotMatch(source, /"settings\.timeline\.uiPhaseDesc": "runtime 是正常日期桶时间轴/);
+});
+
+test("task opening behavior maps continue and fixed views onto existing calendar fields", () => {
+  const plugin = makePlugin({
+    settings: {
+      tasksCalendar: { defaultView: "week", rememberLastView: true }
+    }
+  });
+
+  assert.equal(plugin.getTasksCalendarOpeningBehavior(), "continue");
+  assert.equal(plugin.setTasksCalendarOpeningBehavior("day"), "day");
+  assert.equal(plugin.settings.tasksCalendar.defaultView, "day");
+  assert.equal(plugin.settings.tasksCalendar.rememberLastView, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(plugin.settings.tasksCalendar, "openingBehavior"), false);
+
+  assert.equal(plugin.setTasksCalendarOpeningBehavior("continue"), "continue");
+  assert.equal(plugin.settings.tasksCalendar.defaultView, "day");
+  assert.equal(plugin.settings.tasksCalendar.rememberLastView, true);
+
+  assert.equal(plugin.setTasksCalendarOpeningBehavior("not-a-view"), "continue");
+  assert.equal(plugin.settings.tasksCalendar.defaultView, "day");
+  assert.equal(plugin.settings.tasksCalendar.rememberLastView, true);
+});
+
+test("task tag filters normalize suggestions and explicit include or exclude edits", () => {
+  const plugin = makePlugin();
+  plugin.app.metadataCache = {
+    getTags: () => ({ research: 2, "#writing": 1, "#tl/deep": 1, "": 3 })
+  };
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.getTaskTagSuggestions())), ["#research", "#tl/deep", "#writing"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.setTaskTagFilterTags("include", ["research", "#writing", "research"]))), ["#research", "#writing"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.taskTagFilter.includeTags)), ["#research", "#writing"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.setTaskTagFilterTags("exclude", "habit, #archive"))), ["#habit", "#archive"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.taskTagFilter.excludeTags)), ["#habit", "#archive"]);
+  assert.equal(plugin.settings.taskTagFilter.excludeTagsUserConfigured, true);
 });
 
 test("timeline preset settings operations preserve normalized schema and explicit order", () => {
@@ -470,6 +518,7 @@ test("timeline preset settings operations preserve normalized schema and explici
 
   assert.equal(typeof plugin.addTimelinePresetInSettings, "function");
   assert.equal(typeof plugin.updateTimelinePresetInSettings, "function");
+  assert.equal(typeof plugin.reorderTimelinePresetInSettings, "function");
   assert.equal(typeof plugin.moveTimelinePresetInSettings, "function");
   assert.equal(typeof plugin.removeTimelinePresetInSettings, "function");
   assert.equal(typeof plugin.replaceTimelinePresetsInSettings, "function");
@@ -484,6 +533,7 @@ test("timeline preset settings operations preserve normalized schema and explici
     scaleMode: "today"
   });
   const second = plugin.addTimelinePresetInSettings({ label: "Review" });
+  const third = plugin.addTimelinePresetInSettings({ label: "Planning" });
 
   assert.equal(first.id, "preset-1");
   assert.equal(second.id, "preset-2");
@@ -501,6 +551,16 @@ test("timeline preset settings operations preserve normalized schema and explici
     {
       id: "preset-2",
       label: "Review",
+      layers: ["task", "annotation"],
+      showDone: true,
+      query: "",
+      includeTags: [],
+      excludeTags: [],
+      scaleMode: "auto"
+    },
+    {
+      id: "preset-3",
+      label: "Planning",
       layers: ["task", "annotation"],
       showDone: true,
       query: "",
@@ -525,10 +585,14 @@ test("timeline preset settings operations preserve normalized schema and explici
   assert.equal(updated.manualCenter, "2026-07-11T10:00:00.000Z");
   assert.equal(updated.manualZoomIndex, 2);
 
+  assert.equal(plugin.reorderTimelinePresetInSettings("preset-3", 0), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.timelineView.presets.map((preset) => preset.id))), ["preset-3", "preset-1", "preset-2"]);
+  assert.equal(plugin.reorderTimelinePresetInSettings("preset-3", 0), false);
+  assert.equal(plugin.reorderTimelinePresetInSettings("missing", 1), false);
   assert.equal(plugin.moveTimelinePresetInSettings("preset-2", "up"), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.timelineView.presets.map((preset) => preset.id))), ["preset-2", "preset-1"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.timelineView.presets.map((preset) => preset.id))), ["preset-3", "preset-2", "preset-1"]);
   assert.equal(plugin.removeTimelinePresetInSettings("preset-2"), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.timelineView.presets.map((preset) => preset.id))), ["preset-1"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.timelineView.presets.map((preset) => preset.id))), ["preset-3", "preset-1"]);
 
   const replaced = plugin.replaceTimelinePresetsInSettings({
     custom: { label: "Custom", layers: ["note"], showDone: false, scaleMode: "manual", manualZoomIndex: 4 }
@@ -538,7 +602,7 @@ test("timeline preset settings operations preserve normalized schema and explici
   assert.equal(replaced[0].manualZoomIndex, 4);
 });
 
-test("timeline settings use a structured localized preset manager with raw JSON as advanced fallback", () => {
+test("timeline settings use a draggable expandable saved-view list without raw JSON", () => {
   const source = readPluginSource();
   const timeline = extractBody(source, "renderTimelineTab");
   const presetManager = extractBody(source, "renderTimelinePresetSettings");
@@ -548,15 +612,20 @@ test("timeline settings use a structured localized preset manager with raw JSON 
   assert.match(presetManager, /noria-timeline-layer-selector/);
   assert.match(presetManager, /addTimelinePresetInSettings/);
   assert.match(presetManager, /updateTimelinePresetInSettings/);
-  assert.match(presetManager, /moveTimelinePresetInSettings/);
+  assert.match(presetManager, /reorderTimelinePresetInSettings/);
   assert.match(presetManager, /removeTimelinePresetInSettings/);
-  assert.match(presetManager, /renderAdvancedDisclosure\([^,]+,\s*"settings\.timeline\.presetsJson"/);
-  assert.match(presetManager, /replaceTimelinePresetsInSettings/);
-  assert.doesNotMatch(timeline, /\.addText\([\s\S]{0,220}JSON\.stringify\(this\.plugin\.settings\.timelineView\.presets/);
+  assert.match(presetManager, /dragstart/);
+  assert.match(presetManager, /drop/);
+  assert.match(presetManager, /noria-timeline-preset-editor/);
+  assert.match(presetManager, /new obsidian\.Menu/);
+  assert.doesNotMatch(presetManager, /presetMoveUp|presetMoveDown|presetsJson|replaceTimelinePresetsInSettings/);
+  assert.doesNotMatch(timeline, /settings\.timeline\.uiPhase|overviewContextLabels|pregenSpanDays|pregenItems/);
+  assert.match(timeline, /settings\.timeline\.openMode/);
+  assert.match(timeline, /settings\.timeline\.interaction/);
+  assert.match(timeline, /dragStepMin/);
+  assert.match(timeline, /durationDragStepMin/);
 
   for (const key of [
-    "settings.timeline.option.runtime",
-    "settings.timeline.option.blank",
     "settings.timeline.scale.auto",
     "settings.timeline.scale.today",
     "settings.timeline.scale.manual",
@@ -565,8 +634,9 @@ test("timeline settings use a structured localized preset manager with raw JSON 
     "settings.timeline.layer.task",
     "settings.timeline.layer.annotation",
     "settings.timeline.presetAdd",
-    "settings.timeline.presetsJson",
-    "settings.timeline.presetsJsonInvalid"
+    "settings.timeline.presetDelete",
+    "settings.timeline.openMode",
+    "settings.timeline.interaction"
   ]) {
     assert.match(source, new RegExp(JSON.stringify(key)), key);
   }
@@ -618,8 +688,128 @@ test("timeline preset settings use a quiet continuous list instead of nested car
   assert.match(styles, /\.noria-timeline-preset-row \.setting-item-control button[\s\S]*?width:\s*28px;[\s\S]*?background:\s*transparent;/);
   assert.match(styles, /\.noria-timeline-layer-selector\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-wrap:\s*wrap;/);
   assert.match(styles, /\.noria-timeline-layer-option input\[type="checkbox"\]\s*\{[\s\S]*?margin:\s*0;/);
-  assert.match(styles, /\.noria-home-widget-editor\.noria-timeline-preset-editor\[open\][\s\S]*?border-left:\s*1px solid var\(--noria-border-subtle\);[\s\S]*?background:\s*transparent;/);
+  assert.match(styles, /\.noria-home-widget-editor\.noria-timeline-preset-editor:not\(\[hidden\]\)[\s\S]*?border-left:\s*1px solid var\(--noria-border-subtle\);[\s\S]*?background:\s*transparent;/);
+  assert.match(styles, /\.noria-timeline-preset-item\.is-drag-over::before[\s\S]*?background:\s*var\(--interactive-accent\);/);
   assert.match(styles, /\.noria-settings-inline-status\[data-noria-secret-storage-available="false"\]::before/);
+});
+
+test("calendar settings expose exactly one source-specific configuration surface", async () => {
+  const plugin = makePlugin();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.getCalendarSettingsModeModel("noria"))), {
+    mode: "noria",
+    showManagedSummary: true,
+    showDailyNotesStatus: false,
+    showCustomFields: false
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.getCalendarSettingsModeModel("daily-notes"))), {
+    mode: "daily-notes",
+    showManagedSummary: false,
+    showDailyNotesStatus: true,
+    showCustomFields: false
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.getCalendarSettingsModeModel("custom"))), {
+    mode: "custom",
+    showManagedSummary: false,
+    showDailyNotesStatus: false,
+    showCustomFields: true
+  });
+
+  plugin.settings.managedPaths = {
+    ...plugin.settings.managedPaths,
+    diaryRoot: "Journal",
+    dailyTemplate: "Templates/Noria daily.md",
+    weeklyTemplate: "Templates/Noria weekly.md",
+    monthlyTemplate: "Templates/Noria monthly.md",
+    yearlyTemplate: "Templates/Noria yearly.md"
+  };
+  plugin.settings.calendar = {
+    ...plugin.settings.calendar,
+    calendarIntegrationMode: "noria",
+    calendarRootFolder: "Stored custom root",
+    calendarCustomFilePattern: "Stored custom daily",
+    calendarCustomFileTemplate: "Stored custom template"
+  };
+  const noriaCalendar = plugin.getCalendarSettings();
+  assert.equal(noriaCalendar.calendarRootFolder, "Journal");
+  assert.equal(noriaCalendar.calendarCustomFilePattern, "YYYY/YYYY-MM-DD");
+  assert.equal(noriaCalendar.calendarCustomFileTemplate, "Templates/Noria daily.md");
+
+  plugin.settings.calendar.calendarIntegrationMode = "daily-notes";
+  const dailyNotesCalendar = plugin.getCalendarSettings();
+  assert.equal(dailyNotesCalendar.calendarRootFolder, "Journal");
+  assert.equal(dailyNotesCalendar.calendarCustomFileTemplate, "");
+  assert.equal(dailyNotesCalendar.calendarCustomWeekTemplate, "Templates/Noria weekly.md");
+
+  plugin.app.vault.adapter = {
+    async exists(pathText) { return pathText === ".obsidian/daily-notes.json"; },
+    async read() { return JSON.stringify({ folder: "Journal", format: "YYYY/YYYY-MM-DD", template: "Templates/Daily" }); }
+  };
+  assert.deepEqual(JSON.parse(JSON.stringify(await plugin.getDailyNotesIntegrationStatus())), {
+    available: true,
+    configPath: ".obsidian/daily-notes.json",
+    folder: "Journal",
+    format: "YYYY/YYYY-MM-DD",
+    template: "Templates/Daily"
+  });
+
+  plugin.app.vault.adapter.exists = async () => false;
+  assert.deepEqual(JSON.parse(JSON.stringify(await plugin.getDailyNotesIntegrationStatus())), {
+    available: false,
+    configPath: ".obsidian/daily-notes.json",
+    folder: "",
+    format: "YYYY-MM-DD",
+    template: ""
+  });
+});
+
+test("calendar settings render source summaries custom period rows and a separate display group", () => {
+  const source = readPluginSource();
+  const calendar = extractBody(source, "renderCalendarTab");
+  const customPeriods = extractBody(source, "renderCalendarCustomPeriodSettings");
+
+  assert.match(calendar, /getCalendarSettingsModeModel/);
+  assert.match(calendar, /renderCalendarManagedSourceSummary/);
+  assert.match(calendar, /renderCalendarDailyNotesStatus/);
+  assert.match(calendar, /renderCalendarCustomPeriodSettings/);
+  assert.match(calendar, /settings\.calendar\.display/);
+  assert.doesNotMatch(calendar, /addText\("calendarCustomFilePattern"/);
+  assert.match(customPeriods, /daily[\s\S]*weekly[\s\S]*monthly[\s\S]*quarterly[\s\S]*yearly/);
+  assert.match(customPeriods, /patternKey/);
+  assert.match(customPeriods, /templateKey/);
+});
+
+test("appearance preferences and tag colors validate through one settings API", () => {
+  const plugin = makePlugin();
+
+  assert.equal(plugin.setAppearancePreference("density", "compact"), "compact");
+  assert.equal(plugin.settings.appearance.density, "compact");
+  assert.equal(plugin.setAppearancePreference("density", "not-valid"), "compact");
+  assert.equal(plugin.setAppearancePreference("accentPreset", "forest"), "forest");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.setAppearanceTagColor("Research", "#AABBCC"))), {
+    tag: "research",
+    color: "#aabbcc"
+  });
+  assert.equal(plugin.settings.appearance.tagColorMap.research, "#aabbcc");
+  assert.equal(plugin.settings.colorPalette.tagColorMap.research, "#aabbcc");
+  assert.equal(plugin.setAppearanceTagColor("bad tag", "red"), null);
+  assert.equal(plugin.removeAppearanceTagColor("research"), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(plugin.settings.appearance.tagColorMap, "research"), false);
+  assert.equal(plugin.removeAppearanceTagColor("research"), false);
+});
+
+test("appearance settings use visible choices a visual tag list and a semantic preview", () => {
+  const source = readPluginSource();
+  const appearance = extractBody(source, "renderAppearancePresetSettings");
+  const preview = extractBody(source, "renderAppearancePreview");
+
+  assert.match(appearance, /renderAppearanceChoiceSetting/);
+  assert.match(appearance, /renderAppearanceTagColorSettings/);
+  assert.doesNotMatch(appearance, /addTextArea/);
+  assert.match(preview, /noria-appearance-preview-task/);
+  assert.match(preview, /noria-appearance-preview-status/);
+  assert.doesNotMatch(preview, /previewDensity|previewAccent|previewStatus|previewCard/);
 });
 
 test("home guide panel settings copy treats Inbox as a primary overview workbench", () => {

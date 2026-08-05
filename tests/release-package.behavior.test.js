@@ -135,7 +135,8 @@ test("source branch ignores pure generated bundles while retaining authored rele
   const ignore = fs.readFileSync(pluginPath(".gitignore"), "utf8");
   const pkg = JSON.parse(fs.readFileSync(pluginPath("package.json"), "utf8"));
 
-  assert.match(ignore, /^main\.js$/m);
+  assert.match(ignore, /^\/main\.js$/m);
+  assert.doesNotMatch(ignore, /^main\.js$/m);
   assert.match(ignore, /^src\/generated\/embedded-runtime-sources\.js$/m);
   assert.doesNotMatch(ignore, /^styles\.css$/m);
   assert.match(pkg.scripts["release:check"], /release-smoke\.mjs/);
@@ -204,7 +205,10 @@ test("English and Chinese public docs keep equivalent demo images in separate lo
   ];
   const expected = [
     "home-dashboard.png",
-    "task-board.png",
+    "task-board-month.png",
+    "task-board-week.png",
+    "task-board-day.png",
+    "task-board-quadrant.png",
     "task-timeline.png",
     "review-center.png"
   ];
@@ -224,19 +228,11 @@ test("bilingual public docs present the Noria-only identity", () => {
   const chineseReadme = fs.readFileSync(pluginPath("README.zh-CN.md"), "utf8");
   const englishGuide = fs.readFileSync(pluginPath("docs", "USER-GUIDE.md"), "utf8");
   const chineseGuide = fs.readFileSync(pluginPath("docs", "zh-CN", "USER-GUIDE.md"), "utf8");
-  const englishFaq = fs.readFileSync(pluginPath("docs", "FAQ.md"), "utf8");
-  const chineseFaq = fs.readFileSync(pluginPath("docs", "zh-CN", "FAQ.md"), "utf8");
-  const englishSettings = fs.readFileSync(pluginPath("docs", "SETTINGS-MAPPING.md"), "utf8");
-  const chineseSettings = fs.readFileSync(pluginPath("docs", "zh-CN", "SETTINGS-MAPPING.md"), "utf8");
   const publicDocs = [
     englishReadme,
     chineseReadme,
     englishGuide,
-    chineseGuide,
-    englishFaq,
-    chineseFaq,
-    englishSettings,
-    chineseSettings
+    chineseGuide
   ].join("\n");
 
   assert.match(englishReadme, /^# Noria for Obsidian$/m);
@@ -254,12 +250,20 @@ test("bilingual public docs present the Noria-only identity", () => {
   assert.doesNotMatch(englishReadme, /From Noria to Noria|imports your existing settings|reassign custom hotkeys/i);
   assert.doesNotMatch(chineseReadme, /从 Noria 迁移到 Noria|导入已有设置|重新分配自定义快捷键/);
 
-  assert.match(englishSettings, /Noria settings have seven top-level tabs/);
-  assert.match(chineseSettings, /Noria 设置页包含七个顶层 tab/);
-  assert.match(englishSettings, /`Calendar \/ 日历`/);
-  assert.match(chineseSettings, /`Calendar \/ 日历`/);
-  assert.doesNotMatch(englishSettings, /`Review \/ 复盘`|`AI \/ AI`/);
-  assert.doesNotMatch(chineseSettings, /`Review \/ 复盘`|`AI \/ AI`/);
+  assert.match(englishGuide, /Noria settings have seven top-level pages/);
+  assert.match(chineseGuide, /Noria 设置按七页组织/);
+  assert.match(englishGuide, /^### 9\.5 Calendar$/m);
+  assert.match(chineseGuide, /^### 9\.5 日历$/m);
+  assert.match(englishGuide, /^### 9\.7 Maintenance$/m);
+  assert.match(chineseGuide, /^### 9\.7 维护$/m);
+  for (const legacyDoc of [
+    pluginPath("docs", "FAQ.md"),
+    pluginPath("docs", "SETTINGS-MAPPING.md"),
+    pluginPath("docs", "zh-CN", "FAQ.md"),
+    pluginPath("docs", "zh-CN", "SETTINGS-MAPPING.md")
+  ]) {
+    assert.equal(fs.existsSync(legacyDoc), false);
+  }
 
   assert.doesNotMatch(publicDocs, /\bbuilt-in AI\b|\bAI generation settings\b|\bAI API key\b/i);
   assert.doesNotMatch(publicDocs, /内置 AI|AI 生成设置|AI API 密钥/);

@@ -2906,6 +2906,91 @@ test("task calendar runtime stores local preferences through bridge before local
   assert.match(main, /tasksCalendar:\s*\{[\s\S]*savePreference\(key,\s*value\)/);
 });
 
+test("task calendar quadrant treats normalized low priorities as not important", () => {
+  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
+  const start = runtime.indexOf("function taskIsLowPriorityForEisen");
+  const end = runtime.indexOf("function classifyEisenhowerBucket", start);
+  assert.ok(start > 0 && end > start, "quadrant priority classifier should be found");
+
+  const context = { globalThis: null };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(`${runtime.slice(start, end)}\nglobalThis.isLow = taskIsLowPriorityForEisen;`, context);
+
+  assert.equal(context.isLow({ priority: "low" }), true);
+  assert.equal(context.isLow({ priority: "lowest" }), true);
+  assert.equal(context.isLow({ priority: "D" }), true);
+  assert.equal(context.isLow({ priority: "normal" }), false);
+  assert.equal(context.isLow({ priority: "high" }), false);
+});
+
+test("task calendar quadrant urgency stays relative to today across aggregated ranges", () => {
+  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
+  const start = runtime.indexOf("function taskIsLowPriorityForEisen");
+  const end = runtime.indexOf("for (let i = 0; i < eisenDayList.length; i++)", start);
+  assert.ok(start > 0 && end > start, "quadrant classifiers should be found");
+
+  const momentStub = (value) => ({
+    value: String(value || ""),
+    isValid() { return /^\d{4}-\d{2}-\d{2}$/.test(this.value); },
+    diff(other, unit) {
+      assert.equal(unit, "days");
+      return Math.round((Date.parse(`${this.value}T00:00:00Z`) - Date.parse(`${other.value}T00:00:00Z`)) / 86400000);
+    }
+  });
+  const context = {
+    globalThis: null,
+    moment: momentStub,
+    todayStr: "2026-08-05",
+    TC_EISEN_URGENT_WITHIN_DAYS: 3,
+    coerceTemporalToYmd(value) { return String(value || "").slice(0, 10); },
+    isTimelineTaggedTask() { return false; }
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(`${runtime.slice(start, end)}\nglobalThis.classify = classifyEisenhowerBucket;`, context);
+
+  assert.equal(context.classify({ typ: "overdue", task: { priority: "high", due: "2026-08-20" } }), "q2");
+  assert.equal(context.classify({ typ: "overdue", task: { priority: "low", due: "2026-08-28" } }), "q4");
+  assert.equal(context.classify({ typ: "overdue", task: { priority: "normal", due: "2026-08-04" } }), "q1");
+  assert.equal(context.classify({ typ: "overdue", task: { priority: "low", due: "2026-08-04" } }), "q3");
+});
+
+test("task calendar fresh data adapter preserves task priority", () => {
+  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
+  const start = runtime.indexOf("function resolveDataTaskPriority");
+  const end = runtime.indexOf("async function collectFreshTasksForCalendar", start);
+  assert.ok(start > 0 && end > start, "fresh task adapter should be found");
+
+  const context = {
+    globalThis: null,
+    normalizeVaultRelPath(value) { return String(value || ""); }
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(`${runtime.slice(start, end)}\nglobalThis.adapt = adaptDataTaskToRuntimeTask;`, context);
+
+  const row = context.adapt({
+    classification: { priority: "low" },
+    source: { path: "Noria/Projects/Example.md", line: 4, rawLine: "- [ ] Example" },
+    text: { raw: "Example" }
+  });
+  assert.equal(row.priority, "low");
+
+  const emojiRow = context.adapt({
+    classification: { priority: "normal" },
+    source: { path: "Noria/Projects/Example.md", line: 5, rawLine: "- [ ] Low priority task 🔽" },
+    text: { raw: "Low priority task" }
+  });
+  assert.equal(emojiRow.priority, "low");
+
+  const inlineRow = context.adapt({
+    source: { path: "Noria/Projects/Example.md", line: 6, rawLine: "- [ ] Planned task [priority:: low]" },
+    text: { raw: "Planned task" }
+  });
+  assert.equal(inlineRow.priority, "low");
+});
+
 test("task calendar creates diary notes under the configured diary root", () => {
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
   const wrapper = fs.readFileSync(pluginPath("views/tasks-calendar/view.js"), "utf8");
@@ -3869,6 +3954,25 @@ test("task board period titles follow the Noria runtime locale", () => {
   const titleFormatterStart = runtime.indexOf("function formatTasksCalendarWeekTitle(week)");
   const titleFormatterEnd = runtime.indexOf("function formatTasksCalendarDayTitle(day)", titleFormatterStart);
   assert.doesNotMatch(runtime.slice(titleFormatterStart, titleFormatterEnd), /format\("\[W\]w"\)/);
+});
+
+test("task board deferred title work cannot overwrite a newer view", () => {
+  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
+  const weekStart = runtime.indexOf("function getWeek(tasks, week)");
+  const weekEnd = runtime.indexOf("function getDay(tasks, dayAnchor)", weekStart);
+  const weekBlock = runtime.slice(weekStart, weekEnd);
+  const dayStart = weekEnd;
+  const dayEnd = runtime.indexOf("function getList(tasks", dayStart);
+  const dayBlock = runtime.slice(dayStart, dayEnd);
+
+  assert.match(
+    weekBlock,
+    /requestAnimationFrame\(\(\) => \{\s*if \(!rootNode \|\| rootNode\.getAttribute\("view"\) !== "week"\) \{ return; \}/
+  );
+  assert.match(
+    dayBlock,
+    /requestAnimationFrame\(function \(\) \{\s*if \(!rootNode \|\| rootNode\.getAttribute\("view"\) !== "day"\) \{ return; \}/
+  );
 });
 
 test("formal task timeline forwards the Noria locale to its native axis labels", () => {

@@ -95,7 +95,7 @@ test("manifest and package identify the plugin as Noria with canonical release m
   assert.equal(manifest.name, "Noria");
   assert.equal(manifest.author, "Biao Zhou");
   assert.equal(manifest.authorUrl, "https://github.com/jellyns");
-  assert.equal(manifest.description, "A low-burden Obsidian workbench connecting notes, knowledge, tasks, projects, habits, timelines, and reviews into a sustainable rhythm.");
+  assert.equal(manifest.description, "A configurable Obsidian workbench for notes, knowledge, tasks, projects, habits, timelines, statistics, and reviews.");
   assert.equal(manifest.isDesktopOnly, true);
   assert.equal(pkg.name, "noria");
   assert.equal(pkg.repository?.type, "git");
@@ -276,7 +276,8 @@ test("fresh starter content and generated diagnostics use Noria copy", () => {
   const retiredBrand = new RegExp(["ca", "dence"].join(""), "i");
   assert.match(english, /Noria/);
   assert.match(english, /aria-label="Noria avatar"/);
-  assert.match(english, />N<\/text>/);
+  assert.match(english, /id="noriaAvatarFlow"/);
+  assert.doesNotMatch(english, /<(?:rect|circle|text)\b/);
   assert.doesNotMatch(english, retiredBrand);
 
   plugin.getNoriaLocale = () => "zh";
@@ -294,11 +295,7 @@ test("public docs contain no retired product name or stale internal references",
     "README.md",
     "README.zh-CN.md",
     "docs/USER-GUIDE.md",
-    "docs/FAQ.md",
-    "docs/SETTINGS-MAPPING.md",
-    "docs/zh-CN/USER-GUIDE.md",
-    "docs/zh-CN/FAQ.md",
-    "docs/zh-CN/SETTINGS-MAPPING.md"
+    "docs/zh-CN/USER-GUIDE.md"
   ];
   const combined = publicFiles.map(read).join("\n");
   const retiredPattern = new RegExp(["Z", "board"].join("-") + "|" + ["z", "board"].join("-") + "|" + ["z", "board"].join(""), "i");

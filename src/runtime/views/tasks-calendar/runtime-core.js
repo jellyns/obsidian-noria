@@ -355,6 +355,26 @@ function collectTasksByPathPrefix(folderPrefix) {
 	return acc;
 }
 
+function resolveDataTaskPriority(item, rawText) {
+	item = item || {};
+	var classification = item.classification || {};
+	var explicit = String(classification.priority || item.priority || "").trim().toLowerCase();
+	var text = String(rawText || "");
+	if (text.indexOf("🔺") >= 0) return "highest";
+	if (text.indexOf("⏫") >= 0) return "high";
+	if (text.indexOf("🔼") >= 0) return "medium";
+	if (text.indexOf("🔽") >= 0) return "low";
+	if (text.indexOf("⏬") >= 0) return "lowest";
+	var inline = text.match(/\[priority::\s*([^\]]+)\]/i);
+	var value = String(inline ? inline[1] : explicit).trim().toLowerCase();
+	if (value === "0" || value === "highest") return "highest";
+	if (value === "a" || value === "1" || value === "high") return "high";
+	if (value === "b" || value === "2" || value === "medium" || value === "normal-high") return "medium";
+	if (value === "d" || value === "4" || value === "low") return "low";
+	if (value === "5" || value === "lowest") return "lowest";
+	return "normal";
+}
+
 function adaptDataTaskToRuntimeTask(item) {
 	item = item || {};
 	var dates = item.dates || {};
@@ -372,6 +392,7 @@ function adaptDataTaskToRuntimeTask(item) {
 		checked: item.checked === true,
 		status: checkbox.state || item.status || "",
 		checkbox: { mark: checkbox.mark || "", state: checkbox.state || "" },
+		priority: resolveDataTaskPriority(item, String(source.rawLine || rawText)),
 		start: dates.start || "",
 		due: dates.due || "",
 		scheduled: dates.scheduled || "",
@@ -15283,6 +15304,7 @@ function getWeek(tasks, week) {
 	setQuickTimelinePanel();
 	try {
 		requestAnimationFrame(() => {
+			if (!rootNode || rootNode.getAttribute("view") !== "week") { return; }
 			applyWeekCurrentTitle(week);
 			/* 周视图稳态：避免进入后额外强制 hydrate 造成二次抖动 */
 			if (!rootNode.classList.contains("planner-chrome") || !tcFeatureFlags.storeWeek) {
@@ -15349,6 +15371,7 @@ function getDay(tasks, dayAnchor) {
 	setQuickTimelinePanel();
 	try {
 		requestAnimationFrame(function () {
+			if (!rootNode || rootNode.getAttribute("view") !== "day") { return; }
 			applyDayCurrentTitle(day);
 			if (!rootNode.classList.contains("planner-chrome") || !tcFeatureFlags.storeWeek) {
 				hydrateGridTaskCells(dayGrid);
@@ -15396,7 +15419,8 @@ function getList(tasks, focusDate) {
 		}
 	}
 	function taskIsLowPriorityForEisen(t) {
-		return String((t && t.priority) || "C").toUpperCase() === "D";
+		var priority = String((t && t.priority) || "normal").trim().toLowerCase();
+		return priority === "d" || priority === "4" || priority === "low" || priority === "lowest";
 	}
 	function classifyEisenhowerBucket(entry) {
 		var task = entry.task;
@@ -15412,7 +15436,6 @@ function getList(tasks, focusDate) {
 				if (dleft < 0 || dleft <= TC_EISEN_URGENT_WITHIN_DAYS) { urgent = true; }
 			}
 		}
-		if (entry.typ === "overdue") { urgent = true; }
 		if (urgent && !low) { return "q1"; }
 		if (!urgent && !low) { return "q2"; }
 		if (urgent && low) { return "q3"; }

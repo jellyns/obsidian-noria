@@ -3,7 +3,7 @@
   "name": "Noria",
   "version": "0.4.0",
   "minAppVersion": "1.5.0",
-  "description": "A low-burden Obsidian workbench connecting notes, knowledge, tasks, projects, habits, timelines, and reviews into a sustainable rhythm.",
+  "description": "A configurable Obsidian workbench for notes, knowledge, tasks, projects, habits, timelines, statistics, and reviews.",
   "author": "Biao Zhou",
   "authorUrl": "https://github.com/jellyns",
   "isDesktopOnly": true

@@ -22,5 +22,5 @@ Thumbs.db
 node_modules/
 
 # Pure build outputs. The tag workflow rebuilds these before publishing.
-main.js
+/main.js
 src/generated/embedded-runtime-sources.js

@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const { sourcePath } = require("./source-paths.cjs");
 const reviewCenterCore = require("../src/review-center-core.js");
 const noriaIdentity = require("../src/noria-identity.js");
+const settingsMaintenance = require("../src/settings-maintenance.js");
 
 const pluginRoot = path.resolve(__dirname, "..");
 
@@ -53,6 +54,7 @@ function loadPluginClass() {
       }
       if (id === "./review-center-core.js") return reviewCenterCore;
       if (id === "./noria-identity.js") return noriaIdentity;
+      if (id === "./settings-maintenance.js") return settingsMaintenance;
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -1827,7 +1829,10 @@ test("home widget manager setting rows have scan-friendly visual styling", () =>
   const rowBlock = cssBlock(styles, ".noria-home-widget-manager-row");
   const statBlock = cssBlock(styles, '.noria-home-widget-manager-row[data-noria-widget-type="stat"]');
   const actionBlock = cssBlock(styles, '.noria-home-widget-manager-row[data-noria-widget-type="action"]');
-  const controlButtonBlock = cssBlock(styles, ".noria-home-widget-manager-row .setting-item-control button:not(.mod-cta):not(.mod-warning)");
+  const controlButtonBlock = cssBlock(
+    styles,
+    ":is(.noria-home-widget-manager-row, .noria-moc-entry-row) .setting-item-control button:not(.mod-cta):not(.mod-warning)"
+  );
 
   assert.match(styles, /\.noria-home-widget-manager-row/);
   assert.match(styles, /\.noria-home-widget-manager-row\[data-noria-widget-enabled="false"\]/);
@@ -1850,10 +1855,61 @@ test("home widget manager setting rows have scan-friendly visual styling", () =>
   assert.match(rowBlock, /box-shadow:\s*none/);
   assert.doesNotMatch(statBlock, /border-color:\s*color-mix/);
   assert.doesNotMatch(actionBlock, /border-color:\s*color-mix/);
-  assert.ok(controlButtonBlock, "widget row controls should be scoped as quiet tools");
+  assert.ok(controlButtonBlock, "widget and MOC row controls should share one quiet tool contract");
   assert.match(controlButtonBlock, /border:\s*0/);
   assert.match(controlButtonBlock, /background:\s*transparent/);
   assert.match(controlButtonBlock, /box-shadow:\s*none/);
+});
+
+test("MOC ordering actions reuse the home widget manager icon-control contract", () => {
+  const main = read("src/main.js");
+  const styles = read("styles.css");
+  const sharedControlSelector = ":is(.noria-home-widget-manager-row, .noria-moc-entry-row) .setting-item-control button:not(.mod-cta):not(.mod-warning)";
+  const managerControlBlock = cssBlock(styles, sharedControlSelector);
+  const managerIconBlock = cssBlock(styles, `${sharedControlSelector} svg`);
+  const mocRowControlBlock = cssBlock(styles, ".noria-moc-entry-row .setting-item-control");
+  const mocRowInputBlock = cssBlock(styles, '.noria-moc-entry-row .setting-item-control input[type="text"]');
+  const mocManagerSource = main.slice(
+    main.indexOf("renderMocEntrySettings(containerEl)"),
+    main.indexOf("renderHomeTab(containerEl)")
+  );
+  const widgetManagerSource = main.slice(
+    main.indexOf("renderHomeDefaultSettings(containerEl)"),
+    main.indexOf("renderInboxWorkflowSettings(containerEl)")
+  );
+
+  assert.ok(managerControlBlock, "manager icon controls should have one shared button contract");
+  assert.match(managerControlBlock, /width:\s*28px/);
+  assert.match(managerControlBlock, /height:\s*28px/);
+  assert.match(managerControlBlock, /border-radius:\s*6px/);
+  assert.match(managerControlBlock, /background:\s*transparent/);
+  assert.match(managerControlBlock, /box-shadow:\s*none/);
+  assert.match(managerControlBlock, /--icon-size:\s*16px/);
+  assert.match(managerControlBlock, /--icon-stroke:\s*2/);
+  assert.match(managerIconBlock, /width:\s*16px/);
+  assert.match(managerIconBlock, /height:\s*16px/);
+  assert.match(managerIconBlock, /flex:\s*0\s+0\s+16px/);
+  assert.match(mocRowControlBlock, /flex-wrap:\s*nowrap/);
+  assert.match(mocRowControlBlock, /min-width:\s*0/);
+  assert.match(mocRowInputBlock, /flex:\s*1\s+1/);
+  assert.match(mocRowInputBlock, /min-width:\s*120px/);
+
+  assert.match(widgetManagerSource, /decorateSettingsManagerIconButton/);
+  assert.equal(
+    (mocManagerSource.match(/decorateSettingsManagerIconButton/g) || []).length,
+    3,
+    "MOC move-up, move-down, and remove should use the shared icon control"
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.noria-moc-entry-row \.setting-item-control button\s*\{/,
+    "MOC row actions should not keep a competing local button contract"
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.noria-home-widget-manager-row \.setting-item-control button:not\(\.mod-cta\):not\(\.mod-warning\)\s*\{/,
+    "Home widget actions should not keep a competing local button contract"
+  );
 });
 
 test("home workbench panel controls share the quiet sub-list styling", () => {

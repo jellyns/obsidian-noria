@@ -195,8 +195,11 @@ test("phase2 settings schema defaults all modules on and normalizes appearance",
   assert.equal(defaults.reviewCenter.prompt.skillName, "noria-review");
   assert.equal(defaults.reviewCenter.prompt.promptNotePath, "");
   assert.match(defaults.reviewCenter.prompt.promptTemplate, /review_note/);
+  assert.match(defaults.reviewCenter.prompt.promptTemplate, /mode/);
+  assert.match(defaults.reviewCenter.prompt.promptTemplate, /period/);
+  assert.match(defaults.reviewCenter.prompt.promptTemplate, /evidence_file/);
   assert.equal(Object.prototype.hasOwnProperty.call(defaults, "ai"), false);
-  assert.equal(defaults.weather.enabled, true);
+  assert.equal(defaults.weather.enabled, false);
   assert.equal(defaults.appearance.density, "balanced");
   assert.equal(defaults.appearance.accentPreset, "obsidian");
   assert.equal(defaults.appearance.statusPalette, "balanced");
@@ -210,6 +213,19 @@ test("phase2 settings schema defaults all modules on and normalizes appearance",
   });
   assert.deepEqual(plain(defaults.homeDashboard.mocEntryPaths), ["Noria/Workflow·MOC.md", "Noria/Knowledge Base·MOC.md"]);
   assert.equal(defaults.homeDashboard.mocEntries.length, 2);
+
+  const staleReviewPrompt = plugin.normalizeSettings({
+    reviewCenter: {
+      prompt: {
+        skillName: "noria-review",
+        promptTemplate: "${skill}\n\ndate: {date}\nreview_note: {review_note}\n请生成复盘笔记。",
+        promptNotePath: ""
+      }
+    }
+  });
+  assert.match(staleReviewPrompt.reviewCenter.prompt.promptTemplate, /mode/);
+  assert.match(staleReviewPrompt.reviewCenter.prompt.promptTemplate, /period/);
+  assert.match(staleReviewPrompt.reviewCenter.prompt.promptTemplate, /evidence_file/);
 
   const customized = plugin.normalizeSettings({
     features: { modules: { home: false, taskTimeline: false, pomodoro: false } },
@@ -349,7 +365,7 @@ test("legacy starter settings normalize into the current standard workspace defa
   assert.equal(Object.prototype.hasOwnProperty.call(normalized.managedPaths, "taskRegistry"), false);
   assert.equal(normalized.managedPaths.inboxWorkflow, "Noria/Inbox workflow.md");
   assert.equal(normalized.managedPaths.inboxQueue, "Noria/Inbox queue.base");
-  assert.equal(normalized.weather.enabled, true);
+  assert.equal(normalized.weather.enabled, false);
   assert.deepEqual(plain(normalized.homeDashboard.mocEntryPaths), ["Noria/Workflow·MOC.md", "Noria/Knowledge Base·MOC.md"]);
   assert.equal(normalized.homeDashboard.mocEntries[0].color, "#8b5cf6");
   assert.equal(normalized.homeDashboard.mocEntries[1].color, "#10b981");
@@ -473,6 +489,18 @@ test("disabled modules filter command and ribbon specs after reload", () => {
   assert.ok(allOn.getEnabledCoreCommandSpecs().some((spec) => spec.id === "open-calendar"));
   assert.ok(allOn.getEnabledCoreRibbonSpecs().some((spec) => spec.key === "noria:home"));
   assert.ok(allOn.getEnabledCoreRibbonSpecs().some((spec) => spec.key === "noria:calendar"));
+});
+
+test("architecture health accepts built-in views embedded in the release bundle", async () => {
+  const plugin = makePlugin();
+  plugin.settings = plugin.normalizeSettings({});
+
+  const result = await plugin.runArchitectureHealthCheck({ notify: false, log: false });
+  const viewChecks = result.checks.filter((item) => item.name.startsWith("built-in view available:"));
+
+  assert.equal(viewChecks.length, 5);
+  assert.equal(viewChecks.every((item) => item.ok), true);
+  assert.equal(result.ok, true);
 });
 
 test("core ribbon specs use only Noria logical keys and approved icons", () => {
@@ -802,7 +830,12 @@ test("setup status reports missing seed notes and initialization creates only mi
   assert.equal(plugin.__files.has("Noria/avatar.svg"), true);
   assert.equal(plugin.__files.has("Noria/Home.md"), false);
   assert.equal(plugin.settings.onboarding.initializedAt.length > 0, true);
+  assert.equal(plugin.settings.weather.enabled, true, "first explicit initialization should enable weather");
   assert.deepEqual(plain(refreshes), [["reload", "seed:create", { immediate: true, reloadViews: true }]]);
+
+  plugin.settings.weather.enabled = false;
+  await plugin.initializeMissingManagedNotes();
+  assert.equal(plugin.settings.weather.enabled, false, "later repairs must preserve the user's weather choice");
 });
 
 test("obsidian template config sync aligns daily notes and templates with managed paths", async () => {
@@ -1170,7 +1203,8 @@ test("settings polish exposes setup summary query preview and appearance token p
   assert.match(bodyOf(main, "renderOverviewDataSourcesSection"), /renderManagedPathGroup/);
   assert.match(bodyOf(main, "renderQueryScopeSettings"), /renderQueryScopePreview/);
   assert.match(bodyOf(main, "renderAppearancePresetSettings"), /renderAppearancePreview/);
-  assert.match(main, /validateAppearanceTagColorMap/);
+  assert.match(bodyOf(main, "renderAppearancePresetSettings"), /renderAppearanceTagColorSettings/);
+  assert.match(main, /setAppearanceTagColor/);
   assert.match(bodyOf(main, "renderAdvancedTab"), /details/);
   assert.doesNotMatch(bodyOf(main, "renderAdvancedTab"), /实验面板|Advanced lab|Week\/day advanced lab/);
 
@@ -1188,22 +1222,22 @@ test("settings polish exposes setup summary query preview and appearance token p
   }
 });
 
-test("Advanced tab keeps diagnostic sections folded", () => {
+test("Maintenance tab keeps only actionable recovery and developer controls", () => {
   const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const advanced = bodyOf(main, "renderAdvancedTab");
+  const maintenance = bodyOf(main, "renderAdvancedTab");
 
   for (const key of [
-    "settings.sections.advancedHealth",
-    "settings.sections.advancedDiagnostics",
-    "settings.sections.advancedRawTuning"
+    "settings.sections.maintenanceTroubleshooting",
+    "settings.sections.maintenanceBackup",
+    "settings.sections.maintenanceDeveloper"
   ]) {
-    assert.match(advanced, new RegExp(JSON.stringify(key)));
+    assert.match(maintenance, new RegExp(JSON.stringify(key)));
   }
-  assert.match(advanced, /renderAdvancedDisclosure/);
-  assert.match(advanced, /renderPlannerVisualTuning/);
-  assert.doesNotMatch(advanced, /settings\.sections\.advancedMigration|settings\.sections\.advancedSecret/);
-  assert.doesNotMatch(advanced, /runtimeFilesDesc|advancedRuntimeFiles|buildRuntimeBridgeConfig\(\)\.runtimePaths/);
-  assert.doesNotMatch(advanced, /containerEl\.createEl\("p"/);
+  assert.match(maintenance, /renderMaintenanceTroubleshooting/);
+  assert.match(maintenance, /renderMaintenanceBackup/);
+  assert.match(maintenance, /renderAdvancedDisclosure/);
+  assert.doesNotMatch(maintenance, /renderPlannerVisualTuning|advancedDiagnostics|advancedRawTuning/);
+  assert.doesNotMatch(maintenance, /buildRuntimeBridgeConfig\(\)\.runtimePaths|createEl\("pre"/);
 });
 
 test("appearance token map applies density accent status card and tag variables", () => {
