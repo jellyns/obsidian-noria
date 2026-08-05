@@ -1,10 +1,12 @@
 # Changelog
 
-## 0.4.0 - 2026-07-25
+## 0.4.0 - 2026-08-05
 
 - Replaced the retired timeline runtime with the Noria-owned Task Timeline renderer while preserving the accepted side-panel design, overview band, source actions, pan/zoom, task move/resize, annotations, optional layers, and restored-pane lifecycle.
 - Promoted Home workbench, navigation, review, and trend cards to first-class configurable widgets while preserving the accepted normal-mode composition.
-- Added real light-mode product screenshots and aligned the English and Chinese README, User Guide, and Settings Mapping with the current Home, Task Board, Task Timeline, and Review Center behavior.
+- Reworked settings into seven focused pages with clearer task, timeline, calendar, appearance, workspace, and maintenance controls.
+- Strengthened Review Center evidence handling for concise multi-project reviews and explicit external-agent handoff, adoption, editing, and saving.
+- Added real English and Chinese product screenshots and consolidated public documentation into one README and one complete User Guide per language.
 - Added standard Obsidian release metadata, version synchronization, and a tagged draft-release workflow for `manifest.json`, `main.js`, and `styles.css`.
 
 ## 0.3.6 - 2026-05-09
