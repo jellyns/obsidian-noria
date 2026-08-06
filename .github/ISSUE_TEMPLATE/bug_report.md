@@ -6,32 +6,34 @@ labels: [bug]
 assignees: []
 ---
 
-## 环境信息
+## Environment
 
-- Obsidian 版本：
-- Noria 版本（manifest.json）：
-- 操作系统：
+- Obsidian version:
+- Noria version:
+- Operating system:
 
-## 问题描述
+## Problem
 
-清晰描述你遇到的问题。
+Describe the problem and the affected Noria module.
 
-## 复现步骤
+## Reproduction Steps
 
 1.
 2.
 3.
 
-## 预期行为
+## Expected Behavior
 
-你期望发生什么。
+What did you expect to happen?
 
-## 实际行为
+## Actual Behavior
 
-实际发生了什么。
+What happened instead?
 
-## 配置与截图（可选）
+## Diagnostics (Optional)
 
-- 相关 `data.json` 片段：
-- 截图 / 录屏：
-- 控制台报错：
+- Screenshot or recording:
+- Relevant console errors:
+- Maintenance report:
+
+Do not include API keys, complete private notes, or unrelated vault content.

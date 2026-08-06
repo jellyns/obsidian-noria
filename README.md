@@ -159,6 +159,7 @@ It should not contain `src/`, `tests/`, `scripts/`, `node_modules/`, or the full
 ## Documentation
 
 - [User Guide](docs/USER-GUIDE.md): installation, every module, Settings, common workflows, troubleshooting, paths, and developer reference.
+- [GitHub Issues](https://github.com/jellyns/obsidian-noria/issues): bug reports and feature requests.
 - [Changelog](CHANGELOG.md): release history.
 - [Contributing](CONTRIBUTING.md): local development, validation, and PR expectations.
 - [Security](SECURITY.md): how to report security issues.

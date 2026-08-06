@@ -327,6 +327,25 @@ test("community submission metadata and public support files are release ready",
   assert.doesNotMatch(supportText, retiredBrandPattern);
   assert.doesNotMatch(supportText, /Dataview (?:version|版本)/i);
 
+  const bugTemplate = fs.readFileSync(
+    pluginPath(".github", "ISSUE_TEMPLATE", "bug_report.md"),
+    "utf8"
+  );
+  const featureTemplate = fs.readFileSync(
+    pluginPath(".github", "ISSUE_TEMPLATE", "feature_request.md"),
+    "utf8"
+  );
+  const contributing = fs.readFileSync(pluginPath("CONTRIBUTING.md"), "utf8");
+  const englishReadme = fs.readFileSync(pluginPath("README.md"), "utf8");
+  const chineseReadme = fs.readFileSync(pluginPath("README.zh-CN.md"), "utf8");
+  assert.match(bugTemplate, /^## Environment$/m);
+  assert.match(bugTemplate, /^## Reproduction Steps$/m);
+  assert.match(featureTemplate, /^## Problem$/m);
+  assert.match(featureTemplate, /^## Proposed Experience$/m);
+  assert.doesNotMatch(contributing, /docs\/(?:FAQ|SETTINGS-MAPPING)\.md/);
+  assert.match(englishReadme, /github\.com\/jellyns\/obsidian-noria\/issues/);
+  assert.match(chineseReadme, /github\.com\/jellyns\/obsidian-noria\/issues/);
+
   const changelog = fs.readFileSync(pluginPath("CHANGELOG.md"), "utf8");
   const unreleased = changelog.slice(0, changelog.indexOf("## 0.3.6"));
   assert.doesNotMatch(unreleased, new RegExp(`${["ca", "dence"].join("")}-owned`, "i"));

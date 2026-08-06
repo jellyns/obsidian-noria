@@ -159,6 +159,7 @@ Obsidian 保存设置后，插件目录通常是：
 ## 文档
 
 - [用户手册](docs/zh-CN/USER-GUIDE.md)：安装初始化、全部模块、设置、常用工作流、FAQ、路径与开发参考。
+- [GitHub Issues](https://github.com/jellyns/obsidian-noria/issues)：提交 Bug 和功能建议。
 - [Changelog](CHANGELOG.md)：版本变更。
 - [Contributing](CONTRIBUTING.md)：本地开发、验证和 PR 要求。
 - [Security](SECURITY.md)：安全问题报告方式。

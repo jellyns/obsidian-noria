@@ -30,9 +30,7 @@ The install script copies only `manifest.json`, `main.js`, and `styles.css` into
 Update documentation whenever user-visible behavior changes:
 
 - `README.md`: plugin positioning, core workflows, installation, first run, screenshots, and project overview.
-- `docs/USER-GUIDE.md`: Home dashboard, Task Board, Task Timeline, Review Center, Data API, export, migration, and common settings.
-- `docs/FAQ.md`: troubleshooting, confusing states, and legacy migration notes.
-- `docs/SETTINGS-MAPPING.md`: Settings UI, `data.json`, runtime bridge, Data API, Home widgets, review evidence, and managed path changes.
+- `docs/USER-GUIDE.md`: every product module, Settings, common workflows, troubleshooting, paths, data storage, Data API, and developer reference.
 - `README.zh-CN.md` and `docs/zh-CN/`: Chinese mirror docs. Keep them aligned when the default English docs change.
 - `CHANGELOG.md`: next-version user-visible changes.
 

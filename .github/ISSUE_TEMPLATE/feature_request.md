@@ -6,18 +6,18 @@ labels: [enhancement]
 assignees: []
 ---
 
-## 背景
+## Problem
 
-这个需求解决什么问题？
+What workflow or limitation should this change address?
 
-## 期望方案
+## Proposed Experience
 
-你希望 Noria 如何工作（从用户视角描述）。
+Describe how you expect Noria to work from a user's perspective.
 
-## 替代方案
+## Current Workaround
 
-你尝试过哪些替代方式？
+What do you do today, if anything?
 
-## 补充信息
+## Additional Context
 
-可附上示意图、配置片段或使用场景。
+Add screenshots, examples, or a concrete use case when helpful.
