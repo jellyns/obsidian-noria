@@ -26,10 +26,7 @@ test("package scripts build bundled main.js from src with obsidian external", ()
   assert.match(pkg.scripts.build, /--external:obsidian/);
   assert.match(pkg.scripts.build, /--outfile=main\.js/);
   assert.doesNotMatch(pkg.scripts.build, /--minify/);
-  assert.match(pkg.scripts["build:release"], /npm run build/);
-  assert.match(pkg.scripts["build:release"], /esbuild main\.js/);
-  assert.match(pkg.scripts["build:release"], /--minify/);
-  assert.match(pkg.scripts["build:release"], /--outfile=main\.js/);
+  assert.equal(pkg.scripts["build:release"], "npm run build");
   assert.match(pkg.scripts["release:check"], /npm run build:release/);
   assert.match(pkg.scripts["release:check"], /release-check\.mjs/);
   assert.equal(pkg.scripts.test, "node --test .\\tests\\*.js");
@@ -37,6 +34,24 @@ test("package scripts build bundled main.js from src with obsidian external", ()
   assert.match(pkg.devDependencies.esbuild, /^\^/);
   assert.equal(fs.existsSync(pluginPath("src", "main.js")), true);
   assert.equal(fs.existsSync(pluginPath("main.js")), true);
+});
+
+test("released plugin bundle avoids direct filesystem and shell execution capabilities", () => {
+  const source = fs.readFileSync(pluginPath("src", "main.js"), "utf8");
+  const bundle = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const forbidden = [
+    /require\(["'](?:node:)?fs["']\)/,
+    /require\(["'](?:node:)?child_process["']\)/,
+    /powershell(?:\.exe)?/i,
+    /Set-Clipboard/i,
+    /\.execFile\s*\(/
+  ];
+
+  for (const pattern of forbidden) {
+    assert.doesNotMatch(source, pattern);
+    assert.doesNotMatch(bundle, pattern);
+  }
+  assert.doesNotMatch(bundle, /clipboard\.(?:read|readText)\s*\(/);
 });
 
 test("settings tabs and ordinary action buttons keep low visual density", () => {

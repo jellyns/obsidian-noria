@@ -3001,7 +3001,15 @@
       min-width: 0;
     }
     .dashboard-period-task-completed-toggle {
-      all: unset;
+      appearance: none;
+      border: 0;
+      margin: 0;
+      padding: 0;
+      color: inherit;
+      font: inherit;
+      text-align: inherit;
+      background: transparent;
+      box-shadow: none;
       cursor: pointer;
       display: inline-flex;
       align-items: center;

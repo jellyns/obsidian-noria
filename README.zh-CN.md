@@ -2,7 +2,7 @@
 
 **语言**： [English](README.md) | 简体中文
 
-![version](https://img.shields.io/badge/version-0.4.0-blue)
+![version](https://img.shields.io/badge/version-0.4.1-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.5%2B-7c3aed)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -170,8 +170,8 @@ Obsidian 保存设置后，插件目录通常是：
 - Noria 不需要账户，不包含遥测、行为分析、广告或付费功能。
 - Noria 不会调用 AI 服务。复盘中心为外部模型生成的复盘提供证据交接、可视化、编辑和明确采纳入口。
 - 新安装在显式初始化前默认关闭天气；完成首次初始化后会启用，仍可随时在设置中关闭。加载天气时，Noria 可能访问 `ipwho.is`、`ipapi.co`、Open-Meteo 或 `wttr.in` 等定位与天气服务；只有配置 QWeather Host 和 API Key 后才会访问 QWeather。
-- 复盘证据可以选择运行当前知识库内的本机 Git 只读命令；Noria 不会推送提交，也不会修改 Git 历史。
-- 复制操作会优先使用浏览器或 Electron 剪贴板。在 Windows 上两者都不可用时，Noria 可能短暂把待复制文本写入 UTF-8 系统临时文件并调用 PowerShell `Set-Clipboard`；回退流程结束后会删除该临时文件。
+- 复盘中心保留兼容外部证据提供方的 Git 证据字段，但 Noria 不会执行 Git 或其他 Shell 命令。
+- 复制操作使用浏览器或 Electron 的仅写入剪贴板能力；Noria 不读取剪贴板内容，也不会为剪贴板回退写入系统临时文件。
 - 自定义 JavaScript view 小组件默认关闭。只有在“维护”中显式开启后，它才会以 Noria 与 Obsidian 插件权限执行配置的库内相对路径 JavaScript 文件。Noria 会阻止协议、绝对路径和路径穿越；请只对可信文件开启。Noria 内建视图不需要此权限。
 - 设置保存在插件 `data.json`；支持的密钥通过 Obsidian SecretStorage 保存。snapshot 和复盘导出默认留在知识库内，除非你选择其他库内路径。
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 - 2026-08-06
+
+- Updated the manifest description to comply with the Obsidian community plugin directory requirements.
+- Removed direct filesystem access, PowerShell clipboard fallback, and plugin-internal Git shell execution from the release bundle while preserving review and timeline evidence contracts for external providers.
+- Unified development and release builds so automated source rebuilds produce the same `main.js` artifact.
+- Replaced two unnecessary CSS compatibility patterns flagged by the community lint without changing the accepted interface design.
+
 ## 0.4.0 - 2026-08-05
 
 - Replaced the retired timeline runtime with the Noria-owned Task Timeline renderer while preserving the accepted side-panel design, overview band, source actions, pan/zoom, task move/resize, annotations, optional layers, and restored-pane lifecycle.

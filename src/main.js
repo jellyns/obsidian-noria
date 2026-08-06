@@ -9,24 +9,6 @@ const {
   parseSettingsBackupText: parseNoriaSettingsBackupText,
   replaceSettingsFromBackup: replaceNoriaSettingsFromBackup,
 } = require("./settings-maintenance.js");
-let noriaChildProcess = null;
-try {
-  noriaChildProcess = require("child_process");
-} catch (_) {
-  noriaChildProcess = null;
-}
-let noriaFs = null;
-let noriaOs = null;
-let noriaPath = null;
-try {
-  noriaFs = require("fs");
-  noriaOs = require("os");
-  noriaPath = require("path");
-} catch (_) {
-  noriaFs = null;
-  noriaOs = null;
-  noriaPath = null;
-}
 
 /**
  * 以下模块内联：Obsidian/Electron 下 `require("./core/...")` 可能报 Cannot find module（与相对解析或插件目录不完整有关）。
@@ -16769,40 +16751,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     }
   }
 
-  async copyTextToClipboardWithPowerShell(text) {
-    try {
-      const platform = typeof process !== "undefined" ? String(process.platform || "") : "";
-      if (platform && platform !== "win32") return false;
-      if (!noriaChildProcess || typeof noriaChildProcess.execFile !== "function") return false;
-      if (!noriaFs?.promises || !noriaOs || !noriaPath) return false;
-      const tmpDir = noriaOs.tmpdir();
-      const name = `noria-clipboard-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`;
-      const tmpPath = noriaPath.join(tmpDir, name);
-      await noriaFs.promises.writeFile(tmpPath, String(text || ""), "utf8");
-      return await new Promise((resolve) => {
-        noriaChildProcess.execFile(
-          "powershell.exe",
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "Get-Content -Raw -LiteralPath $args[0] | Set-Clipboard",
-            tmpPath
-          ],
-          { windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 },
-          async (err) => {
-            try { await noriaFs.promises.unlink(tmpPath); } catch (_) {}
-            resolve(!err);
-          }
-        );
-      });
-    } catch (_) {
-      return false;
-    }
-  }
-
   async copyTextToClipboard(text) {
     const value = String(text || "");
     try {
@@ -16819,7 +16767,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         return true;
       }
     } catch (_) {}
-    if (await this.copyTextToClipboardWithPowerShell(value)) return true;
     return false;
   }
 
@@ -20873,94 +20820,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       !/(^|\/)(\.git|dist|build|coverage)\//i.test(p);
   }
 
-  getVaultBasePath() {
-    try {
-      const adapter = this.app?.vault?.adapter;
-      if (adapter && typeof adapter.getBasePath === "function") return adapter.getBasePath();
-    } catch (_) {}
-    return "";
-  }
-
-  async runGitDetailed(args, options = {}) {
-    const unavailable = (error) => ({ ok: false, stdout: "", stderr: "", error });
-    if (!noriaChildProcess || typeof noriaChildProcess.execFile !== "function") {
-      return unavailable("child_process unavailable");
-    }
-    const cwd = this.getVaultBasePath();
-    if (!cwd) return unavailable("vault base path unavailable");
-    return new Promise((resolve) => {
-      const child = noriaChildProcess.execFile(
-        "git",
-        args,
-        { cwd, windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024 * 4 },
-        (err, stdout, stderr) => {
-          const acceptedExitCodes = Array.isArray(options.acceptExitCodes) ? options.acceptExitCodes.map(Number) : [];
-          const exitCode = Number(err?.code);
-          if (err && !acceptedExitCodes.includes(exitCode)) {
-            resolve({
-              ok: false,
-              stdout: String(stdout || ""),
-              stderr: String(stderr || ""),
-              error: String(err?.message || err || "Git command failed")
-            });
-            return;
-          }
-          resolve({ ok: true, stdout: String(stdout || ""), stderr: String(stderr || ""), error: "" });
-        }
-      );
-      if (options.stdin != null && child?.stdin && typeof child.stdin.end === "function") {
-        try { child.stdin.end(String(options.stdin)); } catch (_) {}
-      }
-    });
-  }
-
-  async runGit(args, options = {}) {
-    const result = await this.runGitDetailed(args, options);
-    return result.stdout;
-  }
-
-  async collectGitReviewUntrackedRecords(trackedRaw) {
-    const tracked = new Set(String(trackedRaw || "").split("\0").map((pathText) => this.normalizePath(pathText).replace(/^\/+/, "")).filter(Boolean));
-    const files = this.app?.vault?.getMarkdownFiles?.() || [];
-    const candidates = files
-      .map((file) => this.normalizePath(file?.path || "").replace(/^\/+/, ""))
-      .filter((pathText) => pathText && this.isHumanReviewNotePath(pathText) && !tracked.has(pathText));
-    if (!candidates.length) return [];
-    const ignoreResult = await this.runGitDetailed(
-      ["check-ignore", "--stdin", "-z"],
-      { stdin: `${candidates.join("\0")}\0`, acceptExitCodes: [1] }
-    );
-    if (!ignoreResult.ok) return [];
-    const ignored = new Set(String(ignoreResult.stdout || "").split("\0").map((pathText) => this.normalizePath(pathText).replace(/^\/+/, "")).filter(Boolean));
-    return candidates.filter((pathText) => !ignored.has(pathText)).map((pathText) => ({ kind: "added", path: pathText }));
-  }
-
-  async filterWorkingRecordsByDate(records, date) {
-    const today = this.getLocalYmd();
-    const out = [];
-    for (const rec of records) {
-      if (!this.isHumanReviewNotePath(rec.path)) continue;
-      if (date === today || rec.kind === "deleted") {
-        out.push({ ...rec, approximate: date !== today });
-        continue;
-      }
-      try {
-        const stat = await this.app.vault.adapter.stat(rec.path);
-        if (stat && this.getLocalYmd(new Date(stat.mtime)) === date) {
-          out.push({ ...rec, approximate: true });
-        }
-      } catch (_) {}
-    }
-    return out;
-  }
-
-  filterNumstatForHumanNotes(numstat) {
-    const files = (numstat.files || []).filter((x) => this.isHumanReviewNotePath(x.path));
-    const added = files.reduce((sum, f) => sum + (Number(f.added) || 0), 0);
-    const deleted = files.reduce((sum, f) => sum + (Number(f.deleted) || 0), 0);
-    return { added, deleted, net: added - deleted, files };
-  }
-
   normalizeTimelineTraceRange(request = {}) {
     const range = request && typeof request === "object" ? (request.range || request.source?.range || {}) : {};
     const normalize = (value) => {
@@ -21116,51 +20975,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     };
   }
 
-  parseTimelineGitLog(raw) {
-    const commits = [];
-    let current = null;
-    const pushCurrent = () => {
-      if (!current || !current.files.length) return;
-      const counts = current.files.reduce((acc, file) => {
-        acc[file.kind] = (acc[file.kind] || 0) + 1;
-        return acc;
-      }, { added: 0, modified: 0, deleted: 0, renamed: 0 });
-      commits.push({
-        hash: current.hash,
-        shortHash: current.hash ? current.hash.slice(0, 7) : "",
-        date: current.date,
-        subject: current.subject,
-        message: current.subject,
-        fileCount: current.files.length,
-        counts,
-        files: current.files
-      });
-    };
-    String(raw || "").split(/\r?\n/).forEach((line) => {
-      if (line.startsWith("@@COMMIT@@")) {
-        pushCurrent();
-        const parts = line.slice("@@COMMIT@@".length).split("\t");
-        current = {
-          hash: this.normalizePath(parts[0] || ""),
-          date: String(parts[1] || "").trim(),
-          subject: parts.slice(2).join("\t").trim(),
-          files: []
-        };
-        return;
-      }
-      if (!current || !line.trim()) return;
-      const parts = line.split("\t");
-      const status = String(parts[0] || "").trim();
-      const code = status.charAt(0).toUpperCase();
-      const kind = code === "A" ? "added" : code === "D" ? "deleted" : code === "R" ? "renamed" : "modified";
-      const path = this.normalizePath((code === "R" || code === "C") ? (parts[2] || parts[1] || "") : (parts[1] || ""));
-      if (!this.isHumanReviewNotePath(path)) return;
-      current.files.push({ kind, path });
-    });
-    pushCurrent();
-    return commits;
-  }
-
   async collectTimelineTraces(request = {}) {
     const perfNow = () => {
       try {
@@ -21186,43 +21000,25 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       available: false,
       source: "git-log",
       commits: [],
-      range
+      range,
+      error: "Git traces are supplied by external evidence providers"
     };
-    const args = [
-      "log",
-      `--since=${range.since}`,
-      ...(range.until ? [`--until=${range.until}`] : []),
-      "--name-status",
-      "--pretty=format:@@COMMIT@@%H%x09%ad%x09%s",
-      "--date=iso-strict",
-      "--",
-      "*.md"
-    ];
-    const [gitPhase, cachePhase] = await Promise.all([
-      measure(() => this.runGitDetailed(args)),
-      measure(() => this.collectTimelineCacheTraces(range).catch((error) => ({
+    const cachePhase = await measure(() => this.collectTimelineCacheTraces(range).catch((error) => ({
         available: false,
         source: "noria-cache",
         events: [],
         range,
         error: String(error?.message || error || "Noria cache trace collection failed")
-      })))
-    ]);
-    const result = gitPhase.value;
+      })));
     const cache = cachePhase.value;
     return {
-      git: {
-        ...emptyGit,
-        available: result.ok,
-        commits: result.ok ? this.parseTimelineGitLog(result.stdout) : [],
-        ...(result.ok ? {} : { error: result.error || "Git command failed" })
-      },
+      git: emptyGit,
       cache,
       meta: {
         ...meta,
         performance: {
           totalMs: roundMs(perfNow() - collectStartedAt),
-          gitMs: gitPhase.ms,
+          gitMs: 0,
           cacheMs: cachePhase.ms
         }
       }
@@ -21230,7 +21026,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   }
 
   async collectGitReview(date, review) {
-    const empty = {
+    return {
       available: false,
       commits: [],
       committed: { added: 0, modified: 0, deleted: 0, renamed: 0, files: [] },
@@ -21238,40 +21034,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       diff: { added: 0, deleted: 0, net: 0, files: [] },
       newFolders: []
     };
-    if (!noriaChildProcess) return empty;
-    const next = this.getNextLocalYmd(date);
-    const [logRaw, statusRaw, diffRaw, cachedDiffRaw, trackedRaw] = await Promise.all([
-      this.runGit([
-        "log",
-        `--since=${date} 00:00:00`,
-        `--until=${next} 00:00:00`,
-        "--name-status",
-        "--pretty=format:@@COMMIT@@%H%x09%ad%x09%s",
-        "--date=iso-strict",
-        "--",
-        "*.md"
-      ]),
-      this.runGit(["status", "--porcelain", "--untracked-files=no", "--", "*.md"]),
-      this.runGit(["diff", "--numstat", "--", "*.md"]),
-      this.runGit(["diff", "--cached", "--numstat", "--", "*.md"]),
-      this.runGit(["ls-files", "-z", "--cached", "--", "*.md"])
-    ]);
-    const commits = review.parseCommitLog(logRaw, (p) => this.isHumanReviewNotePath(p));
-    const committedRecords = review.parseNameStatus(logRaw).filter((x) => this.isHumanReviewNotePath(x.path));
-    const untrackedRecords = await this.collectGitReviewUntrackedRecords(trackedRaw);
-    const workingRecords = await this.filterWorkingRecordsByDate([
-      ...review.parsePorcelainStatus(statusRaw),
-      ...untrackedRecords
-    ], date);
-    const diff = this.filterNumstatForHumanNotes(review.parseNumstat(`${diffRaw}\n${cachedDiffRaw}`));
-    const committed = review.summarizeFileChanges(committedRecords);
-    const working = review.summarizeFileChanges(workingRecords);
-    const newFolders = [...committed.files, ...working.files]
-      .filter((f) => f.kind === "added")
-      .map((f) => this.normalizePath(f.path).split("/").slice(0, -1).join("/"))
-      .filter(Boolean)
-      .filter((v, i, arr) => arr.indexOf(v) === i);
-    return { available: true, commits, committed, working, diff, newFolders };
   }
 
   async collectReviewExcerpts(diaryPath, git, review) {

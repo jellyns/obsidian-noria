@@ -95,14 +95,14 @@ test("manifest and package identify the plugin as Noria with canonical release m
   assert.equal(manifest.name, "Noria");
   assert.equal(manifest.author, "Biao Zhou");
   assert.equal(manifest.authorUrl, "https://github.com/jellyns");
-  assert.equal(manifest.description, "A configurable Obsidian workbench for notes, knowledge, tasks, projects, habits, timelines, statistics, and reviews.");
+  assert.equal(manifest.description, "A configurable workbench for notes, knowledge, tasks, projects, habits, timelines, statistics, and reviews.");
   assert.equal(manifest.isDesktopOnly, true);
   assert.equal(pkg.name, "noria");
   assert.equal(pkg.repository?.type, "git");
   assert.equal(pkg.repository?.url, "git+https://github.com/jellyns/obsidian-noria.git");
   assert.equal(pkg.homepage, "https://github.com/jellyns/obsidian-noria#readme");
-  assert.equal(manifest.version, "0.4.0");
-  assert.equal(pkg.version, "0.4.0");
+  assert.equal(manifest.version, "0.4.1");
+  assert.equal(pkg.version, "0.4.1");
   assert.equal(manifest.version, pkg.version);
 });
 
@@ -309,7 +309,7 @@ test("public docs contain no retired product name or stale internal references",
   assert.equal(fs.existsSync(pluginPath("docs", ["Z", "board-UI-system.md"].join("-"))), false);
 });
 
-test("public docs disclose network, local Git, AI, telemetry, and custom view behavior", () => {
+test("public docs disclose network, clipboard, AI, telemetry, and custom view behavior", () => {
   const english = read("README.md");
   const chinese = read("README.zh-CN.md");
   const englishGuide = read("docs/USER-GUIDE.md");
@@ -318,24 +318,24 @@ test("public docs disclose network, local Git, AI, telemetry, and custom view be
 
   assert.match(english, /## Privacy and disclosures/);
   assert.match(english, /weather services/i);
-  assert.match(english, /local Git/i);
+  assert.match(english, /write-only clipboard/i);
   assert.match(english, /does not call an AI service/i);
   assert.match(english, /no telemetry/i);
   assert.match(english, /vault-relative JavaScript/i);
   assert.match(english, /disabled by default/i);
   assert.match(english, /Built-in Noria views do not require this permission/i);
-  assert.match(english, /temporary file/i);
-  assert.match(english, /PowerShell/i);
+  assert.doesNotMatch(english, /local Git/i);
+  assert.doesNotMatch(english, /PowerShell/i);
   assert.match(chinese, /## 隐私与披露/);
   assert.match(chinese, /天气服务/);
-  assert.match(chinese, /本机 Git/);
+  assert.match(chinese, /仅写入剪贴板/);
   assert.match(chinese, /不会调用 AI 服务/);
   assert.match(chinese, /不包含遥测/);
   assert.match(chinese, /库内相对路径 JavaScript/);
   assert.match(chinese, /默认关闭/);
   assert.match(chinese, /Noria 内建视图不需要此权限/);
-  assert.match(chinese, /临时文件/);
-  assert.match(chinese, /PowerShell/);
+  assert.doesNotMatch(chinese, /本机 Git/);
+  assert.doesNotMatch(chinese, /PowerShell/);
   assert.doesNotMatch(weatherService, /http:\/\//i);
   assert.match(weatherService, /https:\/\/ipwho\.is\//i);
   assert.doesNotMatch(englishGuide, /default hotkey is `Ctrl\+T`/i);

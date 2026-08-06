@@ -859,7 +859,6 @@
   flex: 0 1 auto;
   box-sizing: border-box;
   width: fit-content;
-  width: -moz-fit-content;
   min-width: 7.5rem;
   max-width: var(--tc-toolbar-period-max);
   height: 34px;

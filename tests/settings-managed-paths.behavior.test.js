@@ -362,76 +362,9 @@ test("runtime bridge exposes managed paths, refresh bus, and performance default
   assert.equal(typeof bridge.calendar.addDateTask, "function");
 });
 
-test("runtime bridge exposes Git timeline traces filtered to human markdown notes", async () => {
-  const calls = [];
-  const plugin = makePlugin({
-    childProcess: {
-      execFile(command, args, options, callback) {
-        calls.push({ command, args: [...args], cwd: options.cwd });
-        callback(null, [
-          "@@COMMIT@@abc123456789\t2026-06-12T09:15:00+08:00\t[note] refine dashboard",
-          "M\t06_Diary/2026/2026-06-12.md",
-          "M\t.obsidian/plugins/noria/main.js",
-          "@@COMMIT@@def987654321\t2026-06-12T11:20:00+08:00\t[refactor] plugin internals",
-          "M\t.obsidian/plugins/noria/styles.css",
-          "@@COMMIT@@fed111122222\t2026-06-13T08:05:00+08:00\t[organize] move weekly note",
-          "R100\t06_Diary/2026/old.md\t06_Diary/2026/2026-W24.md"
-        ].join("\n"));
-      }
-    }
-  });
+test("runtime bridge keeps the Git trace contract without executing local commands", async () => {
+  const plugin = makePlugin();
   plugin.settings = plugin.normalizeSettings({});
-  plugin.app.vault.adapter = {
-    getBasePath() {
-      return "F:/Library";
-    }
-  };
-
-  const traces = await plugin.buildRuntimeBridgeConfig().data.getTimelineTraces({
-    range: { start: "2026-06-12", end: "2026-06-13" }
-  });
-
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].command, "git");
-  assert.deepEqual(calls[0].args.slice(0, 2), ["log", "--since=2026-06-12 00:00:00"]);
-  assert.ok(calls[0].args.includes("--until=2026-06-14 00:00:00"));
-  assert.equal(traces.git.available, true);
-  assert.equal(traces.git.source, "git-log");
-  assert.equal(typeof traces.meta.performance.totalMs, "number");
-  assert.equal(typeof traces.meta.performance.gitMs, "number");
-  assert.equal(typeof traces.meta.performance.cacheMs, "number");
-  assert.equal(traces.git.commits.length, 2);
-  assert.deepEqual(plain(traces.git.commits.map((commit) => [
-    commit.hash,
-    commit.shortHash,
-    commit.date,
-    commit.subject,
-    commit.fileCount
-  ])), [
-    ["abc123456789", "abc1234", "2026-06-12T09:15:00+08:00", "[note] refine dashboard", 1],
-    ["fed111122222", "fed1111", "2026-06-13T08:05:00+08:00", "[organize] move weekly note", 1]
-  ]);
-  assert.deepEqual(plain(traces.git.commits[1].files), [
-    { kind: "renamed", path: "06_Diary/2026/2026-W24.md" }
-  ]);
-  assert.equal(traces.meta.scope, "human-markdown");
-  assert.equal(traces.meta.noiseFiltered, true);
-});
-
-test("runtime bridge isolates Git timeline trace failures", async () => {
-  const plugin = makePlugin({
-    childProcess: {
-      execFile(_command, _args, _options, callback) {
-        callback(new Error("fatal: not a git repository"), "");
-      }
-    }
-  });
-  plugin.settings = plugin.normalizeSettings({});
-  plugin.app.vault.adapter = {
-    getBasePath() {
-      return "F:/Library";
-    }
-  };
 
   const traces = await plugin.buildRuntimeBridgeConfig().data.getTimelineTraces({
     range: { start: "2026-06-12", end: "2026-06-13" }
@@ -439,8 +372,11 @@ test("runtime bridge isolates Git timeline trace failures", async () => {
 
   assert.equal(traces.git.available, false);
   assert.equal(traces.git.source, "git-log");
+  assert.match(traces.git.error, /external/i);
+  assert.equal(typeof traces.meta.performance.totalMs, "number");
+  assert.equal(typeof traces.meta.performance.gitMs, "number");
+  assert.equal(typeof traces.meta.performance.cacheMs, "number");
   assert.deepEqual(plain(traces.git.commits), []);
-  assert.match(traces.git.error, /not a git repository/);
   assert.equal(traces.meta.scope, "human-markdown");
   assert.equal(traces.meta.noiseFiltered, true);
 });
@@ -614,36 +550,10 @@ test("Home performance summary copy falls back to Electron clipboard outside bro
   assert.match(electronWrites[0], /Noria Home Performance/);
 });
 
-test("Home performance summary copy falls back to PowerShell clipboard when native clipboards are unavailable", async () => {
-  const execCalls = [];
-  const writes = [];
-  const unlinks = [];
+test("Home performance summary copy fails cleanly when native clipboards are unavailable", async () => {
   const plugin = makePlugin({
     navigator: {},
     electron: {},
-    process: { platform: "win32" },
-    fs: {
-      promises: {
-        async writeFile(file, text, encoding) {
-          writes.push({ file: String(file), text: String(text || ""), encoding });
-        },
-        async unlink(file) {
-          unlinks.push(String(file));
-        }
-      }
-    },
-    os: {
-      tmpdir() {
-        return "C:/Temp";
-      }
-    },
-    path,
-    childProcess: {
-      execFile(command, args, options, callback) {
-        execCalls.push({ command, args: [...args], windowsHide: options.windowsHide, timeout: options.timeout });
-        callback(null, "", "");
-      }
-    },
     homePerformanceSummary: {
       type: "home-dashboard-summary",
       sampleCount: 1,
@@ -659,15 +569,7 @@ test("Home performance summary copy falls back to PowerShell clipboard when nati
   const result = await plugin.copyHomePerformanceSummary();
 
   assert.equal(result.ok, true);
-  assert.equal(result.copied, true);
-  assert.equal(writes.length, 1);
-  assert.match(writes[0].text, /Noria Home Performance/);
-  assert.equal(writes[0].encoding, "utf8");
-  assert.equal(execCalls.length, 1);
-  assert.equal(execCalls[0].command, "powershell.exe");
-  assert.ok(execCalls[0].args.includes("Get-Content -Raw -LiteralPath $args[0] | Set-Clipboard"));
-  assert.equal(execCalls[0].windowsHide, true);
-  assert.equal(unlinks[0], writes[0].file);
+  assert.equal(result.copied, false);
 });
 
 test("Home performance summary copy reads the renderer window summary when the command global is separate", async () => {

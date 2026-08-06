@@ -1,6 +1,6 @@
 {
   "name": "noria",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "commonjs",
   "repository": {
@@ -10,7 +10,7 @@
   "homepage": "https://github.com/jellyns/obsidian-noria#readme",
   "scripts": {
     "build": "node scripts/sync-home-dashboard-css.mjs && node scripts/build-embedded-runtime.mjs && esbuild src/main.js --bundle --platform=node --format=cjs --target=es2018 --external:obsidian --outfile=main.js",
-    "build:release": "npm run build && esbuild main.js --minify --platform=node --format=cjs --target=es2018 --allow-overwrite --outfile=main.js",
+    "build:release": "npm run build",
     "install:vault": "npm run build && node scripts/install-release-to-vault.mjs",
     "release:check": "npm run build:release && node scripts/release-check.mjs && node scripts/release-smoke.mjs",
     "test": "node --test .\\tests\\*.js",

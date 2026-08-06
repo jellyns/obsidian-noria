@@ -1124,90 +1124,19 @@ test("daily review evidence starts independent collectors in parallel", async ()
   Object.values(result.performance).forEach((value) => assert.equal(Number.isFinite(value), true));
 });
 
-test("daily review git evidence starts bounded git commands in parallel without a full untracked scan", async () => {
+test("daily review keeps an unavailable Git evidence shape without shell execution", async () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
-  const started = [];
-  const gates = new Map();
-  const defer = () => {
-    let resolve;
-    const promise = new Promise((res) => {
-      resolve = res;
-    });
-    return { promise, resolve };
-  };
-  const flushMicrotasks = async (count = 4) => {
-    for (let i = 0; i < count; i += 1) await Promise.resolve();
-  };
-  ["log", "status", "diff", "cachedDiff", "tracked"].forEach((key) => gates.set(key, defer()));
+  const result = await plugin.collectGitReview("2026-05-04", {});
 
-  plugin.runGit = async (args) => {
-    const list = Array.isArray(args) ? args.map(String) : [];
-    const key = list[0] === "log"
-      ? "log"
-      : (list[0] === "status"
-        ? "status"
-        : (list[0] === "ls-files" ? "tracked" : (list.includes("--cached") ? "cachedDiff" : "diff")));
-    if (key === "status") assert.ok(list.includes("--untracked-files=no"));
-    started.push(key);
-    return gates.get(key).promise;
-  };
-  plugin.collectGitReviewUntrackedRecords = async (trackedRaw) => {
-    assert.equal(trackedRaw, "tracked output");
-    return [{ kind: "added", path: "00_Inbox/New.md" }];
-  };
-  plugin.isHumanReviewNotePath = () => true;
-  plugin.normalizePath = (value) => String(value || "");
-  plugin.filterWorkingRecordsByDate = async (records) => records;
-  plugin.filterNumstatForHumanNotes = (records) => records;
-
-  const review = {
-    parseCommitLog: () => [{ hash: "abc1234" }],
-    parseNameStatus: () => [{ kind: "modified", path: "06_Diary/2026/2026-05-04.md" }],
-    parsePorcelainStatus: () => [{ kind: "modified", path: "06_Diary/2026/2026-05-04.md" }],
-    parseNumstat: () => [{ path: "06_Diary/2026/2026-05-04.md", added: 2, deleted: 1 }],
-    summarizeFileChanges: (records) => ({ added: 0, modified: records.length, deleted: 0, renamed: 0, files: records })
-  };
-
-  const pending = plugin.collectGitReview("2026-05-04", review);
-  await flushMicrotasks();
-
-  assert.equal(started.join("|"), "log|status|diff|cachedDiff|tracked");
-
-  gates.get("log").resolve("log output");
-  gates.get("status").resolve("status output");
-  gates.get("diff").resolve("diff output");
-  gates.get("cachedDiff").resolve("cached diff output");
-  gates.get("tracked").resolve("tracked output");
-  const result = await pending;
-
-  assert.equal(result.available, true);
-  assert.equal(result.commits.length, 1);
-  assert.equal(result.committed.files.length, 1);
-  assert.equal(result.working.files.length, 2);
-  assert.equal(result.diff.length, 1);
-});
-
-test("daily review untracked evidence uses the Obsidian file index and filters gitignored paths", async () => {
-  const Plugin = loadPluginClass();
-  const plugin = new Plugin();
-  const files = [
-    { path: "01_Projects/Tracked.md" },
-    { path: "00_Inbox/New.md" },
-    { path: "03_Resources/Ignored.md" },
-    { path: ".obsidian/Hidden.md" }
-  ];
-  plugin.app = { vault: { getMarkdownFiles: () => files } };
-  plugin.runGitDetailed = async (args, options) => {
-    assert.deepEqual(Array.from(args), ["check-ignore", "--stdin", "-z"]);
-    assert.match(options.stdin, /00_Inbox\/New\.md\u0000/);
-    assert.match(options.stdin, /03_Resources\/Ignored\.md\u0000/);
-    return { ok: true, stdout: "03_Resources/Ignored.md\0", stderr: "", error: "" };
-  };
-
-  const records = await plugin.collectGitReviewUntrackedRecords("01_Projects/Tracked.md\0");
-
-  assert.deepEqual(JSON.parse(JSON.stringify(records)), [{ kind: "added", path: "00_Inbox/New.md" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    available: false,
+    commits: [],
+    committed: { added: 0, modified: 0, deleted: 0, renamed: 0, files: [] },
+    working: { added: 0, modified: 0, deleted: 0, renamed: 0, files: [] },
+    diff: { added: 0, deleted: 0, net: 0, files: [] },
+    newFolders: []
+  });
 });
 
 test("daily review excerpts read source files in parallel while preserving order", async () => {

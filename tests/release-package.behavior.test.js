@@ -286,7 +286,7 @@ test("manifest package versions and Obsidian compatibility table stay aligned", 
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages?.[""]?.name, pkg.name);
   assert.equal(lock.packages?.[""]?.version, pkg.version);
-  assert.equal(manifest.version, "0.4.0");
+  assert.equal(manifest.version, "0.4.1");
   assert.equal(versions[manifest.version], manifest.minAppVersion);
   assert.match(pkg.scripts.version, /version-bump\.mjs/);
 });
@@ -308,6 +308,7 @@ test("community submission metadata and public support files are release ready",
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.match(manifest.minAppVersion, /^\d+\.\d+\.\d+$/);
   assert.ok(manifest.description.trim().length > 0);
+  assert.doesNotMatch(manifest.description, /obsidian/i);
   assert.ok(manifest.author.trim().length > 0);
   assert.equal(manifest.isDesktopOnly, true);
 
