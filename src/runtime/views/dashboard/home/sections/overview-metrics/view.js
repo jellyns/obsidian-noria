@@ -19,42 +19,6 @@ if (!container || typeof container.createDiv !== "function") {
   ctx.paragraph(metricsT("runtime.home.noContainer"));
   return;
 }
-const toIso = (v) => {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) return "";
-  try {
-    return new Date(n).toISOString();
-  } catch (_) {
-    return "";
-  }
-};
-const getVaultPagesFallback = () => {
-  const files = app?.vault?.getMarkdownFiles?.() || [];
-  return files.map((f) => {
-    const cache = app?.metadataCache?.getFileCache?.(f) || {};
-    const fm = cache.frontmatter || {};
-    const tagsFm = Array.isArray(fm.tags)
-      ? fm.tags.map((x) => String(x || "").trim()).filter(Boolean)
-      : [];
-    const tasks = (Array.isArray(cache.listItems) ? cache.listItems : [])
-      .filter((it) => it && it.task === true)
-      .map((it) => ({
-        completed: /^\s*[-*]\s*\[[xX]\]/.test(String(it.task || it.text || "")),
-        text: String(it.task || it.text || "")
-      }));
-    return {
-      file: {
-        extension: "md",
-        path: f.path,
-        name: f.name,
-        ctime: toIso(f?.stat?.ctime),
-        mtime: toIso(f?.stat?.mtime),
-        tasks
-      },
-      tags: tagsFm
-    };
-  });
-};
 const noriaBridge = input?.noriaBridge || globalThis.__noriaRuntimeBridge || {};
 const noriaPagesForScope = (scopeId) => {
   try { return noriaBridge.runtime?.pagesForScope?.(scopeId, ctx) || []; } catch (_) { return []; }
@@ -68,7 +32,7 @@ host.style.cssText = isHero
   : "display:grid;grid-auto-flow:column;grid-auto-columns:minmax(148px,1fr);gap:10px;margin-bottom:4px;overflow-x:auto;padding-bottom:2px;";
 
 const pagesFromRuntime = noriaPagesForScope("notes").filter((p) => p.file && (p.file.extension === "md" || !p.file.extension));
-const pages = (pagesFromRuntime && pagesFromRuntime.length > 0) ? pagesFromRuntime : getVaultPagesFallback();
+const pages = pagesFromRuntime;
 const isIgnoredPath = (path) => {
   const p = String(path || "");
   return p.startsWith(".obsidian/")

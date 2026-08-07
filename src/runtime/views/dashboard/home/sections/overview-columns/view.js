@@ -476,8 +476,11 @@
   container.addClass("dashboard-workbench-container");
   const root = container.createDiv();
   root.addClass("dashboard-workbench-grid");
-  root.style.cssText = "display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--dash-workbench-gap,12px);align-items:stretch;";
-  if (input?.cardMode === true) {
+  const cardMode = input?.cardMode === true;
+  root.style.cssText = cardMode
+    ? "display:grid;grid-template-columns:minmax(0,1fr);gap:var(--dash-workbench-gap,12px);align-items:stretch;"
+    : "display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--dash-workbench-gap,12px);align-items:stretch;";
+  if (cardMode) {
     root.addClass("dashboard-workbench-grid--card");
   }
 

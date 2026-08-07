@@ -1447,25 +1447,17 @@ test("home widget source suggestions filter markdown and base files by preset ty
   const plugin = new Plugin();
   let markdownScans = 0;
   let baseScans = 0;
-  plugin.app = {
-    vault: {
-      getMarkdownFiles() {
-        markdownScans += 1;
-        return [
-          { path: "Dashboard/Notes.md" },
-          { path: "01_Projects/Project list.md" },
-          { path: "06_Diary/2026/2026-06-08.md" }
-        ];
-      },
-      getFiles() {
-        baseScans += 1;
-        return [
-          { path: "02_Areas/Knowledge/Inbox queue.base" },
-          { path: "05_MOC/Topic.canvas" },
-          { path: "Dashboard/Notes.md" }
-        ];
-      }
+  plugin.filesUnderRoots = (_roots, extensions) => {
+    if (extensions.includes(".base")) {
+      baseScans += 1;
+      return [{ path: "02_Areas/Knowledge/Inbox queue.base" }];
     }
+    markdownScans += 1;
+    return [
+      { path: "Dashboard/Notes.md" },
+      { path: "01_Projects/Project list.md" },
+      { path: "06_Diary/2026/2026-06-08.md" }
+    ];
   };
 
   assert.deepEqual(plain(plugin.getHomeWidgetSourceSuggestionPaths("markdown", "dash")), ["Dashboard/Notes.md"]);
@@ -1767,7 +1759,7 @@ test("Home combines the default capture and focus widgets into one editable flow
   assert.match(home, /dashboard-home-today-flow__actions/);
   assert.match(home, /dashboard-home-today-flow__focus/);
   assert.match(bootstrap, /\.dashboard-home-today-flow\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  assert.match(bootstrap, /\.dashboard-home-today-flow__focus\s*>\s*\.dashboard-home-focus-strip\s*\{[\s\S]*display:\s*contents/);
+  assert.match(bootstrap, /\.dashboard-home-today-flow__focus\s*>\s*\.dashboard-home-focus-strip\s*\{[\s\S]*display:\s*grid/);
   assert.match(bootstrap, /\.dashboard-home-today-flow[\s\S]*\.dashboard-home-focus-list\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1/);
 });
 
@@ -1986,16 +1978,16 @@ test("home configurable widget surfaces use tokenized visual classes", () => {
   assert.match(bootstrap, /\.dashboard-home-stat-card/);
   assert.match(bootstrap, /\.dashboard-home-action-button:not\(:disabled\):hover/);
   assert.match(bootstrap, /\.dashboard-home-today-actions\s*\{[\s\S]*grid-template-columns:\s*minmax\(18rem,\s*1fr\)\s*max-content/);
-  assert.match(bootstrap, /\.dashboard-home-today-capture-input\s*\{[\s\S]*box-shadow:\s*none\s*!important/);
-  assert.match(bootstrap, /\.dashboard-home-today-action-button\s*\{[\s\S]*background:\s*transparent\s*!important/);
+  assert.match(bootstrap, /\.dashboard-home-today-capture-input\s*\{[\s\S]*box-shadow:\s*none\s*;/);
+  assert.match(bootstrap, /\.dashboard-home-today-action-button\s*\{[\s\S]*background:\s*transparent\s*;/);
   assert.match(bootstrap, /\.dashboard-home-focus-strip\s*\{[\s\S]*grid-template-columns:\s*minmax\(9rem,\s*0\.26fr\)\s*minmax\(24rem,\s*1fr\)/);
   assert.match(bootstrap, /\.dashboard-home-focus-empty-inline/);
   assert.match(bootstrap, /\.dashboard-home-focus-list\[hidden\]/);
   assert.match(bootstrap, /\.dashboard-home-focus-strip\[data-noria-home-focus-state="empty"\]\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*max-content\)/);
   assert.match(bootstrap, /\.dashboard-home-focus-strip\[data-noria-home-focus-state="empty"\]\s*\.dashboard-home-focus-eyebrow\s*\{[\s\S]*display:\s*none/);
   assert.match(bootstrap, /\.dashboard-home-focus-item\s*\{[\s\S]*box-shadow:\s*none/);
-  assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*background:\s*transparent\s*!important/);
-  assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*box-shadow:\s*none\s*!important/);
+  assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*background:\s*transparent\s*;/);
+  assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*box-shadow:\s*none\s*;/);
   assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*opacity:\s*0/);
   assert.match(bootstrap, /\.dashboard-home-focus-item\.has-pomodoro\s+\.dashboard-home-focus-item-pomodoro/);
   assert.doesNotMatch(bootstrap, /\.dashboard-home-focus-pomodoro-actions/);

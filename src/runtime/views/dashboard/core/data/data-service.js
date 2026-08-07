@@ -585,11 +585,6 @@
       throw new Error("Noria data export requires vault adapter write support");
     };
     const fileName = (pathText) => normalizePath(pathText).split("/").pop() || "";
-    const isUnderRoot = (pathText, root) => {
-      const p = normalizePath(pathText).replace(/^\/+/, "");
-      const r = normalizePath(root).replace(/^\/+/, "").replace(/\/+$/, "");
-      return !!p && !!r && (p === r || p.startsWith(`${r}/`));
-    };
     const fileFrontmatter = (file) => {
       try {
         const cache = app?.metadataCache?.getFileCache?.(file);
@@ -601,8 +596,13 @@
     const pageFromFile = (file) => {
       const pathText = normalizePath(file?.path || "");
       const fm = fileFrontmatter(file);
+      let cacheTags = [];
+      try {
+        cacheTags = app?.metadataCache?.getFileCache?.(file)?.tags || [];
+      } catch (_) {}
       return {
         ...fm,
+        tags: cacheTags.length ? cacheTags : fm.tags,
         path: pathText,
         file: {
           path: pathText,
@@ -614,47 +614,34 @@
         __noriaSource: "vault"
       };
     };
-    const allMarkdownFiles = () => {
-      try {
-        const files = typeof app?.vault?.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
-        return toArray(files).filter((file) => normalizePath(file?.path || "").toLowerCase().endsWith(".md"));
-      } catch (_) {
-        return [];
-      }
-    };
     const scopeSpec = (scopeId) => {
       try {
         if (runtimeBridge.runtime?.scopeFor) return runtimeBridge.runtime.scopeFor(scopeId);
       } catch (_) {}
       const scopes = runtimeBridge.queryScopes || {};
       const cfg = scopes?.[scopeId] || {};
-      const mode = String(cfg.mode || (scopeId === "notes" ? "all" : "managed"));
+      const mode = String(cfg.mode || "managed") === "custom" ? "custom" : "managed";
       const paths = runtimeBridge.paths || {};
       const roots = mode === "custom" && Array.isArray(cfg.customRoots)
         ? cfg.customRoots
         : [paths.diaryRoot, paths.projectsRoot, paths.inboxRoot].filter(Boolean);
-      return { scopeId, mode, roots: roots.map(normalizePath).filter(Boolean), isAllVault: mode === "all", isEmpty: mode !== "all" && !roots.length };
+      return { scopeId, mode, roots: roots.map(normalizePath).filter(Boolean), isEmpty: !roots.length };
     };
     const filesForScope = (scopeId) => {
       try {
-        const native = runtimeBridge.runtime?.filesForScope?.(scopeId);
-        if (native && toArray(native).length) return toArray(native);
+        if (typeof runtimeBridge.runtime?.filesForScope === "function") {
+          return toArray(runtimeBridge.runtime.filesForScope(scopeId));
+        }
       } catch (_) {}
-      const spec = scopeSpec(scopeId);
-      if (spec.isEmpty) return [];
-      const files = allMarkdownFiles().filter((file) => !isReviewNotePath(file?.path || ""));
-      if (spec.isAllVault) return files;
-      const roots = Array.isArray(spec.roots) ? spec.roots : [];
-      return files.filter((file) => roots.some((root) => isUnderRoot(file?.path || "", root)));
+      return [];
     };
     const filesForManagedPath = (pathKey) => {
       try {
-        const native = runtimeBridge.runtime?.filesForManagedPath?.(pathKey);
-        if (native && toArray(native).length) return toArray(native);
+        if (typeof runtimeBridge.runtime?.filesForManagedPath === "function") {
+          return toArray(runtimeBridge.runtime.filesForManagedPath(pathKey));
+        }
       } catch (_) {}
-      const rootPath = normalizePath(runtimeBridge.paths?.[pathKey] || "");
-      if (!rootPath) return [];
-      return allMarkdownFiles().filter((file) => !isReviewNotePath(file?.path || "") && isUnderRoot(file?.path || "", rootPath));
+      return [];
     };
     const getPagesForScope = (scopeId) => {
       const files = filesForScope(scopeId);
@@ -677,30 +664,12 @@
     const taskScopeRoots = () => {
       try {
         const spec = scopeSpec("tasks");
-        if (spec?.isAllVault) return [];
         if (Array.isArray(spec?.roots) && spec.roots.length) return spec.roots.map(normalizePath).filter(Boolean);
       } catch (_) {}
       const paths = runtimeBridge.paths || {};
       return [paths.diaryRoot, paths.projectsRoot, paths.inboxRoot].map(normalizePath).filter(Boolean);
     };
-    const isUnderTaskRoot = (pathText, roots) => {
-      const p = normalizePath(pathText).replace(/^\/+/, "");
-      if (!p || isReviewNotePath(p)) return false;
-      if (!Array.isArray(roots) || roots.length === 0) return true;
-      return roots.some((root) => {
-        const r = normalizePath(root).replace(/^\/+/, "").replace(/\/+$/, "");
-        return !!r && (p === r || p.startsWith(`${r}/`));
-      });
-    };
-    const markdownFilesForTaskScope = () => {
-      try {
-        const files = typeof app?.vault?.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
-        const roots = taskScopeRoots();
-        return toArray(files).filter((file) => isUnderTaskRoot(file?.path || "", roots));
-      } catch (_) {
-        return [];
-      }
-    };
+    const markdownFilesForTaskScope = () => filesForScope("tasks");
     const indexedTaskFilesForScope = (scopeFiles) => {
       const files = Array.from(scopeFiles || []);
       const metadataCache = app?.metadataCache;
@@ -758,7 +727,7 @@
     };
     const collectRawMarkdownTasksFromFile = async (file) => {
       const pathText = normalizePath(file?.path || "");
-      if (!pathText) return [];
+      if (!pathText || isReviewNotePath(pathText)) return [];
       const stat = file?.stat || {};
       const token = stat.mtime ?? stat.mtimeMs ?? file?.mtime ?? getCacheStore().token ?? 0;
       const key = `${runtimeBridge.runtimeBuildId || "dev"}|${pathText}|${String(token)}|${taskQueryContextHash()}`;
@@ -1893,16 +1862,6 @@
     }
 
     function collectVaultHealthPages() {
-      const files = allMarkdownFiles();
-      if (files.length) {
-        return files
-          .map((file) => ({
-            path: normalizePath(file?.path || ""),
-            name: fileName(file?.path || ""),
-            tags: vaultHealthTagsFor(file)
-          }))
-          .filter((item) => item.path && !isVaultHealthIgnoredPath(item.path));
-      }
       return getPagesForScope("notes")
         .map((page) => ({
           path: normalizePath(page?.file?.path || page?.path || ""),
@@ -2163,7 +2122,7 @@
 
     function knownMarkdownPathSet() {
       try {
-        return new Set(allMarkdownFiles().map((file) => normalizePath(file?.path || "")).filter(Boolean));
+        return new Set(getPagesForScope("notes").map((page) => normalizePath(page?.file?.path || page?.path || "")).filter(Boolean));
       } catch (_) {
         return new Set();
       }

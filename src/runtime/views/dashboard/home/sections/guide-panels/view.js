@@ -270,7 +270,7 @@
     } catch (_) {}
     const FuzzySuggestModal = obsidian?.FuzzySuggestModal;
     if (typeof FuzzySuggestModal !== "function") return "";
-    const files = (app.vault.getFiles?.() || []).filter((f) => {
+    const files = (input?.noriaBridge?.runtime?.filesForScope?.("notes") || []).filter((f) => {
       const p = String(f?.path || "").toLowerCase();
       return p.endsWith(".md") || p.endsWith(".canvas");
     });

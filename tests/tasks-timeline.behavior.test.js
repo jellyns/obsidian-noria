@@ -1833,19 +1833,6 @@ test("formal tasksTimeline entry mounts the Noria-owned native task timeline", (
   assert.match(main, /viewKey === "tasksTimeline"[\s\S]{0,260}merged\.sourceMode = merged\.sourceMode \|\| "tasks"/);
 });
 
-test("plugin reload clears retired task timeline globals and style nodes", () => {
-  const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
-  const helperStart = main.indexOf("function noriaClearRetiredTimelineRuntimeState()");
-  const helperEnd = main.indexOf("\n}\n", helperStart);
-  assert.ok(helperStart > 0 && helperEnd > helperStart, "retired runtime cleanup helper should be found");
-  const helper = main.slice(helperStart, helperEnd);
-
-  assert.match(helper, /Object\.getOwnPropertyNames\(globalThis\)/);
-  assert.match(helper, /delete globalThis\[key\]/);
-  assert.match(helper, /querySelectorAll\?\.\(`style\[id\*="\$\{retiredStyleNeedle\}"\]`\)/);
-  assert.match(main, /async onload\(\)[\s\S]{0,260}noriaClearRetiredTimelineRuntimeState\(\)/);
-});
-
 test("formal task timeline startup health recognizes a ready backend-neutral task timeline", () => {
   const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
   const healthStart = main.indexOf("function noriaTimelineViewLooksHealthy(view)");
@@ -1998,7 +1985,7 @@ test("formal task timeline keeps distinct recovery boundaries without retired bo
   const viewEnd = main.indexOf("class NoriaHomeView", viewStart);
   const view = main.slice(viewStart, viewEnd);
   const layoutStart = main.indexOf("this.app.workspace.onLayoutReady(() => {");
-  const layoutEnd = main.indexOf("\n    });\n  }", layoutStart);
+  const layoutEnd = main.indexOf("  isNoriaRecoveryOwnerActive(", layoutStart);
   const layout = main.slice(layoutStart, layoutEnd);
 
   assert.ok(viewStart > 0 && viewEnd > viewStart);
@@ -2395,13 +2382,13 @@ test("formal task timeline constrains non-wide labels to avoid sidebar collision
   assert.match(nonWideHoverBlock, /max-width:\s*var\(--noria-event-label-max,\s*min\(160px,\s*54cqw\)\)/);
   assert.doesNotMatch(nonWideHoverBlock, /420px/);
   assert.ok(compactLabelBlock && compactEditableBlock, "compact caps should also leave native title width under layout ownership");
-  assert.match(compactLabelBlock, /width:\s*auto\s*!important/);
-  assert.match(compactEditableBlock, /width:\s*auto\s*!important/);
+  assert.match(compactLabelBlock, /width:\s*auto/);
+  assert.match(compactEditableBlock, /width:\s*auto/);
   assert.ok(instantPointBlock, "instant markers should stay visually aligned with their shifted labels");
   assert.match(instantPointBlock, /transform:\s*translateX\(var\(--noria-event-marker-offset-x,\s*0px\)\)\s+translateY\(var\(--noria-event-marker-offset-y,\s*0px\)\)/);
   assert.doesNotMatch(instantPointBlock, /radial-gradient/);
-  assert.match(instantPointBlock, /background-image:\s*none\s*!important/);
-  assert.match(instantPointBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--noria-task-timeline-task-blue\)\s+58%,\s*var\(--background-primary\)\)\s*!important/);
+  assert.match(instantPointBlock, /background-image:\s*none/);
+  assert.match(instantPointBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--noria-task-timeline-task-blue\)\s+58%,\s*var\(--background-primary\)\)/);
   assert.match(instantPointBlock, /box-shadow:\s*none/);
   assert.match(instantPointBlock, /filter:\s*none/);
 });
@@ -2424,11 +2411,11 @@ test("formal task timeline keeps sidebar task units visually cohesive", () => {
   assert.doesNotMatch(labelMarkerBlock, /width:\s*4px[\s\S]*height:\s*4px/);
   assert.ok(instantPointBlock, "instant markers should be flat anchors, not detached glossy dots");
   assert.doesNotMatch(instantPointBlock, /radial-gradient/);
-  assert.match(instantPointBlock, /background-image:\s*none\s*!important/);
-  assert.match(instantPointBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--noria-task-timeline-task-blue\)\s+58%,\s*var\(--background-primary\)\)\s*!important/);
+  assert.match(instantPointBlock, /background-image:\s*none/);
+  assert.match(instantPointBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--noria-task-timeline-task-blue\)\s+58%,\s*var\(--background-primary\)\)/);
   assert.match(instantPointBlock, /box-shadow:\s*none/);
   assert.ok(instantPointNativeImageBlock, "native timeline icon image should be hidden so the Noria point is not duplicated");
-  assert.match(instantPointNativeImageBlock, /display:\s*none\s*!important/);
+  assert.match(instantPointNativeImageBlock, /display:\s*none/);
   assert.ok(instantHandleBlock, "instant drag hit target should reuse the visible point instead of drawing a second circle");
   assert.match(instantHandleBlock, /inset:\s*-8px/);
   assert.match(instantHandleBlock, /border:\s*0/);
@@ -2491,11 +2478,11 @@ test("formal task timeline keeps its native bands visually quiet", () => {
   assert.match(tickBlock, /opacity:\s*0\.28/);
   assert.match(segmentBlock, /opacity:\s*0\.26/);
   assert.match(etherBlock, /opacity:\s*0\.5/);
-  assert.match(darkBand0EtherBlock, /background-color:\s*var\(--noria-task-timeline-time-band\)\s*!important/);
-  assert.match(darkBand1EtherBlock, /background-color:\s*var\(--noria-task-timeline-overview-band\)\s*!important/);
-  assert.match(darkWeekendBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--interactive-accent\)\s+4%,\s*transparent\)\s*!important/);
-  assert.match(darkHighlightBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--background-primary\)\s+76%,\s*var\(--interactive-accent\)\s+24%\)\s*!important/);
-  assert.match(darkEtherLinesBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s+68%,\s*transparent\)\s*!important/);
+  assert.match(darkBand0EtherBlock, /background-color:\s*var\(--noria-task-timeline-time-band\)/);
+  assert.match(darkBand1EtherBlock, /background-color:\s*var\(--noria-task-timeline-overview-band\)/);
+  assert.match(darkWeekendBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--interactive-accent\)\s+4%,\s*transparent\)/);
+  assert.match(darkHighlightBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--background-primary\)\s+76%,\s*var\(--interactive-accent\)\s+24%\)/);
+  assert.match(darkEtherLinesBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s+68%,\s*transparent\)/);
 });
 
 test("formal task timeline shows hover details from existing task metadata without new controls", () => {
@@ -2519,7 +2506,7 @@ test("formal task timeline shows hover details from existing task metadata witho
   assert.match(unitTapeBlock, /color-mix\(in srgb,\s*var\(--noria-task-timeline-task-blue\)\s+12%,\s*transparent\)/);
   assert.doesNotMatch(unitTapeBlock, /opacity:\s*0\./);
   assert.ok(unitIconBlock, "task unit hover should lightly lift the point marker");
-  assert.match(unitIconBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--interactive-accent\)\s+56%,\s*var\(--background-primary\)\)\s*!important/);
+  assert.match(unitIconBlock, /background-color:\s*color-mix\(in srgb,\s*var\(--interactive-accent\)\s+56%,\s*var\(--background-primary\)\)/);
   assert.match(unitIconBlock, /box-shadow:\s*none/);
   assert.match(unitIconBlock, /filter:\s*none/);
   assert.match(unitIconBlock, /opacity:\s*1/);
@@ -3079,18 +3066,16 @@ test("task calendar keeps waiting source snapshots separate from visible host co
   assert.doesNotMatch(runtime, /function updatePlannerChromeDayBucketToggleLabel/);
 });
 
-test("task calendar rebuilds visible waiting rows from snapshots and prevents bare-text fallback rows", () => {
+test("task calendar rebuilds visible waiting rows with the canonical task row", () => {
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
 
   assert.match(runtime, /function buildPlannerChromeWaitingItemFromEntry/);
-  assert.match(runtime, /buildMinimalTaskElement\(task,\s*typ,\s*currentDate,\s*doc\)/);
   const buildStart = runtime.indexOf("function buildPlannerChromeWaitingItemFromEntry");
   const buildEnd = runtime.indexOf("function renderPlannerChromeWaitingStrip", buildStart);
   assert.ok(buildStart > 0 && buildEnd > buildStart, "waiting item rebuild body should be found");
   const buildBody = runtime.slice(buildStart, buildEnd);
-  assert.doesNotMatch(buildBody, /buildRuntimeCalItemRow/);
-  assert.doesNotMatch(buildBody, /buildBareCalItem/);
-  assert.doesNotMatch(buildBody, /buildLinkOnlyCalItem/);
+  assert.match(buildBody, /buildTaskElement\(task,\s*typ,\s*currentDate,\s*doc\)/);
+  assert.doesNotMatch(buildBody, /build(?:RuntimeCalItemRow|BareCalItem|LinkOnlyCalItem|MinimalTaskElement)/);
   assert.match(runtime, /function hasPlannerChromeWaitingStandardStructure/);
   assert.match(buildBody, /hasPlannerChromeWaitingStandardStructure\(item\)/);
 
@@ -3103,18 +3088,19 @@ test("task calendar rebuilds visible waiting rows from snapshots and prevents ba
   assert.doesNotMatch(stripBody, /var node = ent\.node \|\| ent;\s*if \(!node \|\| node\.nodeType !== 1\) \{ continue; \}/);
 });
 
-test("task calendar planner waiting path does not create root task rows", () => {
+test("task calendar uses one canonical task row builder without recursive fallback modes", () => {
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
+  const css = fs.readFileSync(pluginPath("views/tasks-calendar/default.css"), "utf8");
+  const timelineView = fs.readFileSync(pluginPath("views/tasks-timeline/view.js"), "utf8");
 
-  const runtimeStart = runtime.indexOf("function buildRuntimeCalItemRow");
-  const runtimeEnd = runtime.indexOf("function buildMinimalTaskElement", runtimeStart);
-  assert.ok(runtimeStart > 0 && runtimeEnd > runtimeStart, "runtime row fallback body should be found");
-  const runtimeBody = runtime.slice(runtimeStart, runtimeEnd);
-  assert.doesNotMatch(runtimeBody, /ctx\.el\(\s*["']span["']\s*,\s*taskTextPlain/);
-  assert.match(runtimeBody, /buildMinimalTaskElement\(obj,\s*cls,\s*currentDate,\s*ownerDoc/);
+  assert.doesNotMatch(runtime, /function build(?:RuntimeCalItemRow|BareCalItem|LinkOnlyCalItem|MinimalTaskElement)/);
+  assert.doesNotMatch(runtime, /\bruntimeOnly\b|\bbareOnly\b/);
+  assert.doesNotMatch(runtime, /data-tc-(?:bare|runtime)|tc-cal-item--(?:minimal|link|runtime)|tc-title-text/);
+  assert.doesNotMatch(css, /data-tc-(?:bare|runtime)|tc-cal-item--(?:minimal|link|runtime)|tc-title-text/);
+  assert.doesNotMatch(timelineView, /tc-cal-item--link/);
 
   const showStart = runtime.indexOf("function showTasks(tasksToShow, typ)");
-  const nodeDecl = runtime.indexOf("var node = null;", showStart);
+  const nodeDecl = runtime.indexOf("var node = buildTaskElement(", showStart);
   assert.ok(showStart > 0 && nodeDecl > showStart, "showTasks pre-node branch should be found");
   const preNode = runtime.slice(showStart, nodeDecl);
   const fastPath = preNode.match(/if \(plannerChromeWeek && \(slotEarly\.slotType == "none" \|\| routeEarlyToWaiting\)\) \{[\s\S]*?continue;\s*\n\t\t\t\}/)?.[0] || "";
@@ -3122,26 +3108,31 @@ test("task calendar planner waiting path does not create root task rows", () => 
   assert.match(fastPath, /dayBucketPlan\.push\(\{ task: sorted\[t\], node: null, typ: typ, preAxis: routeEarlyToWaiting \}\)/);
   assert.match(fastPath, /renderedTaskKeys\.add\(taskKey\)/);
   assert.doesNotMatch(fastPath, /arePlannerChromeWaitingRowsEnabled/);
-  assert.doesNotMatch(fastPath, /buildTaskElement|buildRuntimeCalItemRow|buildMinimalTaskElement|buildLinkOnlyCalItem|buildBareCalItem|appendedRows\+\+/);
+  assert.doesNotMatch(fastPath, /buildTaskElement|appendedRows\+\+/);
 
-  const rawStart = runtime.indexOf("if (plannerChromeWeek && rawExpect > 0", showStart);
+  const canonicalEnd = runtime.indexOf("if (!node) continue;", nodeDecl);
+  assert.ok(canonicalEnd > nodeDecl, "canonical task row branch should be found");
+  const canonicalBody = runtime.slice(nodeDecl, canonicalEnd);
+  assert.match(canonicalBody, /buildTaskElement\(\s*sorted\[t\],\s*typ,\s*currentDate,\s*doc/);
+  assert.doesNotMatch(canonicalBody, /build(?:RuntimeCalItemRow|BareCalItem|LinkOnlyCalItem|MinimalTaskElement)/);
+
+  const rawStart = runtime.indexOf("if (plannerChromeWeek && rawExpect > 0", canonicalEnd);
   const rawEnd = runtime.indexOf("actual = countCalItemsInHost(hostEl);", rawStart);
-  assert.ok(rawStart > 0 && rawEnd > rawStart, "render fallback branch should be found");
+  assert.ok(rawStart > 0 && rawEnd > rawStart, "render verification branch should be found");
   const fallbackBody = runtime.slice(rawStart, rawEnd);
   assert.match(fallbackBody, /if \(plannerChromeWeek && rawExpect > 0 && actual === 0\) \{\s*return;\s*\}/);
-  assert.match(fallbackBody, /if \(rawExpect > 0 && actual === 0 && !plannerChromeWeek && !runtimeOnly && !bareOnly\)/);
-  assert.match(fallbackBody, /if \(rawExpect > 0 && actual === 0 && !plannerChromeWeek && runtimeOnly && !bareOnly\)/);
+  assert.doesNotMatch(fallbackBody, /renderTasksIntoHost\(/);
 });
 
-test("task calendar quadrant fallback does not use legacy task rows", () => {
+test("task calendar quadrant uses the canonical task row only", () => {
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
 
   const fillStart = runtime.indexOf("function fillBucket(q, maxCount)");
   const fillEnd = runtime.indexOf('fillBucket("q1"', fillStart);
   assert.ok(fillStart > 0 && fillEnd > fillStart, "quadrant fill body should be found");
   const fillBody = runtime.slice(fillStart, fillEnd);
-  assert.doesNotMatch(fillBody, /buildRuntimeCalItemRow/);
   assert.match(fillBody, /buildTaskElement\(items\[i\]\.task,\s*items\[i\]\.typ,\s*items\[i\]\.dateStr,\s*listNode\.ownerDocument,\s*\{ eisenContentOnly: true \}\)/);
+  assert.doesNotMatch(fillBody, /build(?:RuntimeCalItemRow|BareCalItem|LinkOnlyCalItem|MinimalTaskElement)/);
 });
 
 test("task calendar waiting hosts are in cellContent before timeLane and never in the axis or lane", () => {
@@ -3157,7 +3148,7 @@ test("task calendar waiting hosts are in cellContent before timeLane and never i
   assert.doesNotMatch(ensureBody, /grid\.appendChild|grid\.insertBefore|position:\s*"absolute"/);
 
   assert.doesNotMatch(css, /\.timeAxisGlobal[\s\S]{0,180}tc-planner-waiting-host/);
-  assert.match(css, /\.timeLane \[data-slot='waiting'\]\s*\{[\s\S]*display:\s*none\s*!important/);
+  assert.match(css, /\.timeLane \[data-slot='waiting'\]\s*\{[\s\S]*display:\s*none/);
   assert.match(css, /\.cellContent > \.tc-planner-waiting-host \{[\s\S]*position:\s*relative/);
   const hostBlock = css.match(/\.cellContent > \.tc-planner-waiting-host \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(hostBlock, "waiting host css block should be found");
@@ -3175,9 +3166,9 @@ test("task calendar waiting rows inherit normal task title structure and bounded
 
   assert.match(css, /--tc-planner-waiting-row-h:\s*20px/);
   assert.match(css, /--tc-planner-waiting-band-h:\s*calc\(var\(--tc-planner-waiting-row-h\) \* 2 \+ var\(--tc-planner-waiting-row-gap\)\)/);
-  assert.doesNotMatch(css, /\.tc-planner-waiting-strip\s*\{[\s\S]*?max-height:\s*20px\s*!important/);
+  assert.doesNotMatch(css, /\.tc-planner-waiting-strip\s*\{[\s\S]*?max-height:\s*20px/);
   assert.match(css, /\.tc-planner-waiting-strip \[data-tc-waiting-item='1'\] \.note,/);
-  assert.match(css, /\.tc-planner-waiting-strip \[data-tc-waiting-item='1'\] \.icon \{[\s\S]*display:\s*none\s*!important/);
+  assert.match(css, /\.tc-planner-waiting-strip \[data-tc-waiting-item='1'\] \.icon \{[\s\S]*display:\s*none/);
 
   const waitingTitleRules = css.match(/tc-planner-waiting[^\n{]*(?:description|tc-title|internal-link)[\s\S]*?\{[\s\S]*?\}/g) || [];
   assert.equal(waitingTitleRules.length, 0, "waiting layer should not define separate title typography rules");
@@ -3217,26 +3208,17 @@ test("task calendar waiting band is bounded and internally scrollable without ex
   assert.doesNotMatch(css, /\.tc-planner-waiting-strip\.is-expanded/);
   const waitingStripScrollBlock = css.match(/\.tc-planner-waiting-strip \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(waitingStripScrollBlock, "waiting strip scroll block should be present");
-  assert.match(waitingStripScrollBlock, /height:\s*var\(--tc-planner-waiting-band-h\) !important/);
-  assert.match(waitingStripScrollBlock, /max-height:\s*var\(--tc-planner-waiting-band-h\) !important/);
+  assert.match(waitingStripScrollBlock, /height:\s*var\(--tc-planner-waiting-band-h\)/);
+  assert.match(waitingStripScrollBlock, /max-height:\s*var\(--tc-planner-waiting-band-h\)/);
   assert.match(waitingStripScrollBlock, /overflow-y:\s*hidden/);
   assert.match(waitingStripScrollBlock, /overflow-x:\s*hidden/);
   assert.match(waitingStripScrollBlock, /overscroll-behavior:\s*contain/);
   assert.match(waitingStripScrollBlock, /touch-action:\s*pan-y/);
-  assert.match(waitingStripScrollBlock, /scrollbar-width:\s*none/);
-  assert.doesNotMatch(waitingStripScrollBlock, /scrollbar-gutter:\s*stable/);
   const waitingStripScrollableBlock = css.match(/\.tc-planner-waiting-strip\[data-scrollable='1'\] \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(waitingStripScrollableBlock, "waiting strip scrollable state block should be present");
   assert.match(waitingStripScrollableBlock, /overflow-y:\s*auto/);
-  assert.match(waitingStripScrollableBlock, /scrollbar-width:\s*thin/);
-  assert.match(waitingStripScrollableBlock, /scrollbar-gutter:\s*stable/);
-  const scrollbarBlock = css.match(/\.tc-planner-waiting-strip::-webkit-scrollbar \{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(scrollbarBlock, "default waiting scrollbar block should be present");
-  assert.match(scrollbarBlock, /display:\s*none/);
-  const scrollableScrollbarBlock = css.match(/\.tc-planner-waiting-strip\[data-scrollable='1'\]::-webkit-scrollbar \{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(scrollableScrollbarBlock, "scrollable waiting scrollbar block should be present");
-  assert.match(scrollableScrollbarBlock, /width:\s*4px/);
-  assert.doesNotMatch(scrollableScrollbarBlock, /display:\s*none/);
+  assert.doesNotMatch(css, /scrollbar-[a-z-]+\s*:/);
+  assert.doesNotMatch(css, /::-webkit-scrollbar/);
   assert.doesNotMatch(css, /is-collapsed \[data-tc-waiting-overflow/);
   assert.doesNotMatch(css, /\.grid > \.tc-planner-waiting-layer \{/);
   const waitingHostBlock = css.match(/\.cellContent > \.tc-planner-waiting-host \{[\s\S]*?\n\}/)?.[0] || "";
@@ -3256,11 +3238,11 @@ test("task calendar waiting band is bounded and internally scrollable without ex
   assert.match(css, /--noria-task-time-weight:\s*500;/);
   const finalTimeWeightBlock = css.match(/\.tasksCalendar:is\(\[view='week'\],\[view='day'\]\)\.planner-chrome \.tc-cal-item\[data-has-time='true'\] \.time,\s*\n\.tasksCalendar:is\(\[view='week'\],\[view='day'\]\)\.planner-chrome \.tc-cal-item\[data-has-time='true'\] \.time \.tline \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(finalTimeWeightBlock, "week/day final timed task weight block should be present");
-  assert.match(finalTimeWeightBlock, /font-weight:\s*var\(--noria-task-time-weight,\s*500\)\s*!important/);
+  assert.match(finalTimeWeightBlock, /font-weight:\s*var\(--noria-task-time-weight,\s*500\)/);
   const dayTimeBlock = css.match(/\.tasksCalendar\[view='day'\]\.planner-chrome \.tc-cal-item\[data-has-time='true'\] \.time \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(dayTimeBlock, "day timed task block should be present");
   assert.doesNotMatch(dayTimeBlock, /font-weight:\s*700/);
-  assert.match(css, /\.tc-planner-waiting-strip \[data-tc-waiting-item='1'\] \.resize-handle \{[\s\S]*?display:\s*none\s*!important/);
+  assert.match(css, /\.tc-planner-waiting-strip \[data-tc-waiting-item='1'\] \.resize-handle \{[\s\S]*?display:\s*none/);
   const timeLaneBlocks = Array.from(css.matchAll(/\.tasksCalendar\[view='week'\]\.planner-chrome \.timeLane,\s*\n\.tasksCalendar\[view='day'\]\.planner-chrome \.timeLane \{[\s\S]*?\n\}/g)).map((m) => m[0]);
   assert.ok(timeLaneBlocks.length >= 1, "week/day timeLane blocks should be present");
   assert.ok(
@@ -3289,13 +3271,13 @@ test("task calendar week timed lane width is isolated from waiting rows", () => 
 
   const fitGridBlock = css.match(/\.tasksCalendar:is\(\[view='week'\], \[view='day'\]\)\.planner-chrome\.tc-planner-no-scroll-fit > \.grid \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(fitGridBlock, "no-scroll-fit grid edge block should be found");
-  assert.match(fitGridBlock, /width:\s*calc\(100% \+ 8px\)\s*!important/);
-  assert.match(fitGridBlock, /max-width:\s*calc\(100% \+ 8px\)\s*!important/);
+  assert.match(fitGridBlock, /width:\s*calc\(100% \+ 8px\)/);
+  assert.match(fitGridBlock, /max-width:\s*calc\(100% \+ 8px\)/);
 
   const weekTodayBlocks = Array.from(css.matchAll(/\.tasksCalendar\[view='week'\]\.planner-chrome \.cell\.today \.cellName \{[\s\S]*?\n\}/g)).map((m) => m[0]);
   const weekTodayBlock = weekTodayBlocks.find((block) => /var\(--text-normal\)/.test(block)) || "";
   assert.ok(weekTodayBlock, "light week today header block should be found");
-  assert.match(weekTodayBlock, /color:\s*color-mix\(in srgb,\s*var\(--text-normal\) 78%,\s*var\(--interactive-accent\) 22%\)\s*!important/);
+  assert.match(weekTodayBlock, /color:\s*color-mix\(in srgb,\s*var\(--text-normal\) 78%,\s*var\(--interactive-accent\) 22%\)/);
   for (const block of weekTodayBlocks) {
     assert.match(block, /background:\s*var\(--tc-planner-table-surface-muted\)/);
     assert.match(block, /box-shadow:\s*none/);
@@ -3311,14 +3293,14 @@ test("task calendar week timed lane width is isolated from waiting rows", () => 
 
   const laneOverflowBlock = css.match(/\.tasksCalendar:is\(\[view='week'\],\[view='day'\]\)\.planner-chrome \.timeLane \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(laneOverflowBlock, "week/day timeLane overflow block should be found");
-  assert.match(laneOverflowBlock, /overflow-x:\s*clip\s*!important/);
-  assert.match(laneOverflowBlock, /overflow-y:\s*visible\s*!important/);
-  assert.doesNotMatch(laneOverflowBlock, /overflow:\s*visible\s*!important/);
+  assert.match(laneOverflowBlock, /overflow-x:\s*clip/);
+  assert.match(laneOverflowBlock, /overflow-y:\s*visible/);
+  assert.doesNotMatch(laneOverflowBlock, /overflow:\s*visible/);
   const fitOverflowBlock = css.match(/\.tasksCalendar:is\(\[view='week'\], \[view='day'\]\)\.planner-chrome\.tc-planner-no-scroll-fit \.cell,\s*\n\.tasksCalendar:is\(\[view='week'\], \[view='day'\]\)\.planner-chrome\.tc-planner-no-scroll-fit \.cellContent,\s*\n\.tasksCalendar:is\(\[view='week'\], \[view='day'\]\)\.planner-chrome\.tc-planner-no-scroll-fit \.timeLane \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(fitOverflowBlock, "no-scroll-fit overflow block should be found");
-  assert.match(fitOverflowBlock, /overflow-x:\s*clip\s*!important/);
-  assert.match(fitOverflowBlock, /overflow-y:\s*visible\s*!important/);
-  assert.doesNotMatch(fitOverflowBlock, /overflow:\s*visible\s*!important/);
+  assert.match(fitOverflowBlock, /overflow-x:\s*clip/);
+  assert.match(fitOverflowBlock, /overflow-y:\s*visible/);
+  assert.doesNotMatch(fitOverflowBlock, /overflow:\s*visible/);
 
   const timedBlock = css.match(/\.tasksCalendar:is\(\[view='week'\],\[view='day'\]\)\.planner-chrome \.tc-cal-item\[data-slot='range'\],\s*\n\.tasksCalendar:is\(\[view='week'\],\[view='day'\]\)\.planner-chrome \.tc-cal-item\[data-slot='point'\] \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(timedBlock, "timed task width block should be found");
@@ -3507,7 +3489,7 @@ test("week planner routes tasks before the visible axis into the waiting strip b
   assert.match(renderBody, /slotEarly\.slotType\s*==\s*"none"\s*\|\|\s*routeEarlyToWaiting/);
   assert.match(renderBody, /dayBucketPlan\.push\(\{\s*task:\s*sorted\[t\],\s*node:\s*null,\s*typ:\s*typ/);
   assert.ok(
-    renderBody.indexOf("routeEarlyToWaiting") < renderBody.indexOf("buildTaskElement(sorted[t], typ, currentDate, doc)"),
+    renderBody.indexOf("routeEarlyToWaiting") < renderBody.indexOf("var node = buildTaskElement("),
     "pre-axis tasks should be classified before a timed card is built"
   );
 });
@@ -3534,7 +3516,7 @@ test("task calendar day planner axis is an absolute overlay sourced from the tim
   const dayGridBlocks = Array.from(css.matchAll(/\.tasksCalendar\[view='day'\]\.planner-chrome \.grid \{[\s\S]*?\n\}/g)).map((m) => m[0]);
   assert.ok(dayGridBlocks.length > 0, "day planner grid CSS blocks should be found");
   assert.ok(
-    dayGridBlocks.some((block) => /grid-template-columns:\s*var\(--tc-planner-axis-col\) minmax\(0, 1fr\) !important/.test(block)),
+    dayGridBlocks.some((block) => /grid-template-columns:\s*var\(--tc-planner-axis-col\) minmax\(0, 1fr\)/.test(block)),
     "day planner grid should define an axis column and task column"
   );
   for (const block of dayGridBlocks) {
@@ -3675,8 +3657,8 @@ test("task calendar month rows share themed checkbox geometry and span alignment
       && /right:\s*0/.test(block)
       && /bottom:\s*0/.test(block)
       && /height:\s*auto/.test(block)
-      && /min-height:\s*0\s*!important/.test(block)
-      && /max-height:\s*none\s*!important/.test(block)
+      && /min-height:\s*0/.test(block)
+      && /max-height:\s*none/.test(block)
     )),
     "month cellContent should be the task scrollport below the fixed day header"
   );
@@ -3695,22 +3677,22 @@ test("task calendar month rows share themed checkbox geometry and span alignment
   assert.match(css, /--tc-month-row-status-col:\s*14px/);
   assert.match(css, /--tc-month-row-status-size:\s*12px/);
   assert.match(css, /--tc-month-row-status-inset:\s*0px/);
-  assert.match(css, /place-items:\s*center\s*!important/);
-  assert.match(css, /place-self:\s*center\s*!important/);
+  assert.match(css, /place-items:\s*center/);
+  assert.match(css, /place-self:\s*center/);
   assert.match(css, /--tc-month-row-radius:\s*2px/);
   assert.match(css, /--tc-task-row-radius:\s*2px/);
   assert.doesNotMatch(css, /--tc-task-row-radius:\s*[6-9]px/);
   assert.doesNotMatch(css, /--tc-month-row-radius:\s*[6-9]px/);
-  assert.doesNotMatch(css, /\.tasksCalendar\[view='month'\] \.cellContent > \.tc-cal-item:not\(\[data-tc-month-span="1"\]\),[\s\S]{0,600}?border-radius:\s*[6-9]px\s*!important/);
-  assert.doesNotMatch(css, /\.tasksCalendar\[view='month'\] \.wrappers > \.wrapper \.tc-month-span-overlay \.tc-month-span-overlay-item \{[\s\S]{0,400}?border-radius:\s*[6-9]px\s*!important/);
-  assert.doesNotMatch(css, /width:\s*calc\(100% - 1px\)\s*!important/);
-  assert.doesNotMatch(css, /max-width:\s*calc\(100% - 1px\)\s*!important/);
+  assert.doesNotMatch(css, /\.tasksCalendar\[view='month'\] \.cellContent > \.tc-cal-item:not\(\[data-tc-month-span="1"\]\),[\s\S]{0,600}?border-radius:\s*[6-9]px/);
+  assert.doesNotMatch(css, /\.tasksCalendar\[view='month'\] \.wrappers > \.wrapper \.tc-month-span-overlay \.tc-month-span-overlay-item \{[\s\S]{0,400}?border-radius:\s*[6-9]px/);
+  assert.doesNotMatch(css, /width:\s*calc\(100% - 1px\)/);
+  assert.doesNotMatch(css, /max-width:\s*calc\(100% - 1px\)/);
   assert.match(css, /--tc-month-row-right-inset:\s*4px/);
-  assert.match(css, /width:\s*calc\(100% - var\(--tc-month-row-right-inset, 0px\)\)\s*!important/);
+  assert.match(css, /width:\s*calc\(100% - var\(--tc-month-row-right-inset, 0px\)\)/);
   assert.ok(monthTaskBlocks.length > 0, "month task CSS blocks should be found");
-  assert.doesNotMatch(monthTaskCss, /border-radius:\s*(?:6px|7px|8px)\s*!important/);
-  assert.doesNotMatch(monthTaskCss, /(?:width|max-width):\s*calc\(100% - (?:1px|8px|10px)\)\s*!important/);
-  assert.doesNotMatch(monthTaskCss, /align-items:\s*baseline\s*!important/);
+  assert.doesNotMatch(monthTaskCss, /border-radius:\s*(?:6px|7px|8px)/);
+  assert.doesNotMatch(monthTaskCss, /(?:width|max-width):\s*calc\(100% - (?:1px|8px|10px)\)/);
+  assert.doesNotMatch(monthTaskCss, /align-items:\s*baseline/);
   assert.match(runtime, /overlayEdgeInset:\s*0/);
   assert.doesNotMatch(runtime, /var defaults = \{[^}]*overlayEdgeInset:\s*8/);
   const insetStart = runtime.indexOf("function getMonthOverlayEndInsetPx");
@@ -3841,36 +3823,42 @@ test("task calendar period controls use compact borderless mode buttons", () => 
   assert.match(runtime, /eb\.className = "tc-eisen-gran-btn tc-panel-segment-button"/);
   const segmentBlock = css.match(/\.tasksCalendar \.tc-segmented\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(segmentBlock, "task calendar segmented style should exist");
-  assert.match(segmentBlock, /background:\s*transparent\s*!important/);
-  assert.match(segmentBlock, /border:\s*0\s*!important/);
-  assert.match(segmentBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(segmentBlock, /background:\s*transparent/);
+  assert.match(segmentBlock, /border:\s*0/);
+  assert.match(segmentBlock, /box-shadow:\s*none/);
   const buttonBlock = css.match(/\.tasksCalendar \.tc-segmented button\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(buttonBlock, "task calendar segmented button style should exist");
-  assert.match(buttonBlock, /border:\s*0\s*!important/);
-  assert.match(buttonBlock, /background:\s*transparent\s*!important/);
-  assert.match(buttonBlock, /background-image:\s*none\s*!important/);
+  assert.match(buttonBlock, /border:\s*0/);
+  assert.match(buttonBlock, /background:\s*transparent/);
+  assert.match(buttonBlock, /background-image:\s*none/);
   assert.match(buttonBlock, /height:\s*var\(--noria-panel-segment-height,\s*28px\)/);
   assert.match(buttonBlock, /font-size:\s*var\(--noria-panel-segment-font-size,\s*13px\)/);
   assert.match(buttonBlock, /font-weight:\s*(?:var\(--noria-panel-segment-weight,\s*)?650/);
   assert.doesNotMatch(buttonBlock, /border-right/);
   const labelBlock = css.match(/\.tasksCalendar \.tc-segmented button \.tc-btn-label\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(labelBlock, "segmented button label should inherit panel-level typography");
-  assert.match(labelBlock, /font-size:\s*inherit\s*!important/);
-  assert.match(labelBlock, /font-weight:\s*inherit\s*!important/);
+  assert.match(labelBlock, /font-size:\s*inherit/);
+  assert.match(labelBlock, /font-weight:\s*inherit/);
   const activeBlock = css.match(/\.tasksCalendar\[view='month'\] \.tc-segmented button\.monthView,[\s\S]*?\.tasksCalendar\[view='list'\] \.tc-segmented button\.listView\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(activeBlock, "task calendar active segmented style should exist");
   assert.match(activeBlock, /font-weight:\s*(?:var\(--noria-panel-segment-active-weight,\s*)?720/);
   const eisenBlock = css.match(/\.tasksCalendar \.tc-eisen-granularity\.tc-segmented \.tc-eisen-gran-btn\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(eisenBlock, "Eisenhower segmented button style should exist");
   assert.match(eisenBlock, /font-weight:\s*(?:var\(--noria-panel-segment-weight,\s*)?650/);
-  assert.match(css, /\.tasksCalendar\[view='list'\] \.eisenMatrixTopBar \.tc-eisen-granularity\.tc-segmented button\s*\{[\s\S]*height:\s*(?:var\(--noria-panel-segment-height,\s*)?28px[\s\S]*!important/);
-  assert.doesNotMatch(css, /\.tasksCalendar\[view='list'\] \.eisenMatrixTopBar \.tc-eisen-granularity\.tc-segmented button\s*\{[\s\S]*height:\s*32px\s*!important/);
+  const eisenListButtonBlocks = Array.from(css.matchAll(
+    /\.tasksCalendar\[view='list'\] \.eisenMatrixTopBar \.tc-eisen-granularity\.tc-segmented button\s*\{[\s\S]*?\n\}/g
+  ), (match) => match[0]);
+  assert.ok(eisenListButtonBlocks.length > 0, "list-view Eisenhower button styles should exist");
+  eisenListButtonBlocks.forEach((block) => {
+    assert.match(block, /height:\s*(?:var\(--noria-panel-segment-height,\s*)?28px/);
+    assert.doesNotMatch(block, /height:\s*32px/);
+  });
   const plannerButtonBlock = css.match(/\.tasksCalendar \.buttons button\.tc-toolbar-planner,\s*\n\.tasksCalendar \.tc-planner-axis-toggle\.tc-toolbar-planner\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(plannerButtonBlock, "planner toolbar auxiliary button style should exist");
   assert.match(plannerButtonBlock, /height:\s*var\(--noria-panel-segment-height,\s*28px\)/);
   assert.match(plannerButtonBlock, /font-size:\s*var\(--noria-panel-segment-aux-font-size,\s*12\.5px\)/);
   assert.match(plannerButtonBlock, /font-weight:\s*var\(--noria-panel-segment-aux-weight,\s*620\)/);
-  assert.match(plannerButtonBlock, /background:\s*transparent\s*!important/);
+  assert.match(plannerButtonBlock, /background:\s*transparent/);
 });
 
 test("task calendar toolbar actions expose stable diagnostics metadata", () => {
@@ -4017,9 +4005,9 @@ test("checkbox styling is scoped between diary home and task calendar", () => {
   assert.match(periodicSlotBlock, /overflow:\s*visible/);
   assert.match(periodicSlotBlock, /line-height:\s*0/);
   const periodicCheckBlock = globalCss.match(/\.noria-periodic-task-check\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.match(periodicCheckBlock, /margin:\s*0\s*!important/);
-  assert.match(periodicCheckBlock, /margin-inline-start:\s*0\s*!important/);
-  assert.match(periodicCheckBlock, /margin-inline-end:\s*0\s*!important/);
+  assert.match(periodicCheckBlock, /margin:\s*0/);
+  assert.match(periodicCheckBlock, /margin-inline-start:\s*0/);
+  assert.match(periodicCheckBlock, /margin-inline-end:\s*0/);
   assert.doesNotMatch(periodicCheckBlock, /appearance\s*:/);
   assert.doesNotMatch(periodicCheckBlock, /\b(?:width|height|inline-size|block-size)\s*:/);
   assert.doesNotMatch(periodicCheckBlock, /\bborder(?:-radius)?\s*:/);
@@ -4058,7 +4046,7 @@ test("checkbox styling is scoped between diary home and task calendar", () => {
   assert.doesNotMatch(calendarCss, /\.tasksCalendar \.tc-native-task-checkbox\.noria-native-checkbox \{/);
   assert.doesNotMatch(calendarCss, /noria-native-checkbox/);
   assert.match(calendarCss, /\.tasksCalendar:is\(\[view='week'\],\[view='day'\]\)\.planner-chrome \.noria-status-circle \{[\s\S]*width:\s*13px/);
-  assert.match(globalCss, /\.noria-tl-toolbar-link--diary-inbox \{[\s\S]*background:\s*transparent !important/);
+  assert.match(globalCss, /\.noria-tl-toolbar-link--diary-inbox \{[\s\S]*background:\s*transparent/);
   assert.match(globalCss, /border-radius:\s*var\(--clickable-icon-radius, var\(--radius-s, 4px\)\)/);
   const toolbarLinkStart = timelineView.indexOf(".noria-tl-toolbar .noria-tl-toolbar-link{");
   const toolbarLinkEnd = timelineView.indexOf(".noria-tl-toolbar .noria-tl-toolbar-link--diary-inbox", toolbarLinkStart);
@@ -4083,7 +4071,7 @@ test("side timeline counter cards use quiet border-only emphasis", () => {
   assert.match(counterBlock, /border:1px solid color-mix\(in srgb,var\(--background-modifier-border\) 34%,transparent\)/);
   assert.match(counterBlock, /background:transparent/);
   assert.match(counterBlock, /background-image:none/);
-  assert.match(counterBlock, /box-shadow:none!important/);
+  assert.match(counterBlock, /box-shadow:none/);
   assert.match(counterBlock, /outline:0/);
   assert.match(counterBlock, /filter:none/);
   for (const block of [todoBlock, overdueBlock, unplannedBlock]) {
@@ -4108,7 +4096,7 @@ test("side timeline counter cards use quiet border-only emphasis", () => {
   assert.doesNotMatch(activeBlock, /filter:/);
   assert.ok(focusBlock, "counter focus override should be found");
   assert.match(focusBlock, /outline:0/);
-  assert.match(focusBlock, /box-shadow:none!important/);
+  assert.match(focusBlock, /box-shadow:none/);
   assert.match(timelineView, /\.noria-tl-counter-card\[data-active="1"\] \.noria-tl-counter-num\{[^\n]*font-weight:680/);
   assert.match(timelineView, /\.noria-tl-counter-card\[data-active="1"\] \.noria-tl-counter-label\{[^\n]*color:var\(--text-normal\)/);
 });

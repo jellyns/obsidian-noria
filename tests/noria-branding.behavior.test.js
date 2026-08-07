@@ -101,8 +101,8 @@ test("manifest and package identify the plugin as Noria with canonical release m
   assert.equal(pkg.repository?.type, "git");
   assert.equal(pkg.repository?.url, "git+https://github.com/jellyns/obsidian-noria.git");
   assert.equal(pkg.homepage, "https://github.com/jellyns/obsidian-noria#readme");
-  assert.equal(manifest.version, "0.4.1");
-  assert.equal(pkg.version, "0.4.1");
+  assert.equal(manifest.version, "0.4.2");
+  assert.equal(pkg.version, "0.4.2");
   assert.equal(manifest.version, pkg.version);
 });
 
@@ -134,9 +134,9 @@ test("public command ids are semantic and rely on the Obsidian plugin namespace"
     "edit-task-under-cursor",
     "open-home-tab",
     "open-review-center",
-    "copy-home-performance-summary",
+    "save-home-performance-summary",
     "measure-home-performance-summary",
-    "copy-task-timeline-performance-summary",
+    "save-task-timeline-performance-summary",
     "measure-task-timeline-performance-summary",
     "open-stats-tab"
   ]);
@@ -309,7 +309,7 @@ test("public docs contain no retired product name or stale internal references",
   assert.equal(fs.existsSync(pluginPath("docs", ["Z", "board-UI-system.md"].join("-"))), false);
 });
 
-test("public docs disclose network, clipboard, AI, telemetry, and custom view behavior", () => {
+test("public docs disclose network, AI, telemetry, and custom view behavior", () => {
   const english = read("README.md");
   const chinese = read("README.zh-CN.md");
   const englishGuide = read("docs/USER-GUIDE.md");
@@ -318,7 +318,7 @@ test("public docs disclose network, clipboard, AI, telemetry, and custom view be
 
   assert.match(english, /## Privacy and disclosures/);
   assert.match(english, /weather services/i);
-  assert.match(english, /write-only clipboard/i);
+  assert.doesNotMatch(english, /clipboard/i);
   assert.match(english, /does not call an AI service/i);
   assert.match(english, /no telemetry/i);
   assert.match(english, /vault-relative JavaScript/i);
@@ -328,7 +328,7 @@ test("public docs disclose network, clipboard, AI, telemetry, and custom view be
   assert.doesNotMatch(english, /PowerShell/i);
   assert.match(chinese, /## 隐私与披露/);
   assert.match(chinese, /天气服务/);
-  assert.match(chinese, /仅写入剪贴板/);
+  assert.doesNotMatch(chinese, /剪贴板/);
   assert.match(chinese, /不会调用 AI 服务/);
   assert.match(chinese, /不包含遥测/);
   assert.match(chinese, /库内相对路径 JavaScript/);

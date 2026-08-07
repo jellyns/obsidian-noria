@@ -330,7 +330,7 @@ Noria 日历位于侧边栏，用于定位和创建日、周、月、季、年�
 1. 选择周期和目标日期。
 2. 直接在最终编辑器中开始书写。
 3. 需要时展开证据和分析。
-4. 准备本地 evidence 并复制外部 Agent 提示词。
+4. 准备本地 evidence，并将外部 Agent 提示词保存到 Noria 本地缓存。
 5. 刷新并检查外部复盘笔记。
 6. 只采纳有依据且有行动价值的内容。
 7. 明确保存到日记或周期笔记。
@@ -417,7 +417,7 @@ Noria 设置按七页组织。
 用于：
 
 - 检查 Noria 安装；
-- 复制故障排查报告；
+- 保存故障排查报告；
 - 导出和导入设置备份；
 - 查看 SecretStorage 状态；
 - 管理可信自定义 JavaScript view；
@@ -573,7 +573,7 @@ delete → merge → split/refine → file/archive → defer
 2. **来源**：Markdown 是否存在、已保存且格式正确。
 3. **范围**：路径、扫描范围、日期和标签筛选是否包含目标内容。
 4. **刷新**：先使用界面刷新或重试，再重新打开视图。
-5. **诊断**：到“维护”运行安装检查并复制报告。
+5. **诊断**：到“维护”运行安装检查并保存报告。
 
 不要一开始就删除 `data.json`、重建全部文件或重装插件。
 
@@ -772,7 +772,7 @@ sourcePath + line/blockId + fingerprint
   "exportKind": "noria.snapshot",
   "exportVersion": 1,
   "exportedAt": "",
-  "noriaVersion": "0.4.1",
+  "noriaVersion": "0.4.2",
   "payload": {}
 }
 ```

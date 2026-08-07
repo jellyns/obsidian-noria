@@ -38,13 +38,11 @@ function loadReviewCenter() {
 function loadPluginClass(options = {}) {
   const code = fs.readFileSync(pluginPath("main.js"), "utf8");
   const module = { exports: {} };
-  const clipboardWrites = options.clipboardWrites || [];
   const notices = options.notices || [];
   const context = {
     console,
     module,
     exports: module.exports,
-    navigator: { clipboard: { async writeText(text) { clipboardWrites.push(String(text || "")); } } },
     require(id) {
       if (id === "obsidian") {
         return {
@@ -641,7 +639,7 @@ test("the shared review shell reads as one disclosure in both collapsed and expa
   assert.match(styles, /\.noria-review-shell-header\s*\{/);
   assert.match(styles, /\.dashboard-review-center-host\s*>\s*\.dashboard-review-focus-panel\s*\{[\s\S]*border:\s*0/);
   assert.match(styles, /\.dashboard-review-center-host\s*>\s*\.dashboard-review-focus-panel\s*>\s*\.dashboard-review-focus-body\s*\{[\s\S]*padding:\s*0/);
-  assert.match(styles, /\.dashboard-review-center-host\s*>\s*\.dashboard-review-center-card\[hidden\]\s*\{[\s\S]*display:\s*none\s*!important/);
+  assert.match(styles, /\.dashboard-review-center-host\s*>\s*\.dashboard-review-center-card\[hidden\]\s*\{[\s\S]*display:\s*none\s*;/);
 });
 
 test("dirty final edits update shell and action affordances in place without rebuilding the textarea", () => {
@@ -1656,19 +1654,19 @@ test("daily review shell removes the standalone title and keeps controls in the 
   const controls = styles.match(/\.noria-review-controls\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(controls, "review controls style should exist");
   assert.doesNotMatch(controls, /border:\s*1px/);
-  assert.match(controls, /box-shadow:\s*none\s*!important/);
+  assert.match(controls, /box-shadow:\s*none\s*;/);
   const periods = styles.match(/\.noria-review-periods\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(periods, "review period group style should exist");
-  assert.match(periods, /background:\s*transparent\s*!important/);
-  assert.match(periods, /border:\s*0\s*!important/);
-  assert.match(periods, /box-shadow:\s*none\s*!important/);
+  assert.match(periods, /background:\s*transparent\s*;/);
+  assert.match(periods, /border:\s*0/);
+  assert.match(periods, /box-shadow:\s*none/);
   const periodButton = styles.match(/\.noria-review-period\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(periodButton, "review period button style should exist");
-  assert.match(periodButton, /border:\s*0\s*!important/);
-  assert.match(periodButton, /border-color:\s*transparent\s*!important/);
-  assert.match(periodButton, /background:\s*transparent\s*!important/);
-  assert.match(periodButton, /background-image:\s*none\s*!important/);
-  assert.match(periodButton, /box-shadow:\s*none\s*!important/);
+  assert.match(periodButton, /border:\s*0/);
+  assert.match(periodButton, /border-color:\s*transparent/);
+  assert.match(periodButton, /background:\s*transparent/);
+  assert.match(periodButton, /background-image:\s*none/);
+  assert.match(periodButton, /box-shadow:\s*none/);
   assert.match(periodButton, /height:\s*var\(--noria-panel-segment-height,\s*28px\)/);
   assert.match(periodButton, /font-size:\s*var\(--noria-panel-segment-font-size,\s*13px\)/);
   assert.match(periodButton, /font-weight:\s*(?:var\(--noria-panel-segment-weight,\s*)?650/);
@@ -1693,8 +1691,8 @@ test("daily review AI analysis actions are explicit and low-noise", () => {
   assert.match(main, /renderReviewDraftSectionIndex\(section,\s*model\)/);
   assert.match(main, /getReviewDraftSections\(model\)/);
   assert.match(main, /data-noria-review-draft-section/);
-  assert.match(main, /review\.llm\.copySection/);
-  assert.match(main, /copyReviewText\(section\.text\)/);
+  assert.doesNotMatch(main, /review\.llm\.copySection/);
+  assert.doesNotMatch(main, /copyReviewText\(section\.text\)/);
 });
 
 test("home review focus AI rail uses a compact assistant toolbox", () => {
@@ -1706,7 +1704,7 @@ test("home review focus AI rail uses a compact assistant toolbox", () => {
   assert.match(main, /noria-review-llm-primary/);
   assert.match(main, /noria-review-llm-secondary/);
   assert.match(main, /noria-review-draft-index/);
-  assert.match(styles, /\.noria-review-assistant-panel\s*\{[\s\S]*display:\s*contents/);
+  assert.match(styles, /\.noria-review-assistant-panel\s*\{[\s\S]*display:\s*grid/);
   assert.match(styles, /\.noria-review-draft-index\s*\{[\s\S]*background:/);
   assert.match(styles, /\.noria-review-draft-index-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(54px,\s*\.22fr\)\s+minmax\(0,\s*1fr\)\s+auto/);
   assert.match(styles, /\.noria-review-draft-copy\s*\{[\s\S]*box-shadow:\s*none/);
@@ -1961,14 +1959,14 @@ test("daily review context markdown renders structured task evidence without obj
   assert.doesNotMatch(md, /\[object Object\]/);
 });
 
-test("daily review generation writes JSON evidence and removes internal AI adapters", () => {
+test("daily review generation writes JSON evidence and a local prompt file without internal AI adapters", () => {
   const main = fs.readFileSync(pluginPath("main.js"), "utf8");
   const generateBody = main.match(/async generateReview\(modeInput\s*=\s*"daily",\s*dateInput,\s*variantInput\s*=\s*""\)\s*\{([\s\S]*?)\n\s*\}/);
 
   assert.ok(generateBody, "expected generateDailyReview body");
   assert.match(generateBody[1], /writeReviewEvidenceFile\(model,\s*review\d*\)/);
   assert.match(generateBody[1], /buildExternalDailyReviewPrompt\(model,\s*evidence\.path,\s*review\d*\)/);
-  assert.match(generateBody[1], /copyReviewPromptFallback\(prompt\)/);
+  assert.match(generateBody[1], /writeReviewPromptFile\(model,\s*prompt\)/);
   assert.doesNotMatch(generateBody[1], /ensureDailyReviewNoteExists/);
   assert.doesNotMatch(main, /async generateDailyReviewWithApi/);
   assert.doesNotMatch(main, /async generateDailyReviewWithClaudianSkill/);
@@ -1984,11 +1982,9 @@ test("daily review generation writes JSON evidence and removes internal AI adapt
   assert.doesNotMatch(main, /evidence_context/);
 });
 
-test("daily review generation copies a JSON evidence prompt and writes evidence without creating review note", async () => {
+test("daily review generation saves JSON evidence and its prompt without creating a review note", async () => {
   const calls = [];
-  const clipboardWrites = [];
   const plugin = makeAiPlugin({
-    clipboardWrites,
     requestUrl: async (request) => {
       calls.push(request);
       throw new Error("AI API should not be called");
@@ -1998,19 +1994,22 @@ test("daily review generation copies a JSON evidence prompt and writes evidence 
   const result = await plugin.generateDailyReview("2026-05-05");
 
   assert.equal(result.ok, true);
-  assert.equal(result.mode, "copy-prompt");
+  assert.equal(result.mode, "prompt-file");
   assert.equal(calls.length, 0);
-  assert.equal(clipboardWrites.length, 1);
-  assert.match(clipboardWrites[0], /noria-review/);
-  assert.match(clipboardWrites[0], /review_note: Noria\/Diary\/2026\/2026-05-05-review\.md/);
-  assert.match(clipboardWrites[0], /evidence_file: \.obsidian\/plugins\/noria\/cache\/stats\/review\/2026\/2026-05-05\.json/);
-  assert.doesNotMatch(clipboardWrites[0], /evidence_context/);
-  assert.doesNotMatch(clipboardWrites[0], /evidence_hash/);
-  assert.doesNotMatch(clipboardWrites[0], /\.obsidian\/plugins\/noria\/cache\/review-context\/2026-05-05\.md/);
-  assert.doesNotMatch(clipboardWrites[0], /hash123/);
-  assert.equal(plugin.__writes.length, 1);
-  assert.equal(plugin.__writes[0].path, ".obsidian/plugins/noria/cache/stats/review/2026/2026-05-05.json");
-  const payload = JSON.parse(plugin.__writes[0].text);
+  assert.equal(result.promptPath, ".obsidian/plugins/noria/cache/stats/review/2026/2026-05-05.prompt.md");
+  assert.equal(plugin.__writes.length, 2);
+  const evidenceWrite = plugin.__writes.find((item) => item.path.endsWith("2026-05-05.json"));
+  const promptWrite = plugin.__writes.find((item) => item.path.endsWith("2026-05-05.prompt.md"));
+  assert.ok(evidenceWrite);
+  assert.ok(promptWrite);
+  assert.match(promptWrite.text, /noria-review/);
+  assert.match(promptWrite.text, /review_note: Noria\/Diary\/2026\/2026-05-05-review\.md/);
+  assert.match(promptWrite.text, /evidence_file: \.obsidian\/plugins\/noria\/cache\/stats\/review\/2026\/2026-05-05\.json/);
+  assert.doesNotMatch(promptWrite.text, /evidence_context/);
+  assert.doesNotMatch(promptWrite.text, /evidence_hash/);
+  assert.doesNotMatch(promptWrite.text, /\.obsidian\/plugins\/noria\/cache\/review-context\/2026-05-05\.md/);
+  assert.doesNotMatch(promptWrite.text, /hash123/);
+  const payload = JSON.parse(evidenceWrite.text);
   assert.equal(payload.exportKind, "noria.reviewEvidence");
   assert.equal(payload.payload.mode, "daily");
   assert.equal(payload.payload.period, "2026-05-05");
@@ -2599,7 +2598,9 @@ test("period evidence, final target, and analysis artifact share the calendar-re
     return { path: ".obsidian/plugins/noria/cache/stats/review/2026/2026.json" };
   };
   plugin.buildExternalDailyReviewPrompt = async () => "prompt";
-  plugin.copyReviewPromptFallback = async () => true;
+  plugin.writeReviewPromptFile = async () => ({
+    path: ".obsidian/plugins/noria/cache/stats/review/2026/2026.prompt.md"
+  });
 
   const selection = {
     mode: "yearly",
@@ -2789,7 +2790,7 @@ test("daily review task collection reads source files with bounded concurrency a
   let activeReads = 0;
   let maxActiveReads = 0;
 
-  plugin.app.vault.getMarkdownFiles = () => files;
+  plugin.filesForScope = (scopeId) => scopeId === "tasks" ? files : [];
   plugin.app.vault.cachedRead = async (file) => {
     activeReads += 1;
     maxActiveReads = Math.max(maxActiveReads, activeReads);
@@ -2816,7 +2817,7 @@ test("daily review task collection uses Obsidian metadata to skip files without 
     { path: "06_Diary/2026/2026-05-05.md" }
   ];
   const reads = [];
-  plugin.app.vault.getMarkdownFiles = () => files;
+  plugin.filesForScope = (scopeId) => scopeId === "tasks" ? files : [];
   plugin.app.vault.cachedRead = async (file) => {
     reads.push(file.path);
     return file.path.endsWith("Task.md") ? "- [ ] indexed task 2026-05-05" : "plain text";

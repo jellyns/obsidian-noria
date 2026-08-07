@@ -82,7 +82,6 @@
         min-height: 0;
         overflow: auto;
         padding: 0 15px 12px;
-        scrollbar-gutter: stable;
       }
       .noria-manager-footer {
         display: flex;
@@ -189,7 +188,7 @@
       }
       @media (max-width: 640px) {
         .noria-manager-overlay { padding: 12px; align-items: flex-start; }
-        .noria-manager-panel { width: calc(100vw - 24px) !important; max-height: calc(100vh - 24px); }
+        .noria-manager-panel { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
         .noria-manager-head { padding: 12px 12px 8px; }
         .noria-manager-body { padding: 0 12px 10px; }
         .noria-manager-footer { padding: 9px 12px 12px; }

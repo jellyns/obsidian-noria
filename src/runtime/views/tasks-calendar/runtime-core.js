@@ -1237,7 +1237,7 @@ var calendarHeartIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" heig
 /* cellContent 内保留零宽占位，降低 LP/消毒器把「空 div」摘掉导致无法挂载任务的风险 */
 var cellTemplate = "<div class='cell {{class}}' data-weekday='{{weekday}}' data-date='{{date}}'><a class='internal-link cellName' data-href='{{dailyNote}}' href='{{dailyNote}}'>{{cellName}}</a><div class='cellContent'><span class='tc-cell-ph' aria-hidden='true'>&#8203;</span></div></div>";
 /* 任务条用 buildTaskElement 在挂载后 appendChild：避免 metadata/Live Preview 对 innerHTML 里的 <a class="internal-link"> 消毒导致整格任务消失 */
-const rootNode = ctx.el("div", "", {cls: "tasksCalendar "+options, attr: {id: "tasksCalendar"+tid, view: view, style: 'position:relative;-webkit-user-select:none!important'}});
+const rootNode = ctx.el("div", "", {cls: "tasksCalendar "+options, attr: {id: "tasksCalendar"+tid, view: view, style: 'position:relative;-webkit-user-select:none'}});
 rootNode.__noriaTasksCalendarCleanup = cleanupTasksCalendarRuntime;
 if (tcTaskTimelineMode) {
 	rootNode.classList.add("tc-mode-task-timeline");
@@ -2931,22 +2931,13 @@ function getTaskIdentityKey(taskEl) {
 function collectTaskMeta(taskEl) {
 	var rawText = "";
 	var descNode = taskEl ? taskEl.querySelector(".description") : null;
-	if (!descNode && taskEl && taskEl.classList && taskEl.classList.contains("tc-cal-item--link")) {
-		descNode = taskEl.querySelector("a.internal-link");
-	}
-	if (!descNode && taskEl && taskEl.classList && taskEl.classList.contains("tc-cal-item--month-compact")) {
-		descNode = taskEl.querySelector("a.internal-link");
-	}
-	/* v0.5 Phase C 第三轮：bare/ctx 路径升级后，文本被 tcEnsureStatusCircle 包到 .tc-title-text 内，
-	 * 不再是 root.textContent 的一部分（root 还包含 .noria-status-circle 文本）。优先取 .tc-title-text。 */
 	if (!descNode && taskEl) {
-		var titleTextNode = taskEl.querySelector(".tc-title-text");
-		if (titleTextNode) { descNode = titleTextNode; }
+		descNode = taskEl.querySelector("a.internal-link");
+	}
+	if (!descNode && taskEl) {
+		descNode = taskEl.querySelector(".tc-title-row .internal-link");
 	}
 	if (descNode) { rawText = String(descNode.textContent || "").trim(); }
-	else if (taskEl && (taskEl.getAttribute("data-tc-bare") === "1" || taskEl.getAttribute("data-tc-ctx") === "1")) {
-		rawText = String(taskEl.textContent || "").trim();
-	}
 	var sourceWasTask = true;
 	var sourceWasTaskAttr = taskEl ? taskEl.getAttribute("data-noria-source-was-task") : null;
 	if (sourceWasTaskAttr === "0" || sourceWasTaskAttr === "false") { sourceWasTask = false; }
@@ -5004,7 +4995,7 @@ function normalizeMonthTitleDedupeKey(rawText) {
 function getMonthTaskVisibleTitleFromNode(node) {
 	if (!node || !node.querySelector) { return ""; }
 	try {
-		var d = node.querySelector(".description, a.internal-link, .internal-link, .tc-title-text");
+		var d = node.querySelector(".description, a.internal-link, .internal-link");
 		var raw = d ? String(d.textContent || "") : String(node.textContent || "");
 		return normalizeMonthTitleDedupeKey(raw);
 	} catch (_) {
@@ -5062,9 +5053,7 @@ function getMonthTaskDomKey(node) {
 	return p + "\u0001" + l + "\u0001" + s;
 }
 
-/* v0.5 Phase C：path+line 是任务的稳定身份；data-tc-sig 在不同构建路径会被截断到不同长度
- * （buildRuntimeCalItemRow 截 320，其余截 1800），因此用 sig 比对会漏匹配端日 fallback 节点。
- * 这里给 cleanup 提供一个不依赖 sig 的副键。 */
+/* path+line 是任务的稳定身份；这里给月表清理提供一个不依赖文本签名的副键。 */
 function getMonthTaskDomKeyShort(node) {
 	if (!node || !node.getAttribute) { return ""; }
 	var p = String(node.getAttribute("data-tc-path") || "");
@@ -5073,43 +5062,7 @@ function getMonthTaskDomKeyShort(node) {
 	return p + "\u0001" + l;
 }
 
-/* v0.5 Phase C：4 条降级路径（buildLinkOnlyCalItem / buildBareCalItem / buildRuntimeCalItemRow /
- * buildMinimalTaskElement）原本不写以下任务身份属性：
- *  - data-tc-month-span / data-tc-month-span-pos / data-tc-month-role
- *  - data-start-date / data-due-date
- * 这导致跨天端日 fallback 节点既不会被 `collectMonthSpanSegments` 采集进 model.bars，
- * 也无法被 `finalSweepDuplicatesAfterOverlayByDate` 按"任务身份卡"识别，
- * 视觉上与 overlay 跨天条并列出现"重复条"。
- * 本 helper 在每条 fallback 渲染完成后统一补属性，作为月表跨天任务的"身份补齐 SSOT"。
- * 设计文档：[[设计-Noria-UI系统]] §6.2.5。 */
-function applyMonthSpanFallbackAttrs(node, taskObj, currentDate) {
-	if (!node || !node.setAttribute || !taskObj || !currentDate) { return; }
-	try {
-		var sy = coerceTemporalToYmd(taskObj.start) || "";
-		var ey = coerceTemporalToYmd(taskObj.due) || "";
-		// 任务身份卡：所有 builder 都该有，作为终局清扫识别键
-		if (sy && !node.getAttribute("data-start-date")) { node.setAttribute("data-start-date", sy); }
-		if (ey && !node.getAttribute("data-due-date")) { node.setAttribute("data-due-date", ey); }
-		var role = normalizeMonthTaskRole(taskObj, currentDate);
-		node.setAttribute("data-tc-month-role", role);
-		var spanMultiDay = !!(sy && ey && sy !== ey);
-		if (spanMultiDay && role !== "none" && role !== "single") {
-			node.setAttribute("data-tc-month-span", "1");
-			var pos = role === "start" ? "start" : (role === "end" ? "end" : "middle");
-			node.setAttribute("data-tc-month-span-pos", pos);
-			try { node.setAttribute("data-has-time", "false"); } catch (_) {}
-			try { node.removeAttribute("data-time"); } catch (_) {}
-		}
-	} catch (_) {}
-}
-
-/* v0.5 Phase C 终局清扫：overlay 应用并 two-phase commit 后，再做一次跨 cellContent 的扫描。
- * v3 升级：从「仅日期身份」单轨升级为双轨清扫
- *   轨 1 — 日期对：data-start-date + data-due-date 与 overlay bar.sample 完全相同
- *           → 兼容旧 builder 缺 path+line（buildBareCalItem 等）的场景
- *   轨 2 — 行级身份：path+line 与 overlay bar.sample 相同（且当前节点不是另一条 overlay 源）
- *           → 兼容截止日 fallback 节点 data-start-date/data-due-date 缺/漂移的场景
- * 任一轨命中即移除：消除 metadata 异步注入残留 + LP 消毒后再生成的「同任务不同卡片」端日重复条。
+/* overlay 应用并提交后，再按日期、行级身份和可见标题清除异步重复节点。
  *
  * 注意：seg.sample 在 applyMonthSpanOverlay 已被 cloneNode + 源节点 remove，但 sample 自身 detached 后
  * 仍可读 attribute（DOM 节点未销毁），无需提前缓存。getMonthTaskDomKeyShort(sample) 即 path+line 串。 */
@@ -5160,12 +5113,8 @@ function finalSweepDuplicatesAfterOverlayByDate(wrapper, model) {
 	}
 }
 
-/* v0.5 Phase C 第三轮：同 cellContent 内按 path+line 去重（最后一道闸）
- * 触发场景：
- *  - metadata 异步把同一 task 又注入一次（典型：relocated 格在 LP 稳定后被再次 hydrate）
- *  - renderTasksIntoHost 的 fallback 链路（runtimeOnly→bareOnly）与原路径并存
- * 选择保留策略：优先保留结构「更完整」的节点（带 .description 或 .internal-link），
- * 即较早的「正式」builder 输出，丢弃较晚追加的 bare/ctx 镜像。
+/* 同 cellContent 内按 path+line 去重，处理 metadata 异步重灌同一任务的情况。
+ * 选择保留策略：优先保留结构完整的节点。
  * 不影响 overlay 跨天源条（overlay item 居于 .tc-month-span-overlay 之下，不在 cellContent）。 */
 function dedupeMonthCellTasks(box) {
 	if (!box || !box.querySelectorAll) { return 0; }
@@ -5313,9 +5262,9 @@ function applyMonthReserveByCol(wrapper, cells, reserveByColPx) {
 
 function cleanupMonthSourceRowsByModel(wrapper, model) {
 	if (!wrapper || !model || !model.bars || !model.bars.length) { return; }
-	/* v0.5 Phase C：双键兜底
-	 *  - fullKeySet：path+line+sig（与现有 getMonthTaskDomKey 兼容；overlay 源节点已在 two-phase 阶段移除）
-	 *  - shortKeySet：path+line（应对 buildRuntimeCalItemRow 等 sig 截断不一致的端日 fallback 残留）
+	/* 双键识别 overlay 源节点：
+	 *  - fullKeySet：path+line+sig
+	 *  - shortKeySet：path+line
 	 *  - alreadyKeptSamples：本轮 model.bars 中"被认领的源节点 DOM"集合，确保我们不会再删除自己 */
 	var fullByDate = Object.create(null);
 	var shortByDate = Object.create(null);
@@ -5798,199 +5747,6 @@ function getTasksCalendarDocument() {
 		return (rootNode && rootNode.ownerDocument) ? rootNode.ownerDocument : document;
 	} catch (_) {
 		return document;
-	}
-}
-
-/**
- * LP/消毒下 div 结构仍可能被剥：用 Obsidian 允许的 internal-link 作第二回退（span 包裹 a）
- */
-function buildLinkOnlyCalItem(obj, cls, currentDate, ownerDoc) {
-	try {
-		var doc = (ownerDoc && ownerDoc.createElement) ? ownerDoc : getTasksCalendarDocument();
-		var typeCls = String(cls || "due");
-		var taskTextPlain = normalizeDisplayTaskText(obj.text, typeCls);
-		if (isVisualEmptyTaskTitle(taskTextPlain) || String(taskTextPlain || "").trim() === "任务") { return null; }
-		var rawPath = (obj.link && obj.link.path) ? String(obj.link.path) : String(obj.path || "");
-		var taskPath = rawPath.replace(/\\/g, "/");
-		var taskSubpath = (obj.header && obj.header.subpath) ? obj.header.subpath : "";
-		var taskLine = taskSubpath ? taskPath + "#" + taskSubpath : taskPath;
-		var taskLineIndex = "";
-		if (obj.position && obj.position.start && typeof obj.position.start.line !== "undefined") {
-			taskLineIndex = String(obj.position.start.line);
-		} else if (typeof obj.line !== "undefined") {
-			taskLineIndex = String(obj.line);
-		}
-		var taskSig = "";
-		try {
-			var rawSig = String(obj.rawText || "");
-			if (rawSig.length > 1200) rawSig = rawSig.slice(0, 1200);
-			taskSig = encodeURIComponent(rawSig);
-			if (taskSig.length > 1800) taskSig = taskSig.slice(0, 1800);
-		} catch (_) {
-			taskSig = "";
-		}
-		var wrap = doc.createElement("span");
-		wrap.className = ("tc-cal-item tc-cal-item--link " + typeCls + " noNoteIcon").trim();
-		wrap.tabIndex = 0;
-		wrap.setAttribute("data-nav-href", taskLine);
-		wrap.setAttribute("data-tc-path", taskPath);
-		wrap.setAttribute("data-tc-line", taskLineIndex);
-		wrap.setAttribute("data-tc-sig", taskSig);
-		wrap.setAttribute("data-tone", getTaskTone(obj, typeCls));
-		applyTaskTagColorMeta(wrap, obj, typeCls);
-		applyTaskDependencyStateToEl(wrap, obj);
-		wrap.setAttribute("data-slot", "none");
-		wrap.setAttribute("data-lane", "day");
-		wrap.title = taskTextPlain;
-		var link = doc.createElement("a");
-		link.className = "internal-link";
-		link.textContent = taskTextPlain;
-		link.setAttribute("data-href", taskLine);
-		link.setAttribute("href", taskLine);
-		wrap.appendChild(link);
-		var linkCheck = tcMakeNativeTaskCheckbox(obj, typeCls);
-		if (linkCheck) { wrap.appendChild(linkCheck); }
-		wrap.setAttribute("data-tc-cal-item", "1");
-		wrap.setAttribute("data-tc-kind", typeCls);
-		return wrap;
-	} catch (err) {
-		console.error("[noria tasksCalendar] buildLinkOnlyCalItem failed", err);
-		return null;
-	}
-}
-
-/**
- * 最后一层：无语义 class、无嵌套，仅 data 属性 + 文本；应对 LP 剥 class/剥复杂子树后仍「有统计无条」的情况
- */
-function buildBareCalItem(obj, cls, currentDate, ownerDoc) {
-	try {
-		var doc = (ownerDoc && ownerDoc.createElement) ? ownerDoc : getTasksCalendarDocument();
-		var typeCls = String(cls || "due");
-		var taskTextPlain = normalizeDisplayTaskText(obj.text, typeCls);
-		var taskTitleEmpty = !String(taskTextPlain || "").trim();
-		if (taskTitleEmpty || String(taskTextPlain || "").trim() === "任务") { return null; }
-		var rawPath = (obj.link && obj.link.path) ? String(obj.link.path) : String(obj.path || "");
-		var taskPath = rawPath.replace(/\\/g, "/");
-		var taskSubpath = (obj.header && obj.header.subpath) ? obj.header.subpath : "";
-		var taskLine = taskSubpath ? taskPath + "#" + taskSubpath : taskPath;
-		var taskLineIndex = "";
-		if (obj.position && obj.position.start && typeof obj.position.start.line !== "undefined") {
-			taskLineIndex = String(obj.position.start.line);
-		} else if (typeof obj.line !== "undefined") {
-			taskLineIndex = String(obj.line);
-		}
-		var taskSig = "";
-		try {
-			var rawSig = String(obj.rawText || "");
-			if (rawSig.length > 1200) rawSig = rawSig.slice(0, 1200);
-			taskSig = encodeURIComponent(rawSig);
-			if (taskSig.length > 1800) taskSig = taskSig.slice(0, 1800);
-		} catch (_) {
-			taskSig = "";
-		}
-		var el = doc.createElement("span");
-		el.setAttribute("data-tc-cal-item", "1");
-		el.setAttribute("data-tc-bare", "1");
-		el.setAttribute("data-tc-kind", typeCls);
-		el.setAttribute("data-nav-href", taskLine);
-		el.setAttribute("data-tc-path", taskPath);
-		el.setAttribute("data-tc-line", taskLineIndex);
-		el.setAttribute("data-tc-sig", taskSig);
-		el.setAttribute("data-tone", getTaskTone(obj, typeCls));
-		if (taskTitleEmpty) {
-			el.setAttribute("data-tc-empty-title", "1");
-		}
-		applyTaskTagColorMeta(el, obj, typeCls);
-		applyTaskDependencyStateToEl(el, obj);
-		el.setAttribute("data-slot", "none");
-		el.setAttribute("data-lane", "day");
-		el.tabIndex = 0;
-		el.title = taskTextPlain;
-		var bareText = doc.createElement("span");
-		bareText.className = "tc-title-text";
-		bareText.textContent = taskTextPlain;
-		el.appendChild(bareText);
-		var bareCheck = tcMakeNativeTaskCheckbox(obj, typeCls);
-		if (bareCheck) { el.appendChild(bareCheck); }
-		return el;
-	} catch (err) {
-		console.error("[noria tasksCalendar] buildBareCalItem failed", err);
-		return null;
-	}
-}
-
-/**
- * 旧名保留为兼容入口，但不能再使用 ctx.el 创建任务行。
- * metadata 的 ctx.el 会先把节点挂到当前输出根，fallback 失败或被隐藏时会裸露成左上角文本。
- */
-function buildRuntimeCalItemRow(obj, cls, currentDate, ownerDoc) {
-	try {
-		var el = buildMinimalTaskElement(obj, cls, currentDate, ownerDoc);
-		if (el) { el.setAttribute("data-tc-ctx", "detached"); }
-		return el;
-	} catch (err) {
-		console.error("[noria tasksCalendar] buildRuntimeCalItemRow failed", err);
-		return null;
-	}
-}
-
-/** 完整任务条构建失败时的轻量回退（同一 ownerDocument，避免跨文档收养异常） */
-function buildMinimalTaskElement(obj, cls, currentDate, ownerDoc) {
-	try {
-		var doc = (ownerDoc && ownerDoc.createElement) ? ownerDoc : getTasksCalendarDocument();
-		var typeCls = String(cls || "due");
-		var taskTextPlain = normalizeDisplayTaskText(obj.text, typeCls);
-		if (isVisualEmptyTaskTitle(taskTextPlain) || String(taskTextPlain || "").trim() === "任务") { return null; }
-		var rawPath = (obj.link && obj.link.path) ? String(obj.link.path) : String(obj.path || "");
-		var taskPath = rawPath.replace(/\\/g, "/");
-		var taskSubpath = (obj.header && obj.header.subpath) ? obj.header.subpath : "";
-		var taskLine = taskSubpath ? taskPath + "#" + taskSubpath : taskPath;
-		var taskLineIndex = "";
-		if (obj.position && obj.position.start && typeof obj.position.start.line !== "undefined") {
-			taskLineIndex = String(obj.position.start.line);
-		} else if (typeof obj.line !== "undefined") {
-			taskLineIndex = String(obj.line);
-		}
-		var taskSig = "";
-		try {
-			var rawSig = String(obj.rawText || "");
-			if (rawSig.length > 1200) rawSig = rawSig.slice(0, 1200);
-			taskSig = encodeURIComponent(rawSig);
-			if (taskSig.length > 1800) taskSig = taskSig.slice(0, 1800);
-		} catch (_) {
-			taskSig = "";
-		}
-		var el = doc.createElement("div");
-		el.className = ("tc-cal-item tc-cal-item--minimal " + typeCls + " noNoteIcon").trim();
-		el.tabIndex = 0;
-		el.setAttribute("data-nav-href", taskLine);
-		el.setAttribute("data-tc-path", taskPath);
-		el.setAttribute("data-tc-line", taskLineIndex);
-		el.setAttribute("data-tc-sig", taskSig);
-		el.setAttribute("data-tone", getTaskTone(obj, typeCls));
-		applyTaskTagColorMeta(el, obj, typeCls);
-		applyTaskDependencyStateToEl(el, obj);
-		el.setAttribute("data-slot", "none");
-		el.setAttribute("data-lane", "day");
-		el.title = taskTextPlain;
-		var inner = doc.createElement("span");
-		inner.className = "inner";
-		var desc = doc.createElement("span");
-		desc.className = "description";
-		desc.textContent = taskTextPlain;
-		var minTitleRow = doc.createElement("span");
-		minTitleRow.className = "tc-title-row";
-		minTitleRow.appendChild(desc);
-		var minCheck = tcMakeNativeTaskCheckbox(obj, typeCls);
-		if (minCheck) { minTitleRow.appendChild(minCheck); }
-		inner.appendChild(minTitleRow);
-		el.appendChild(inner);
-		el.setAttribute("data-tc-cal-item", "1");
-		el.setAttribute("data-tc-kind", typeCls);
-		return el;
-	} catch (err) {
-		console.error("[noria tasksCalendar] buildMinimalTaskElement failed", err);
-		return null;
 	}
 }
 
@@ -6756,16 +6512,8 @@ async function tcToggleTaskDoneTransaction(taskEl, preferredCircle, options) {
 	}
 }
 
-/* v0.5 Phase C 第三轮：status-circle 通用挂载点（设计文档 §5.3.1 / §12.A.1）
- * 第二轮把圆圈 append 进 .description / .internal-link 内部时，与 ellipsis 共享同一裁剪盒
- *   → 单行长标题被 text-overflow:ellipsis 截掉时，圆圈一并被裁，不可见也无法点击。
- * 第三轮改为：圆圈始终作为「标题元素的下一个兄弟节点」存在
- *   → ellipsis 只作用在标题子树上；圆圈在父级 flex 容器里 flex-shrink:0，永远可见。
- * 优先级：
- *   1) sibling-after .description（buildTaskElement 完整路径）
- *   2) sibling-after .internal-link（buildLinkOnlyCalItem / month-compact）
- *   3) 包裹 root 文本到 .tc-title-text，再将圆圈作为它的兄弟节点（buildBareCalItem / buildRuntimeCalItemRow 等）
- *   4) append 到 root 末尾（极端兜底）
+/* status-circle 始终作为标题元素的兄弟节点，避免与省略文本共享裁剪盒。
+ * 完整任务条使用 .description，月表紧凑条使用 .internal-link。
  * 跨天「源条」（仍在 cellContent 内）不挂；跨天 overlay 克隆条可挂圆圈并可点切换完成 */
 function tcInferTypeClsFromCalItemEl(el) {
 	if (!el || !el.getAttribute) { return "due"; }
@@ -6963,20 +6711,8 @@ function tcEnsureStatusCircle(rootEl, taskObj, typeCls) {
 			normalizeMonthTaskRowDom(rootEl, taskObj, typeCls);
 			return;
 		}
-		// 若已经有圆圈但被挂在裁剪盒内（旧版本残留 / DOM 由 LP 反序列化等），就地搬到兄弟位
 		var existing = rootEl.querySelector(".tc-compact-checkbox[data-tc-compact-checkbox='1'], .noria-status-circle[data-noria-status-circle='1']");
-		if (existing) {
-			var pc = existing.parentNode;
-			if (pc && pc.classList && (pc.classList.contains("description") || pc.classList.contains("internal-link") || pc.classList.contains("tc-title-text"))) {
-				var grand = pc.parentNode;
-				if (grand) {
-					try { grand.insertBefore(existing, pc.nextSibling); } catch (_) {}
-				}
-			}
-			/* 已挂进 .tc-title-row 则维持 */
-			if (pc && pc.classList && pc.classList.contains("tc-title-row")) { return; }
-			return;
-		}
+		if (existing) { return; }
 		var circle = tcMakeNativeTaskCheckbox(taskObj, typeCls);
 		if (!circle) { return; }
 		var titleRowHost = rootEl.querySelector(".tc-title-row");
@@ -6999,22 +6735,6 @@ function tcEnsureStatusCircle(rootEl, taskObj, typeCls) {
 			link.parentNode.insertBefore(circle, link.nextSibling);
 			return;
 		}
-		/* bare/ctx：root 直挂文本 → 必须包到 .tc-title-text 才能让 ellipsis 与圆圈分盒 */
-		var hasElementChildren = rootEl.childElementCount > 0;
-		if (!hasElementChildren) {
-			try {
-				var doc = rootEl.ownerDocument || document;
-				var raw = String(rootEl.textContent || "");
-				rootEl.textContent = "";
-				var titleSpan = doc.createElement("span");
-				titleSpan.className = "tc-title-text";
-				titleSpan.textContent = raw;
-				rootEl.appendChild(titleSpan);
-				rootEl.appendChild(circle);
-				return;
-			} catch (_) {}
-		}
-		rootEl.appendChild(circle);
 	} catch (_) {}
 }
 
@@ -7044,7 +6764,7 @@ function tcEnsureNodeDocument(node, targetDoc) {
 
 function countCalItemsInHost(hostEl) {
 	if (!hostEl || !hostEl.querySelectorAll) return 0;
-	var n = hostEl.querySelectorAll('[data-tc-cal-item="1"], [data-tc-ctx="1"]').length;
+	var n = hostEl.querySelectorAll('[data-tc-cal-item="1"]').length;
 	if (n > 0) return n;
 	n = hostEl.querySelectorAll(".tc-cal-item, .task, .tc-cal-item--ctx").length;
 	if (n > 0) return n;
@@ -7053,12 +6773,12 @@ function countCalItemsInHost(hostEl) {
 	if (db || tl) {
 		var sum = 0;
 		if (db) {
-			var q = db.querySelectorAll('[data-tc-cal-item="1"], [data-tc-ctx="1"], .tc-cal-item, .task');
+			var q = db.querySelectorAll('[data-tc-cal-item="1"]');
 			if (q.length > 0) sum += q.length;
 			else if (db.children && db.children.length) sum += db.children.length;
 		}
 		if (tl) {
-			var q2 = tl.querySelectorAll('[data-tc-cal-item="1"], [data-tc-ctx="1"], .tc-cal-item, .task');
+			var q2 = tl.querySelectorAll('[data-tc-cal-item="1"]');
 			if (q2.length > 0) sum += q2.length;
 			else if (tl.children && tl.children.length) sum += tl.children.length;
 		}
@@ -7325,10 +7045,7 @@ function hoistMonthWeekCellsToRuntimeTree(gridEl) {
 	} catch (_) {}
 }
 
-function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek, opts) {
-	opts = opts || {};
-	var runtimeOnly = opts.runtimeOnly === true;
-	var bareOnly = opts.bareOnly === true;
+function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 	if (!hostEl) return;
 	/* hydrate 时必须先按当日刷新全局分组；否则仍停留在网格构建循环里最后一次 getTasks 的状态，易导致「统计有数、格子全空」 */
 	getTasksViaAdapter(currentDate);
@@ -7496,83 +7213,17 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek, opts) 
 				continue;
 			}
 			var slot = slotEarly;
-			var node = null;
-			if (bareOnly) {
-				node = buildBareCalItem(sorted[t], typ, currentDate, doc);
-				if (!node) {
-					node = buildMinimalTaskElement(sorted[t], typ, currentDate, doc);
-				}
-				/* v0.5 Phase C 第二轮根因：递归回退路径（rawExpect>0 && actual===0 触发的 runtimeOnly→bareOnly）
-				 * 原本绕过月表 fallback 后处理，导致回退节点无 data-tc-month-span / data-start-date / data-due-date
-				 * → 既不进 model.bars，也不被 finalSweepDuplicatesAfterOverlayByDate 命中，残留为可见单日条
-				 * 修复：递归路径同样应用 post-processor（仅当当前视图是月表） */
-				if (rootNode.getAttribute("view") === "month" && node) {
-					applyMonthSpanFallbackAttrs(node, sorted[t], currentDate);
-					tcEnsureStatusCircle(node, sorted[t], typ);
-				}
-			} else if (runtimeOnly) {
-				node = buildRuntimeCalItemRow(sorted[t], typ, currentDate);
-				if (rootNode.getAttribute("view") === "month" && node) {
-					applyMonthSpanFallbackAttrs(node, sorted[t], currentDate);
-					tcEnsureStatusCircle(node, sorted[t], typ);
-				}
-			} else if (plannerChromeWeek && slot.slotType != "none") {
-				/* plannerChrome 时段任务：必须用完整条（含 resize-handle、.time），否则 ctx 扁条无法拖拽/拉伸 */
-				node = buildTaskElement(sorted[t], typ, currentDate, doc);
-				if (!node) {
-					node = buildMinimalTaskElement(sorted[t], typ, currentDate, doc);
-				}
-				if (!node) {
-					node = buildLinkOnlyCalItem(sorted[t], typ, currentDate, doc);
-				}
-				if (!node) {
-					node = buildBareCalItem(sorted[t], typ, currentDate, doc);
-				}
-			} else {
-				/* 月表：优先完整条以支持单日紧凑样式与拖改期 data-*；其余视图仍先 ctx.el 抗 LP 剥子树 */
-				var isMonthGrid = (rootNode.getAttribute("view") === "month");
-				node = null;
-				if (isMonthGrid) {
-					node = buildTaskElement(sorted[t], typ, currentDate, doc, { monthView: true });
-				}
-				if (!node) {
-				node = buildRuntimeCalItemRow(sorted[t], typ, currentDate);
-				}
-				if (!node) {
-					node = buildTaskElement(sorted[t], typ, currentDate, doc, isMonthGrid ? { monthView: true } : undefined);
-				}
-				if (!node) {
-					node = buildLinkOnlyCalItem(sorted[t], typ, currentDate, doc);
-				}
-				if (!node) {
-					node = buildMinimalTaskElement(sorted[t], typ, currentDate, doc);
-				}
-				if (!node) {
-					node = buildBareCalItem(sorted[t], typ, currentDate, doc);
-				}
-				/* v0.5 Phase C：每条 fallback 路径在月表都补 data-tc-month-span / data-tc-month-span-pos / data-tc-month-role
-				 * 之所以放在分支末尾而不是 builder 内部，是因为 buildRuntimeCalItemRow 通过 ctx.el 同步创建，
-				 * builder 自身改 setAttribute 易被 LP 消毒；统一在 host 这层兜底是单一事实源 */
-				if (isMonthGrid && node) {
-					applyMonthSpanFallbackAttrs(node, sorted[t], currentDate);
-					tcEnsureStatusCircle(node, sorted[t], typ);
-				}
-			}
+			var node = buildTaskElement(
+				sorted[t],
+				typ,
+				currentDate,
+				doc,
+				isMonthGrid ? { monthView: true } : undefined
+			);
 			if (!node) continue;
 			node = tcEnsureNodeDocument(node, doc);
 			if (isTimelineTask) {
 				node.setAttribute("data-timeline-tagged", "1");
-			}
-			if (plannerChromeWeek && (node.classList.contains("tc-cal-item--minimal") || node.classList.contains("tc-cal-item--link") || node.getAttribute("data-tc-bare") === "1" || node.getAttribute("data-tc-ctx") === "1")) {
-				node.setAttribute("data-slot", slot.slotType);
-				node.setAttribute("data-start-min", slot.startMin);
-				node.setAttribute("data-end-min", slot.endMin);
-				node.setAttribute("data-lane", (sorted[t].isTimelineDay || slot.slotType == "none") ? "day" : "time");
-				if (slot.slotType != "none") {
-					try {
-						node.style.cssText += slotToCssVars(slot);
-					} catch (_) {}
-				}
 			}
 			if (!plannerChromeWeek) {
 				if (rootNode.getAttribute("view") === "month") {
@@ -7634,29 +7285,8 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek, opts) 
 		hostEl.setAttribute("data-tc-last-appended", String(appendedRows));
 	} catch (_) {}
 	var actual = countCalItemsInHost(hostEl);
-	/*
-	 * 第一性：若数据层有任务、本帧也曾 append 过节点，但计数仍为 0 → 极像 LP 同步剥 DOM 或计数窗口不对。
-	 * 若完全未 append 成功（createElement 链全灭）→ 同样再试仅 ctx.el 整格重灌。
-	 * runtimeOnly 第二轮不再递归，避免死循环。
-	 * bareOnly：仅最简 span/div + data 属性，应对 ctx.el 与完整条均被剥仍「有数无条」。
-	 */
+	/* plannerChrome 的等待区由独立 host 管理，不在本格挂载可见任务条。 */
 	if (plannerChromeWeek && rawExpect > 0 && actual === 0) {
-		return;
-	}
-	if (rawExpect > 0 && actual === 0 && !plannerChromeWeek && !runtimeOnly && !bareOnly) {
-		try {
-			renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek, { runtimeOnly: true });
-		} catch (reRuntime) {
-			try { console.error("[noria tasksCalendar] runtimeOnly remount failed", currentDate, reRuntime); } catch (_) {}
-		}
-		return;
-	}
-	if (rawExpect > 0 && actual === 0 && !plannerChromeWeek && runtimeOnly && !bareOnly) {
-		try {
-			renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek, { bareOnly: true });
-		} catch (reBare) {
-			try { console.error("[noria tasksCalendar] bareOnly remount failed", currentDate, reBare); } catch (_) {}
-		}
 		return;
 	}
 	actual = countCalItemsInHost(hostEl);
@@ -7748,7 +7378,7 @@ function hydrateGridTaskCells(gridEl) {
 		try { applyPlannerChromeTimelineAxis(); } catch (_) {}
 	}
 	try {
-		var totalTasks = gridEl.querySelectorAll('[data-tc-cal-item="1"], [data-tc-ctx="1"], .tc-cal-item, .task').length;
+		var totalTasks = gridEl.querySelectorAll('[data-tc-cal-item="1"]').length;
 		var metaLen = tasks && tasks.length ? tasks.length : 0;
 		rootNode.setAttribute("data-tc-hydrate-cells", String(cells.length));
 		rootNode.setAttribute("data-tc-hydrate-tasks", String(totalTasks));
@@ -13762,7 +13392,7 @@ function normalizePlannerChromeWaitingItem(item) {
 		}
 		if (inner) {
 			var titleRow = inner.querySelector(".tc-title-row");
-			var desc = inner.querySelector(".description, a.internal-link, .internal-link, .tc-title-text");
+			var desc = inner.querySelector(".description, a.internal-link, .internal-link");
 			if (!titleRow && doc && doc.createElement) {
 				titleRow = doc.createElement("span");
 				titleRow.className = "tc-title-row";
@@ -13802,7 +13432,7 @@ function hasPlannerChromeWaitingStandardStructure(el) {
 		if (!inner) { return false; }
 		var titleRow = inner.querySelector(".tc-title-row");
 		if (!titleRow) { return false; }
-		var title = titleRow.querySelector(".description, .internal-link, a.internal-link, .tc-title-text");
+		var title = titleRow.querySelector(".description, .internal-link, a.internal-link");
 		if (!title) { return false; }
 		return !!String(title.textContent || "").replace(/\u200b/g, "").trim();
 	} catch (_) {
@@ -13876,9 +13506,6 @@ function buildPlannerChromeWaitingItemFromEntry(ent, currentDate, doc) {
 	if (task && isRenderableTaskRow(task, typ)) {
 		var item = null;
 		try { item = buildTaskElement(task, typ, currentDate, doc); } catch (_) { item = null; }
-		if (!item || !hasPlannerChromeWaitingStandardStructure(item)) {
-			try { item = buildMinimalTaskElement(task, typ, currentDate, doc); } catch (_) { item = null; }
-		}
 		if (item && hasPlannerChromeWaitingStandardStructure(item)) {
 			try { item = tcEnsureNodeDocument(item, doc); } catch (_) {}
 			try {
@@ -15519,15 +15146,6 @@ function getList(tasks, focusDate) {
 		});
 		for (var i = 0; i < Math.min(items.length, maxCount || 120); i++) {
 			var node = buildTaskElement(items[i].task, items[i].typ, items[i].dateStr, listNode.ownerDocument, { eisenContentOnly: true });
-			if (!node) {
-				node = buildLinkOnlyCalItem(items[i].task, items[i].typ, items[i].dateStr, listNode.ownerDocument);
-			}
-			if (!node) {
-				node = buildMinimalTaskElement(items[i].task, items[i].typ, items[i].dateStr, listNode.ownerDocument);
-			}
-			if (!node) {
-				node = buildBareCalItem(items[i].task, items[i].typ, items[i].dateStr, listNode.ownerDocument);
-			}
 			if (!node) continue;
 			node.classList.add("qTask", "tc-cal-item--eisen-content");
 			try {

@@ -2398,7 +2398,7 @@ function noriaTlBuildSyntheticTaskElForTimeEditor(tk, ownerDoc) {
     taskSig = "";
   }
   const wrap = doc.createElement("span");
-  wrap.className = "tc-cal-item tc-cal-item--link noria-tl-te-proxy noNoteIcon";
+  wrap.className = "tc-cal-item noria-tl-te-proxy noNoteIcon";
   wrap.setAttribute("data-tc-cal-item", "1");
   wrap.setAttribute("data-nav-href", navHref);
   wrap.setAttribute("data-tc-path", taskPath);
@@ -3705,32 +3705,6 @@ function noriaTlBuildLabPanel(parent, root, rerender) {
     cfg.activePresetByScope = { ...(cfg.activePresetByScope || {}), timeline: name };
     noriaTlLabApplyCfg(cfg, root, rerender);
   });
-  const jsonBar = panel.createDiv({ cls: "noria-tl-lab-actions" });
-  const copyBtn = jsonBar.createEl("button", { cls: "noria-tl-lab-btn", text: noriaTlRuntimeT("runtime.timeline.lab.copyJson"), type: "button" });
-  copyBtn.addEventListener("click", async () => {
-    try {
-      const payload = JSON.stringify({ timeline: noriaTlReadPlannerLabControls().timeline }, null, 2);
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(payload);
-      } else {
-        window.prompt(noriaTlRuntimeT("runtime.timeline.lab.copyJsonPrompt"), payload);
-      }
-    } catch (_) {}
-  });
-  const pasteBtn = jsonBar.createEl("button", { cls: "noria-tl-lab-btn", text: noriaTlRuntimeT("runtime.timeline.lab.pasteJson"), type: "button" });
-  pasteBtn.addEventListener("click", () => {
-    const raw = window.prompt(noriaTlRuntimeT("runtime.timeline.lab.pasteJsonPrompt"), "");
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      const timelinePatch = parsed && parsed.timeline && typeof parsed.timeline === "object" ? parsed.timeline : parsed;
-      if (!timelinePatch || typeof timelinePatch !== "object") return;
-      const cfg = noriaTlReadPlannerLabControls();
-      cfg.timeline = { ...(cfg.timeline || {}), ...timelinePatch };
-      noriaTlLabApplyCfg(cfg, root, rerender);
-      if (typeof rerender === "function") rerender();
-    } catch (_) {}
-  });
   const actions = panel.createDiv({ cls: "noria-tl-lab-actions" });
   const resetScope = actions.createEl("button", { cls: "noria-tl-lab-btn", text: noriaTlRuntimeT("runtime.timeline.lab.resetScope"), type: "button" });
   resetScope.addEventListener("click", () => {
@@ -3870,34 +3844,28 @@ async function render() {
 .noria-tl-toolbar .noria-tl-toolbar-add:hover,.noria-tl-toolbar .noria-tl-toolbar-icon-btn:hover{opacity:1;color:var(--text-normal);background:color-mix(in srgb,var(--interactive-accent) 8%,transparent)}
 .noria-tl-toolbar .noria-tl-toolbar-add svg,.noria-tl-toolbar .noria-tl-toolbar-icon-btn svg{width:16px;height:16px;stroke-width:2px}
 .noria-tl-toolbar .noria-tl-toolbar-link{margin:0;border:none;background:transparent;color:color-mix(in srgb,var(--text-normal) 82%,var(--text-muted));font-size:12.5px;font-weight:520;letter-spacing:0;padding:4px 10px;border-radius:var(--clickable-icon-radius,var(--radius-s,4px));cursor:pointer;line-height:1.25;box-shadow:none;-webkit-font-smoothing:antialiased;transition:background .14s ease,color .14s ease,box-shadow .14s ease}
-.noria-tl-toolbar .noria-tl-toolbar-link--diary-inbox{color:color-mix(in srgb,var(--text-normal) 70%,var(--text-muted));opacity:.66;background:transparent!important;border-color:transparent!important;box-shadow:none!important}
-.noria-tl-toolbar .noria-tl-toolbar-link--diary-inbox:hover{opacity:1;color:var(--interactive-accent);background:var(--background-modifier-hover)!important}
-.noria-tl-toolbar .noria-tl-toolbar-link--timer-attach{cursor:grab;color:color-mix(in srgb,var(--text-normal) 76%,var(--text-muted));background:transparent!important;box-shadow:none!important;border:none!important}
-.noria-tl-toolbar .noria-tl-toolbar-link--timer-attach.is-dragging{cursor:grabbing;color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 8%,transparent)!important;box-shadow:none!important}
+.noria-tl-toolbar .noria-tl-toolbar-link--diary-inbox{color:color-mix(in srgb,var(--text-normal) 70%,var(--text-muted));opacity:.66;background:transparent;border-color:transparent;box-shadow:none}
+.noria-tl-toolbar .noria-tl-toolbar-link--diary-inbox:hover{opacity:1;color:var(--interactive-accent);background:var(--background-modifier-hover)}
+.noria-tl-toolbar .noria-tl-toolbar-link--timer-attach{cursor:grab;color:color-mix(in srgb,var(--text-normal) 76%,var(--text-muted));background:transparent;box-shadow:none;border:none}
+.noria-tl-toolbar .noria-tl-toolbar-link--timer-attach.is-dragging{cursor:grabbing;color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 8%,transparent);box-shadow:none}
 .noria-tl-toolbar .noria-tl-toolbar-link:hover{color:var(--text-normal);background:var(--background-modifier-hover)}
 .noria-tl-toolbar .noria-tl-toolbar-link:active{background:var(--background-modifier-hover)}
 .noria-tl-root.noria-tl-today-focus .noria-tl-toolbar .noria-tl-btn-today{background:var(--background-modifier-hover);color:var(--interactive-accent);font-weight:580;box-shadow:none}
 .noria-tl-toolbar .noria-tl-toolbar-icon-btn.noria-tl-toolbar-link--on,.noria-tl-toolbar .noria-tl-toolbar-link.noria-tl-toolbar-link--on{opacity:1;color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 8%,transparent);box-shadow:none}
 .noria-tl-counter-row{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:stretch;gap:5px;justify-content:space-between;margin:7px 0 6px;padding:0;width:100%;box-sizing:border-box}
-.noria-tl-counter-card{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;min-height:44px;max-height:50px;margin:0;padding:6px 5px 7px;border-radius:8px;border:1px solid color-mix(in srgb,var(--background-modifier-border) 34%,transparent);background:transparent;background-image:none;-webkit-appearance:none;appearance:none;cursor:pointer;font:inherit;color:inherit;text-align:center;text-decoration:none;transition:background .12s ease,color .12s ease;box-shadow:none!important;outline:0;filter:none;box-sizing:border-box;overflow:hidden}
+.noria-tl-counter-card{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;min-height:44px;max-height:50px;margin:0;padding:6px 5px 7px;border-radius:8px;border:1px solid color-mix(in srgb,var(--background-modifier-border) 34%,transparent);background:transparent;background-image:none;-webkit-appearance:none;appearance:none;cursor:pointer;font:inherit;color:inherit;text-align:center;transition:background .12s ease,color .12s ease;box-shadow:none;outline:0;filter:none;box-sizing:border-box;overflow:hidden}
 .noria-tl-counter-card[data-counter="todo"]{background:transparent}
 .noria-tl-counter-card[data-counter="overdue"]{background:transparent}
 .noria-tl-counter-card[data-counter="unplanned"]{background:transparent}
 .noria-tl-counter-card:hover{background:color-mix(in srgb,var(--interactive-accent) 3%,transparent)}
 .noria-tl-counter-card[data-active="1"]{background:color-mix(in srgb,var(--interactive-accent) 5%,transparent);color:var(--text-normal)}
-.noria-tl-counter-card:focus,.noria-tl-counter-card:focus-visible{outline:0;box-shadow:none!important}
+.noria-tl-counter-card:focus,.noria-tl-counter-card:focus-visible{outline:0;box-shadow:none}
 .noria-tl-counter-card[data-active="1"] .noria-tl-counter-num{font-weight:680}
 .noria-tl-counter-card[data-active="1"] .noria-tl-counter-label{color:var(--text-normal);opacity:.82}
 .noria-tl-counter-num{font-size:17px;font-weight:620;font-variant-numeric:tabular-nums;line-height:1.15;color:var(--text-normal);flex-shrink:0}
 .noria-tl-counter-label{font-size:11.2px;font-weight:610;color:var(--text-muted);margin-top:1px;letter-spacing:0;text-transform:none;opacity:.9;line-height:1.2;text-align:center;max-width:100%;padding:0 2px 1px;box-sizing:border-box;word-break:break-word}
-.noria-tl-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:auto;border-radius:0;border:none;background:transparent;box-shadow:none;box-sizing:border-box;padding:0;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--text-muted) 45%,transparent) transparent}
-.noria-tl-scroll::-webkit-scrollbar{width:8px}
-.noria-tl-scroll::-webkit-scrollbar:vertical{width:8px}
-.noria-tl-scroll::-webkit-scrollbar-button{display:none;height:0;width:0}
-.noria-tl-scroll::-webkit-scrollbar-track{background:transparent}
-.noria-tl-scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--text-muted) 35%,transparent);border-radius:999px;border:2px solid transparent;background-clip:padding-box}
-.noria-tl-scroll::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--text-muted) 52%,transparent);background-clip:padding-box}
-.theme-dark .noria-tl-scroll{background:transparent;scrollbar-color:color-mix(in srgb,var(--text-muted) 50%,transparent) transparent}
+.noria-tl-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;border-radius:0;border:none;background:transparent;box-shadow:none;box-sizing:border-box;padding:0}
+.theme-dark .noria-tl-scroll{background:transparent}
 .noria-tl-unplanned{margin:0;padding:10px 0 12px;border-bottom:none;background:transparent}
 .noria-tl-unplanned h3{margin:0 0 8px;font-size:11px;font-weight:650;color:var(--text-muted);letter-spacing:0;text-transform:none;padding-left:2px}
 .noria-tl-day{border-bottom:none;padding:10px 0 12px;margin:0;box-sizing:border-box;width:100%;background:transparent}
@@ -3911,7 +3879,7 @@ async function render() {
 .noria-tl-dayCountTag{font-size:11px;line-height:1.3;font-weight:620;color:var(--text-muted);padding:3px 8px;border-radius:999px;background:color-mix(in srgb,var(--background-secondary) 76%,var(--background-primary));border:1px solid color-mix(in srgb,var(--background-modifier-border) 76%,transparent)}
 .noria-tl-timeline{list-style:none;margin:0;padding:0;border-left:none;position:relative}
 .noria-tl-timeline .noria-tl-empty-li{margin:0;padding:4px 0 8px 2px;color:var(--text-muted);font-size:12px;list-style:none}
-.noria-tl-task{display:grid;grid-template-columns:var(--noria-tl-time-col-width,30px) var(--noria-tl-axis-col-width,14px) minmax(0,1fr);column-gap:0;align-items:flex-start;margin:0;padding:0 0 var(--noria-tl-task-gap-y,8px) 0;font-size:13px;line-height:1.4;position:relative;z-index:1;transition:transform var(--noria-tl-layout-transition-ms,120ms) ease}
+.noria-tl-task{display:grid;grid-template-columns:var(--noria-tl-time-col-width,30px) var(--noria-tl-axis-col-width,14px) minmax(0,1fr);gap:0;align-items:flex-start;margin:0;padding:0 0 var(--noria-tl-task-gap-y,8px) 0;font-size:13px;line-height:1.4;position:relative;z-index:1;transition:transform var(--noria-tl-layout-transition-ms,120ms) ease}
 .noria-tl-task.noria-tl-task-done-local{opacity:0;transform:translateX(-4px);transition:opacity .14s ease,transform .14s ease}
 .noria-tl-col-time{display:flex;flex-direction:column;align-items:var(--noria-tl-time-align-items,flex-start);text-align:var(--noria-tl-time-col-align,left);justify-content:flex-start;gap:var(--noria-tl-two-line-gap,2px);width:var(--noria-tl-time-col-width,34px);min-width:var(--noria-tl-time-col-width,34px);max-width:var(--noria-tl-time-col-width,34px);box-sizing:border-box;padding-top:1px;padding-right:2px;margin-left:var(--noria-tl-time-col-inset,0px);margin-right:var(--noria-tl-time-to-axis-gap,0px);overflow:visible}
 .noria-tl-col-time.is-empty{opacity:var(--noria-tl-empty-time-opacity,.25)}
@@ -3924,11 +3892,11 @@ async function render() {
 .noria-tl-timeline .noria-tl-task:last-child .noria-tl-col-axis::after{display:none}
 .noria-tl-check{flex:0 0 auto;width:var(--noria-tl-node-size,8px);height:var(--noria-tl-node-size,8px);min-width:var(--noria-tl-node-size,8px);min-height:var(--noria-tl-node-size,8px);margin:3px 0 0;padding:0;border-radius:50%;border:var(--noria-tl-node-border-width,0px) solid transparent;background:color-mix(in srgb,var(--text-muted) 52%,transparent);cursor:pointer;box-sizing:border-box;align-self:center;transition:background .12s ease,box-shadow .12s ease,transform .12s ease;position:relative;z-index:3;box-shadow:0 0 0 1px color-mix(in srgb,var(--background-primary) 82%,transparent)}
 .noria-tl-check:hover:not(:disabled){background:color-mix(in srgb,var(--interactive-accent) 72%,var(--text-muted));transform:scale(1.18);box-shadow:0 0 0 3px color-mix(in srgb,var(--interactive-accent) 16%,transparent)}
-.noria-tl-check-overdue{border-color:transparent!important;background:var(--noria-status-overdue-rail,#dc2626)!important}
-.noria-tl-check-unplanned{border-color:transparent!important;background:color-mix(in srgb,var(--text-muted) 44%,transparent)!important}
-.noria-tl-check-done{border-color:transparent!important;background:#22c55e!important;position:relative;box-shadow:0 0 0 2px color-mix(in srgb,#22c55e 18%,transparent)}
+.noria-tl-check-overdue{border-color:transparent;background:var(--noria-status-overdue-rail,#dc2626)}
+.noria-tl-check-unplanned{border-color:transparent;background:color-mix(in srgb,var(--text-muted) 44%,transparent)}
+.noria-tl-check-done{border-color:transparent;background:#22c55e;position:relative;box-shadow:0 0 0 2px color-mix(in srgb,#22c55e 18%,transparent)}
 .noria-tl-check-done::after{display:none}
-.theme-dark .noria-tl-check-done{background:#22c55e!important}
+.theme-dark .noria-tl-check-done{background:#22c55e}
 .noria-tl-check-locked{opacity:.42;cursor:not-allowed;border-style:dashed}
 .noria-tl-check:focus-visible{outline:2px solid color-mix(in srgb,var(--interactive-accent) 45%,transparent);outline-offset:2px}
 .noria-tl-node.is-dragging{transform:scale(1.03);box-shadow:0 0 0 2px color-mix(in srgb,var(--interactive-accent) 22%,transparent)}
@@ -3937,7 +3905,7 @@ async function render() {
 .noria-tl-duration-label:hover{color:var(--interactive-accent)}
 .noria-tl-duration-label:focus-visible{outline:2px solid color-mix(in srgb,var(--interactive-accent) 36%,transparent);outline-offset:2px;border-radius:6px}
 .noria-tl-duration-label.is-dragging{color:var(--interactive-accent);text-shadow:0 0 .01px currentColor}
-.noria-tl-now-marker{display:grid;grid-template-columns:var(--noria-tl-time-col-width,34px) var(--noria-tl-axis-col-width,10px) minmax(0,1fr);column-gap:0;align-items:center;margin:-1px 0 6px;padding:0;min-height:16px;pointer-events:none;position:relative;z-index:2}
+.noria-tl-now-marker{display:grid;grid-template-columns:var(--noria-tl-time-col-width,34px) var(--noria-tl-axis-col-width,10px) minmax(0,1fr);gap:0;align-items:center;margin:-1px 0 6px;padding:0;min-height:16px;pointer-events:none;position:relative;z-index:2}
 .noria-tl-now-time{font-size:10px;font-weight:650;line-height:1;color:var(--interactive-accent);font-variant-numeric:tabular-nums;text-align:left;margin-left:var(--noria-tl-time-col-inset,0px);margin-right:var(--noria-tl-time-to-axis-gap,-2px);white-space:nowrap}
 .noria-tl-now-axis{position:relative;height:16px;margin-right:var(--noria-tl-axis-to-card-gap,2px)}
 .noria-tl-now-pin{position:absolute;left:calc(50% + var(--noria-tl-axis-line-offset,0px));top:50%;width:8px;height:8px;border-radius:50%;background:var(--interactive-accent);transform:translate(-50%,-50%);box-shadow:0 0 0 2px color-mix(in srgb,var(--interactive-accent) 12%,transparent);z-index:4}
@@ -3971,9 +3939,9 @@ async function render() {
 .noria-tl-task-title-main{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:flex-start;justify-content:space-between;gap:var(--noria-tl-title-gap,10px);width:100%;box-sizing:border-box}
 .noria-tl-task-title-start{min-width:0;flex:1 1 auto;overflow:hidden}
 .noria-tl-task-title-start .noria-tl-task-title-link,.noria-tl-task-title-start .noria-tl-task-title-plain{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--noria-tl-title-clamp,2);overflow:hidden;word-break:break-word;white-space:normal}
-.noria-tl-task-title-link,.noria-tl-task-title-plain{color:var(--text-normal)!important;text-decoration:none;font-weight:inherit}
-.noria-tl-task-title-link{font-weight:540!important}
-.noria-tl-task-title-link:hover{color:var(--text-accent)!important;text-decoration:underline}
+.noria-tl-task-title-link,.noria-tl-task-title-plain{color:var(--text-normal);font-weight:inherit}
+.noria-tl-task-title-link{font-weight:540}
+.noria-tl-task-title-link:hover{color:var(--text-accent)}
 .noria-tl-title-hint{flex:0 0 auto;font-size:9px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.35;white-space:nowrap;max-width:42%;text-align:right;margin-top:1px}
 .noria-tl-title-hint.noria-tl-hint-overdue{color:var(--text-normal);opacity:.88}
 .theme-dark .noria-tl-title-hint.noria-tl-hint-overdue{opacity:.9}
@@ -3983,11 +3951,11 @@ async function render() {
 .noria-tl-meta-note{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%}
 .noria-tl-note-icon{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:14px;height:14px;color:var(--text-muted)}
 .noria-tl-note-icon svg{width:13px;height:13px}
-.noria-tl-meta-note-link{color:var(--text-muted)!important;text-decoration:none;font-size:10.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(100%,220px)}
-.noria-tl-meta-note-link:hover{color:var(--text-accent)!important;text-decoration:underline}
+.noria-tl-meta-note-link{color:var(--text-muted);font-size:10.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(100%,220px)}
+.noria-tl-meta-note-link:hover{color:var(--text-accent)}
 .noria-tl-tag-chip{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;border:1px solid color-mix(in srgb,var(--background-modifier-border) 80%,transparent);font-size:10px;color:var(--text-muted);background:color-mix(in srgb,var(--background-secondary) 70%,var(--background-primary))}
 .noria-tl-lab-panel{position:sticky;top:0;margin:0;padding:12px 12px 14px;border-radius:16px;border:1px solid color-mix(in srgb,var(--background-modifier-border) 72%,transparent);background:color-mix(in srgb,var(--background-primary) 96%,var(--background-secondary));max-height:calc(100vh - 28px);overflow:auto;box-sizing:border-box}
-.noria-tl-lab-panel[hidden]{display:none!important}
+.noria-tl-lab-panel[hidden]{display:none}
 .noria-tl-lab-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px}
 .noria-tl-lab-heading{font-size:13px;font-weight:700;color:var(--text-normal)}
 .noria-tl-lab-scope{margin:2px 0 10px;font-size:11px;color:var(--text-muted)}
@@ -4015,18 +3983,18 @@ async function render() {
 }
 .noria-tl-root.noria-tl-today-focus .noria-tl-day:not([data-today="1"]){display:none}
 .noria-tl-root.noria-tl-today-focus .noria-tl-unplanned{display:none}
-.noria-tl-unplanned.noria-tl-unplanned-empty{display:none!important}
+.noria-tl-unplanned.noria-tl-unplanned-empty{display:none}
 .noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="todo"] .noria-tl-task[data-todo-dated="0"],
 .noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="overdue"] .noria-tl-task[data-overdue="0"],
 .noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="unplanned"] .noria-tl-scroll .noria-tl-day{display:none}
-.noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="unplanned"] .noria-tl-unplanned{display:block!important}
+.noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="unplanned"] .noria-tl-unplanned{display:block}
 .noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="unplanned"] .noria-tl-scroll{border-top:none}
 .noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="todo"] .noria-tl-unplanned,
-.noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="overdue"] .noria-tl-unplanned{display:none!important}
+.noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="overdue"] .noria-tl-unplanned{display:none}
 .noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="todo"] .noria-tl-day:not([data-noria-has-todo-dated="1"]),
 .noria-tl-root:not(.noria-tl-counter-highlight)[data-noria-tl-filter="overdue"] .noria-tl-day:not([data-noria-has-overdue="1"]){display:none}
 .noria-tl-root.noria-tl-counter-highlight[data-noria-tl-filter="todo"] .noria-tl-unplanned,
-.noria-tl-root.noria-tl-counter-highlight[data-noria-tl-filter="overdue"] .noria-tl-unplanned{display:none!important}
+.noria-tl-root.noria-tl-counter-highlight[data-noria-tl-filter="overdue"] .noria-tl-unplanned{display:none}
 .noria-tl-root.noria-tl-counter-highlight[data-noria-tl-filter="todo"] .noria-tl-task[data-todo-dated="0"]{opacity:.28}
 .noria-tl-root.noria-tl-counter-highlight[data-noria-tl-filter="overdue"] .noria-tl-task[data-overdue="0"]{opacity:.28}
 .noria-tl-root.noria-tl-counter-highlight[data-noria-tl-filter="unplanned"] .noria-tl-scroll .noria-tl-day{opacity:.35}

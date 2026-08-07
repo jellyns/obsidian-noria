@@ -81,7 +81,7 @@
 
 .noria-task-timeline-native-date {
   color: var(--noria-task-timeline-time-muted);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-interface);
   font-size: 10px;
   font-weight: 560;
   line-height: 14px;
@@ -138,7 +138,7 @@
 }
 
 .noria-task-timeline-native-title[hidden] {
-  display: none !important;
+  display: none ;
 }
 
 .noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-title {
@@ -192,8 +192,6 @@
 .noria-task-timeline-native-point:hover ~ .noria-task-timeline-native-handle,
 .noria-task-timeline-native-point:focus-visible ~ .noria-task-timeline-native-handle,
 .noria-task-timeline-native-handle-zone:hover ~ .noria-task-timeline-native-handle,
-.noria-task-timeline-native-task-unit:has(.noria-task-timeline-native-handle:hover)
-  .noria-task-timeline-native-handle,
 .noria-task-timeline-native-task-unit[data-noria-drag-state="active"] .noria-task-timeline-native-handle {
   opacity: 0.54;
   pointer-events: auto;

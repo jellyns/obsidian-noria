@@ -792,20 +792,7 @@ async function runInboxItemBuildQueue(rows, workerCount = 6) {
 }
 
 const dvRows = bridge.runtime?.pagesForManagedPath?.("inboxRoot", ctx) || [];
-const knownPaths = new Set(dvRows.map((p) => normPath(p?.file?.path)));
-const fallbackRows = (app?.vault?.getMarkdownFiles?.() || [])
-  .filter((f) => normPath(f?.path).startsWith(`${inboxRoot}/`))
-  .filter((f) => !knownPaths.has(normPath(f?.path)))
-  .map((f) => ({
-    file: {
-      name: f.name || normPath(f.path).split("/").pop(),
-      path: normPath(f.path),
-      mtime: f.stat?.mtime ? new Date(f.stat.mtime).toISOString() : ""
-    }
-  }));
-
-const rawRows = [...dvRows, ...fallbackRows];
-const items = await runInboxItemBuildQueue(rawRows);
+const items = await runInboxItemBuildQueue(dvRows);
 
 const activeItems = items.filter((x) => !x.flags.terminal);
 const lanes = homeViews.map((lane) => ({

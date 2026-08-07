@@ -181,15 +181,12 @@ style.textContent = `
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
 }
 .daily-status-wrap .dashboard-recap-pills--hscroll,
 .daily-status-wrap .dashboard-recap-pills--weather,
 .daily-status-wrap .dashboard-recap-pills--mood,
 .daily-status-wrap .dashboard-recap-energy--hscroll {
   /* 日态区不使用边缘渐隐，避免首尾图标被视觉裁切 */
-  mask-image: none;
-  -webkit-mask-image: none;
   padding-inline: 2px;
 }
 .daily-status-wrap .dashboard-recap-pill,

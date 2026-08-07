@@ -126,27 +126,30 @@ function makeElement(tag, text, opts, log) {
   return node;
 }
 
-test("runtime task scope helper reads native Markdown task rows and applies safe defaults", async () => {
+test("runtime task scope helper reads managed Markdown task rows and applies safe defaults", async () => {
   const plugin = makePlugin();
   const files = [
     {
       path: "Noria/Diary/2026-05-03.md",
       text: [
-        "- [ ] fallback task",
+        "- [ ] managed task",
         "- [x] completed task",
         "- [ ] open task"
       ].join("\n"),
       stat: { mtime: 1 }
     }
   ];
-  plugin.app.vault.getMarkdownFiles = () => files;
+  plugin.filesForScope = (scopeId) => {
+    assert.equal(scopeId, "tasks");
+    return files;
+  };
   plugin.app.vault.cachedRead = async (file) => String(file?.text || "");
   const bridge = plugin.buildRuntimeBridgeConfig();
 
   const rows = await bridge.runtime.tasksForScope("tasks");
 
   assert.equal(Array.isArray(rows), true);
-  assert.deepEqual(plain(rows.map((task) => task.text)), ["fallback task", "completed task", "open task"]);
+  assert.deepEqual(plain(rows.map((task) => task.text)), ["managed task", "completed task", "open task"]);
   assert.deepEqual(plain(rows.map((task) => task.completed)), [false, true, false]);
   assert.equal(rows[0].path, "Noria/Diary/2026-05-03.md");
   assert.equal(rows[2].path, "Noria/Diary/2026-05-03.md");

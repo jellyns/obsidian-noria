@@ -347,14 +347,14 @@ test("runtime bridge exposes managed paths, refresh bus, and performance default
   assert.equal(bridge.performance.viewSourceCache, true);
   assert.equal(bridge.performance.taskSnapshotTtlMs, 1200);
   assert.equal(bridge.performance.queryScopes.tasks.mode, "managed");
-  assert.equal(bridge.performance.queryScopes.notes.mode, "all");
+  assert.equal(bridge.performance.queryScopes.notes.mode, "managed");
   assert.equal(typeof bridge.runtime.scopeFor, "function");
   assert.equal(typeof bridge.runtime.pagesForScope, "function");
   assert.equal(typeof bridge.runtime.tasksForScope, "function");
   assert.equal(bridge.runtime.scopeFor("tasks").query, '"Noria/Diary" or "Noria/Projects" or "Noria/Inbox"');
   assert.equal(bridge.runtime.scopeFor("tasks").roots[0], "Noria/Diary");
   assert.deepEqual(plain(bridge.taskQueryContext.taskTagFilter.excludeTags), ["#habit"]);
-  assert.equal(bridge.runtime.scopeFor("notes").isAllVault, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(bridge.runtime.scopeFor("notes"), "isAllVault"), false);
   assert.equal(typeof bridge.taskSnapshots.get, "function");
   assert.equal(typeof bridge.taskSnapshots.set, "function");
   assert.equal(typeof bridge.taskSnapshots.invalidate, "function");
@@ -481,7 +481,7 @@ test("runtime bridge exposes review evidence cache traces by timeline range", as
 
 test("Home performance summary can be formatted and exposed through a semantic command", () => {
   const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  assert.match(main, /id:\s*"copy-home-performance-summary"/);
+  assert.match(main, /id:\s*"save-home-performance-summary"/);
   assert.match(main, /id:\s*"measure-home-performance-summary"/);
 
   const plugin = makePlugin();
@@ -519,100 +519,10 @@ test("Home performance summary can be formatted and exposed through a semantic c
   assert.match(plugin.formatHomePerformanceSummary(null), /No Home performance summary yet/);
 });
 
-test("Home performance summary copy falls back to Electron clipboard outside browser clipboard contexts", async () => {
-  const electronWrites = [];
-  const plugin = makePlugin({
-    navigator: {},
-    electron: {
-      clipboard: {
-        writeText(text) {
-          electronWrites.push(String(text || ""));
-        }
-      }
-    },
-    homePerformanceSummary: {
-      type: "home-dashboard-summary",
-      sampleCount: 1,
-      total: { p50Ms: 42, p95Ms: 42 },
-      cold: { p95Ms: 42 },
-      hot: { p95Ms: 42 },
-      io: {},
-      snapshots: {},
-      last: { status: "ok", totalMs: 42, cacheState: "hot" }
-    }
-  });
-
-  const result = await plugin.copyHomePerformanceSummary();
-
-  assert.equal(result.ok, true);
-  assert.equal(result.copied, true);
-  assert.equal(electronWrites.length, 1);
-  assert.match(electronWrites[0], /Noria Home Performance/);
-});
-
-test("Home performance summary copy fails cleanly when native clipboards are unavailable", async () => {
-  const plugin = makePlugin({
-    navigator: {},
-    electron: {},
-    homePerformanceSummary: {
-      type: "home-dashboard-summary",
-      sampleCount: 1,
-      total: { p50Ms: 43, p95Ms: 43 },
-      cold: { p95Ms: 43 },
-      hot: { p95Ms: 43 },
-      io: {},
-      snapshots: {},
-      last: { status: "ok", totalMs: 43, cacheState: "hot" }
-    }
-  });
-
-  const result = await plugin.copyHomePerformanceSummary();
-
-  assert.equal(result.ok, true);
-  assert.equal(result.copied, false);
-});
-
-test("Home performance summary copy reads the renderer window summary when the command global is separate", async () => {
-  const clipboardWrites = [];
-  const plugin = makePlugin({
-    navigator: {
-      clipboard: {
-        async writeText(text) {
-          clipboardWrites.push(String(text || ""));
-        }
-      }
-    },
-    window: {
-      __noriaHomePerformanceSummary: {
-        type: "home-dashboard-summary",
-        sampleCount: 2,
-        total: { p50Ms: 51, p95Ms: 52 },
-        cold: { p95Ms: 53 },
-        hot: { p95Ms: 54 },
-        io: {},
-        snapshots: {},
-        last: { status: "ok", totalMs: 55, cacheState: "hot" }
-      }
-    }
-  });
-
-  const result = await plugin.copyHomePerformanceSummary();
-
-  assert.equal(result.ok, true);
-  assert.equal(result.copied, true);
-  assert.equal(clipboardWrites.length, 1);
-  assert.match(clipboardWrites[0], /samples: 2/);
-});
-
-test("Home performance summary copy writes a diagnostic cache for REST-triggered measurements", async () => {
+test("Home performance summary save writes a local diagnostic cache", async () => {
   const files = new Map();
   const folders = new Set();
   const plugin = makePlugin({
-    navigator: {
-      clipboard: {
-        async writeText() {}
-      }
-    },
     homePerformanceSummary: {
       type: "home-dashboard-summary",
       sampleCount: 3,
@@ -650,29 +560,24 @@ test("Home performance summary copy writes a diagnostic cache for REST-triggered
     }
   };
 
-  const result = await plugin.copyHomePerformanceSummary();
+  const result = await plugin.saveHomePerformanceSummary();
 
-  assert.equal(result.cacheWritten, true);
+  assert.equal(result.ok, true);
+  assert.equal(result.saved, true);
   assert.equal(result.cachePath, ".obsidian/plugins/noria/cache/stats/home-performance/latest.json");
   const payload = JSON.parse(files.get(result.cachePath));
   assert.equal(payload.hasSummary, true);
-  assert.equal(payload.copied, true);
   assert.equal(payload.summary.sampleCount, 3);
   assert.match(payload.text, /samples: 3/);
 });
 
-test("Home performance summary cache skips quietly when vault write APIs are unavailable", async () => {
+test("Home performance summary save reports unavailable local write APIs", async () => {
   const warnings = [];
   const plugin = makePlugin({
     console: {
       ...console,
       warn(...args) {
         warnings.push(args.map(String).join(" "));
-      }
-    },
-    navigator: {
-      clipboard: {
-        async writeText() {}
       }
     },
     homePerformanceSummary: {
@@ -687,13 +592,14 @@ test("Home performance summary cache skips quietly when vault write APIs are una
     }
   });
 
-  const result = await plugin.copyHomePerformanceSummary();
+  const result = await plugin.saveHomePerformanceSummary();
 
-  assert.equal(result.cacheWritten, false);
+  assert.equal(result.saved, false);
+  assert.equal(result.ok, false);
   assert.equal(warnings.length, 0);
 });
 
-test("Home performance measurement reloads Home before copying the summary", async () => {
+test("Home performance measurement reloads Home before saving the summary", async () => {
   const plugin = makePlugin();
   const calls = [];
   plugin.openDashboardHomeLeaf = async () => {
@@ -705,20 +611,20 @@ test("Home performance measurement reloads Home before copying the summary", asy
   plugin.reloadOpenNoriaViews = async (scope) => {
     calls.push(`reload:${scope}`);
   };
-  plugin.copyHomePerformanceSummary = async () => {
-    calls.push("copy");
-    return { ok: true, copied: true, text: "summary" };
+  plugin.saveHomePerformanceSummary = async () => {
+    calls.push("save");
+    return { ok: true, saved: true, text: "summary" };
   };
 
   const result = await plugin.measureHomePerformanceSummary({ count: 3 });
 
-  assert.deepEqual(calls, ["open", "reset", "reload:home", "reload:home", "reload:home", "copy"]);
-  assert.deepEqual(plain(result), { ok: true, copied: true, text: "summary", sampled: 3 });
+  assert.deepEqual(calls, ["open", "reset", "reload:home", "reload:home", "reload:home", "save"]);
+  assert.deepEqual(plain(result), { ok: true, saved: true, text: "summary", sampled: 3 });
 });
 
 test("Task timeline performance summary can be read, formatted, and exposed through semantic commands", async () => {
   const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  assert.match(main, /id:\s*"copy-task-timeline-performance-summary"/);
+  assert.match(main, /id:\s*"save-task-timeline-performance-summary"/);
   assert.match(main, /id:\s*"measure-task-timeline-performance-summary"/);
 
   const rootAttrs = {
@@ -781,7 +687,6 @@ test("Task timeline performance summary can be read, formatted, and exposed thro
       return selector === ".noria-task-timeline-root" ? root : null;
     }
   };
-  const clipboardWrites = [];
   const plugin = makePlugin({
     window: {
       document: {
@@ -792,15 +697,13 @@ test("Task timeline performance summary can be read, formatted, and exposed thro
             : [];
         }
       }
-    },
-    navigator: {
-      clipboard: {
-        async writeText(text) {
-          clipboardWrites.push(String(text || ""));
-        }
-      }
     }
   });
+  const writes = [];
+  plugin.writeTaskTimelinePerformanceSummaryCache = async (payload) => {
+    writes.push(payload);
+    return { written: true, path: ".obsidian/plugins/noria/cache/stats/task-timeline-performance/latest.json" };
+  };
 
   const summary = plugin.readTaskTimelinePerformanceSummary();
   assert.equal(summary.type, "task-timeline-performance-summary");
@@ -827,11 +730,11 @@ test("Task timeline performance summary can be read, formatted, and exposed thro
   assert.match(text, /task source: cold, files 42\/1116, index metadata-cache/);
   assert.match(text, /counts: tasks 44, events 50\/52, unplaced 2, provider errors 0/);
 
-  const result = await plugin.copyTaskTimelinePerformanceSummary();
+  const result = await plugin.saveTaskTimelinePerformanceSummary();
   assert.equal(result.ok, true);
-  assert.equal(result.copied, true);
-  assert.equal(clipboardWrites.length, 1);
-  assert.match(clipboardWrites[0], /slowest task source 160ms/);
+  assert.equal(result.saved, true);
+  assert.equal(writes.length, 1);
+  assert.match(writes[0].text, /slowest task source 160ms/);
 
   rootAttrs["data-noria-timeline-render-state"] = "failed";
   rootAttrs["data-noria-timeline-render-error"] = "native mount failed";
@@ -845,12 +748,12 @@ test("Task timeline performance summary can be read, formatted, and exposed thro
   const failedText = plugin.formatTaskTimelinePerformanceSummary(failedSummary);
   assert.match(failedText, /pane 1: failed, runtime --ms, end-to-end 540ms, host wait 40ms, render wait 20ms/);
   assert.match(failedText, /error: native mount failed/);
-  const failedResult = await plugin.copyTaskTimelinePerformanceSummary();
+  const failedResult = await plugin.saveTaskTimelinePerformanceSummary();
   assert.equal(failedResult.ok, false);
-  assert.equal(failedResult.copied, true, "failed diagnostics should remain copyable");
+  assert.equal(failedResult.saved, true, "failed diagnostics should still be saved locally");
 });
 
-test("Task timeline performance measurement reloads the task timeline before copying the summary", async () => {
+test("Task timeline performance measurement reloads the task timeline before saving the summary", async () => {
   const plugin = makePlugin();
   const calls = [];
   plugin.openTasksTimelineLeaf = async () => {
@@ -859,15 +762,15 @@ test("Task timeline performance measurement reloads the task timeline before cop
   plugin.reloadOpenNoriaViews = async (scope) => {
     calls.push(`reload:${scope}`);
   };
-  plugin.copyTaskTimelinePerformanceSummary = async () => {
-    calls.push("copy");
-    return { ok: true, copied: true, text: "summary" };
+  plugin.saveTaskTimelinePerformanceSummary = async () => {
+    calls.push("save");
+    return { ok: true, saved: true, text: "summary" };
   };
 
   const result = await plugin.measureTaskTimelinePerformanceSummary({ count: 2 });
 
-  assert.deepEqual(calls, ["open", "reload:timeline", "reload:timeline", "copy"]);
-  assert.deepEqual(plain(result), { ok: true, copied: true, text: "summary", sampled: 2 });
+  assert.deepEqual(calls, ["open", "reload:timeline", "reload:timeline", "save"]);
+  assert.deepEqual(plain(result), { ok: true, saved: true, text: "summary", sampled: 2 });
 });
 
 test("targeted Noria settings consume the requested tab before display", () => {
@@ -1560,7 +1463,7 @@ test("runtime bridge exposes shared helpers for native runtime views", async () 
   assert.deepEqual(plain(bridge.runtime.toArray([1, 2])), [1, 2]);
   assert.deepEqual(plain(bridge.runtime.toArray(dataArray)), ["a", "b"]);
   assert.deepEqual(plain(bridge.runtime.toArray(iterable)), ["x", "y"]);
-  assert.equal(bridge.runtime.scopeStatus("notes").mode, "all");
+  assert.equal(bridge.runtime.scopeStatus("notes").mode, "managed");
   assert.equal(bridge.runtime.scopeStatus("tasks").mode, "managed");
   assert.equal(bridge.runtime.scopeStatus("tasks").isEmpty, false);
   assert.equal(bridge.runtime.openSetupWizard().ok, true);
@@ -1624,9 +1527,12 @@ test("runtime query helpers return plain arrays for scoped and managed-path nati
       listItems: []
     }
   ];
-  plugin.app.vault.getMarkdownFiles = () => files;
   plugin.app.vault.cachedRead = async (file) => String(file?.text || "");
-  plugin.app.vault.getAbstractFileByPath = (pathText) => files.find((file) => file.path === pathText) || null;
+  const nodes = new Map(files.map((file) => [file.path, file]));
+  nodes.set("06_Diary", { path: "06_Diary", children: files.filter((file) => file.path.startsWith("06_Diary/")) });
+  nodes.set("01_Projects", { path: "01_Projects", children: files.filter((file) => file.path.startsWith("01_Projects/")) });
+  nodes.set("00_Inbox", { path: "00_Inbox", children: files.filter((file) => file.path.startsWith("00_Inbox/")) });
+  plugin.app.vault.getAbstractFileByPath = (pathText) => nodes.get(String(pathText || "")) || null;
   plugin.app.metadataCache = {
     getFileCache(file) {
       return {
@@ -1648,8 +1554,8 @@ test("runtime query helpers return plain arrays for scoped and managed-path nati
   assert.equal(Array.isArray(inboxPages), true);
   assert.equal(Array.isArray(missingPages), true);
   assert.equal(taskRows.length, 2);
-  assert.deepEqual(plain(taskRows.map((task) => task.text)), ["daily task", "project task"]);
-  assert.deepEqual(plain(taskPages.map((page) => page.file.path)), ["06_Diary/2026/2026-05-03.md", "01_Projects/demo.md", "00_Inbox/capture.md"]);
+  assert.deepEqual(plain(taskRows.map((task) => task.text)), ["project task", "daily task"]);
+  assert.deepEqual(plain(taskPages.map((page) => page.file.path)), ["00_Inbox/capture.md", "01_Projects/demo.md", "06_Diary/2026/2026-05-03.md"]);
   assert.deepEqual(plain(inboxPages.map((page) => page.file.path)), ["00_Inbox/capture.md"]);
   assert.deepEqual(plain(missingPages), []);
 });
@@ -1994,7 +1900,7 @@ test("task board startup recovery reloads only visible unhealthy restored leaves
 test("layout-ready recovery schedules task board checks on restored and activated leaves", () => {
   const source = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const start = source.indexOf("this.app.workspace.onLayoutReady(() => {");
-  const end = source.indexOf("\n    });\n  }", start);
+  const end = source.indexOf("  isNoriaRecoveryOwnerActive(", start);
   const layoutReady = source.slice(start, end);
 
   assert.ok(start > 0 && end > start);
@@ -2009,7 +1915,7 @@ test("layout-ready recovery schedules task board checks on restored and activate
 test("layout-ready recovery timers are plugin-owned instead of detached window timers", () => {
   const source = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const start = source.indexOf("this.app.workspace.onLayoutReady(() => {");
-  const end = source.indexOf("\n    });\n  }", start);
+  const end = source.indexOf("  isNoriaRecoveryOwnerActive(", start);
   const layoutReady = source.slice(start, end);
 
   assert.ok(start > 0 && end > start);
@@ -2362,8 +2268,7 @@ test("core ItemView titles and Notices use the locale catalog", () => {
     "views.review.title",
     "notices.healthOk",
     "notices.healthFailed",
-    "notices.reviewPromptCopied",
-    "notices.reviewPromptManual"
+    "notices.reviewPromptSaved"
   ]) {
     assert.match(main, new RegExp(JSON.stringify(key)));
   }

@@ -331,7 +331,7 @@ Review Center lives on Home and supports Day, Week, Month, and Year. The final e
 1. Select a period and target date.
 2. Start writing directly in the final editor.
 3. Expand evidence and analysis only when useful.
-4. Prepare local evidence and copy the external-agent prompt.
+4. Prepare local evidence and save the external-agent prompt to Noria's local cache.
 5. Refresh and inspect the external review note.
 6. Adopt only grounded content with action value.
 7. Save explicitly to the diary or period note.
@@ -418,7 +418,7 @@ Appearance controls density, theme following, status colors, tag colors, and pla
 Maintenance provides:
 
 - Noria installation checks;
-- a copyable troubleshooting report;
+- a locally saved troubleshooting report;
 - settings backup export and import;
 - SecretStorage status;
 - trusted custom JavaScript view management;
@@ -574,7 +574,7 @@ capture on Home -> choose the next task -> update Markdown -> review when useful
 2. **Source**: confirm the Markdown exists, is saved, and uses the expected format.
 3. **Scope**: confirm paths, scan roots, dates, and tag filters include the target.
 4. **Refresh**: use the view refresh or retry action, then reopen the view.
-5. **Diagnostics**: run the installation check under Maintenance and copy the report.
+5. **Diagnostics**: run the installation check under Maintenance and save the report.
 
 Do not begin by deleting `data.json`, rebuilding every file, or reinstalling the plugin.
 
@@ -773,7 +773,7 @@ Write-back must locate the source Markdown, verify the fingerprint, modify only 
   "exportKind": "noria.snapshot",
   "exportVersion": 1,
   "exportedAt": "",
-  "noriaVersion": "0.4.1",
+  "noriaVersion": "0.4.2",
   "payload": {}
 }
 ```

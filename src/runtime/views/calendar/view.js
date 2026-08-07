@@ -88,9 +88,9 @@ function injectStyle() {
 .noria-calendar-day {
   appearance: none;
   -webkit-appearance: none;
-  border: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
   font-family: inherit;
 }
 .noria-calendar-title button {
@@ -141,11 +141,11 @@ function injectStyle() {
   line-height: 1;
 }
 .noria-calendar-nav button:hover {
-  background: transparent !important;
+  background: transparent;
   color: var(--text-normal);
 }
 .noria-calendar-today {
-  min-width: 30px !important;
+  min-width: 30px;
   font-size: 12px;
   font-weight: 600;
 }
@@ -190,7 +190,7 @@ function injectStyle() {
   font-weight: 450;
 }
 .noria-calendar-week-number:hover {
-  background: transparent !important;
+  background: transparent;
   color: var(--text-normal);
   opacity: .9;
 }
@@ -212,7 +212,7 @@ function injectStyle() {
   transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
 }
 .noria-calendar-day.is-weekend {
-  background: var(--noria-calendar-weekend) !important;
+  background: var(--noria-calendar-weekend);
   border-radius: 0;
 }
 .noria-calendar-day.is-weekend.is-weekend-start {
@@ -226,27 +226,27 @@ function injectStyle() {
 }
 .noria-calendar-day:hover {
   z-index: 2;
-  background: var(--noria-calendar-hover) !important;
+  background: var(--noria-calendar-hover);
   color: var(--text-normal);
   border-radius: 7px;
-  box-shadow: inset 0 0 0 1px var(--noria-calendar-hover-ring) !important;
+  box-shadow: inset 0 0 0 1px var(--noria-calendar-hover-ring);
 }
 .noria-calendar-day.is-weekend:hover {
-  background: var(--noria-calendar-hover) !important;
+  background: var(--noria-calendar-hover);
   border-radius: 7px;
-  box-shadow: inset 0 0 0 1px var(--noria-calendar-hover-ring) !important;
+  box-shadow: inset 0 0 0 1px var(--noria-calendar-hover-ring);
 }
 .noria-calendar-day.is-selected:not(.is-today) {
-  background: var(--noria-calendar-selected) !important;
+  background: var(--noria-calendar-selected);
   border-radius: 7px;
-  box-shadow: inset 0 0 0 1px var(--noria-calendar-selected-ring) !important;
+  box-shadow: inset 0 0 0 1px var(--noria-calendar-selected-ring);
 }
 .noria-calendar-day.is-today {
   color: var(--text-normal);
   font-weight: 700;
-  background: var(--noria-calendar-today-bg) !important;
+  background: var(--noria-calendar-today-bg);
   border-radius: 7px;
-  box-shadow: none !important;
+  box-shadow: none;
 }
 .noria-calendar-day.is-weekend.is-today,
 .noria-calendar-day.is-weekend.is-weekend-start.is-today,
@@ -290,9 +290,9 @@ function injectStyle() {
   position: relative;
   appearance: none;
   -webkit-appearance: none;
-  border: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
   min-width: 0;
   height: 42px;
   border-radius: 8px;
@@ -306,12 +306,12 @@ function injectStyle() {
   transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
 }
 .noria-calendar-period-cell:hover {
-  background: var(--noria-calendar-hover) !important;
-  box-shadow: inset 0 0 0 1px var(--noria-calendar-hover-ring) !important;
+  background: var(--noria-calendar-hover);
+  box-shadow: inset 0 0 0 1px var(--noria-calendar-hover-ring);
 }
 .noria-calendar-period-cell.is-current,
 .noria-calendar-period-cell.is-selected {
-  background: var(--noria-calendar-today-bg) !important;
+  background: var(--noria-calendar-today-bg);
   color: var(--text-normal);
   font-weight: 650;
 }
@@ -359,20 +359,20 @@ function injectStyle() {
 .noria-calendar-time-wheel-btn {
   appearance: none;
   -webkit-appearance: none;
-  border: 0 !important;
-  box-shadow: none !important;
+  border: 0;
+  box-shadow: none;
   font-family: inherit;
 }
 .noria-calendar-task-close {
   width: 20px;
   height: 20px;
   border-radius: 6px;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
 }
 .noria-calendar-task-close:hover {
-  background: var(--noria-calendar-hover) !important;
+  background: var(--noria-calendar-hover);
   color: var(--text-normal);
 }
 .noria-calendar-task-form {
@@ -401,20 +401,20 @@ function injectStyle() {
   min-width: 42px;
   height: 28px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
   color: var(--text-normal);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 .noria-calendar-task-add:hover {
-  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .noria-calendar-task-time-toggle,
 .noria-calendar-task-clear {
   height: 24px;
   border-radius: 6px;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-muted);
   font-size: 11.5px;
   cursor: pointer;
@@ -426,26 +426,26 @@ function injectStyle() {
   justify-self: end;
   min-width: 64px;
   padding: 0 8px;
-  background: color-mix(in srgb, var(--background-modifier-hover) 52%, transparent) !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 52%, transparent);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: auto;
   touch-action: manipulation;
 }
 .noria-calendar-task-time-toggle:hover {
-  background: color-mix(in srgb, var(--background-modifier-hover) 76%, transparent) !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 76%, transparent);
   color: var(--text-normal);
 }
 .noria-calendar-task-time-toggle.has-time {
-  background: color-mix(in srgb, var(--interactive-accent) 11%, var(--background-modifier-hover)) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 11%, var(--background-modifier-hover));
   color: var(--text-normal);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 28%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
 }
 .noria-calendar-task-time-toggle.is-open {
-  background: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-hover)) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-hover));
   color: var(--text-normal);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 34%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 34%, transparent);
 }
 .noria-calendar-task-clear {
   padding: 0 4px;
@@ -473,19 +473,18 @@ function injectStyle() {
   border-radius: 7px;
   background: color-mix(in srgb, var(--background-modifier-hover) 34%, transparent);
   padding: 3px;
-  scrollbar-width: thin;
 }
 .noria-calendar-time-wheel-btn {
   height: 22px;
   border-radius: 5px;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-muted);
   font-size: 11.5px;
   cursor: pointer;
 }
 .noria-calendar-time-wheel-btn:hover,
 .noria-calendar-time-wheel-btn.is-active {
-  background: var(--noria-calendar-hover) !important;
+  background: var(--noria-calendar-hover);
   color: var(--text-normal);
 }
 `;

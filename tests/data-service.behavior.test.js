@@ -546,6 +546,7 @@ test("data service collects habits domain from registry and diary habit records"
     taskQueryContext: { taskTagFilter: { includeTags: [], excludeTags: ["#habit"] } },
     runtime: {
       toArray: (value) => Array.from(value || []),
+      filesForManagedPath(pathKey) { return pathKey === "diaryRoot" ? files : []; },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
       tasksForScope() { return []; }
@@ -553,7 +554,6 @@ test("data service collects habits domain from registry and diary habit records"
   };
   const app = {
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: {
         async read(pathText) { return texts[pathText] || ""; }
       }
@@ -618,6 +618,7 @@ test("data service keeps zero-hit active habits selectable with an empty heatmap
     paths: { diaryRoot: "06_Diary", habitRegistryPath: "Noria/Habits.md" },
     runtime: {
       toArray: (value) => Array.from(value || []),
+      filesForManagedPath() { return []; },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
       tasksForScope() { return []; }
@@ -625,7 +626,7 @@ test("data service keeps zero-hit active habits selectable with an empty heatmap
   };
   const service = data.createDataService({
     bridge,
-    app: { vault: { getMarkdownFiles() { return []; } } },
+    app: { vault: {} },
     now: "2026-05-03",
     ctx: { async readText(pathText) { return pathText === "Noria/Habits.md" ? registryText : ""; } }
   });
@@ -674,7 +675,7 @@ test("data service accepts English habit registry section titles", async () => {
   };
   const service = data.createDataService({
     bridge,
-    app: { vault: { getMarkdownFiles() { return []; } } },
+    app: { vault: {} },
     now: "2026-05-08",
     ctx: { async readText(pathText) { return pathText === "Noria/Habits.md" ? registryText : ""; } }
   });
@@ -708,6 +709,7 @@ test("data service reuses habits collection across compatible snapshots", async 
     taskQueryContext: { taskTagFilter: { includeTags: [], excludeTags: ["#habit"] } },
     runtime: {
       toArray: (value) => Array.from(value || []),
+      filesForManagedPath(pathKey) { return pathKey === "diaryRoot" ? files : []; },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
       tasksForScope() { return []; }
@@ -715,7 +717,6 @@ test("data service reuses habits collection across compatible snapshots", async 
   };
   const app = {
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: {
         async read(pathText) {
           reads.push(pathText);
@@ -825,6 +826,7 @@ test("data service collects vault health domain from markdown metadata and unres
     paths: { diaryRoot: "06_Diary", projectsRoot: "01_Projects", inboxRoot: "00_Inbox" },
     runtime: {
       toArray: (value) => Array.from(value || []),
+      filesForScope(scopeId) { return scopeId === "notes" ? files : []; },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
       tasksForScope() { return []; }
@@ -832,7 +834,6 @@ test("data service collects vault health domain from markdown metadata and unres
   };
   const app = {
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: { async read() { return ""; } }
     },
     metadataCache: {
@@ -1004,6 +1005,10 @@ test("data service reads fresh markdown task facts from vault files without exte
     taskQueryContext: { taskTagFilter: { includeTags: [], excludeTags: ["#habit"] } },
     runtime: {
       toArray: (value) => Array.from(value || []),
+      filesForScope(scopeId) {
+        assert.equal(scopeId, "tasks");
+        return files;
+      },
       scopeFor(scopeId) {
         assert.equal(scopeId, "tasks");
         return { isAllVault: false, roots: ["06_Diary", "01_Projects", "00_Inbox"] };
@@ -1015,7 +1020,6 @@ test("data service reads fresh markdown task facts from vault files without exte
   };
   const app = {
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: {
         async read(pathText) { return texts[pathText] || ""; }
       }
@@ -1069,6 +1073,10 @@ test("data service reads task source markdown files in parallel while preserving
         assert.equal(scopeId, "tasks");
         return { isAllVault: false, roots: ["01_Projects"] };
       },
+      filesForScope(scopeId) {
+        assert.equal(scopeId, "tasks");
+        return files;
+      },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
       tasksForScope() { return []; }
@@ -1076,7 +1084,6 @@ test("data service reads task source markdown files in parallel while preserving
   };
   const app = {
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: {
         async read(pathText) {
           reads.push(pathText);
@@ -1141,6 +1148,10 @@ test("data service uses the initialized metadata task index before reading markd
     runtime: {
       toArray: (value) => Array.from(value || []),
       scopeFor() { return { isAllVault: false, roots: ["01_Projects"] }; },
+      filesForScope(scopeId) {
+        assert.equal(scopeId, "tasks");
+        return files;
+      },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
       tasksForScope() { return []; }
@@ -1156,7 +1167,6 @@ test("data service uses the initialized metadata task index before reading markd
       }
     },
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: {
         async read(pathText) {
           reads.push(pathText);
@@ -1185,7 +1195,6 @@ test("data service resets global caches when runtime build changes", async () =>
   const reads = [];
   const app = {
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: {
         async read(pathText) {
           reads.push(pathText);
@@ -1203,6 +1212,10 @@ test("data service resets global caches when runtime build changes", async () =>
       scopeFor(scopeId) {
         assert.equal(scopeId, "tasks");
         return { isAllVault: false, roots: ["01_Projects"] };
+      },
+      filesForScope(scopeId) {
+        assert.equal(scopeId, "tasks");
+        return files;
       },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
@@ -1274,6 +1287,10 @@ test("data service allFacts range policy returns full task facts while bucketing
     runtime: {
       toArray: (value) => Array.from(value || []),
       scopeFor() { return { isAllVault: false, roots: ["06_Diary"] }; },
+      filesForScope(scopeId) {
+        assert.equal(scopeId, "tasks");
+        return files;
+      },
       pagesForScope() { return []; },
       pagesForManagedPath() { return []; },
       tasksForScope() { return []; }
@@ -1281,7 +1298,6 @@ test("data service allFacts range policy returns full task facts while bucketing
   };
   const app = {
     vault: {
-      getMarkdownFiles() { return files; },
       adapter: {
         async read(pathText) {
           reads.push(pathText);

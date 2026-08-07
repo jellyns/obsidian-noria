@@ -372,7 +372,7 @@ test("legacy starter settings normalize into the current standard workspace defa
   assert.equal(plugin.settingsInputNeedsCanonicalSave(legacy), true);
 });
 
-test("query scope settings default to managed tasks and all-vault notes", async () => {
+test("query scope settings default to managed roots for tasks and notes", async () => {
   const plugin = makePlugin();
   const defaults = plugin.normalizeSettings({});
 
@@ -381,7 +381,7 @@ test("query scope settings default to managed tasks and all-vault notes", async 
     customRoots: []
   });
   assert.deepEqual(plain(defaults.performance.queryScopes.notes), {
-    mode: "all",
+    mode: "managed",
     customRoots: []
   });
 
@@ -423,7 +423,7 @@ test("query scope settings default to managed tasks and all-vault notes", async 
   assert.ok(status.unsupported.some((item) => item.key === "queryScopes.notes" && item.reason === "absolute-path"));
 });
 
-test("query scope helpers resolve managed, all, and custom native scan specs", () => {
+test("query scope helpers resolve managed and custom native scan specs", () => {
   const plugin = makePlugin();
   plugin.settings = plugin.normalizeSettings({
     managedPaths: {
@@ -443,7 +443,7 @@ test("query scope helpers resolve managed, all, and custom native scan specs", (
   assert.equal(tasks.mode, "managed");
   assert.deepEqual(plain(tasks.roots), ["06_Diary", "01_Projects", "00_Inbox"]);
   assert.equal(tasks.query, '"06_Diary" or "01_Projects" or "00_Inbox"');
-  assert.equal(tasks.isAllVault, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(tasks, "isAllVault"), false);
 
   const notes = plugin.getScopeSpec("notes");
   assert.equal(notes.mode, "custom");
@@ -452,9 +452,46 @@ test("query scope helpers resolve managed, all, and custom native scan specs", (
 
   plugin.settings = plugin.normalizeSettings({});
   const defaultNotes = plugin.getScopeSpec("notes");
-  assert.equal(defaultNotes.mode, "all");
-  assert.equal(defaultNotes.query, "");
-  assert.equal(defaultNotes.isAllVault, true);
+  assert.equal(defaultNotes.mode, "managed");
+  assert.deepEqual(plain(defaultNotes.roots), ["Noria/Diary", "Noria/Projects", "Noria/Inbox"]);
+  assert.equal(defaultNotes.query, '"Noria/Diary" or "Noria/Projects" or "Noria/Inbox"');
+  assert.equal(Object.prototype.hasOwnProperty.call(defaultNotes, "isAllVault"), false);
+});
+
+test("scope traversal returns only markdown files under configured roots", () => {
+  const plugin = makePlugin();
+  const diaryNote = { path: "06_Diary/2026/2026-08-06.md" };
+  const projectNote = { path: "01_Projects/Noria/task_plan.md" };
+  const reviewNote = { path: "06_Diary/2026/2026-08-06-review.md" };
+  const resourceNote = { path: "03_Resources/Outside.md" };
+  const nodes = new Map([
+    ["06_Diary", { path: "06_Diary", children: [diaryNote, reviewNote] }],
+    ["01_Projects", { path: "01_Projects", children: [projectNote] }],
+    ["00_Inbox", { path: "00_Inbox", children: [] }],
+    ["03_Resources", { path: "03_Resources", children: [resourceNote] }]
+  ]);
+  plugin.app.vault.getAbstractFileByPath = (pathText) => nodes.get(String(pathText || "")) || null;
+  plugin.settings = plugin.normalizeSettings({
+    managedPaths: {
+      diaryRoot: "06_Diary",
+      projectsRoot: "01_Projects",
+      inboxRoot: "00_Inbox"
+    }
+  });
+
+  assert.deepEqual(
+    plain(plugin.filesForScope("tasks").map((file) => file.path)),
+    ["01_Projects/Noria/task_plan.md", "06_Diary/2026/2026-08-06.md"]
+  );
+
+  plugin.settings = plugin.normalizeSettings({
+    performance: {
+      queryScopes: {
+        notes: { mode: "custom", customRoots: ["03_Resources"] }
+      }
+    }
+  });
+  assert.deepEqual(plain(plugin.filesForScope("notes").map((file) => file.path)), ["03_Resources/Outside.md"]);
 });
 
 test("disabled modules filter command and ribbon specs after reload", () => {

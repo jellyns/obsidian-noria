@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2 - 2026-08-07
+
+- Limited task, statistics, source suggestion, and health queries to configured Noria roots instead of enumerating the entire vault.
+- Removed clipboard, direct filesystem, shell execution, retired runtime host, and obsolete Inbox migration paths from the production bundle.
+- Consolidated Task Board rendering and styles around one canonical task row while preserving month, week, day, matrix, timeline, light, dark, and narrow-pane behavior.
+- Fixed Home card content shrinking after the style cleanup and added release gates that prevent reviewed permission and CSS warning patterns from returning.
+
 ## 0.4.1 - 2026-08-06
 
 - Updated the manifest description to comply with the Obsidian community plugin directory requirements.

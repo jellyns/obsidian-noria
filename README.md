@@ -2,7 +2,7 @@
 
 **Language**: English | [简体中文](README.zh-CN.md)
 
-![version](https://img.shields.io/badge/version-0.4.1-blue)
+![version](https://img.shields.io/badge/version-0.4.2-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.5%2B-7c3aed)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -172,7 +172,6 @@ It should not contain `src/`, `tests/`, `scripts/`, `node_modules/`, or the full
 - Noria does not call an AI service. Review Center prepares local evidence and prompts that you may copy to a tool you choose.
 - Weather is off in a fresh installation. The first explicit workspace initialization enables it; later repairs preserve the user's choice. When weather loads, Noria may contact IP-location and weather services such as `ipwho.is`, `ipapi.co`, Open-Meteo, or `wttr.in`; QWeather is contacted only when you configure its host and API key.
 - Review Center keeps its Git evidence field compatible with external evidence providers, but Noria does not execute Git or other shell commands.
-- Copy commands use write-only clipboard access through the browser or Electron. Noria does not read clipboard contents or write temporary files for clipboard fallback.
 - Custom JavaScript view widgets are disabled by default. If you explicitly enable them under Maintenance, they execute a configured vault-relative JavaScript file with Noria and Obsidian plugin access. Noria blocks protocols, absolute paths, and path traversal; only enable this for files you trust. Built-in Noria views do not require this permission.
 - Settings stay in the plugin `data.json`; supported secrets are stored through Obsidian SecretStorage. Snapshot and review exports remain inside the vault unless you choose another vault path.
 

@@ -286,7 +286,7 @@ test("manifest package versions and Obsidian compatibility table stay aligned", 
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages?.[""]?.name, pkg.name);
   assert.equal(lock.packages?.[""]?.version, pkg.version);
-  assert.equal(manifest.version, "0.4.1");
+  assert.equal(manifest.version, "0.4.2");
   assert.equal(versions[manifest.version], manifest.minAppVersion);
   assert.match(pkg.scripts.version, /version-bump\.mjs/);
 });

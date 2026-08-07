@@ -281,12 +281,12 @@ test("native timeline typography grows in discrete normal and wide density steps
   assert.match(css, /font-size:\s*var\(--noria-task-timeline-range-title-size\)/);
 });
 
-test("native hidden titles override legacy timeline label display rules", () => {
+test("native hidden titles use the standard hidden-state display rule", () => {
   const css = fs.readFileSync(sourcePath("src/runtime/views/task-timeline/native.css"), "utf8");
 
   assert.match(
     css,
-    /\.noria-task-timeline-native-title\[hidden\]\s*\{[\s\S]{0,80}display:\s*none\s*!important;/
+    /\.noria-task-timeline-native-title\[hidden\]\s*\{[\s\S]{0,80}display:\s*none\s*;/
   );
 });
 

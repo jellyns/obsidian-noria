@@ -452,7 +452,7 @@ const renderBottomStats = (parent, m) => {
   });
   items.forEach(([label, value], index) => {
     const valueEl = parent.createDiv();
-    valueEl.style.cssText = `grid-column:${index + 1};grid-row:2;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:baseline;column-gap:3px;text-align:center;font-size:.8em;font-weight:760;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:0;overflow:visible;color:var(--text-normal);`;
+    valueEl.style.cssText = `grid-column:${index + 1};grid-row:2;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:baseline;gap:3px;text-align:center;font-size:.8em;font-weight:760;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:0;overflow:visible;color:var(--text-normal);`;
     const parts = formatStatParts(value);
     if (parts.main && parts.metric) {
       valueEl.createEl("span", { text: parts.main }).style.cssText = "grid-column:2;color:var(--text-normal);min-width:0;text-align:center;";

@@ -15,6 +15,16 @@ function cssBlock(source, selector) {
   return source.match(new RegExp(`${escaped}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0] || "";
 }
 
+function readSourceTree(root) {
+  const chunks = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, entry.name);
+    if (entry.isDirectory()) chunks.push(readSourceTree(fullPath));
+    else if (/\.(?:js|css)$/.test(entry.name)) chunks.push(fs.readFileSync(fullPath, "utf8"));
+  }
+  return chunks.join("\n");
+}
+
 test("package scripts build bundled main.js from src with obsidian external", () => {
   const pkg = JSON.parse(fs.readFileSync(pluginPath("package.json"), "utf8"));
 
@@ -54,6 +64,74 @@ test("released plugin bundle avoids direct filesystem and shell execution capabi
   assert.doesNotMatch(bundle, /clipboard\.(?:read|readText)\s*\(/);
 });
 
+test("release sources avoid community-review compatibility warnings", () => {
+  const sources = {
+    "complete source tree": readSourceTree(path.join(pluginRoot, "src")),
+    "release stylesheet": fs.readFileSync(pluginPath("styles.css"), "utf8"),
+    "Home stylesheet source": fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8"),
+    "task board stylesheet": fs.readFileSync(pluginPath("views", "tasks-calendar", "default.css"), "utf8"),
+    "task timeline stylesheet": fs.readFileSync(pluginPath("views", "task-timeline", "native.css"), "utf8"),
+    "task timeline shell stylesheet": fs.readFileSync(pluginPath("views", "task-timeline", "shell.css"), "utf8")
+  };
+  const forbidden = [
+    [/display\s*:\s*contents\b/, "display: contents"],
+    [/(?:^|\n)\s*(?:columns|column-(?:count|width|gap|rule(?:-[a-z-]+)?))\s*:/, "multicolumn layout"],
+    [/\bscrollbar-[a-z-]+\s*:|::-webkit-scrollbar/, "custom scrollbar styling"],
+    [/\btext-decoration(?:-[a-z-]+)?\s*:/, "custom text decoration"],
+    [/(?:-webkit-)?mask(?:-[a-z-]+)?\s*:/, "CSS masks"],
+    [/\bclip-path\s*:/, "clip-path"],
+    [/\b(?:ui-monospace|system-ui)\b|-apple-system/, "extended system font aliases"],
+    [/:has\s*\(/, ":has selectors"],
+    [/!important\b/, "important declarations"]
+  ];
+
+  for (const [label, source] of Object.entries(sources)) {
+    for (const [pattern, feature] of forbidden) {
+      assert.doesNotMatch(source, pattern, `${label} should not use ${feature}`);
+    }
+  }
+});
+
+test("runtime sources use configured vault roots and local files instead of broad enumeration or clipboard access", () => {
+  const sources = {
+    "complete source tree": readSourceTree(path.join(pluginRoot, "src"))
+  };
+  const forbidden = [
+    [/\bgetMarkdownFiles\s*(?:\?\.)?\s*\(/, "getMarkdownFiles"],
+    [/\bgetFiles\s*(?:\?\.)?\s*\(/, "getFiles"],
+    [/(?:globalThis\.)?navigator(?:\?\.)?\.clipboard\b/, "browser clipboard"],
+    [/require\(["']electron["']\)/, "Electron clipboard fallback"]
+  ];
+
+  for (const [label, source] of Object.entries(sources)) {
+    for (const [pattern, capability] of forbidden) {
+      assert.doesNotMatch(source, pattern, `${label} should not use ${capability}`);
+    }
+  }
+});
+
+test("release styles avoid parent-query invalidation and duplicate completed-task declarations", () => {
+  const sources = {
+    "release stylesheet": fs.readFileSync(pluginPath("styles.css"), "utf8"),
+    "Home stylesheet source": fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8"),
+    "task board stylesheet": fs.readFileSync(pluginPath("views", "tasks-calendar", "default.css"), "utf8"),
+    "task timeline stylesheet": fs.readFileSync(pluginPath("views", "task-timeline", "native.css"), "utf8")
+  };
+
+  for (const [label, source] of Object.entries(sources)) {
+    assert.doesNotMatch(source, /:has\s*\(/, `${label} should not use parent-query selectors`);
+  }
+
+  const completedToggle = sources["Home stylesheet source"].match(
+    /\.dashboard-period-task-completed-toggle\s*\{[\s\S]*?\n\s{4}\}/
+  )?.[0] || "";
+  assert.ok(completedToggle, "completed-task toggle style should exist");
+  for (const property of ["margin", "padding", "background", "color"]) {
+    const declarations = completedToggle.match(new RegExp(`\\b${property}\\s*:`, "g")) || [];
+    assert.equal(declarations.length, 1, `${property} should be declared once in the completed-task toggle`);
+  }
+});
+
 test("settings tabs and ordinary action buttons keep low visual density", () => {
   const css = fs.readFileSync(pluginPath("styles.css"), "utf8");
   const chrome = cssBlock(css, ".noria-settings-chrome");
@@ -77,7 +155,7 @@ test("settings tabs and ordinary action buttons keep low visual density", () => 
   assert.match(header, /justify-content:\s*space-between/);
 
   assert.ok(tabs, "settings tabs wrapper should be styled");
-  assert.match(tabs, /column-gap:\s*0/);
+  assert.match(tabs, /gap:\s*0/);
   assert.match(tabs, /flex-wrap:\s*nowrap/);
   assert.match(tabs, /overflow-x:\s*auto/);
   assert.match(tabs, /border-bottom:\s*1px solid/);
@@ -552,7 +630,7 @@ test("home dark surfaces reduce card and chip border competition", () => {
 
   assert.ok(darkGuideBlock, "dark guide card block should exist");
   assert.match(darkGuideBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*42%,\s*transparent\)/);
-  assert.match(darkGuideBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(darkGuideBlock, /box-shadow:\s*none/);
 
   assert.ok(darkMocChipBlock, "dark MOC chip block should exist");
   assert.match(darkMocChipBlock, /--moc-chip-fill:\s*color-mix\(in srgb,\s*var\(--moc-chip-accent\)\s*10%/);
@@ -560,7 +638,7 @@ test("home dark surfaces reduce card and chip border competition", () => {
 
   assert.ok(darkHeroMetricBlock, "dark hero metric card block should exist");
   assert.match(darkHeroMetricBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*42%,\s*transparent\)/);
-  assert.match(darkHeroMetricBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(darkHeroMetricBlock, /box-shadow:\s*none/);
 });
 
 test("home workbench panels use quiet panel and ghost toolbar contract", () => {
@@ -585,26 +663,26 @@ test("home workbench panels use quiet panel and ghost toolbar contract", () => {
 
   assert.ok(panelBlock, "workbench panel block should exist");
   assert.match(panelBlock, /background:\s*color-mix\(in srgb,\s*var\(--dash-surface\)\s*88%/);
-  assert.match(panelBlock, /box-shadow:\s*none\s*!important/);
-  assert.match(panelBlock, /border:\s*1px solid color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*58%,\s*transparent\)\s*!important/);
+  assert.match(panelBlock, /box-shadow:\s*none/);
+  assert.match(panelBlock, /border:\s*1px solid color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*58%,\s*transparent\)/);
   assert.ok(darkPanelBlock, "dark workbench panel block should exist");
-  assert.match(darkPanelBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*32%,\s*transparent\)\s*!important/);
+  assert.match(darkPanelBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*32%,\s*transparent\)/);
   assert.ok(titleBlock, "workbench title block should exist");
   assert.match(titleBlock, /gap:\s*7px/);
   assert.match(bootstrap, /\.dashboard-home-root\s+\.dashboard-workbench-panel__title::before/);
   assert.ok(toolButtonBlock, "workbench toolbar button block should exist");
-  assert.match(toolButtonBlock, /border-color:\s*transparent\s*!important/);
-  assert.match(toolButtonBlock, /background:\s*transparent\s*!important/);
-  assert.match(toolButtonBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(toolButtonBlock, /border-color:\s*transparent/);
+  assert.match(toolButtonBlock, /background:\s*transparent/);
+  assert.match(toolButtonBlock, /box-shadow:\s*none/);
   assert.ok(toolPendingBlock, "workbench toolbar pending state should exist");
   assert.match(toolPendingBlock, /opacity:\s*\.68/);
-  assert.match(toolPendingBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(toolPendingBlock, /box-shadow:\s*none/);
   assert.ok(toolFailedBlock, "workbench toolbar failed state should exist");
   assert.match(toolFailedBlock, /color:\s*color-mix\(in srgb,\s*var\(--text-error\)\s*72%/);
-  assert.match(toolFailedBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(toolFailedBlock, /box-shadow:\s*none/);
   assert.ok(bodyBlock, "workbench body block should exist");
-  assert.match(bodyBlock, /scrollbar-width:\s*thin/);
-  assert.match(bootstrap, /\.dashboard-home-root\s+\.dashboard-workbench-panel__body[\s\S]*::-webkit-scrollbar/);
+  assert.doesNotMatch(bodyBlock, /scrollbar-width:/);
+  assert.doesNotMatch(bootstrap, /::-webkit-scrollbar/);
 });
 
 test("home workbench columns respond to the Home pane container instead of viewport width", () => {
@@ -613,6 +691,11 @@ test("home workbench columns respond to the Home pane container instead of viewp
 
   assert.match(overviewColumns, /container\.addClass\("dashboard-workbench-container"\)/);
   assert.doesNotMatch(overviewColumns, /container\?\.clientWidth|root\.style\.gridTemplateColumns/);
+  assert.match(
+    overviewColumns,
+    /input\?\.cardMode\s*===\s*true[\s\S]*grid-template-columns:minmax\(0,1fr\)[\s\S]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/,
+    "card-mode widgets must write a one-column inline grid instead of relying on CSS to override the three-column inline default"
+  );
   assert.match(bootstrap, /\.dashboard-workbench-container\s*\{[\s\S]*container-type:\s*inline-size[\s\S]*container-name:\s*noria-home-workbench/);
   assert.match(bootstrap, /@container noria-home-workbench \(max-width:\s*980px\)[\s\S]*\.dashboard-workbench-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(bootstrap, /@container noria-home-workbench \(max-width:\s*980px\)[\s\S]*data-noria-overview-panel-group="right"[\s\S]*grid-column:\s*1\s*\/\s*-1/);
@@ -631,9 +714,9 @@ test("home overview secondary habit context stays today-strip only", () => {
   const todayStripBlock = bootstrap.match(/\.dashboard-home-root\s+\.dashboard-overview-habit-context\s+\.dashboard-habit-today-strip\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
 
   assert.ok(habitGridBlock, "overview habit context should hide the long history grid");
-  assert.match(habitGridBlock, /display:\s*none\s*!important/);
+  assert.match(habitGridBlock, /display:\s*none/);
   assert.ok(habitToolBlock, "overview habit context should hide secondary habit tools");
-  assert.match(habitToolBlock, /display:\s*none\s*!important/);
+  assert.match(habitToolBlock, /display:\s*none/);
   assert.ok(todayStripBlock, "overview habit context should tighten the today strip");
   assert.match(todayStripBlock, /border-bottom:\s*0/);
   assert.match(todayStripBlock, /padding-bottom:\s*0/);
@@ -649,7 +732,7 @@ test("home trends habit history hides duplicate today strip and reuses MOC entry
   const mocChipBlock = bootstrap.match(/\.dashboard-moc-chip\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
 
   assert.ok(trendsTodayBlock, "Trends habit history should hide the duplicated today strip");
-  assert.match(trendsTodayBlock, /display:\s*none\s*!important/);
+  assert.match(trendsTodayBlock, /display:\s*none/);
   assert.ok(trendsShellBlock, "Trends habit history should tune matrix label variables");
   assert.match(trendsShellBlock, /--habit-name-col:\s*clamp\(96px,\s*13%,\s*126px\)/);
   assert.match(trendsShellBlock, /--habit-grid-line:\s*color-mix\(in srgb,\s*var\(--text-muted\) 14%,\s*transparent\)/);
@@ -664,7 +747,7 @@ test("home trends habit history hides duplicate today strip and reuses MOC entry
     assert.match(trendsNameTitleBlock, new RegExp(`${property}:\\s*var\\(--dash-moc-entry-${property}`));
   }
   assert.match(mocChipBlock, /--moc-chip-ink:\s*var\(--dash-moc-entry-color\)/);
-  assert.match(mocChipBlock, /color:\s*var\(--moc-chip-ink\)\s*!important/);
+  assert.match(mocChipBlock, /color:\s*var\(--moc-chip-ink\)/);
   assert.match(trendsNameTitleBlock, /color:\s*var\(--dash-moc-entry-color\)/);
   assert.match(habitWeek, /font-weight:var\(--habit-name-weight,620\)/);
   assert.match(habitWeek, /color:var\(--habit-name-color\)/);
@@ -693,21 +776,21 @@ test("home guide panels use workbench-like quiet chrome", () => {
   const governanceBlock = bootstrap.match(/\.dashboard-home-root\s+\.dashboard-guide-card button\.dashboard-guide-icon-btn--governance\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
 
   assert.ok(guideBlock, "guide card style should exist");
-  assert.match(guideBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(guideBlock, /box-shadow:\s*none/);
   assert.match(guideBlock, /background:\s*color-mix\(in srgb,\s*var\(--dash-surface\)\s*88%,\s*transparent\)/);
   assert.match(guideBlock, /border:\s*1px solid color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*58%,\s*transparent\)/);
 
   assert.ok(guideToolBlock, "guide toolbar button block should exist");
-  assert.match(guideToolBlock, /border-color:\s*transparent\s*!important/);
-  assert.match(guideToolBlock, /background:\s*transparent\s*!important/);
-  assert.match(guideToolBlock, /box-shadow:\s*none\s*!important/);
-  assert.match(guideToolHoverBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(guideToolBlock, /border-color:\s*transparent/);
+  assert.match(guideToolBlock, /background:\s*transparent/);
+  assert.match(guideToolBlock, /box-shadow:\s*none/);
+  assert.match(guideToolHoverBlock, /box-shadow:\s*none/);
   assert.ok(guideToolPendingBlock, "guide toolbar buttons should expose low-noise pending state");
   assert.match(guideToolPendingBlock, /opacity:\s*\.72/);
-  assert.match(guideToolPendingBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(guideToolPendingBlock, /box-shadow:\s*none/);
   assert.ok(guideToolFailedBlock, "guide toolbar buttons should expose low-noise failed state");
   assert.match(guideToolFailedBlock, /color:\s*color-mix\(in srgb,\s*var\(--text-error\)/);
-  assert.match(guideToolFailedBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(guideToolFailedBlock, /box-shadow:\s*none/);
 
   assert.ok(governanceBlock, "guide governance button block should exist");
   assert.doesNotMatch(governanceBlock, /border-left:\s*2px/);
@@ -733,16 +816,16 @@ test("home today capture stays a compact workbench command bar", () => {
   assert.ok(modeGroupBlock, "today capture mode group block should exist");
   assert.match(modeGroupBlock, /display:\s*inline-flex/);
   assert.match(modeGroupBlock, /height:\s*32px/);
-  assert.match(modeGroupBlock, /border:\s*0\s*!important/);
-  assert.match(modeGroupBlock, /background:\s*transparent\s*!important/);
+  assert.match(modeGroupBlock, /border:\s*0/);
+  assert.match(modeGroupBlock, /background:\s*transparent/);
   assert.match(modeGroupBlock, /box-shadow:\s*none/);
   assert.ok(modeButtonBlock, "today capture mode button block should exist");
   assert.match(modeButtonBlock, /display:\s*inline-flex/);
   assert.match(modeButtonBlock, /align-items:\s*center/);
-  assert.match(modeButtonBlock, /height:\s*26px\s*!important/);
-  assert.match(modeButtonBlock, /background:\s*transparent\s*!important/);
-  assert.match(modeButtonBlock, /box-shadow:\s*none\s*!important/);
-  assert.match(modeButtonBlock, /border:\s*0\s*!important/);
+  assert.match(modeButtonBlock, /height:\s*26px/);
+  assert.match(modeButtonBlock, /background:\s*transparent/);
+  assert.match(modeButtonBlock, /box-shadow:\s*none/);
+  assert.match(modeButtonBlock, /border:\s*0/);
   assert.ok(activeModeBlock, "today capture active mode block should exist");
   assert.doesNotMatch(modeButtonBlock, /border-left|box-shadow:\s*var\(--dash-shadow-btn\)/);
 
@@ -753,10 +836,10 @@ test("home today capture stays a compact workbench command bar", () => {
   assert.match(inputBlock, /height:\s*32px/);
   assert.match(inputBlock, /min-height:\s*32px/);
   assert.match(inputBlock, /max-height:\s*86px/);
-  assert.match(inputBlock, /line-height:\s*20px\s*!important/);
-  assert.match(inputBlock, /padding:\s*6px 8px\s*!important/);
-  assert.match(inputBlock, /border:\s*0\s*!important/);
-  assert.match(inputBlock, /background:\s*transparent\s*!important/);
+  assert.match(inputBlock, /line-height:\s*20px/);
+  assert.match(inputBlock, /padding:\s*6px 8px/);
+  assert.match(inputBlock, /border:\s*0/);
+  assert.match(inputBlock, /background:\s*transparent/);
   assert.doesNotMatch(inputBlock, /resize:\s*vertical/);
   assert.ok(captureButtonHoverBlock, "today capture submit should override standalone hover motion");
   assert.match(captureButtonHoverBlock, /transform:\s*none/);
@@ -896,7 +979,7 @@ test("home workbench task and countdown interiors have stable low-noise contract
   assert.doesNotMatch(bootstrap, /\.dashboard-period-task-group--overdue\s+\.dashboard-period-task-section-label/);
   assert.match(bootstrap, /\.dashboard-period-task-section-label::before\s*\{[\s\S]*border-radius:\s*999px/);
   assert.match(bootstrap, /\.dashboard-period-task-divider\s*\{[\s\S]*border-top:\s*1px solid/);
-  assert.match(bootstrap, /\.dashboard-period-task-completed-toggle\s*\{[\s\S]*background:\s*transparent\s*!important/);
+  assert.match(bootstrap, /\.dashboard-period-task-completed-toggle\s*\{[\s\S]*background:\s*transparent/);
   const countdownCardBlock = bootstrap.match(/\.dashboard-countdown-card\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
   const countdownRowBlock = bootstrap.match(/\.dashboard-countdown-row\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
   const countdownDaysFigureBlock = bootstrap.match(/\.dashboard-countdown-days-figure\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
@@ -953,7 +1036,7 @@ test("home workbench task and countdown interiors have stable low-noise contract
   assert.doesNotMatch(bootstrap, /\.dashboard-countdown-date\s*\{/);
   assert.match(bootstrap, /\.dashboard-countdown-empty\s*\{[\s\S]*align-items:\s*center/);
   assert.match(bootstrap, /\.dashboard-countdown-empty-copy\s*\{[\s\S]*display:\s*inline-flex/);
-  assert.match(bootstrap, /\.dashboard-countdown-empty-action\s*\{[\s\S]*background:\s*transparent\s*!important/);
+  assert.match(bootstrap, /\.dashboard-countdown-empty-action\s*\{[\s\S]*background:\s*transparent/);
 });
 
 test("home task periods use the local calendar date instead of UTC", () => {
@@ -1012,12 +1095,12 @@ test("home project chips use progress fill instead of border gradients", () => {
   assert.match(chipBlock, /--project-chip-fill:\s*color-mix\(in srgb,\s*var\(--noria-module-home[\s\S]*8%/);
   assert.match(chipBlock, /--noria-project-progress/);
   assert.match(chipBlock, /linear-gradient\(90deg,\s*var\(--project-chip-fill\)\s+0 var\(--noria-project-progress\)/);
-  assert.match(chipBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(chipBlock, /box-shadow:\s*none/);
   assert.doesNotMatch(chipBlock, /border-bottom/);
   assert.ok(activeBlock, "active project chip style should exist");
   assert.match(activeBlock, /font-weight:\s*700/);
   assert.match(activeBlock, /--project-chip-fill:\s*color-mix\(in srgb,\s*var\(--noria-module-home[\s\S]*26%/);
-  assert.match(activeBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(activeBlock, /box-shadow:\s*none/);
   assert.doesNotMatch(activeBlock, /0 0 0 2px|inset|--project-chip-active-ring/);
   assert.match(bootstrap, /\.dashboard-project-chip\[data-project-stage="planned"\]\s*\{[\s\S]*--project-chip-fill:\s*color-mix\(in srgb,\s*rgb\(20 184 166\)\s+10%/);
   assert.match(projects, /dashboard-project-chip/);
@@ -1048,10 +1131,10 @@ test("home project next-step input stays inline and quiet", () => {
   assert.match(projects, /data-noria-project-task-source-line/);
   assert.match(rowBlock, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
   assert.match(rowBlock, /border-bottom:\s*1px solid/);
-  assert.match(inputBlock, /background:\s*transparent\s*!important/);
-  assert.match(inputBlock, /box-shadow:\s*none\s*!important/);
-  assert.match(addBlock, /background:\s*transparent\s*!important/);
-  assert.match(addBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(inputBlock, /background:\s*transparent/);
+  assert.match(inputBlock, /box-shadow:\s*none/);
+  assert.match(addBlock, /background:\s*transparent/);
+  assert.match(addBlock, /box-shadow:\s*none/);
   assert.match(bootstrap, /\.dashboard-project-next-row\[data-noria-project-next-state="saving"\]/);
   assert.match(bootstrap, /\.dashboard-project-next-row\[data-noria-project-next-state="error"\]\s+\.dashboard-project-next-input/);
   assert.ok(inputPendingBlock, "project next input pending state should stay low-noise");
@@ -1083,7 +1166,7 @@ test("home project guide panel uses scoped compact workbench rhythm", () => {
   assert.match(projects, /dashboard-project-current-panel/);
 
   assert.ok(workbenchBlock, "project guide workbench block should exist");
-  assert.match(workbenchBlock, /gap:\s*7px\s*!important/);
+  assert.match(workbenchBlock, /gap:\s*7px/);
   assert.ok(chipStripBlock, "project guide chip strip block should exist");
   assert.match(chipStripBlock, /gap:\s*5px/);
   assert.match(chipStripBlock, /padding:\s*0 0 1px/);
@@ -1094,19 +1177,19 @@ test("home project guide panel uses scoped compact workbench rhythm", () => {
   assert.match(chipBlock, /white-space:\s*nowrap/);
 
   assert.ok(panelBlock, "project guide current panel block should exist");
-  assert.match(panelBlock, /border:\s*0\s*!important/);
-  assert.match(panelBlock, /background:\s*transparent\s*!important/);
-  assert.match(panelBlock, /box-shadow:\s*none\s*!important/);
-  assert.match(panelBlock, /padding:\s*0\s*!important/);
+  assert.match(panelBlock, /border:\s*0/);
+  assert.match(panelBlock, /background:\s*transparent/);
+  assert.match(panelBlock, /box-shadow:\s*none/);
+  assert.match(panelBlock, /padding:\s*0/);
   assert.doesNotMatch(panelBlock, /border:\s*1px/);
 
   assert.ok(nextRowBlock, "project guide next row block should exist");
   assert.match(nextRowBlock, /margin:\s*0 0 6px/);
   assert.match(nextRowBlock, /padding:\s*0 0 6px/);
   assert.ok(taskListBlock, "project guide task list block should exist");
-  assert.match(taskListBlock, /gap:\s*3px\s*!important/);
+  assert.match(taskListBlock, /gap:\s*3px/);
   assert.ok(taskRowBlock, "project guide task row block should exist");
-  assert.match(taskRowBlock, /padding:\s*3px 2px\s*!important/);
+  assert.match(taskRowBlock, /padding:\s*3px 2px/);
 });
 
 test("home compact filter buttons are borderless while inactive", () => {
@@ -1118,15 +1201,15 @@ test("home compact filter buttons are borderless while inactive", () => {
   const segmentActiveBlock = bootstrap.match(/button\.dashboard-segment-tab\.is-active\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
   assert.ok(segmentBlock, "Home period segment tab block should exist");
   assert.match(segmentBlock, /appearance:\s*none/);
-  assert.match(segmentBlock, /border:\s*0\s*!important/);
-  assert.match(segmentBlock, /border-color:\s*transparent\s*!important/);
-  assert.match(segmentBlock, /box-shadow:\s*none\s*!important/);
-  assert.match(segmentBlock, /background:\s*transparent\s*!important/);
-  assert.match(segmentBlock, /background-image:\s*none\s*!important/);
+  assert.match(segmentBlock, /border:\s*0/);
+  assert.match(segmentBlock, /border-color:\s*transparent/);
+  assert.match(segmentBlock, /box-shadow:\s*none/);
+  assert.match(segmentBlock, /background:\s*transparent/);
+  assert.match(segmentBlock, /background-image:\s*none/);
   assert.match(segmentBlock, /font-weight:\s*(?:var\(--dash-compact-segment-weight,\s*)?650/);
-  assert.match(segmentActiveBlock, /background:\s*(?:var\(--dash-compact-segment-active-bg,[\s\S]*color-mix|color-mix)[\s\S]*!important/);
+  assert.match(segmentActiveBlock, /background:\s*(?:var\(--dash-compact-segment-active-bg,[\s\S]*color-mix|color-mix)/);
   assert.match(segmentActiveBlock, /font-weight:\s*(?:var\(--dash-compact-segment-active-weight,\s*)?720/);
-  assert.match(segmentActiveBlock, /box-shadow:\s*none\s*!important/);
+  assert.match(segmentActiveBlock, /box-shadow:\s*none/);
   const heatmapModeBlock = bootstrap.match(/\.dashboard-heatmap-mode-button\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
   assert.ok(heatmapModeBlock, "Home panel-level mode button block should exist");
   assert.match(heatmapModeBlock, /height:\s*var\(--dash-panel-segment-height,\s*28px\)/);
@@ -1222,9 +1305,9 @@ test("home link shadow guard removes task and inbox row underlines", () => {
   ]) {
     const block = bootstrap.match(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{[\\s\\S]*?\\n\\s*\\}"))?.[0] || "";
     assert.ok(block, `${selector} should explicitly opt out of decorative link shadows`);
-    assert.match(block, /box-shadow:\s*none\s*!important/);
-    assert.match(block, /background-image:\s*none\s*!important/);
-    assert.match(block, /text-decoration:\s*none\s*!important/);
+    assert.match(block, /box-shadow:\s*none/);
+    assert.match(block, /background-image:\s*none/);
+    assert.doesNotMatch(block, /text-decoration(?:-[a-z-]+)?:/);
   }
 
   const calloutLinkShadowRules = [...bootstrap.matchAll(/\.dashboard-home-root\s+\.callout\[data-callout="(?:info|abstract|success)"\]\s+\.callout-content\s+a\.internal-link[^\{]*\{[^}]*box-shadow:\s*var\(--dash-shadow-inset-soft\)/g)].map((m) => m[0]);
@@ -1425,10 +1508,10 @@ test("tasks calendar dark title contract keeps task titles primary", () => {
     assert.match(taskCalendarCss, new RegExp(`${token}\\s*:`), token);
   }
 
-  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar:is\(\[view='month'\],\s*\[view='week'\],\s*\[view='day'\],\s*\[view='list'\]\)[\s\S]*\.tc-cal-item\s+\.description[\s\S]*color:\s*var\(--noria-tc-task-title\)\s*!important/);
-  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar:is\(\[view='month'\],\s*\[view='week'\],\s*\[view='day'\],\s*\[view='list'\]\)[\s\S]*\.tc-cal-item\s+\.tc-title-text[\s\S]*font-weight:\s*var\(--noria-tc-task-title-weight\)\s*!important/);
+  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar:is\(\[view='month'\],\s*\[view='week'\],\s*\[view='day'\],\s*\[view='list'\]\)[\s\S]*\.tc-cal-item\s+\.description[\s\S]*color:\s*var\(--noria-tc-task-title\)/);
+  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar:is\(\[view='month'\],\s*\[view='week'\],\s*\[view='day'\],\s*\[view='list'\]\)[\s\S]*\.tc-cal-item\s+\.internal-link[\s\S]*font-weight:\s*var\(--noria-tc-task-title-weight\)/);
   assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\[view='list'\]\s+\.quadrant\s+\.qContent[\s\S]*\.tc-cal-item\s+\.description[\s\S]*var\(--noria-tc-task-title\)/);
-  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\[view='month'\]\s+\.tc-cal-item\s*\{[\s\S]*border-left:\s*2px solid var\(--noria-tc-task-rail-subtle\)\s*!important/);
+  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\[view='month'\]\s+\.tc-cal-item\s*\{[\s\S]*border-left:\s*2px solid var\(--noria-tc-task-rail-subtle\)/);
   assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\s+\.tc-cal-item\.(?:done|completed)[\s\S]*--noria-tc-task-title-muted/);
 });
 

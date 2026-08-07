@@ -2,58 +2,6 @@ const host = (input && input.mount) ? input.mount : this.container;
 const habitTags = ["#habit", "#健康", "#运动", "#作息"];
 const now = new Date();
 const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-const toIso = (v) => {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) return "";
-  try {
-    return new Date(n).toISOString();
-  } catch (_) {
-    return "";
-  }
-};
-const pickDate = (text, patterns) => {
-  const s = String(text || "");
-  for (const re of patterns) {
-    const m = s.match(re);
-    if (m && m[1]) return m[1];
-  }
-  return "";
-};
-const readAllTasksFromVaultFallback = () => {
-  const files = app?.vault?.getMarkdownFiles?.() || [];
-  const out = [];
-  files.forEach((f) => {
-    if (/(^|\/)\d{4}-\d{2}-\d{2}-review\.md$/i.test(String(f?.path || "").replace(/\\/g, "/"))) return;
-    const cache = app?.metadataCache?.getFileCache?.(f) || {};
-    const list = Array.isArray(cache.listItems) ? cache.listItems : [];
-    list.forEach((it) => {
-      if (!it || it.task !== true) return;
-      const source = (typeof it.task === "string" && it.task.trim()) ? it.task : (it.text || "");
-      const raw = String(source || "").trim();
-      if (!raw) return;
-      const completed = /^\s*[-*]\s*\[[xX]\]/.test(raw);
-      const text = raw.replace(/^\s*[-*]\s*\[[ xX]\]\s*/, "").trim();
-      out.push({
-        text,
-        completed,
-        due: pickDate(text, [/\[due::\s*(\d{4}-\d{2}-\d{2})\]/i, /(?:📅|📆|🗓)\s*(\d{4}-\d{2}-\d{2})/, /(?:\bdue\b)\s*:?[\s]*?(\d{4}-\d{2}-\d{2})/i]),
-        scheduled: pickDate(text, [/\[scheduled::\s*(\d{4}-\d{2}-\d{2})\]/i, /⏳\s*(\d{4}-\d{2}-\d{2})/, /(?:\bscheduled\b)\s*:?[\s]*?(\d{4}-\d{2}-\d{2})/i]),
-        start: pickDate(text, [/\[start::\s*(\d{4}-\d{2}-\d{2})\]/i, /🛫\s*(\d{4}-\d{2}-\d{2})/, /(?:\bstart\b)\s*:?[\s]*?(\d{4}-\d{2}-\d{2})/i]),
-        completion: pickDate(text, [/\[done::\s*(\d{4}-\d{2}-\d{2})\]/i, /✅\s*(\d{4}-\d{2}-\d{2})/]),
-        path: f.path,
-        line: Number(it.position?.start?.line ?? 0),
-        _page: {
-          file: {
-            path: f.path,
-            ctime: toIso(f?.stat?.ctime),
-            mtime: toIso(f?.stat?.mtime)
-          }
-        }
-      });
-    });
-  });
-  return out;
-};
 const bridge = input?.noriaBridge || globalThis.__noriaRuntimeBridge || {};
 const normalizeVaultPath = (value) =>
   String(value || "")
@@ -524,9 +472,7 @@ const allTasksRawFromData = (await noriaTasksForScope()).map((t) => ({
   ...t,
   _page: t?._page || { file: { path: String(t?.path || "") } }
 }));
-const allTasksRaw = (allTasksRawFromData && allTasksRawFromData.length > 0)
-  ? allTasksRawFromData
-  : readAllTasksFromVaultFallback();
+const allTasksRaw = allTasksRawFromData;
 const uniq = new Set();
 const allTasks = allTasksRaw.filter((t) => {
   const k = `${String(t.path || t?._page?.file?.path || "")}::${String(t.line ?? "")}::${String(t.text || "")}`;

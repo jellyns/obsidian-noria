@@ -271,7 +271,7 @@ test("runtime source lives under src/runtime while embedded keys stay release co
 
   const generated = fs.readFileSync(path.join(pluginRoot, "src", "generated", "embedded-runtime-sources.js"), "utf8");
   assert.match(generated, /"views\/tasks-calendar\/runtime-core\.js"/);
-  assert.match(generated, /"core\/runtime-host\.js"/);
+  assert.doesNotMatch(generated, /"core\/runtime-host\.js"/);
   assert.match(generated, /"config\/timeline-settings\.md"/);
   assert.match(generated, /NORIA_RUNTIME_BUILD_ID/);
 
@@ -7216,7 +7216,7 @@ test("home note share renders distribution from the shared home snapshot", async
   assert.doesNotMatch(text, /暂无可统计/);
 });
 
-test("project guide falls back to markdown body tasks and preserves registry stages", async () => {
+test("project guide uses managed project metadata tasks and preserves registry stages", async () => {
   const registryPath = "02_Areas/知识库管理/Projects.md";
   const projectMoc = "01_Projects/论文-6Equation/论文-6Equation·MOC.md";
   const projectTasks = "01_Projects/论文-6Equation/任务列表.md";
@@ -7256,8 +7256,14 @@ test("project guide falls back to markdown body tasks and preserves registry sta
           toArray(value) {
             return Array.from(value || []);
           },
-          pagesForManagedPath() {
-            return [];
+          pagesForManagedPath(pathKey) {
+            assert.equal(pathKey, "projectsRoot");
+            return [
+              { file: { path: projectMoc, name: path.basename(projectMoc), tasks: [{ text: "明确论文核心问题与贡献边界", completed: false }] } },
+              { file: { path: projectTasks, name: path.basename(projectTasks), tasks: [{ text: "补算例", completed: false }, { text: "已完成项", completed: true }] } },
+              { file: { path: "01_Projects/论文-UWENO/论文-UWENO.md", name: "论文-UWENO.md", tasks: [] } },
+              { file: { path: plannedTasks, name: path.basename(plannedTasks), tasks: [{ text: "完成r=n的完整推导程序及得到d_{2r-2}形式", completed: false }] } }
+            ];
           }
         },
         t(key, params = {}) {
@@ -7274,11 +7280,6 @@ test("project guide falls back to markdown body tasks and preserves registry sta
       vault: {
         getAbstractFileByPath(pathText) {
           return fileBodies.has(pathText) ? { path: pathText, name: path.basename(pathText) } : null;
-        },
-        getMarkdownFiles() {
-          return [...fileBodies.keys()]
-            .filter((filePath) => filePath.endsWith(".md"))
-            .map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
         },
         read: async (file) => fileBodies.get(file.path) || "",
         modify: async () => {},
@@ -7311,7 +7312,7 @@ test("project guide falls back to markdown body tasks and preserves registry sta
   assert.match(text, /论文-UWENO\*/);
 });
 
-test("project guide uses Data API task facts for project todos before local task fallbacks", async () => {
+test("project guide uses Data API task facts for project todos", async () => {
   const registryPath = "02_Areas/知识库管理/Projects.md";
   const projectMoc = "01_Projects/论文-6Equation/论文-6Equation·MOC.md";
   const projectTasks = "01_Projects/论文-6Equation/任务列表.md";
@@ -7408,8 +7409,12 @@ test("project guide uses Data API task facts for project todos before local task
           toArray(value) {
             return Array.from(value || []);
           },
-          pagesForManagedPath() {
-            return [];
+          pagesForManagedPath(pathKey) {
+            assert.equal(pathKey, "projectsRoot");
+            return [
+              { file: { path: projectMoc, name: path.basename(projectMoc), tasks: [] } },
+              { file: { path: projectTasks, name: path.basename(projectTasks), tasks: [] } }
+            ];
           }
         },
         t(key, params = {}) {
@@ -7426,11 +7431,6 @@ test("project guide uses Data API task facts for project todos before local task
       vault: {
         getAbstractFileByPath(pathText) {
           return fileBodies.has(pathText) ? { path: pathText, name: path.basename(pathText) } : null;
-        },
-        getMarkdownFiles() {
-          return [...fileBodies.keys()]
-            .filter((filePath) => filePath.endsWith(".md"))
-            .map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
         },
         read: async (file) => fileBodies.get(file.path) || "",
         modify: async () => {},
@@ -7511,8 +7511,9 @@ test("project guide appends a next step to the selected project note inline", as
           toArray(value) {
             return Array.from(value || []);
           },
-          pagesForManagedPath() {
-            return [];
+          pagesForManagedPath(pathKey) {
+            assert.equal(pathKey, "projectsRoot");
+            return [{ file: { path: projectMoc, name: path.basename(projectMoc), tasks: [] } }];
           },
           notice() {}
         },
@@ -7540,11 +7541,6 @@ test("project guide appends a next step to the selected project note inline", as
       vault: {
         getAbstractFileByPath(pathText) {
           return fileBodies.has(pathText) ? { path: pathText, name: path.basename(pathText) } : null;
-        },
-        getMarkdownFiles() {
-          return [...fileBodies.keys()]
-            .filter((filePath) => filePath.endsWith(".md"))
-            .map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
         },
         read: async (file) => fileBodies.get(file.path) || "",
         modify: async (file, text) => {
@@ -7648,8 +7644,9 @@ test("project guide keeps next-step failures isolated with row state and notice"
           toArray(value) {
             return Array.from(value || []);
           },
-          pagesForManagedPath() {
-            return [];
+          pagesForManagedPath(pathKey) {
+            assert.equal(pathKey, "projectsRoot");
+            return [{ file: { path: projectMoc, name: path.basename(projectMoc), tasks: [] } }];
           },
           notice(key, params = {}, duration) {
             notices.push({ key, params, duration });
@@ -7678,11 +7675,6 @@ test("project guide keeps next-step failures isolated with row state and notice"
       vault: {
         getAbstractFileByPath(pathText) {
           return fileBodies.has(pathText) ? { path: pathText, name: path.basename(pathText) } : null;
-        },
-        getMarkdownFiles() {
-          return [...fileBodies.keys()]
-            .filter((filePath) => filePath.endsWith(".md"))
-            .map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
         },
         read: async (file) => fileBodies.get(file.path) || "",
         modify: async () => {
@@ -7729,7 +7721,7 @@ test("project guide keeps next-step failures isolated with row state and notice"
   assert.equal(notices[0].params.message, "disk locked");
 });
 
-test("project guide still uses markdown task fallback when legacy task rows are non-empty but unusable", async () => {
+test("project guide ignores unusable managed task rows without reparsing markdown bodies", async () => {
   const registryPath = "02_Areas/知识库管理/Projects.md";
   const projectMoc = "01_Projects/论文-6Equation/论文-6Equation·MOC.md";
   const projectTasks = "01_Projects/论文-6Equation/任务列表.md";
@@ -7789,11 +7781,6 @@ test("project guide still uses markdown task fallback when legacy task rows are 
         getAbstractFileByPath(pathText) {
           return fileBodies.has(pathText) ? { path: pathText, name: path.basename(pathText) } : null;
         },
-        getMarkdownFiles() {
-          return [...fileBodies.keys()]
-            .filter((filePath) => filePath.endsWith(".md"))
-            .map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
-        },
         read: async (file) => fileBodies.get(file.path) || "",
         modify: async () => {},
         create: async () => {},
@@ -7820,14 +7807,14 @@ test("project guide still uses markdown task fallback when legacy task rows are 
   });
 
   const text = flattenElements(mount).map((el) => el.textContent).filter(Boolean).join(" ");
-  assert.match(text, /补算例|明确论文核心问题/);
-  assert.doesNotMatch(text, /当前暂无未完成任务/);
+  assert.doesNotMatch(text, /补算例|明确论文核心问题/);
+  assert.match(text, /当前暂无未完成任务/);
   assert.ok(globalThis.__noriaHomeProjectsLastDebug, "project guide should expose debug diagnostics");
   assert.equal(globalThis.__noriaHomeProjectsLastDebug.projectsRoot, "01_Projects");
   assert.ok(globalThis.__noriaHomeProjectsLastDebug.candidateFileCount >= 2);
-  assert.ok(globalThis.__noriaHomeProjectsLastDebug.currentProject?.openCount > 0);
+  assert.equal(globalThis.__noriaHomeProjectsLastDebug.currentProject?.openCount, 0);
   const openCountHosts = flattenElements(mount).filter((el) => el.attrs["data-project-open-count"] != null);
-  assert.ok(openCountHosts.some((el) => Number(el.attrs["data-project-open-count"]) > 0));
+  assert.ok(openCountHosts.every((el) => Number(el.attrs["data-project-open-count"]) === 0));
   delete globalThis.__noriaHomeProjectsLastDebug;
 });
 
@@ -7869,8 +7856,12 @@ test("project guide respects multi-segment managed project roots", async () => {
           toArray(value) {
             return Array.from(value || []);
           },
-          pagesForManagedPath() {
-            return [];
+          pagesForManagedPath(pathKey) {
+            assert.equal(pathKey, "projectsRoot");
+            return [
+              { file: { path: projectA, name: path.basename(projectA), tasks: [{ text: "Create workspace", completed: true }, { text: "Review Home sections", completed: false }] } },
+              { file: { path: projectB, name: path.basename(projectB), tasks: [{ text: "Collect two papers", completed: true }, { text: "Extract reusable claims", completed: false }] } }
+            ];
           }
         },
         t(key, params = {}) {
@@ -7887,11 +7878,6 @@ test("project guide respects multi-segment managed project roots", async () => {
       vault: {
         getAbstractFileByPath(pathText) {
           return fileBodies.has(pathText) ? { path: pathText, name: path.basename(pathText) } : null;
-        },
-        getMarkdownFiles() {
-          return [...fileBodies.keys()]
-            .filter((filePath) => filePath.endsWith(".md"))
-            .map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
         },
         read: async (file) => fileBodies.get(file.path) || "",
         modify: async () => {},

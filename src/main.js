@@ -11,8 +11,8 @@ const {
 } = require("./settings-maintenance.js");
 
 /**
- * 以下模块内联：Obsidian/Electron 下 `require("./core/...")` 可能报 Cannot find module（与相对解析或插件目录不完整有关）。
- * 逻辑与 `core/runtime-host.js`、`core/task-query-context.js` 保持一致；修改时请同步两份或改回 require。
+ * 运行时上下文保持内联，避免发布包依赖未随 main.js 分发的本地模块。
+ * 任务查询规范与 `core/task-query-context.js` 共用同一合同。
  */
 function noriaNormalizeVaultPath(raw) {
   return String(raw || "")
@@ -129,14 +129,9 @@ function createNoriaViewContext(app, plugin, options = {}) {
   };
   const pagesForRoots = (roots) => {
     try {
-      const files = typeof app?.vault?.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
-      return (Array.isArray(files) ? files : Array.from(files || []))
-        .filter((file) => {
-          const pathText = noriaNormalizeVaultPath(file?.path || "");
-          if (!pathText || plugin.isReviewNotePath?.(pathText)) return false;
-          if (!roots.length) return true;
-          return roots.some((root) => pathText === root || pathText.startsWith(`${root.replace(/\/+$/, "")}/`));
-        })
+      if (!roots.length) return [];
+      return plugin.filesUnderRoots(roots, [".md"])
+        .filter((file) => !plugin.isReviewNotePath?.(file?.path || ""))
         .map((file) => plugin.pageFactFromFile(file));
     } catch (_) {
       return [];
@@ -583,10 +578,10 @@ function noriaNormalizeQweatherApiHost(value) {
 }
 
 const NORIA_QUERY_SCOPE_IDS = ["tasks", "notes"];
-const NORIA_QUERY_SCOPE_MODES = ["managed", "all", "custom"];
+const NORIA_QUERY_SCOPE_MODES = ["managed", "custom"];
 const NORIA_DEFAULT_QUERY_SCOPES = {
   tasks: { mode: "managed", customRoots: [] },
-  notes: { mode: "all", customRoots: [] }
+  notes: { mode: "managed", customRoots: [] }
 };
 
 const NORIA_DEFAULT_PERFORMANCE = {
@@ -967,13 +962,11 @@ const NORIA_I18N = {
     "settings.performance.notesScope": "Note trend scope",
     "settings.performance.notesScopeDesc": "Note trends default to the whole vault. Switch to custom roots for large vaults.",
     "settings.performance.scopeManaged": "Managed directories",
-    "settings.performance.scopeAll": "Whole vault",
     "settings.performance.scopeCustom": "Custom directories",
     "settings.performance.customRoots": "Custom directories",
     "settings.performance.customRootsDesc": "One vault-relative folder per line. Absolute paths are ignored and reported in diagnostics.",
     "settings.performance.resolvedRoots": "Resolved roots: {roots}",
     "settings.performance.scopePreview": "Current query preview: {query}",
-    "settings.performance.allVault": "Whole vault",
     "settings.performance.emptyScope": "No valid roots",
     "settings.performance.unsupportedRoots": "Unsupported roots: {roots}",
     "settings.search.placeholder": "Search Noria settings",
@@ -1033,7 +1026,7 @@ const NORIA_I18N = {
     "settings.dataSources.templates": "Templates",
     "settings.dataSources.templatesDesc": "Daily, weekly, monthly, and yearly note templates.",
     "settings.review.promptSkillName": "Default Skill name",
-    "settings.review.promptSkillNameDesc": "Used in the copied review prompt.",
+    "settings.review.promptSkillNameDesc": "Used in the locally saved review prompt.",
     "settings.review.promptNotePath": "Prompt template note path",
     "settings.review.promptNotePathDesc": "Optional vault-relative note path. Leave empty to use the inline template.",
     "settings.review.promptTemplate": "Inline prompt template",
@@ -1241,11 +1234,9 @@ const NORIA_I18N = {
     "settings.inboxWorkflow.advancedJson": "Advanced workflow JSON",
     "settings.inboxWorkflow.advancedJsonDesc": "Power-user editor for statuses, Home lanes, and generated Base views.",
     "settings.inboxWorkflow.actions": "Inbox workflow actions",
-    "settings.inboxWorkflow.migrate": "Migrate Inbox statuses",
     "settings.inboxWorkflow.rebuildBase": "Rebuild Inbox Base",
     "settings.inboxWorkflow.reset": "Restore defaults",
     "settings.inboxWorkflow.invalidJson": "Invalid Inbox workflow JSON: {message}",
-    "settings.inboxWorkflow.migrated": "Inbox status migration: {migrated} updated, {skipped} skipped.",
     "settings.inboxWorkflow.baseRebuilt": "Inbox queue Base rebuilt.",
     "settings.tasks.timelineOpenMode": "Task timeline open location",
     "settings.tasks.timelineOpenModeDesc": "Choose where the ribbon and command open the side task axis.",
@@ -1540,26 +1531,19 @@ const NORIA_I18N = {
     "settings.maintenance.healthName": "Check Noria installation",
     "settings.maintenance.healthDesc": "Check required view assets, settings shapes, and the runtime bridge without changing vault content.",
     "settings.maintenance.runHealth": "Run check",
-    "settings.maintenance.copyReport": "Copy report",
+    "settings.maintenance.copyReport": "Save report",
     "settings.maintenance.healthReady": "Run the check when a Noria view does not load or settings behave unexpectedly.",
     "settings.maintenance.healthHealthy": "No issues found across {count} checks.",
     "settings.maintenance.healthIssues": "{count} of {total} checks need attention.",
-    "settings.maintenance.reportCopied": "Troubleshooting report copied.",
-    "settings.maintenance.copyFailed": "Could not copy the troubleshooting report.",
+    "settings.maintenance.reportCopied": "Troubleshooting report saved to {path}.",
     "settings.maintenance.exportName": "Export settings backup",
-    "settings.maintenance.exportDesc": "Copy a versioned snapshot of all normalized Noria settings. Vault notes and API secrets are not included.",
-    "settings.maintenance.exportAction": "Copy backup",
-    "settings.maintenance.exported": "Settings backup copied.",
-    "settings.maintenance.importName": "Import settings backup",
-    "settings.maintenance.importDesc": "Validate a Noria settings backup, then explicitly replace the current settings snapshot.",
-    "settings.maintenance.importAction": "Import backup",
-    "settings.maintenance.importTitle": "Import Noria settings",
-    "settings.maintenance.importIntro": "Paste a Noria settings backup. Nothing changes until validation succeeds and you confirm replacement.",
-    "settings.maintenance.importPlaceholder": "Paste the exported Noria settings JSON here",
-    "settings.maintenance.reviewImport": "Review backup",
+    "settings.maintenance.exportDesc": "Save a versioned snapshot of normalized Noria settings to the local Noria cache. Vault notes and API secrets are not included.",
+    "settings.maintenance.exportAction": "Save backup",
+    "settings.maintenance.exported": "Settings backup saved to {path}.",
+    "settings.maintenance.importName": "Restore settings backup",
+    "settings.maintenance.importDesc": "Validate and replace the current settings from the local Noria backup file.",
+    "settings.maintenance.importAction": "Restore backup",
     "settings.maintenance.replaceSettings": "Replace settings",
-    "settings.maintenance.cancel": "Cancel",
-    "settings.maintenance.importValid": "Backup validated. Version {version}; {count} top-level setting groups will replace the current snapshot.",
     "settings.maintenance.imported": "Noria settings imported. Reload the plugin to apply entry changes.",
     "settings.maintenance.developerDesc": "Optional execution permission for manually configured JavaScript views. Built-in Noria views do not need it.",
     "settings.maintenance.openGuide": "Open user guide",
@@ -1571,9 +1555,9 @@ const NORIA_I18N = {
     "commands.focusToday": "Focus today in tasks board",
     "commands.editTaskUnderCursor": "Edit or create task at cursor",
     "commands.openHome": "Open home",
-    "commands.copyHomePerformance": "Copy Home performance summary",
+    "commands.saveHomePerformance": "Save Home performance summary",
     "commands.measureHomePerformance": "Measure Home performance summary",
-    "commands.copyTaskTimelinePerformance": "Copy task timeline performance summary",
+    "commands.saveTaskTimelinePerformance": "Save task timeline performance summary",
     "commands.measureTaskTimelinePerformance": "Measure task timeline performance summary",
     "commands.openStats": "Open diary statistics",
     "commands.openReview": "Open review center",
@@ -1637,12 +1621,11 @@ const NORIA_I18N = {
     "notices.taskEditor.notTaskLine": "Noria: place the cursor on a Markdown task line first.",
     "notices.taskEditor.noFile": "Noria: could not identify the current note file.",
     "notices.taskEditor.apiUnavailable": "Noria: task editor is not ready. Reload the plugin and try again.",
-    "notices.homePerformanceCopied": "Noria: Home performance summary copied.",
+    "notices.homePerformanceSaved": "Noria: Home performance summary saved to {path}.",
     "notices.homePerformanceMissing": "Noria: open Home first, then run this after it renders.",
-    "notices.taskTimelinePerformanceCopied": "Noria: task timeline performance summary copied.",
+    "notices.taskTimelinePerformanceSaved": "Noria: task timeline performance summary saved to {path}.",
     "notices.taskTimelinePerformanceMissing": "Noria: open the task timeline first, then run this after it renders.",
-    "notices.reviewPromptCopied": "Noria: review prompt copied.",
-    "notices.reviewPromptManual": "Noria: could not copy the review prompt. See console.",
+    "notices.reviewPromptSaved": "Noria: review prompt saved to {path}.",
     "notices.reviewArtifactMissing": "Noria: review note does not exist yet.",
     "notices.reviewSkillInstalled": "Noria: installed default review skill at {path}.",
     "notices.reviewSkillExists": "Noria: review skill already exists at {path}.",
@@ -1840,7 +1823,7 @@ const NORIA_I18N = {
     "review.llm.generate": "Generate AI analysis",
     "review.llm.sending": "Preparing review prompt...",
     "review.llm.waiting": "Waiting for review note update",
-    "review.llm.copied": "AI analysis prompt copied.",
+    "review.llm.promptSaved": "AI analysis prompt saved locally.",
     "review.llm.failed": "AI analysis generation failed: {message}",
     "review.llm.openArtifact": "Open review note",
     "review.llm.refreshArtifact": "Refresh AI analysis",
@@ -1853,9 +1836,6 @@ const NORIA_I18N = {
     "review.llm.advice": "Next focus",
     "review.llm.gdd": "Deviations and blockers",
     "review.llm.sectionsTitle": "Draft sections",
-    "review.llm.copySection": "Copy",
-    "review.llm.sectionCopied": "Copied",
-    "review.llm.sectionCopyFailed": "Copy failed",
     "review.final.title": "Final archive",
     "review.final.editorTitle": "Review",
     "review.final.subtitle": "Edit manually, then save only the final review sections under today's diary ## Review.",
@@ -2724,10 +2704,6 @@ const NORIA_I18N = {
     "runtime.timeline.lab.presetRelaxed": "Relaxed",
     "runtime.timeline.lab.applyPreset": "Apply preset",
     "runtime.timeline.lab.savePreset": "Save to preset",
-    "runtime.timeline.lab.copyJson": "Copy current JSON",
-    "runtime.timeline.lab.copyJsonPrompt": "Copy parameter JSON",
-    "runtime.timeline.lab.pasteJson": "Paste JSON override",
-    "runtime.timeline.lab.pasteJsonPrompt": "Paste timeline parameter JSON (object or with a timeline key)",
     "runtime.timeline.lab.resetScope": "Reset this view",
     "runtime.timeline.lab.resetAll": "Reset all",
     "runtime.timeline.editorApiMissing": "Time editor is not ready. Open the tasks board once, or reload Obsidian.",
@@ -2901,13 +2877,11 @@ const NORIA_I18N = {
     "settings.performance.notesScope": "笔记趋势范围",
     "settings.performance.notesScopeDesc": "笔记趋势默认保持全库口径；大仓库可切换为自定义目录。",
     "settings.performance.scopeManaged": "托管目录",
-    "settings.performance.scopeAll": "全仓库",
     "settings.performance.scopeCustom": "自定义目录",
     "settings.performance.customRoots": "自定义目录",
     "settings.performance.customRootsDesc": "每行一个 vault 相对目录。绝对路径会被忽略，并显示在诊断中。",
     "settings.performance.resolvedRoots": "解析目录：{roots}",
     "settings.performance.scopePreview": "当前查询预览：{query}",
-    "settings.performance.allVault": "全仓库",
     "settings.performance.emptyScope": "没有有效目录",
     "settings.performance.unsupportedRoots": "不支持的目录：{roots}",
     "settings.search.placeholder": "搜索 Noria 设置",
@@ -2967,7 +2941,7 @@ const NORIA_I18N = {
     "settings.dataSources.templates": "模板",
     "settings.dataSources.templatesDesc": "日、周、月、年模板。",
     "settings.review.promptSkillName": "默认 Skill 名称",
-    "settings.review.promptSkillNameDesc": "复制出的复盘提示词会使用这个 skill 名称。",
+    "settings.review.promptSkillNameDesc": "本地保存的复盘提示词会使用这个 skill 名称。",
     "settings.review.promptNotePath": "提示词模板笔记路径",
     "settings.review.promptNotePathDesc": "可选的 vault 相对路径；留空使用这里的内联模板。",
     "settings.review.promptTemplate": "内联提示词模板",
@@ -3175,11 +3149,9 @@ const NORIA_I18N = {
     "settings.inboxWorkflow.advancedJson": "高级工作流 JSON",
     "settings.inboxWorkflow.advancedJsonDesc": "面向高级用户编辑状态、主页分组和生成的 Base 视图。",
     "settings.inboxWorkflow.actions": "Inbox 工作流操作",
-    "settings.inboxWorkflow.migrate": "迁移 Inbox 状态",
     "settings.inboxWorkflow.rebuildBase": "重建 Inbox Base",
     "settings.inboxWorkflow.reset": "恢复默认",
     "settings.inboxWorkflow.invalidJson": "Inbox 工作流 JSON 无效：{message}",
-    "settings.inboxWorkflow.migrated": "Inbox 状态迁移：已更新 {migrated} 个，跳过 {skipped} 个。",
     "settings.inboxWorkflow.baseRebuilt": "已重建 Inbox queue Base。",
     "settings.tasks.timelineOpenMode": "任务时间轴打开位置",
     "settings.tasks.timelineOpenModeDesc": "设置 Ribbon 和命令打开侧边任务轴的位置。",
@@ -3474,26 +3446,19 @@ const NORIA_I18N = {
     "settings.maintenance.healthName": "检查 Noria 安装",
     "settings.maintenance.healthDesc": "检查必要视图资源、设置结构与运行桥接，不会修改仓库内容。",
     "settings.maintenance.runHealth": "开始检查",
-    "settings.maintenance.copyReport": "复制报告",
+    "settings.maintenance.copyReport": "保存报告",
     "settings.maintenance.healthReady": "当 Noria 视图未加载或设置行为异常时运行检查。",
     "settings.maintenance.healthHealthy": "共检查 {count} 项，未发现问题。",
     "settings.maintenance.healthIssues": "共 {total} 项检查，其中 {count} 项需要处理。",
-    "settings.maintenance.reportCopied": "问题排查报告已复制。",
-    "settings.maintenance.copyFailed": "无法复制问题排查报告。",
+    "settings.maintenance.reportCopied": "问题排查报告已保存到 {path}。",
     "settings.maintenance.exportName": "导出设置备份",
-    "settings.maintenance.exportDesc": "复制全部 Noria 归一化设置的带版本快照，不包含仓库笔记与 API 密钥。",
-    "settings.maintenance.exportAction": "复制备份",
-    "settings.maintenance.exported": "设置备份已复制。",
-    "settings.maintenance.importName": "导入设置备份",
-    "settings.maintenance.importDesc": "先验证 Noria 设置备份，再明确确认替换当前设置快照。",
-    "settings.maintenance.importAction": "导入备份",
-    "settings.maintenance.importTitle": "导入 Noria 设置",
-    "settings.maintenance.importIntro": "粘贴 Noria 设置备份。只有验证通过并确认替换后才会修改当前设置。",
-    "settings.maintenance.importPlaceholder": "在此粘贴导出的 Noria 设置 JSON",
-    "settings.maintenance.reviewImport": "检查备份",
+    "settings.maintenance.exportDesc": "将 Noria 归一化设置的带版本快照保存到本地 Noria 缓存，不包含仓库笔记与 API 密钥。",
+    "settings.maintenance.exportAction": "保存备份",
+    "settings.maintenance.exported": "设置备份已保存到 {path}。",
+    "settings.maintenance.importName": "恢复设置备份",
+    "settings.maintenance.importDesc": "验证本地 Noria 备份文件后替换当前设置。",
+    "settings.maintenance.importAction": "恢复备份",
     "settings.maintenance.replaceSettings": "替换设置",
-    "settings.maintenance.cancel": "取消",
-    "settings.maintenance.importValid": "备份验证通过。版本 {version}；将以 {count} 个顶层设置组替换当前快照。",
     "settings.maintenance.imported": "Noria 设置已导入。重载插件后入口变更将完全生效。",
     "settings.maintenance.developerDesc": "仅用于手动配置的 JavaScript 视图执行权限；Noria 内建视图不需要开启。",
     "settings.maintenance.openGuide": "打开用户指南",
@@ -3505,9 +3470,9 @@ const NORIA_I18N = {
     "commands.focusToday": "聚焦今天（任务看板：含今天的 ISO 周）",
     "commands.editTaskUnderCursor": "编辑/创建光标处任务",
     "commands.openHome": "打开主页",
-    "commands.copyHomePerformance": "复制主页性能摘要",
+    "commands.saveHomePerformance": "保存主页性能摘要",
     "commands.measureHomePerformance": "采样主页性能摘要",
-    "commands.copyTaskTimelinePerformance": "复制任务时间轴性能摘要",
+    "commands.saveTaskTimelinePerformance": "保存任务时间轴性能摘要",
     "commands.measureTaskTimelinePerformance": "采样任务时间轴性能摘要",
     "commands.openStats": "打开日记统计",
     "commands.openReview": "打开复盘中心",
@@ -3571,12 +3536,11 @@ const NORIA_I18N = {
     "notices.taskEditor.notTaskLine": "Noria：请先把光标放在 Markdown 任务行上。",
     "notices.taskEditor.noFile": "Noria：无法识别当前笔记文件。",
     "notices.taskEditor.apiUnavailable": "Noria：任务编辑器尚未就绪，请重载插件后再试。",
-    "notices.homePerformanceCopied": "Noria：已复制主页性能摘要。",
+    "notices.homePerformanceSaved": "Noria：主页性能摘要已保存到 {path}。",
     "notices.homePerformanceMissing": "Noria：请先打开主页，等待渲染后再运行此命令。",
-    "notices.taskTimelinePerformanceCopied": "Noria：已复制任务时间轴性能摘要。",
+    "notices.taskTimelinePerformanceSaved": "Noria：任务时间轴性能摘要已保存到 {path}。",
     "notices.taskTimelinePerformanceMissing": "Noria：请先打开任务时间轴，等待渲染后再运行此命令。",
-    "notices.reviewPromptCopied": "Noria：已复制复盘 prompt。",
-    "notices.reviewPromptManual": "Noria：无法复制复盘 prompt，请从控制台查看。",
+    "notices.reviewPromptSaved": "Noria：复盘 prompt 已保存到 {path}。",
     "notices.reviewArtifactMissing": "Noria：复盘笔记尚不存在。",
     "notices.reviewSkillInstalled": "Noria：已安装默认复盘 Skill 到 {path}。",
     "notices.reviewSkillExists": "Noria：复盘 Skill 已存在于 {path}。",
@@ -3774,7 +3738,7 @@ const NORIA_I18N = {
     "review.llm.generate": "生成AI分析",
     "review.llm.sending": "正在生成复盘提示词...",
     "review.llm.waiting": "正在等待复盘笔记更新",
-    "review.llm.copied": "已复制 AI 分析 prompt。",
+    "review.llm.promptSaved": "AI 分析 prompt 已保存到本地。",
     "review.llm.failed": "生成 AI 分析失败：{message}",
     "review.llm.openArtifact": "打开复盘笔记",
     "review.llm.refreshArtifact": "刷新AI分析",
@@ -3787,9 +3751,6 @@ const NORIA_I18N = {
     "review.llm.advice": "下一步聚焦",
     "review.llm.gdd": "偏差与阻塞",
     "review.llm.sectionsTitle": "草稿片段",
-    "review.llm.copySection": "复制",
-    "review.llm.sectionCopied": "已复制",
-    "review.llm.sectionCopyFailed": "复制失败",
     "review.final.title": "最终归档",
     "review.final.editorTitle": "复盘内容",
     "review.final.subtitle": "编辑后手动保存；只写入日记 ## 复盘 下的最终小节。",
@@ -4658,10 +4619,6 @@ const NORIA_I18N = {
     "runtime.timeline.lab.presetRelaxed": "舒展",
     "runtime.timeline.lab.applyPreset": "切换预设",
     "runtime.timeline.lab.savePreset": "保存到预设",
-    "runtime.timeline.lab.copyJson": "复制当前参数 JSON",
-    "runtime.timeline.lab.copyJsonPrompt": "复制参数 JSON",
-    "runtime.timeline.lab.pasteJson": "粘贴覆盖参数 JSON",
-    "runtime.timeline.lab.pasteJsonPrompt": "粘贴 timeline 参数 JSON（对象或含 timeline 键）",
     "runtime.timeline.lab.resetScope": "恢复本视图默认",
     "runtime.timeline.lab.resetAll": "恢复全部默认",
     "runtime.timeline.editorApiMissing": "时段编辑器未就绪：请先打开一次任务看板，或重载 Obsidian。",
@@ -8550,11 +8507,6 @@ class NoriaReviewCenterRenderer {
     });
     return box;
   }
-  async copyReviewText(text) {
-    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : null;
-    if (!clipboard || typeof clipboard.writeText !== "function") throw new Error("clipboard unavailable");
-    await clipboard.writeText(String(text || ""));
-  }
   renderReviewDraftSectionIndex(parent, model) {
     const sections = this.getReviewDraftSections(model);
     if (!sections.length) return;
@@ -8572,15 +8524,6 @@ class NoriaReviewCenterRenderer {
         cls: "noria-review-draft-index-excerpt",
         text: section.text.replace(/\s+/g, " ").slice(0, 140)
       });
-      this.createAction(row, this.plugin.t("review.llm.copySection"), async (btn) => {
-        try {
-          await this.copyReviewText(section.text);
-          btn.textContent = this.plugin.t("review.llm.sectionCopied");
-        } catch (_) {
-          btn.textContent = this.plugin.t("review.llm.sectionCopyFailed");
-          new obsidian.Notice(this.plugin.t("review.llm.sectionCopyFailed"));
-        }
-      }, "noria-review-btn noria-review-draft-copy");
     });
   }
   renderReviewMarkdownPreview(parent, model) {
@@ -8628,7 +8571,7 @@ class NoriaReviewCenterRenderer {
       try {
         const result = await this.plugin.generateReview(model.mode || "daily", model.date, model.variant);
         status.classList.add("is-stale");
-        status.setText(result?.mode === "copy-prompt" ? this.plugin.t("review.llm.copied") : this.plugin.t("review.llm.waiting"));
+        status.setText(result?.mode === "prompt-file" ? this.plugin.t("review.llm.promptSaved") : this.plugin.t("review.llm.waiting"));
         this.watchReviewAnalysisArtifact(model.artifactPath, this.selection.generation);
       } catch (e) {
         status.setText(this.plugin.t("review.llm.failed", { message: String(e?.message || e) }));
@@ -9497,8 +9440,9 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
           try {
             const result = lastResult || await this.plugin.runArchitectureHealthCheck({ notify: false, log: false });
             renderResult(result);
-            const copied = await this.plugin.copyTextToClipboard(this.plugin.formatArchitectureHealthReport(result));
-            new obsidian.Notice(this.t(copied ? "settings.maintenance.reportCopied" : "settings.maintenance.copyFailed"));
+            const path = this.plugin.getArchitectureHealthReportPath();
+            await this.plugin.writeTextToVault(path, `${this.plugin.formatArchitectureHealthReport(result)}\n`);
+            new obsidian.Notice(this.t("settings.maintenance.reportCopied", { path }));
           } finally {
             btn.setDisabled(false);
           }
@@ -9516,9 +9460,10 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
         btn.setButtonText(this.t("settings.maintenance.exportAction")).onClick(async () => {
           btn.setDisabled(true);
           try {
+            const path = this.plugin.getSettingsBackupPath();
             const text = `${JSON.stringify(this.plugin.createSettingsBackup(), null, 2)}\n`;
-            const copied = await this.plugin.copyTextToClipboard(text);
-            new obsidian.Notice(this.t(copied ? "settings.maintenance.exported" : "settings.maintenance.copyFailed"));
+            await this.plugin.writeTextToVault(path, text);
+            new obsidian.Notice(this.t("settings.maintenance.exported", { path }));
           } finally {
             btn.setDisabled(false);
           }
@@ -9528,78 +9473,26 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       .setName(this.t("settings.maintenance.importName"))
       .setDesc(this.t("settings.maintenance.importDesc"))
       .addButton((btn) =>
-        btn.setButtonText(this.t("settings.maintenance.importAction")).onClick(() => {
-          this.openSettingsBackupImportModal();
+        btn.setButtonText(this.t("settings.maintenance.importAction")).onClick(async () => {
+          btn.setDisabled(true);
+          try {
+            const path = this.plugin.getSettingsBackupPath();
+            const text = await this.plugin.loadTextFromVault(path);
+            this.plugin.parseSettingsBackup(text);
+            const confirmed = typeof window === "undefined" || typeof window.confirm !== "function"
+              ? true
+              : window.confirm(this.t("settings.maintenance.replaceSettings"));
+            if (!confirmed) return;
+            await this.plugin.replaceSettingsBackup(text);
+            new obsidian.Notice(this.t("settings.maintenance.imported"));
+            this.display();
+          } catch (error) {
+            new obsidian.Notice(String(error?.message || error));
+          } finally {
+            btn.setDisabled(false);
+          }
         })
       );
-  }
-
-  openSettingsBackupImportModal() {
-    const modal = new obsidian.Modal(this.app);
-    modal.onOpen = () => {
-      const content = modal.contentEl;
-      content.empty();
-      content.addClass?.("noria-settings-import-modal");
-      content.createEl("h2", { text: this.t("settings.maintenance.importTitle") });
-      content.createEl("p", { cls: "setting-item-description", text: this.t("settings.maintenance.importIntro") });
-      const textarea = content.createEl("textarea", {
-        cls: "noria-settings-import-textarea",
-        attr: { rows: "12", placeholder: this.t("settings.maintenance.importPlaceholder") }
-      });
-      const status = content.createDiv({ cls: "noria-settings-import-status", attr: { "aria-live": "polite" } });
-      const actions = content.createDiv({ cls: "noria-settings-import-actions" });
-      const cancel = actions.createEl("button", { text: this.t("settings.maintenance.cancel") });
-      const review = actions.createEl("button", { cls: "mod-cta", text: this.t("settings.maintenance.reviewImport") });
-      const replace = actions.createEl("button", { cls: "mod-warning noria-settings-import-replace", text: this.t("settings.maintenance.replaceSettings") });
-      replace.hidden = true;
-      let validatedText = "";
-
-      cancel.addEventListener("click", () => modal.close());
-      review.addEventListener("click", () => {
-        try {
-          const text = String(textarea.value || "");
-          const parsed = this.plugin.parseSettingsBackup(text);
-          validatedText = text;
-          status.removeClass?.("is-error");
-          status.addClass?.("is-valid");
-          status.setText(this.t("settings.maintenance.importValid", {
-            version: parsed.pluginVersion || parsed.schemaVersion,
-            count: Object.keys(parsed.settings || {}).length
-          }));
-          replace.hidden = false;
-        } catch (error) {
-          validatedText = "";
-          replace.hidden = true;
-          status.removeClass?.("is-valid");
-          status.addClass?.("is-error");
-          status.setText(String(error?.message || error));
-        }
-      });
-      replace.addEventListener("click", async () => {
-        if (!validatedText || validatedText !== String(textarea.value || "")) {
-          replace.hidden = true;
-          status.removeClass?.("is-valid");
-          status.addClass?.("is-error");
-          status.setText(this.t("settings.maintenance.importIntro"));
-          return;
-        }
-        replace.disabled = true;
-        try {
-          await this.plugin.replaceSettingsBackup(validatedText);
-          modal.close();
-          new obsidian.Notice(this.t("settings.maintenance.imported"));
-          this.display();
-        } catch (error) {
-          status.removeClass?.("is-valid");
-          status.addClass?.("is-error");
-          status.setText(String(error?.message || error));
-          replace.disabled = false;
-        }
-      });
-      textarea.focus();
-    };
-    modal.onClose = () => modal.contentEl?.empty?.();
-    modal.open();
   }
 
 
@@ -9703,9 +9596,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
   }
 
   renderQueryScopePreview(containerEl, scopeId, spec) {
-    const query = spec.isAllVault
-      ? this.t("settings.performance.allVault")
-      : (spec.query || this.t("settings.performance.emptyScope"));
+    const query = spec.query || this.t("settings.performance.emptyScope");
     containerEl.createDiv({
       cls: "setting-item-description noria-query-scope-preview",
       text: this.t("settings.performance.scopePreview", { query })
@@ -9722,9 +9613,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       const unsupported = this.plugin.getQueryScopeUnsupportedEntries(scopeId).map((item) => item.path).join(", ");
       const labelKey = scopeId === "tasks" ? "settings.performance.tasksScope" : "settings.performance.notesScope";
       const descKey = scopeId === "tasks" ? "settings.performance.tasksScopeDesc" : "settings.performance.notesScopeDesc";
-      const resolvedText = spec.isAllVault
-        ? this.t("settings.performance.allVault")
-        : this.t("settings.performance.resolvedRoots", { roots: spec.roots.length ? spec.roots.join(", ") : this.t("settings.performance.emptyScope") });
+      const resolvedText = this.t("settings.performance.resolvedRoots", { roots: spec.roots.length ? spec.roots.join(", ") : this.t("settings.performance.emptyScope") });
       const fullDesc = [
         this.t(descKey),
         resolvedText,
@@ -9737,7 +9626,6 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
         .addDropdown((dropdown) =>
           dropdown
             .addOption("managed", this.t("settings.performance.scopeManaged"))
-            .addOption("all", this.t("settings.performance.scopeAll"))
             .addOption("custom", this.t("settings.performance.scopeCustom"))
             .setValue(cfg.mode)
             .onChange(async (value) => {
@@ -10348,13 +10236,6 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       addJsonSetting(details, "settings.inboxWorkflow.baseViews", "settings.inboxWorkflow.baseViewsDesc", "baseViews");
       new obsidian.Setting(details)
         .setName(this.t("settings.inboxWorkflow.actions"))
-        .addButton((btn) =>
-          btn.setButtonText(this.t("settings.inboxWorkflow.migrate")).onClick(async () => {
-            const result = await this.plugin.migrateInboxStatusFrontmatter({ silent: false });
-            this.plugin.requestNoriaRefresh("home", "settings:inbox-status-migrate");
-            return result;
-          })
-        )
         .addButton((btn) =>
           btn.setButtonText(this.t("settings.inboxWorkflow.rebuildBase")).onClick(async () => {
             await this.plugin.rebuildInboxQueueBase();
@@ -11837,9 +11718,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     this.app.workspace.onLayoutReady(() => {
       if (!this.isNoriaRecoveryOwnerActive(layoutReadyOwner)) return;
       this.registerCoreRibbons();
-      void this.migrateInboxStatusFrontmatter({ silent: true }).catch((e) => {
-        console.warn("[noria] inbox status migration skipped", e);
-      });
       /**
        * 任务时间轴：上次退出时若该 Tab 已打开，冷启动不会走 Ribbon 的 `openTasksTimelineLeaf`，
        * 需与主页类似做延迟健康检查并 reload，否则常表现为空白直至关闭再开。
@@ -12934,9 +12812,9 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       },
       { id: "open-home-tab", nameKey: "commands.openHome", moduleKey: "home", run: () => this.openDashboardHomeLeaf() },
       { id: "open-review-center", nameKey: "commands.openReview", moduleKey: "home", run: () => this.openReviewCenterInHome() },
-      { id: "copy-home-performance-summary", nameKey: "commands.copyHomePerformance", moduleKey: "home", run: () => this.copyHomePerformanceSummary() },
+      { id: "save-home-performance-summary", nameKey: "commands.saveHomePerformance", moduleKey: "home", run: () => this.saveHomePerformanceSummary() },
       { id: "measure-home-performance-summary", nameKey: "commands.measureHomePerformance", moduleKey: "home", run: () => this.measureHomePerformanceSummary() },
-      { id: "copy-task-timeline-performance-summary", nameKey: "commands.copyTaskTimelinePerformance", moduleKey: "taskTimeline", run: () => this.copyTaskTimelinePerformanceSummary() },
+      { id: "save-task-timeline-performance-summary", nameKey: "commands.saveTaskTimelinePerformance", moduleKey: "taskTimeline", run: () => this.saveTaskTimelinePerformanceSummary() },
       { id: "measure-task-timeline-performance-summary", nameKey: "commands.measureTaskTimelinePerformance", moduleKey: "taskTimeline", run: () => this.measureTaskTimelinePerformanceSummary() },
       { id: "open-stats-tab", nameKey: "commands.openStats", moduleKey: "diaryStats", run: () => this.openPeriodicStatsLeaf() }
     ];
@@ -13912,21 +13790,19 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       if (!out.includes(path)) out.push(path);
     };
     if (!candidates) {
+      const roots = this.getScopeSpec("notes").roots;
       if (sourceKind === "markdown") {
-        const files = typeof this.app?.vault?.getMarkdownFiles === "function" ? this.app.vault.getMarkdownFiles() : [];
-        for (const file of Array.isArray(files) ? files : Array.from(files || [])) {
+        for (const file of this.filesUnderRoots(roots, [".md"])) {
           pushPath(file?.path, [".md"]);
         }
       }
       if (sourceKind === "base") {
-        const files = typeof this.app?.vault?.getFiles === "function" ? this.app.vault.getFiles() : [];
-        for (const file of Array.isArray(files) ? files : Array.from(files || [])) {
+        for (const file of this.filesUnderRoots(roots, [".base"])) {
           pushPath(file?.path, [".base"]);
         }
       }
       if (sourceKind === "moc") {
-        const files = typeof this.app?.vault?.getFiles === "function" ? this.app.vault.getFiles() : [];
-        for (const file of Array.isArray(files) ? files : Array.from(files || [])) {
+        for (const file of this.filesUnderRoots(roots, [".md", ".canvas"])) {
           pushPath(file?.path, [".md", ".canvas"]);
         }
       }
@@ -14879,48 +14755,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       this.requestNoriaRefresh("home", request?.reason || "writeback:inbox-convert-task", { reloadViews: true });
     } catch (_) {}
     return { ok: true, ...resultBase, action: "convert-task", previousStatus, taskLine, unchanged: !appended.changed };
-  }
-
-  async migrateInboxStatusFrontmatter(options = {}) {
-    const silent = options.silent === true;
-    const config = this.getInboxWorkflowConfig();
-    const root = this.normalizePath(this.getManagedPath("inboxRoot") || NORIA_DEFAULT_MANAGED_PATHS.inboxRoot).replace(/^\/+/, "").replace(/\/+$/, "");
-    const files = this.app?.vault?.getMarkdownFiles?.() || [];
-    const result = { ok: true, scanned: 0, migrated: 0, skipped: 0 };
-    for (const file of files) {
-      const path = this.normalizePath(file?.path || "").replace(/^\/+/, "");
-      if (!path.toLowerCase().endsWith(".md")) continue;
-      if (root && !(path === root || path.startsWith(`${root}/`))) continue;
-      result.scanned += 1;
-      const text = String(await this.app.vault.cachedRead(file) || "");
-      const parsed = this.parseInboxStatusFromFrontmatter(text);
-      if (!parsed || !parsed.value) continue;
-      const next = this.resolveInboxStatusId(parsed.value, config);
-      if (!next) {
-        result.skipped += 1;
-        continue;
-      }
-      if (next === parsed.value) continue;
-      let outcome = "unchanged";
-      await this.processTextAtVaultPath(path, (current) => {
-        const latest = this.parseInboxStatusFromFrontmatter(current);
-        if (!latest || !latest.value) return current;
-        const resolved = this.resolveInboxStatusId(latest.value, config);
-        if (!resolved) {
-          outcome = "skipped";
-          return current;
-        }
-        if (resolved === latest.value) return current;
-        outcome = "migrated";
-        return this.replaceInboxStatusInFrontmatter(current, resolved);
-      });
-      if (outcome === "migrated") result.migrated += 1;
-      else if (outcome === "skipped") result.skipped += 1;
-    }
-    if (!silent) {
-      new obsidian.Notice(this.t("settings.inboxWorkflow.migrated", result), 4200);
-    }
-    return result;
   }
 
   async rebuildInboxQueueBase() {
@@ -16496,17 +16330,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   getScopeSpec(scopeId = "tasks") {
     const id = NORIA_QUERY_SCOPE_IDS.includes(String(scopeId || "")) ? String(scopeId || "") : "tasks";
     const cfg = this.getQueryScopeConfig(id);
-    if (cfg.mode === "all") {
-      return {
-        scopeId: id,
-        mode: "all",
-        roots: [],
-        query: "",
-        unsupported: this.getQueryScopeUnsupportedEntries(id),
-        isAllVault: true,
-        isEmpty: false
-      };
-    }
     const roots = cfg.mode === "custom"
       ? cfg.customRoots
       : this.getManagedQueryScopeRoots(id);
@@ -16521,7 +16344,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       roots: cleanRoots,
       query: this.buildScopeQueryPreview(cleanRoots),
       unsupported: this.getQueryScopeUnsupportedEntries(id),
-      isAllVault: false,
       isEmpty: cleanRoots.length === 0
     };
   }
@@ -16586,29 +16408,48 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     return null;
   }
 
-  allMarkdownFiles() {
-    try {
-      const files = typeof this.app?.vault?.getMarkdownFiles === "function" ? this.app.vault.getMarkdownFiles() : [];
-      return this.runtimeToArray(files)
-        .filter((file) => this.normalizePath(file?.path || "").toLowerCase().endsWith(".md"))
-        .filter((file) => !this.isReviewNotePath(file?.path || ""));
-    } catch (_) {
-      return [];
-    }
-  }
-
   fileIsUnderRoot(file, root) {
     const pathText = this.normalizePath(file?.path || "").replace(/^\/+/, "");
     const rootText = this.normalizePath(root || "").replace(/^\/+/, "").replace(/\/+$/, "");
     return !!pathText && !!rootText && (pathText === rootText || pathText.startsWith(`${rootText}/`));
   }
 
+  filesUnderRoots(roots, extensions = [".md"]) {
+    const vault = this.app?.vault;
+    if (!vault || typeof vault.getAbstractFileByPath !== "function") return [];
+    const allowed = new Set((Array.isArray(extensions) ? extensions : [extensions])
+      .map((ext) => String(ext || "").trim().toLowerCase())
+      .filter(Boolean)
+      .map((ext) => ext.startsWith(".") ? ext : `.${ext}`));
+    const files = [];
+    const seen = new Set();
+    const visit = (node) => {
+      if (!node) return;
+      const children = Array.isArray(node.children) ? node.children : null;
+      if (children) {
+        children.forEach(visit);
+        return;
+      }
+      const pathText = this.normalizePath(node.path || "").replace(/^\/+/, "");
+      if (!pathText || seen.has(pathText)) return;
+      const lower = pathText.toLowerCase();
+      if (allowed.size && !Array.from(allowed).some((ext) => lower.endsWith(ext))) return;
+      seen.add(pathText);
+      files.push(node);
+    };
+    for (const root of Array.isArray(roots) ? roots : [roots]) {
+      const pathText = this.normalizePath(root || "").replace(/^\/+/, "").replace(/\/+$/, "");
+      if (!pathText) continue;
+      try { visit(vault.getAbstractFileByPath(pathText)); } catch (_) {}
+    }
+    return files.sort((a, b) => String(a?.path || "").localeCompare(String(b?.path || "")));
+  }
+
   filesForScope(scopeId = "tasks") {
     const spec = this.getScopeSpec(scopeId);
     if (spec.isEmpty) return [];
-    const files = this.allMarkdownFiles();
-    if (spec.isAllVault) return files;
-    return files.filter((file) => (spec.roots || []).some((root) => this.fileIsUnderRoot(file, root)));
+    return this.filesUnderRoots(spec.roots, [".md"])
+      .filter((file) => !this.isReviewNotePath(file?.path || ""));
   }
 
   pagesForScope(scopeId = "tasks") {
@@ -16621,7 +16462,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     const rawPath = Object.prototype.hasOwnProperty.call(managed, key) ? managed[key] : "";
     const normalized = this.normalizeQueryRoot(rawPath, `managedPaths.${key}`);
     if (!normalized.path) return [];
-    return this.allMarkdownFiles().filter((file) => this.fileIsUnderRoot(file, normalized.path));
+    return this.filesUnderRoots([normalized.path], [".md"])
+      .filter((file) => !this.isReviewNotePath(file?.path || ""));
   }
 
   pagesForManagedPath(pathKey) {
@@ -16726,7 +16568,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       mode: spec.mode,
       roots: [...(spec.roots || [])],
       query: spec.query || "",
-      isAllVault: !!spec.isAllVault,
       isEmpty: !!spec.isEmpty,
       unsupported: Array.isArray(spec.unsupported) ? spec.unsupported.map((item) => ({ ...item })) : [],
       unsupportedCount: Array.isArray(spec.unsupported) ? spec.unsupported.length : 0
@@ -16739,35 +16580,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       new obsidian.Notice(message, timeout);
     } catch (_) {}
     return { ok: true, message };
-  }
-
-  getElectronClipboard() {
-    try {
-      if (typeof require !== "function") return null;
-      const electron = require("electron");
-      return electron?.clipboard || electron?.default?.clipboard || null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  async copyTextToClipboard(text) {
-    const value = String(text || "");
-    try {
-      const clipboard = globalThis.navigator?.clipboard;
-      if (clipboard && typeof clipboard.writeText === "function") {
-        await clipboard.writeText(value);
-        return true;
-      }
-    } catch (_) {}
-    try {
-      const clipboard = this.getElectronClipboard();
-      if (clipboard && typeof clipboard.writeText === "function") {
-        clipboard.writeText(value);
-        return true;
-      }
-    } catch (_) {}
-    return false;
   }
 
   readHomePerformanceSummary() {
@@ -16819,6 +16631,14 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
 
   getHomePerformanceSummaryCachePath() {
     return this.getNoriaPluginCachePath("stats/home-performance/latest.json");
+  }
+
+  getArchitectureHealthReportPath() {
+    return this.getNoriaPluginCachePath("reports/architecture-health.md");
+  }
+
+  getSettingsBackupPath() {
+    return this.getNoriaPluginCachePath("exports/settings-backup.json");
   }
 
   resetHomePerformanceSamples() {
@@ -16913,34 +16733,26 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     return lines.join("\n");
   }
 
-  async copyHomePerformanceSummary() {
+  async saveHomePerformanceSummary() {
     const summary = this.readHomePerformanceSummary();
     const hasSummary = !!(summary && typeof summary === "object" && summary.type === "home-dashboard-summary");
     const text = this.formatHomePerformanceSummary(summary);
-    let copied = false;
-    if (hasSummary) {
-      copied = await this.copyTextToClipboard(text);
-      if (!copied) {
-        try { console.log(text); } catch (_) {}
-      }
-    }
     const cache = await this.writeHomePerformanceSummaryCache({
       type: "home-performance-command-result",
       generatedAt: new Date().toISOString(),
       hasSummary,
-      copied,
       text,
       summary: hasSummary ? summary : null
     });
     try {
       new obsidian.Notice(
         hasSummary
-          ? (copied ? this.t("notices.homePerformanceCopied") : text)
+          ? this.t("notices.homePerformanceSaved", { path: cache.path })
           : this.t("notices.homePerformanceMissing"),
-        hasSummary && !copied ? 8000 : 3200
+        3200
       );
     } catch (_) {}
-    return { ok: hasSummary, copied, text, cacheWritten: cache.written, cachePath: cache.path };
+    return { ok: hasSummary && cache.written, saved: cache.written, text, cachePath: cache.path };
   }
 
   async measureHomePerformanceSummary(options = {}) {
@@ -16950,7 +16762,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     for (let i = 0; i < count; i += 1) {
       await this.reloadOpenNoriaViews("home");
     }
-    const result = await this.copyHomePerformanceSummary();
+    const result = await this.saveHomePerformanceSummary();
     return { ...result, sampled: count };
   }
 
@@ -17180,7 +16992,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     ].join("\n");
   }
 
-  async copyTaskTimelinePerformanceSummary() {
+  async saveTaskTimelinePerformanceSummary() {
     const summary = this.readTaskTimelinePerformanceSummary();
     const hasSummary = !!(summary && typeof summary === "object" && summary.type === "task-timeline-performance-summary");
     const ready = !!(
@@ -17197,31 +17009,23 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       ))
     );
     const text = this.formatTaskTimelinePerformanceSummary(summary);
-    let copied = false;
-    if (hasSummary) {
-      copied = await this.copyTextToClipboard(text);
-      if (!copied) {
-        try { console.log(text); } catch (_) {}
-      }
-    }
     const cache = await this.writeTaskTimelinePerformanceSummaryCache({
       type: "task-timeline-performance-command-result",
       generatedAt: new Date().toISOString(),
       hasSummary,
       ready,
-      copied,
       text,
       summary: hasSummary ? summary : null
     });
     try {
       new obsidian.Notice(
         hasSummary
-          ? (copied ? this.t("notices.taskTimelinePerformanceCopied") : text)
+          ? this.t("notices.taskTimelinePerformanceSaved", { path: cache.path })
           : this.t("notices.taskTimelinePerformanceMissing"),
-        hasSummary && !copied ? 8000 : 3200
+        3200
       );
     } catch (_) {}
-    return { ok: ready, copied, text, cacheWritten: cache.written, cachePath: cache.path };
+    return { ok: ready && cache.written, saved: cache.written, text, cachePath: cache.path };
   }
 
   async measureTaskTimelinePerformanceSummary(options = {}) {
@@ -17230,7 +17034,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     for (let i = 0; i < count; i += 1) {
       await this.reloadOpenNoriaViews("timeline");
     }
-    const result = await this.copyTaskTimelinePerformanceSummary();
+    const result = await this.saveTaskTimelinePerformanceSummary();
     return { ...result, sampled: count };
   }
 
@@ -18623,8 +18427,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     wrappedVault.adapter = wrappedAdapter;
     bindMethod(wrappedVault, vault, "getResourcePath");
     bindMethod(wrappedVault, vault, "readBinary");
-    bindMethod(wrappedVault, vault, "getMarkdownFiles");
-    bindMethod(wrappedVault, vault, "getFiles");
     wrappedVault.getAbstractFileByPath = function(pathText) {
           if (noriaReadEmbeddedSource(pathText)) return null;
           return typeof vault.getAbstractFileByPath === "function"
@@ -18937,7 +18739,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
                 h.className = "noria-tc-editor-prime-host";
                 h.setAttribute("aria-hidden", "true");
                 h.style.cssText =
-                  "position:fixed!important;left:0!important;top:0!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;opacity:0!important;pointer-events:none!important;z-index:-1!important;";
+                  "position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);opacity:0;pointer-events:none;z-index:-1;";
                 document.body.appendChild(h);
                 this._tcEditorPrimeHost = h;
                 return h;
@@ -20741,7 +20543,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
 
   async collectDailyTasks(date, diaryPath) {
     const out = { done: 0, open: 0, total: 0, doneItems: [], openItems: [] };
-    const files = this.app?.vault?.getMarkdownFiles?.() || [];
+    const files = this.filesForScope("tasks");
     let candidates = files.filter((file) => this.isHumanReviewNotePath(file?.path || ""));
     const metadataCache = this.app?.metadataCache;
     if (metadataCache?.initialized === true && typeof metadataCache.getFileCache === "function") {
@@ -21117,22 +20919,26 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     return true;
   }
 
-  async copyReviewPromptFallback(prompt) {
-    try {
-      await navigator.clipboard.writeText(prompt);
-      new obsidian.Notice(this.t("notices.reviewPromptCopied"));
-      return true;
-    } catch (_) {
-      new obsidian.Notice(this.t("notices.reviewPromptManual"));
-      console.info("[noria review prompt]\n" + prompt);
-      return false;
-    }
-  }
-
   getReviewEvidencePath(dateInput) {
     const date = String(dateInput || this.getLocalYmd()).trim() || this.getLocalYmd();
     const year = String(date).slice(0, 4) || String(new Date().getFullYear());
     return `${this.getNoriaPluginStoragePaths().reviewEvidenceRoot}/${year}/${date}.json`;
+  }
+
+  getReviewPromptPath(model = {}) {
+    const fallback = this.getLocalYmd();
+    const period = String(model.period || model.date || fallback)
+      .trim()
+      .replace(/[^0-9A-Za-z_-]+/g, "-") || fallback;
+    const year = period.match(/^\d{4}/)?.[0] || String(new Date().getFullYear());
+    return `${this.getNoriaPluginStoragePaths().reviewEvidenceRoot}/${year}/${period}.prompt.md`;
+  }
+
+  async writeReviewPromptFile(model, prompt) {
+    const path = this.getReviewPromptPath(model);
+    await this.writeTextToVault(path, `${String(prompt || "").replace(/\s+$/g, "")}\n`);
+    new obsidian.Notice(this.t("notices.reviewPromptSaved", { path }));
+    return { path };
   }
 
   async writeReviewEvidenceFile(model, review) {
@@ -21217,8 +21023,14 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       : await this.getPeriodReviewModel(mode, dateInput, variantInput);
     const evidence = await this.writeReviewEvidenceFile(model, review);
     const prompt = await this.buildExternalDailyReviewPrompt(model, evidence.path, review);
-    await this.copyReviewPromptFallback(prompt);
-    return { ok: true, mode: "copy-prompt", path: model.artifactPath, evidencePath: evidence.path };
+    const promptFile = await this.writeReviewPromptFile(model, prompt);
+    return {
+      ok: true,
+      mode: "prompt-file",
+      path: model.artifactPath,
+      evidencePath: evidence.path,
+      promptPath: promptFile.path
+    };
   }
 
   async generateDailyReview(dateInput) {
@@ -21702,8 +21514,15 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     };
     const written = await this.writeReviewEvidenceFile(model, review);
     const prompt = await this.buildExternalDailyReviewPrompt(model, written.path, review);
-    await this.copyReviewPromptFallback(prompt);
-    return { ok: true, selection, evidence: model, evidencePath: written.path, artifactPath: model.artifactPath };
+    const promptFile = await this.writeReviewPromptFile(model, prompt);
+    return {
+      ok: true,
+      selection,
+      evidence: model,
+      evidencePath: written.path,
+      promptPath: promptFile.path,
+      artifactPath: model.artifactPath
+    };
   }
 
   async saveDailyReviewFinal(dateInput, payload) {

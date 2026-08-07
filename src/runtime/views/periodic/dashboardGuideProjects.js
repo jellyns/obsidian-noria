@@ -1,98 +1,6 @@
 const host = (input && input.mount) ? input.mount : this.container;
 
 (async () => {
-  const pickDate = (text, patterns) => {
-    const s = String(text || "");
-    for (const re of patterns) {
-      const m = s.match(re);
-      if (m && m[1]) return m[1];
-    }
-    return "";
-  };
-  const parseFallbackTask = (raw, filePath, lineNo, completedHint = null) => {
-    const txt = String(raw || "").trim();
-    if (!txt) return null;
-    const checkbox = /^\s*[-*]\s*\[[^\]]*\]\s+/.test(txt);
-    if (!checkbox && completedHint == null) return null;
-    const mark = (txt.match(/^\s*[-*]\s*\[([^\]]*)\]/) || [])[1] || "";
-    const checkboxState = /x/i.test(mark)
-      ? "done"
-      : (mark.trim() === "/" ? "in_progress" : (mark.trim() === "-" ? "cancelled" : "todo"));
-    const completed = completedHint == null
-      ? checkboxState === "done"
-      : !!completedHint;
-    const text = txt.replace(/^\s*[-*]\s*\[[^\]]*\]\s*/, "").trim();
-    if (!text) return null;
-    return {
-      text,
-      completed,
-      cancelled: checkboxState === "cancelled",
-      status: checkboxState === "done" ? "done" : (checkboxState === "cancelled" ? "cancelled" : "open"),
-      checkboxState,
-      due: pickDate(text, [/\[due::\s*(\d{4}-\d{2}-\d{2})\]/i, /(?:📅|📆|🗓)\s*(\d{4}-\d{2}-\d{2})/]),
-      scheduled: pickDate(text, [/\[scheduled::\s*(\d{4}-\d{2}-\d{2})\]/i, /⏳\s*(\d{4}-\d{2}-\d{2})/]),
-      start: pickDate(text, [/\[start::\s*(\d{4}-\d{2}-\d{2})\]/i, /🛫\s*(\d{4}-\d{2}-\d{2})/]),
-      path: filePath,
-      from: filePath,
-      line: Number(lineNo || 0)
-    };
-  };
-  const parseTaskRowsFromMarkdown = (body, filePath) =>
-    String(body || "")
-      .split("\n")
-      .map((line, idx) => parseFallbackTask(line, filePath, idx))
-      .filter(Boolean);
-  const getCacheListItemText = (item) => {
-    if (!item) return "";
-    if (typeof item.task === "string" && item.task.trim()) {
-      const status = String(item.task).trim();
-      return `- [${/x/i.test(status) ? "x" : " "}] ${item.text || ""}`.trim();
-    }
-    if (typeof item.text === "string" && item.text.trim()) return item.text;
-    if (typeof item.raw === "string" && item.raw.trim()) return item.raw;
-    return "";
-  };
-  const readFileTextCache = new Map();
-  const readMarkdownFileText = async (pathText) => {
-    const p = normalizePath(pathText);
-    if (!p) return "";
-    if (readFileTextCache.has(p)) return readFileTextCache.get(p);
-    let raw = "";
-    try {
-      const file = app.vault.getAbstractFileByPath(p);
-      if (file && typeof app.vault.read === "function") raw = String(await app.vault.read(file) || "");
-    } catch (_) {}
-    if (!raw) {
-      try {
-        if (typeof app.vault.adapter?.read === "function") raw = String(await app.vault.adapter.read(p) || "");
-      } catch (_) {}
-    }
-    readFileTextCache.set(p, raw);
-    return raw;
-  };
-  const gatherTasksByRootFallback = async (rootPath) => {
-    const root = String(rootPath || "").replace(/\\/g, "/");
-    if (!root) return [];
-    const files = app?.vault?.getMarkdownFiles?.() || [];
-    const out = [];
-    for (const f of files) {
-      const p = String(f.path || "").replace(/\\/g, "/");
-      if (!(p === root || p.startsWith(root + "/"))) continue;
-      const cache = app?.metadataCache?.getFileCache?.(f) || {};
-      const list = Array.isArray(cache.listItems) ? cache.listItems : [];
-      list.forEach((it) => {
-        const taskLike = it?.task === true || typeof it?.task === "string" || /^\s*[-*]\s*\[[^\]]*\]\s+/.test(String(it?.text || it?.raw || ""));
-        if (!taskLike) return;
-        const rawTaskText = getCacheListItemText(it);
-        const completedHint = typeof it.task === "string" ? /x/i.test(it.task) : (it.task === true ? false : null);
-        const t = parseFallbackTask(rawTaskText, p, it.position?.start?.line, completedHint);
-        if (t) out.push(t);
-      });
-      const raw = await readMarkdownFileText(p);
-      out.push(...parseTaskRowsFromMarkdown(raw, p));
-    }
-    return out;
-  };
   async function runProjectGuideBuildQueue(queue, limit = 4) {
     if (!Array.isArray(queue) || queue.length === 0) return;
     let index = 0;
@@ -678,22 +586,15 @@ const host = (input && input.mount) ? input.mount : this.container;
     try { console.warn("[noria] dashboardGuideProjects managed project scope skipped", err); } catch (_) {}
     allPages = [];
   }
-  const fallbackProjectFiles = (app?.vault?.getMarkdownFiles?.() || [])
-    .map((f) => ({ file: { path: f.path, name: f.name, tasks: [] } }))
-    .filter((p) => {
-      const path = String(p?.file?.path || "").replace(/\\/g, "/");
-      return path.startsWith(`${projectsRoot}/`) && !skipPath(path);
-    });
-  const pagesSource = (allPages && allPages.length > 0) ? allPages : fallbackProjectFiles;
+  const pagesSource = allPages;
   const projectDebug = {
     projectsRoot,
     projectRegistryPath: projectListPath,
-    source: (allPages && allPages.length > 0) ? "metadata" : "vault",
+    source: "managed",
     candidateFileCount: pagesSource.length,
     metadataTaskCount: 0,
-    fallbackTaskCount: 0,
     dataTaskCount: dataTaskRows.length,
-    taskSource: hasDataTaskRows ? "data" : "fallback",
+    taskSource: hasDataTaskRows ? "data" : "metadata",
     projectCount: 0,
     projects: [],
     currentProject: null
@@ -783,21 +684,18 @@ const host = (input && input.mount) ? input.mount : this.container;
       const pathTasksFromMetadata = hasDataTaskRows ? [] : (proj.singleFile
         ? (pageTasksByPath.get(String(proj.pages[0] || "").replace(/\\/g, "/")) || [])
         : (rootTasksByPath.get(proj.root) || []));
-      const pathTasksFromFallback = hasDataTaskRows ? [] : await gatherTasksByRootFallback(proj.singleFile ? String(proj.pages[0] || "") : proj.root);
-      const pathTasks = pathTasksFromData.concat(pathTasksFromMetadata, pathTasksFromFallback);
+      const pathTasks = pathTasksFromData.concat(pathTasksFromMetadata);
       const debugEntry = {
         name: proj.name,
         root: proj.root,
         pageCount: proj.pages.length,
         dataTaskCount: pathTasksFromData.length,
         metadataTaskCount: pathTasksFromMetadata.length,
-        fallbackTaskCount: pathTasksFromFallback.length,
         total: 0,
         openCount: 0,
         stage: "active"
       };
       projectDebug.metadataTaskCount += pathTasksFromMetadata.length;
-      projectDebug.fallbackTaskCount += pathTasksFromFallback.length;
 
       const uniqTask = new Map();
       pathTasks.forEach((t) => {
