@@ -773,7 +773,7 @@ Write-back must locate the source Markdown, verify the fingerprint, modify only 
   "exportKind": "noria.snapshot",
   "exportVersion": 1,
   "exportedAt": "",
-  "noriaVersion": "0.4.3",
+  "noriaVersion": "0.4.4",
   "payload": {}
 }
 ```

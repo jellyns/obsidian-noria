@@ -76,7 +76,7 @@ if (!globalThis.__noriaTimelineTimerAttachInitV2) {
 function noriaTlDefaultPlannerLabControls() {
   return {
     version: 2,
-    global: { circleSize: 13, titleGap: 3, timeBadgeMinWidth: 42, timeBadgeMaxWidth: 64, taskRadius: 10, borderAlpha: 0.58, shadowAlpha: 0.12 },
+    global: { circleSize: 13, titleGap: 3, timeBadgeMinWidth: 42, timeBadgeMaxWidth: 64, borderAlpha: 0.58, shadowAlpha: 0.12 },
     weekDay: {
       singleHeightThreshold: 30,
       hiddenThreshold: 92,

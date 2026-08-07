@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4 - 2026-08-07
+
+- Removed theme-inherited underlines from compact month task titles while preserving source navigation and keyboard access.
+- Aligned Task Board geometry around `2px` compact rows and `4px` timed week/day blocks without changing task height, color, or layout.
+- Removed the retired task-radius tuning path from settings, runtime controls, generated CSS variables, and localization.
+- Added regression coverage and real Obsidian light/dark acceptance checks for month, week, and day task rows.
+
 ## 0.4.3 - 2026-08-07
 
 - Fixed the Home habit history header so its two 11-day groups align with the habit rows instead of collapsing all dates into a narrow strip.

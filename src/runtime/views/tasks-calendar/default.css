@@ -200,6 +200,7 @@
   --tc-task-row-line: 1.25;
   --tc-task-row-weight: 540;
   --tc-task-row-radius: 2px;
+  --tc-timed-task-radius: 4px;
   --tc-task-row-pad-x: 8px;
   --tc-task-row-pad-y: 4px;
   --tc-task-row-gap: 4px;
@@ -3606,7 +3607,7 @@
   background: rgba(34, 197, 94, 0.38) ;
   opacity: 1 ;
 }
-.tasksCalendar[view='month'] .tc-cal-item--month-compact .internal-link {
+.tasksCalendar[view='month'] .tc-cal-item--month-compact .tc-month-task-title {
   flex: 1 1 auto ;
   min-width: 0 ;
   font-size: max(11px, calc(var(--month-task-font-size, 12px) - 0.2px)) ;
@@ -3642,7 +3643,7 @@
   grid-column: 1;
   grid-row: 1;
 }
-.tasksCalendar[view='month'] .tc-cal-item--month-compact .internal-link {
+.tasksCalendar[view='month'] .tc-cal-item--month-compact .tc-month-task-title {
   grid-column: 2;
   grid-row: 1;
   min-width: 0 ;
@@ -3674,7 +3675,7 @@
     grid-row: 1 / span 2;
     align-self: center;
   }
-  .tasksCalendar[view='month'] .tc-cal-item--month-compact .internal-link {
+  .tasksCalendar[view='month'] .tc-cal-item--month-compact .tc-month-task-title {
     grid-column: 2;
     grid-row: 1;
   }
@@ -3705,9 +3706,9 @@
   grid-row: 1 / span 2;
   align-self: center;
 }
-.tasksCalendar[view='month'] .cellContent > .tc-cal-item[data-month-time-mode='next-line'] .internal-link,
-.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item='1'][data-month-time-mode='next-line'] .internal-link,
-.tasksCalendar[view='month'] .tc-cal-item--month-compact[data-month-time-mode='next-line'] .internal-link {
+.tasksCalendar[view='month'] .cellContent > .tc-cal-item[data-month-time-mode='next-line'] .tc-month-task-title,
+.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item='1'][data-month-time-mode='next-line'] .tc-month-task-title,
+.tasksCalendar[view='month'] .tc-cal-item--month-compact[data-month-time-mode='next-line'] .tc-month-task-title {
   grid-column: 2;
   grid-row: 1;
 }
@@ -3747,7 +3748,7 @@
   background: rgba(74, 222, 128, 0.42) ;
   opacity: 1 ;
 }
-.theme-dark .tasksCalendar[view='month'] .tc-cal-item--month-compact .internal-link {
+.theme-dark .tasksCalendar[view='month'] .tc-cal-item--month-compact .tc-month-task-title {
   color: rgba(226, 232, 240, 0.92) ;
 }
 .tasksCalendar[view='month'] .cell.tc-month-drop-target {
@@ -5834,7 +5835,7 @@
   min-height: 20px;
   margin: 0 ;
   display: block;
-  border-radius: var(--noria-lab-task-radius, 10px);
+  border-radius: var(--tc-timed-task-radius, 4px);
 }
 .tasksCalendar:is([view='week'],[view='day']).planner-chrome .tc-cal-item.pending-edit {
   box-shadow: 0 0 0 1px rgba(59,130,246,.42), 0 2px 8px rgba(59,130,246,.16) ;
@@ -6633,8 +6634,8 @@
   row-gap: 1px ;
   align-items: center ;
 }
-.tasksCalendar[view='month'] .cellContent > .tc-cal-item:not([data-tc-month-span="1"]) .internal-link,
-.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item="1"]:not([data-tc-month-span="1"]) .internal-link {
+.tasksCalendar[view='month'] .cellContent > .tc-cal-item:not([data-tc-month-span="1"]) .tc-month-task-title,
+.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item="1"]:not([data-tc-month-span="1"]) .tc-month-task-title {
   color: var(--text-normal) ;
   font-weight: var(--noria-task-title-weight) ;
 }
@@ -6649,8 +6650,8 @@
   grid-template-columns: minmax(0, 1fr) ;
   grid-template-rows: auto auto ;
 }
-.tasksCalendar[view='month'] .cellContent > .tc-cal-item[data-month-time-mode='next-line']:not([data-tc-month-span="1"]) .internal-link,
-.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item='1'][data-month-time-mode='next-line']:not([data-tc-month-span="1"]) .internal-link,
+.tasksCalendar[view='month'] .cellContent > .tc-cal-item[data-month-time-mode='next-line']:not([data-tc-month-span="1"]) .tc-month-task-title,
+.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item='1'][data-month-time-mode='next-line']:not([data-tc-month-span="1"]) .tc-month-task-title,
 .tasksCalendar[view='month'] .cellContent > .tc-cal-item[data-month-time-mode='next-line']:not([data-tc-month-span="1"]) .tc-month-time,
 .tasksCalendar[view='month'] .cellContent > [data-tc-cal-item='1'][data-month-time-mode='next-line']:not([data-tc-month-span="1"]) .tc-month-time {
   grid-column: 1 ;
@@ -6875,9 +6876,9 @@
   content: none ;
   display: none ;
 }
-.tasksCalendar[view='month'] .cellContent > .tc-cal-item--month-compact[data-has-time='true']:not([data-tc-month-span="1"]) .internal-link,
-.tasksCalendar[view='month'] .cellContent > .tc-cal-item[data-has-time='true']:not([data-tc-month-span="1"]) .internal-link,
-.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item="1"][data-has-time='true']:not([data-tc-month-span="1"]) .internal-link {
+.tasksCalendar[view='month'] .cellContent > .tc-cal-item--month-compact[data-has-time='true']:not([data-tc-month-span="1"]) .tc-month-task-title,
+.tasksCalendar[view='month'] .cellContent > .tc-cal-item[data-has-time='true']:not([data-tc-month-span="1"]) .tc-month-task-title,
+.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item="1"][data-has-time='true']:not([data-tc-month-span="1"]) .tc-month-task-title {
   color: var(--text-normal) ;
   font-weight: var(--noria-task-title-weight) ;
 }
@@ -8231,8 +8232,8 @@
   min-height: 18px ;
   gap: 4px ;
 }
-.tasksCalendar[view='month'] .tc-cal-item--month-compact .internal-link,
-.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item="1"]:not([data-tc-month-span="1"]) .internal-link {
+.tasksCalendar[view='month'] .tc-cal-item--month-compact .tc-month-task-title,
+.tasksCalendar[view='month'] .cellContent > [data-tc-cal-item="1"]:not([data-tc-month-span="1"]) .tc-month-task-title {
   font-size: var(--tc-task-row-size-compact) ;
   font-weight: 540 ;
 }
@@ -8768,8 +8769,8 @@
 /* Canonical task visual pipeline: real border-left rail, timeline tone, month title/status slots. */
 .tasksCalendar:is([view='month'], [view='week'], [view='day'], [view='list']) .tc-cal-item,
 .tasksCalendar:is([view='month'], [view='week'], [view='day'], [view='list']) [data-tc-cal-item='1'],
-.tasksCalendar[view='week'].planner-chrome .tc-cal-item,
-.tasksCalendar[view='day'].planner-chrome .tc-cal-item,
+.tasksCalendar[view='week'].planner-chrome .tc-cal-item:not([data-slot='range']):not([data-slot='point']),
+.tasksCalendar[view='day'].planner-chrome .tc-cal-item:not([data-slot='range']):not([data-slot='point']),
 .tasksCalendar[view='list'] .quadrant .qContent .tc-cal-item,
 .tasksCalendar[view='month'] .cellContent > .tc-cal-item:not([data-tc-month-span='1']),
 .tasksCalendar[view='month'] .cellContent > [data-tc-cal-item='1']:not([data-tc-month-span='1']),
@@ -9119,7 +9120,7 @@
   border-color: var(--noria-tc-grid-line) ;
 }
 
-/* Final task-row geometry contract: compact, squared rows across board views. */
+/* Final task-row geometry contract: compact rows stay squared; timed blocks use a modest interaction radius. */
 .tasksCalendar:is([view='month'], [view='week'], [view='day'], [view='list']) .tc-cal-item,
 .tasksCalendar:is([view='month'], [view='week'], [view='day'], [view='list']) [data-tc-cal-item='1'],
 .tasksCalendar[view='list'] .quadrant .qContent > .tc-cal-item,
@@ -9136,8 +9137,8 @@
   border-radius: var(--tc-month-row-radius, 2px) ;
 }
 
-.tasksCalendar[view='week'].planner-chrome .tc-cal-item,
-.tasksCalendar[view='day'].planner-chrome .tc-cal-item,
+.tasksCalendar[view='week'].planner-chrome .tc-cal-item:not([data-slot='range']):not([data-slot='point']),
+.tasksCalendar[view='day'].planner-chrome .tc-cal-item:not([data-slot='range']):not([data-slot='point']),
 .tasksCalendar[view='list'] .quadrant .qContent .tc-cal-item,
 .tasksCalendar[view='list'] .tc-cal-item,
 .tasksCalendar[view='month'] .tc-cal-item[data-tc-month-span="1"] {

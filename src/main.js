@@ -260,7 +260,6 @@ const DEFAULT_PLANNER_LAB_CONTROLS = Object.freeze({
     titleGap: 3,
     timeBadgeMinWidth: 42,
     timeBadgeMaxWidth: 64,
-    taskRadius: 10,
     borderAlpha: 0.58,
     shadowAlpha: 0.12
   },
@@ -1475,8 +1474,6 @@ const NORIA_I18N = {
     "settings.plannerTuning.resetAll": "Restore all tuning defaults",
     "settings.plannerTuning.fields.titleGap": "Title gap",
     "settings.plannerTuning.fields.titleGapDesc": "Space between the primary and secondary task bar lines.",
-    "settings.plannerTuning.fields.taskRadius": "Task radius",
-    "settings.plannerTuning.fields.taskRadiusDesc": "Corner radius for week and day task bars.",
     "settings.plannerTuning.fields.weekDayTimeFontSize": "Time label size",
     "settings.plannerTuning.fields.weekDayTimeFontSizeDesc": "Corner time label size on week and day task bars.",
     "settings.plannerTuning.fields.hiddenThreshold": "Hide threshold",
@@ -2047,7 +2044,6 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.lab.field.titleGap": "Title gap",
     "runtime.tasksCalendar.lab.field.timeBadgeMinWidth": "Minimum time badge width",
     "runtime.tasksCalendar.lab.field.timeBadgeMaxWidth": "Maximum time badge width",
-    "runtime.tasksCalendar.lab.field.taskRadius": "Task radius",
     "runtime.tasksCalendar.lab.field.singleHeightThreshold": "Single-line threshold",
     "runtime.tasksCalendar.lab.field.hiddenThreshold": "Hide threshold",
     "runtime.tasksCalendar.lab.field.startOnlyThreshold": "Start-only threshold",
@@ -3390,8 +3386,6 @@ const NORIA_I18N = {
     "settings.plannerTuning.resetAll": "恢复全部调参默认",
     "settings.plannerTuning.fields.titleGap": "标题间距",
     "settings.plannerTuning.fields.titleGapDesc": "任务条内部主信息与次信息的基础间距。",
-    "settings.plannerTuning.fields.taskRadius": "任务圆角",
-    "settings.plannerTuning.fields.taskRadiusDesc": "周表/日表任务条圆角。",
     "settings.plannerTuning.fields.weekDayTimeFontSize": "时段字号",
     "settings.plannerTuning.fields.weekDayTimeFontSizeDesc": "周表/日表右下角时段角标字号。",
     "settings.plannerTuning.fields.hiddenThreshold": "隐藏阈值",
@@ -3962,7 +3956,6 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.lab.field.titleGap": "标题间距",
     "runtime.tasksCalendar.lab.field.timeBadgeMinWidth": "时段最小宽",
     "runtime.tasksCalendar.lab.field.timeBadgeMaxWidth": "时段最大宽",
-    "runtime.tasksCalendar.lab.field.taskRadius": "任务条圆角",
     "runtime.tasksCalendar.lab.field.singleHeightThreshold": "单行阈值",
     "runtime.tasksCalendar.lab.field.hiddenThreshold": "隐藏阈值",
     "runtime.tasksCalendar.lab.field.startOnlyThreshold": "仅开始阈值",
@@ -8871,7 +8864,6 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
     containerEl.createEl("h4", { text: this.t("settings.plannerTuning.weekDay") });
     [
       ["global", "titleGap", "settings.plannerTuning.fields.titleGap", "settings.plannerTuning.fields.titleGapDesc"],
-      ["global", "taskRadius", "settings.plannerTuning.fields.taskRadius", "settings.plannerTuning.fields.taskRadiusDesc"],
       ["weekDay", "timeFontSize", "settings.plannerTuning.fields.weekDayTimeFontSize", "settings.plannerTuning.fields.weekDayTimeFontSizeDesc"],
       ["weekDay", "hiddenThreshold", "settings.plannerTuning.fields.hiddenThreshold", "settings.plannerTuning.fields.hiddenThresholdDesc"],
       ["weekDay", "startOnlyThreshold", "settings.plannerTuning.fields.startOnlyThreshold", "settings.plannerTuning.fields.startOnlyThresholdDesc"],
@@ -15794,7 +15786,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     merged.global.titleGap = clampNum(merged.global.titleGap, defaults.global.titleGap, 0, 12);
     merged.global.timeBadgeMinWidth = clampNum(merged.global.timeBadgeMinWidth, defaults.global.timeBadgeMinWidth, 24, 90);
     merged.global.timeBadgeMaxWidth = clampNum(merged.global.timeBadgeMaxWidth, defaults.global.timeBadgeMaxWidth, 32, 120);
-    merged.global.taskRadius = clampNum(merged.global.taskRadius, defaults.global.taskRadius, 6, 24);
+    delete merged.global.taskRadius;
     merged.global.borderAlpha = clampNum(merged.global.borderAlpha, defaults.global.borderAlpha, 0.1, 1);
     merged.global.shadowAlpha = clampNum(merged.global.shadowAlpha, defaults.global.shadowAlpha, 0, 0.5);
     if (merged.global.timeBadgeMaxWidth < merged.global.timeBadgeMinWidth) {
@@ -16069,8 +16061,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       version: 2,
       global: {
         fields: {
-          titleGap: { min: 0, max: 12, step: 1, type: "number", suffix: "px" },
-          taskRadius: { min: 6, max: 24, step: 1, type: "number", suffix: "px" }
+          titleGap: { min: 0, max: 12, step: 1, type: "number", suffix: "px" }
         }
       },
       weekDay: {

@@ -3638,6 +3638,16 @@ test("task calendar month rows share themed checkbox geometry and span alignment
     .filter(({ selector }) => selector.includes(".tasksCalendar[view='month']"))
     .filter(({ selector }) => /(?:\.tc-cal-item|\[data-tc-cal-item|tc-cal-item--month-compact|tc-month-span-overlay-item)/.test(selector))
     .filter(({ selector }) => !/\.cellName|::-webkit-scrollbar|\.tc-month-dot/.test(selector));
+  const timedTaskBlocks = Array.from(css.matchAll(/([^{}]+)\{([^{}]+)\}/g))
+    .map((match) => ({ selector: match[1].trim(), body: match[2] }))
+    .filter(({ selector }) => selector.includes(".tasksCalendar:is([view='week'],[view='day']).planner-chrome"))
+    .filter(({ selector }) => selector.includes("[data-slot='range']"));
+  const monthCompactStart = runtime.indexOf("if (monthView && !eisenContentOnly && !spanMultiDay && !isCrossDayRange)");
+  const monthCompactEnd = runtime.indexOf("if (monthView && spanMultiDay", monthCompactStart);
+  const monthCompactBody = runtime.slice(monthCompactStart, monthCompactEnd);
+  const geometryContractStart = css.indexOf("/* Final task-row geometry contract");
+  const geometryContractEnd = css.indexOf(".tasksCalendar .tc-cal-item .inner", geometryContractStart);
+  const geometryContractBody = css.slice(geometryContractStart, geometryContractEnd);
   const monthTaskCss = monthTaskBlocks.map(({ selector, body }) => `${selector} {${body}}`).join("\n");
 
   assert.ok(monthCellNameBlocks.length > 0, "month day header blocks should be found");
@@ -3681,8 +3691,24 @@ test("task calendar month rows share themed checkbox geometry and span alignment
   assert.match(css, /place-self:\s*center/);
   assert.match(css, /--tc-month-row-radius:\s*2px/);
   assert.match(css, /--tc-task-row-radius:\s*2px/);
+  assert.match(css, /--tc-timed-task-radius:\s*4px/);
   assert.doesNotMatch(css, /--tc-task-row-radius:\s*[6-9]px/);
   assert.doesNotMatch(css, /--tc-month-row-radius:\s*[6-9]px/);
+  assert.ok(geometryContractStart > 0 && geometryContractEnd > geometryContractStart, "final task geometry contract should be found");
+  assert.match(geometryContractBody, /\.tasksCalendar\[view='week'\]\.planner-chrome \.tc-cal-item:not\(\[data-slot='range'\]\):not\(\[data-slot='point'\]\)/);
+  assert.doesNotMatch(geometryContractBody, /\.tasksCalendar\[view='week'\]\.planner-chrome \.tc-cal-item\s*,/);
+  assert.ok(monthCompactStart > 0 && monthCompactEnd > monthCompactStart, "month compact task builder should be found");
+  assert.match(monthCompactBody, /createElement\("span"\)/);
+  assert.match(monthCompactBody, /className = "description tc-month-task-title"/);
+  assert.match(monthCompactBody, /setAttribute\("role", "link"\)/);
+  assert.doesNotMatch(monthCompactBody, /createElement\("a"\)/);
+  assert.doesNotMatch(css, /text-decoration\s*:/);
+  assert.ok(
+    timedTaskBlocks.some(({ body }) => /border-radius:\s*var\(--tc-timed-task-radius,\s*4px\)/.test(body)),
+    "week/day timed task blocks should use the dedicated 4px radius token"
+  );
+  assert.doesNotMatch(css, /--noria-lab-task-radius/);
+  assert.doesNotMatch(runtime, /--noria-lab-task-radius/);
   assert.doesNotMatch(css, /\.tasksCalendar\[view='month'\] \.cellContent > \.tc-cal-item:not\(\[data-tc-month-span="1"\]\),[\s\S]{0,600}?border-radius:\s*[6-9]px/);
   assert.doesNotMatch(css, /\.tasksCalendar\[view='month'\] \.wrappers > \.wrapper \.tc-month-span-overlay \.tc-month-span-overlay-item \{[\s\S]{0,400}?border-radius:\s*[6-9]px/);
   assert.doesNotMatch(css, /width:\s*calc\(100% - 1px\)/);

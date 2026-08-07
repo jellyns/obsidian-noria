@@ -751,7 +751,6 @@ function tcDefaultPlannerLabControls() {
 			titleGap: 3,
 			timeBadgeMinWidth: 42,
 			timeBadgeMaxWidth: 64,
-			taskRadius: 10,
 			borderAlpha: 0.58,
 			shadowAlpha: 0.12
 		},
@@ -810,7 +809,7 @@ function tcMergePlannerLabControls(raw) {
 	out.global.titleGap = clampNum(out.global.titleGap, base.global.titleGap, 0, 12);
 	out.global.timeBadgeMinWidth = clampNum(out.global.timeBadgeMinWidth, base.global.timeBadgeMinWidth, 24, 90);
 	out.global.timeBadgeMaxWidth = clampNum(out.global.timeBadgeMaxWidth, base.global.timeBadgeMaxWidth, 32, 120);
-	out.global.taskRadius = clampNum(out.global.taskRadius, base.global.taskRadius, 6, 24);
+	delete out.global.taskRadius;
 	out.global.borderAlpha = clampNum(out.global.borderAlpha, base.global.borderAlpha, 0.1, 1);
 	out.global.shadowAlpha = clampNum(out.global.shadowAlpha, base.global.shadowAlpha, 0, 0.5);
 	if (out.global.timeBadgeMaxWidth < out.global.timeBadgeMinWidth) {
@@ -873,7 +872,6 @@ function tcApplyPlannerLabCssVars(target) {
 		host.style.setProperty("--noria-lab-title-gap", String(globalCfg.titleGap || 3) + "px");
 		host.style.setProperty("--noria-lab-time-badge-min-px", String(globalCfg.timeBadgeMinWidth || 42) + "px");
 		host.style.setProperty("--noria-lab-time-badge-max-px", String(globalCfg.timeBadgeMaxWidth || 64) + "px");
-		host.style.setProperty("--noria-lab-task-radius", String(globalCfg.taskRadius || 10) + "px");
 		host.style.setProperty("--noria-lab-border-alpha", String(globalCfg.borderAlpha || 0.58));
 		host.style.setProperty("--noria-lab-shadow-alpha", String(globalCfg.shadowAlpha || 0.12));
 		host.style.setProperty("--noria-lab-weekday-time-size", String((cfg.weekDay && cfg.weekDay.timeFontSize) || 9) + "px");
@@ -6259,11 +6257,11 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 		var dotTone = tcResolveMonthDotUrgency(obj, typeCls, "day");
 		dotMc.setAttribute("data-tc-month-dot-tone", dotTone);
 		innerMc.appendChild(dotMc);
-		var linkMc = doc.createElement("a");
-		linkMc.className = "internal-link";
+		var linkMc = doc.createElement("span");
+		linkMc.className = "description tc-month-task-title";
 		linkMc.textContent = taskTextPlain;
-		linkMc.setAttribute("data-href", taskLine);
-		linkMc.setAttribute("href", taskLine);
+		linkMc.setAttribute("role", "link");
+		linkMc.tabIndex = 0;
 		innerMc.appendChild(linkMc);
 		if (hasExplicitTimeMc) {
 			var timeMc = doc.createElement("span");
@@ -6271,10 +6269,7 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 			timeMc.textContent = normalizeTimeStr(rawStMc || rawDtMc);
 			innerMc.appendChild(timeMc);
 		}
-		/* v0.5 Phase C 第三轮：month-compact 圆圈作为 internal-link 的兄弟节点（在 innerMc 内 link 之后）
-		 * 旧版本（v2）append 进 link 内部，与 ellipsis 共享裁剪盒，长标题时圆圈被吃掉；
-		 * 新版本：link 用 ellipsis 截掉超出文本，圆圈在 innerMc flex 下保持 flex-shrink:0 永远可见。
-		 * tc-month-time 仍按需追加，圆圈最后 append 即可：dot — link — [time] — circle。 */
+		/* 月表标题与状态控件保持兄弟关系，避免长标题裁掉状态控件。 */
 		var statusCircleMc = tcMakeNativeTaskCheckbox(obj, typeCls);
 		if (statusCircleMc) { innerMc.appendChild(statusCircleMc); }
 		el.appendChild(innerMc);
@@ -7727,7 +7722,7 @@ function setTaskContentContainer(currentDate, forcePlannerChromeWeek) {
 	return wrap.innerHTML;
 }
 
-/** 周 plannerChrome：从任务条打开笔记（与左键一致，支持 Ctrl/Cmd 新窗格） */
+/** 从任务条打开笔记（支持 Ctrl/Cmd 新窗格）。 */
 function openTaskNoteFromTaskEl(taskEl, newLeaf) {
 	if (!taskEl || !app) { return; }
 	var href = taskEl.getAttribute("data-nav-href");
@@ -9095,6 +9090,16 @@ function ensureTasksCalendarNavBound() {
 			void openPeriodicNoteFromCellLink(dateLink, !!(ev.metaKey || ev.ctrlKey));
 			return;
 		}
+		var monthTaskTitle = ev.target.closest(".tc-month-task-title");
+		if (monthTaskTitle && rootNode.contains(monthTaskTitle) && !ev.shiftKey) {
+			var monthTaskEl = monthTaskTitle.closest('[data-tc-cal-item="1"][data-nav-href], .tc-cal-item[data-nav-href]');
+			if (monthTaskEl) {
+				ev.preventDefault();
+				ev.stopPropagation();
+				openTaskNoteFromTaskEl(monthTaskEl, !!(ev.metaKey || ev.ctrlKey));
+				return;
+			}
+		}
 		if (rootNode.getAttribute("view") === "month") {
 			var taskHitMo = ev.target.closest('[data-tc-cal-item="1"], .tc-cal-item, .task');
 			if (!taskHitMo || !rootNode.contains(taskHitMo)) {
@@ -9138,6 +9143,17 @@ function ensureTasksCalendarNavBound() {
 			ev.stopPropagation();
 			void openPeriodicNoteFromCellLink(dateLink, !!(ev.metaKey || ev.ctrlKey));
 			return;
+		}
+		var monthTaskTitle = ev.target.closest(".tc-month-task-title");
+		if (monthTaskTitle && rootNode.contains(monthTaskTitle)) {
+			var monthTaskEl = monthTaskTitle.closest('[data-tc-cal-item="1"][data-nav-href], .tc-cal-item[data-nav-href]');
+			if (monthTaskEl) {
+				ev.preventDefault();
+				ev.stopPropagation();
+				if (ev.shiftKey) { openTaskDateTimeEditor(monthTaskEl); }
+				else { openTaskNoteFromTaskEl(monthTaskEl, !!(ev.metaKey || ev.ctrlKey)); }
+				return;
+			}
 		}
 		var taskEl = ev.target.closest('[data-tc-cal-item="1"][data-nav-href], .tc-cal-item[data-nav-href], .task[data-nav-href]');
 		if (!taskEl || !rootNode.contains(taskEl)) return;
@@ -13028,7 +13044,6 @@ function renderPlannerChromePlannerLabPanel(panel) {
 	tcBuildPlannerLabSlider(panel, "global", "titleGap", tcRuntimeT("runtime.tasksCalendar.lab.field.titleGap"), 0, 12, 1, "px");
 	tcBuildPlannerLabSlider(panel, "global", "timeBadgeMinWidth", tcRuntimeT("runtime.tasksCalendar.lab.field.timeBadgeMinWidth"), 24, 90, 1, "px");
 	tcBuildPlannerLabSlider(panel, "global", "timeBadgeMaxWidth", tcRuntimeT("runtime.tasksCalendar.lab.field.timeBadgeMaxWidth"), 32, 120, 1, "px");
-	tcBuildPlannerLabSlider(panel, "global", "taskRadius", tcRuntimeT("runtime.tasksCalendar.lab.field.taskRadius"), 6, 24, 1, "px");
 	tcBuildPlannerLabSlider(panel, "weekDay", "singleHeightThreshold", tcRuntimeT("runtime.tasksCalendar.lab.field.singleHeightThreshold"), 20, 42, 1, "px");
 	tcBuildPlannerLabSlider(panel, "weekDay", "hiddenThreshold", tcRuntimeT("runtime.tasksCalendar.lab.field.hiddenThreshold"), 64, 140, 1, "px");
 	tcBuildPlannerLabSlider(panel, "weekDay", "startOnlyThreshold", tcRuntimeT("runtime.tasksCalendar.lab.field.startOnlyThreshold"), 80, 170, 1, "px");
