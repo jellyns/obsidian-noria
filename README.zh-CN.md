@@ -2,7 +2,7 @@
 
 **语言**： [English](README.md) | 简体中文
 
-![version](https://img.shields.io/badge/version-0.4.2-blue)
+![version](https://img.shields.io/badge/version-0.4.3-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.5%2B-7c3aed)
 ![license](https://img.shields.io/badge/license-MIT-green)
 

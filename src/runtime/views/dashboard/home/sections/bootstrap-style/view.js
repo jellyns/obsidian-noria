@@ -3386,7 +3386,7 @@
       align-items: center;
     }
     .dashboard-habit-21-head-track {
-      grid-template-columns: repeat(22, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .dashboard-habit-21-track::after {
       content: "";

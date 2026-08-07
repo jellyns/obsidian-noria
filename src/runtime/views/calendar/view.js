@@ -82,12 +82,14 @@ function injectStyle() {
   font-weight: 650;
   line-height: 1;
 }
-.noria-calendar-title button,
-.noria-calendar-nav button,
-.noria-calendar-week-number,
-.noria-calendar-day {
+.noria-calendar-root .noria-calendar-title button,
+.noria-calendar-root .noria-calendar-nav button,
+.noria-calendar-root button.noria-calendar-week-number,
+.noria-calendar-root button.noria-calendar-day {
   appearance: none;
   -webkit-appearance: none;
+  margin: 0;
+  min-height: 0;
   border: 0;
   box-shadow: none;
   background: transparent;
@@ -286,7 +288,7 @@ function injectStyle() {
 .noria-calendar-picker--years {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-.noria-calendar-period-cell {
+.noria-calendar-root button.noria-calendar-period-cell {
   position: relative;
   appearance: none;
   -webkit-appearance: none;
@@ -352,13 +354,15 @@ function injectStyle() {
   font-weight: 600;
   line-height: 1.2;
 }
-.noria-calendar-task-close,
-.noria-calendar-task-add,
-.noria-calendar-task-time-toggle,
-.noria-calendar-task-clear,
-.noria-calendar-time-wheel-btn {
+.noria-calendar-root button.noria-calendar-task-close,
+.noria-calendar-root button.noria-calendar-task-add,
+.noria-calendar-root button.noria-calendar-task-time-toggle,
+.noria-calendar-root button.noria-calendar-task-clear,
+.noria-calendar-root button.noria-calendar-time-wheel-btn {
   appearance: none;
   -webkit-appearance: none;
+  margin: 0;
+  min-height: 0;
   border: 0;
   box-shadow: none;
   font-family: inherit;

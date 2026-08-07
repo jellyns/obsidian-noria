@@ -1398,6 +1398,13 @@ test("Noria Calendar runtime view parses and calls the bridge API", () => {
   assert.match(source, /visibleWeeks/);
   assert.match(source, /weekOffset/);
   assert.match(source, /noria-calendar-root/);
+  const calendarButtonReset = source.match(
+    /\.noria-calendar-root\s+\.noria-calendar-title\s+button,[\s\S]*?\.noria-calendar-root\s+button\.noria-calendar-day\s*\{[\s\S]*?\n\s*\}/
+  )?.[0] || "";
+  assert.ok(calendarButtonReset, "calendar buttons should use a root-scoped reset that outranks theme button styles");
+  for (const declaration of ["margin: 0", "min-height: 0", "border: 0", "box-shadow: none", "background: transparent"]) {
+    assert.match(calendarButtonReset, new RegExp(declaration.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&").replace(/\s+/g, "\\s*")));
+  }
   assert.doesNotMatch(source, /noria-nav-results|runtime\.calendar\.selectedDate|runtime\.calendar\.noResults/);
 });
 

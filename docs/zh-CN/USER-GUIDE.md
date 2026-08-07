@@ -772,7 +772,7 @@ sourcePath + line/blockId + fingerprint
   "exportKind": "noria.snapshot",
   "exportVersion": 1,
   "exportedAt": "",
-  "noriaVersion": "0.4.2",
+  "noriaVersion": "0.4.3",
   "payload": {}
 }
 ```

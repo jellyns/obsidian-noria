@@ -101,8 +101,8 @@ test("manifest and package identify the plugin as Noria with canonical release m
   assert.equal(pkg.repository?.type, "git");
   assert.equal(pkg.repository?.url, "git+https://github.com/jellyns/obsidian-noria.git");
   assert.equal(pkg.homepage, "https://github.com/jellyns/obsidian-noria#readme");
-  assert.equal(manifest.version, "0.4.2");
-  assert.equal(pkg.version, "0.4.2");
+  assert.equal(manifest.version, "0.4.3");
+  assert.equal(pkg.version, "0.4.3");
   assert.equal(manifest.version, pkg.version);
 });
 

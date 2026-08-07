@@ -6677,7 +6677,13 @@ test("habit home matrix uses soft dark grid and purple streak semantics", () => 
   assert.match(bootstrap, /\.dashboard-habit-21-name\s*\{[\s\S]*background:\s*transparent/);
   assert.match(bootstrap, /\.dashboard-habit-21-name\s*\{[\s\S]*border-right:\s*0/);
   assert.match(bootstrap, /\.dashboard-habit-21-name\s+\.dashboard-task-title\s*\{[\s\S]*font-weight:\s*620/);
-  assert.match(bootstrap, /\.dashboard-habit-21-head-track\s*\{[\s\S]*grid-template-columns:\s*repeat\(22,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(bootstrap, /\.dashboard-habit-21-track\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(bootstrap, /\.dashboard-habit-21-line\s*\{[\s\S]*grid-template-columns:\s*repeat\(11,\s*minmax\(0,\s*1fr\)\)/);
+  assert.doesNotMatch(
+    bootstrap,
+    /\.dashboard-habit-21-head-track\s*\{[\s\S]*?grid-template-columns:\s*repeat\(22,\s*minmax\(0,\s*1fr\)\)/,
+    "the two header line wrappers must occupy the same two-column track as the habit rows"
+  );
   assert.match(bootstrap, /--habit-cell-h:\s*17px/);
   assert.match(bootstrap, /--habit-head-h:\s*15px/);
   assert.match(bootstrap, /\.dashboard-habit-21-head-track\s*\{[\s\S]*display:\s*flex/);

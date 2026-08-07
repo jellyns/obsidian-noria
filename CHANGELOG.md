@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3 - 2026-08-07
+
+- Fixed the Home habit history header so its two 11-day groups align with the habit rows instead of collapsing all dates into a narrow strip.
+- Restored root-scoped Calendar button resets so the side calendar remains flat and aligned under both the default and Minimal themes.
+- Added regression contracts and real Obsidian Default/Minimal acceptance checks for the affected layouts.
+
 ## 0.4.2 - 2026-08-07
 
 - Limited task, statistics, source suggestion, and health queries to configured Noria roots instead of enumerating the entire vault.
