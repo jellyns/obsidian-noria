@@ -379,16 +379,13 @@
   }
   const themeHome = globalThis.dashboardCore?.theme?.home?.overview || {};
   const colMax = themeHome.columnScrollMax || "min(42vh, 380px)";
-  /** 习惯+复盘列略高于其它列（约多一行复盘区），可用 theme.home.overview.habitRecapColumnScrollMax 覆盖。 */
-  const habitRecapColMax = themeHome.habitRecapColumnScrollMax || "min(47vh, 445px)";
-
   const DEFAULT_WORKBENCH_PANELS = {
     leftPanels: ["tasks"],
-    middlePanels: ["inbox", "habit-today"],
+    middlePanels: ["inbox"],
     rightPanels: ["countdown"],
     hiddenPanels: []
   };
-  const WORKBENCH_PANEL_IDS = ["tasks", "inbox", "habit-today", "countdown"];
+  const WORKBENCH_PANEL_IDS = ["tasks", "inbox", "countdown"];
   const WORKBENCH_PANEL_GROUPS = [
     ["left", "leftPanels"],
     ["middle", "middlePanels"],
@@ -408,12 +405,6 @@
       accent: "rgb(245 158 11)",
       bodyMode: "flexCol",
       cardClass: "dashboard-guide-inbox"
-    },
-    "habit-today": {
-      titleKey: "runtime.home.overview.habitsTitle",
-      path: ".obsidian/plugins/noria/views/periodic/dashboardHabitWeek",
-      accent: "rgb(34 197 94)",
-      bodyMode: "scroll"
     },
     countdown: {
       titleKey: "runtime.home.overview.countdownTitle",
@@ -562,13 +553,6 @@
       mount.style.cssText = "flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;";
       return mount;
     }
-    if (panelId === "habit-today") {
-      mount.addClass("dashboard-overview-habit-context");
-      mount.style.cssText = only
-        ? "min-width:0;max-height:210px;overflow:auto;"
-        : "flex:0 0 auto;min-width:0;margin-top:10px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--background-modifier-border) 54%,transparent);max-height:210px;overflow:auto;";
-      return mount;
-    }
     if (!only) {
       mount.addClass("dashboard-overview-panel-mount");
       mount.style.cssText = "min-width:0;min-height:0;";
@@ -663,12 +647,11 @@
       panelIds: panelIds.join(","),
       panelGroup: group,
       accent: getPanelAccent(panelIds),
-      scrollMax: panelIds.includes("inbox") || panelIds.includes("habit-today") ? habitRecapColMax : colMax,
-      cardMinHeight: panelIds.includes("inbox") || panelIds.includes("habit-today") ? habitRecapColMax : undefined
+      scrollMax: colMax
     };
     const wrap = makeCol(getPanelTitle(primary), getPanelBodyMode(panelIds), (tool) => addToolbarActions(tool, panelIds), colOpts);
     if (panelIds.includes("inbox")) wrap.card.addClass("dashboard-guide-inbox");
-    if (panelIds.includes("inbox") || panelIds.includes("habit-today")) {
+    if (panelIds.includes("inbox")) {
       wrap.body.style.maxHeight = "none";
       wrap.body.style.overflow = "visible";
     }

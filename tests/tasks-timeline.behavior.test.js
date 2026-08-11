@@ -2171,8 +2171,8 @@ test("formal task timeline exposes mode presets through the same filter popover"
   assert.match(main, /const allowed = \["task", "annotation", "pomodoro", "note", "git", "noria"\]/);
   assert.match(main, /\{\s*id:\s*"task",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.task"\),\s*layers:\s*\["task", "annotation"\],\s*showDone:\s*false,\s*query:\s*""\s*\}/);
   assert.match(main, /\{\s*id:\s*"record",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.record"\),\s*layers:\s*\["note", "git", "noria"\],\s*showDone:\s*true,\s*query:\s*""\s*\}/);
-  assert.match(main, /\{\s*id:\s*"project",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.project"\),\s*layers:\s*\["task", "annotation", "note", "git", "noria"\],\s*showDone:\s*true,\s*query:\s*""\s*\}/);
   assert.match(main, /\{\s*id:\s*"combined",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.combined"\),\s*layers:\s*\["task", "annotation", "pomodoro", "note", "git", "noria"\],\s*showDone:\s*true,\s*query:\s*""\s*\}/);
+  assert.doesNotMatch(main, /\{\s*id:\s*"project",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.project"\)/);
   const filterStart = main.indexOf("renderTimelineFilterPanel(anchorEl)");
   const filterBody = main.slice(filterStart, main.indexOf("const search = panel.createEl", filterStart));
   assert.ok(
@@ -2201,6 +2201,8 @@ test("formal task timeline manages named saved views without adding another tool
   assert.match(panel, /data-noria-timeline-preset-action": "update-active"/);
   assert.match(panel, /data-noria-timeline-preset-action": "rename-active"/);
   assert.match(panel, /data-noria-timeline-preset-action": "delete-active"/);
+  assert.match(panel, /noria-tl-filter-saved-view-editor/);
+  assert.match(panel, /timeline\.filter\.manageViews/);
   const toolbarStart = main.indexOf("  renderTimelineAppChrome() {");
   const toolbarEnd = main.indexOf("\n  async toggleTimelineInlinePanel", toolbarStart);
   const toolbar = main.slice(toolbarStart, toolbarEnd);
@@ -2931,6 +2933,7 @@ test("task calendar quadrant urgency stays relative to today across aggregated r
     todayStr: "2026-08-05",
     TC_EISEN_URGENT_WITHIN_DAYS: 3,
     coerceTemporalToYmd(value) { return String(value || "").slice(0, 10); },
+    getTaskEisenhowerBucketOverride() { return ""; },
     isTimelineTaggedTask() { return false; }
   };
   context.globalThis = context;
@@ -2941,6 +2944,78 @@ test("task calendar quadrant urgency stays relative to today across aggregated r
   assert.equal(context.classify({ typ: "overdue", task: { priority: "low", due: "2026-08-28" } }), "q4");
   assert.equal(context.classify({ typ: "overdue", task: { priority: "normal", due: "2026-08-04" } }), "q1");
   assert.equal(context.classify({ typ: "overdue", task: { priority: "low", due: "2026-08-04" } }), "q3");
+});
+
+test("formal task timeline keeps filter hierarchy focused and moves annotation selection to the toolbar", () => {
+  const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
+  const panelStart = main.indexOf("  renderTimelineFilterPanel(anchorEl) {");
+  const panelEnd = main.indexOf("  /** ItemView", panelStart);
+  const panel = main.slice(panelStart, panelEnd);
+  const toolbarStart = main.indexOf("  renderTimelineAppChrome() {");
+  const toolbarEnd = main.indexOf("\n  async toggleTimelineInlinePanel", toolbarStart);
+  const toolbar = main.slice(toolbarStart, toolbarEnd);
+
+  assert.match(panel, /noria-tl-filter-completion-row/);
+  assert.match(panel, /timeline\.filter\.openOnly/);
+  assert.match(panel, /timeline\.filter\.includeDone/);
+  assert.match(panel, /noria-tl-filter-advanced/);
+  assert.match(panel, /timeline\.filter\.moreFilters/);
+  assert.doesNotMatch(panel, /noria-tl-filter-scale-row/);
+  assert.doesNotMatch(panel, /"mode-mark"/);
+  assert.match(toolbar, /data-noria-action-kind": "toggle-annotation-select"/);
+  assert.match(toolbar, /timeline\.chrome\.annotationSelect/);
+});
+
+test("task calendar quadrant drag keeps dates intact and persists an explicit manual bucket", () => {
+  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
+  const css = fs.readFileSync(pluginPath("views/tasks-calendar/default.css"), "utf8");
+
+  const helperStart = runtime.indexOf("function normalizeEisenhowerBucketOverride");
+  const helperEnd = runtime.indexOf("async function saveTaskEisenhowerBucket", helperStart);
+  assert.ok(helperStart > 0 && helperEnd > helperStart, "quadrant override helpers should exist");
+  const context = {
+    globalThis: null,
+    getInlineFieldValue(text, field) {
+      const match = String(text || "").match(new RegExp(`\\[${field}::\\s*([^\\]]+)\\]`, "i"));
+      return match ? match[1].trim() : "";
+    },
+    normalizePriorityValue(value) { return String(value || "normal").toLowerCase(); }
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(`${runtime.slice(helperStart, helperEnd)}\nglobalThis.readBucket = getTaskEisenhowerBucketOverride;\nglobalThis.dropPriority = getPriorityForEisenhowerBucket;`, context);
+
+  assert.equal(context.readBucket({ rawText: "- [ ] Draft [noria-quadrant:: q2]" }), "q2");
+  assert.equal(context.readBucket({ rawText: "- [ ] Draft [noria-quadrant:: invalid]" }), "");
+  assert.equal(context.dropPriority({ priority: "high" }, "q1"), "high");
+  assert.equal(context.dropPriority({ priority: "low" }, "q2"), "normal");
+  assert.equal(context.dropPriority({ priority: "high" }, "q3"), "low");
+  assert.equal(context.dropPriority({ priority: "lowest" }, "q4"), "lowest");
+
+  const saveStart = runtime.indexOf("async function saveTaskEisenhowerBucket");
+  const saveEnd = runtime.indexOf("async function saveTaskDateTime", saveStart);
+  assert.ok(saveStart > 0 && saveEnd > saveStart, "quadrant writeback should be isolated from date-time saves");
+  const saveBody = runtime.slice(saveStart, saveEnd);
+  assert.match(saveBody, /upsertInlineField\(line,\s*"noria-quadrant",\s*bucket\)/);
+  assert.match(saveBody, /applyTaskPriorityMarker\(lines\[idx\],\s*nextPriority\)/);
+  assert.doesNotMatch(saveBody, /upsertInlineField\(line,\s*"(?:start|due)"/);
+
+  assert.match(runtime, /node\.draggable\s*=\s*true/);
+  assert.match(runtime, /addEventListener\("dragstart"/);
+  assert.match(runtime, /addEventListener\("dragover"/);
+  assert.match(runtime, /addEventListener\("drop"/);
+  assert.match(runtime, /function moveEisenhowerTaskOptimistically/);
+  assert.match(runtime, /function restoreEisenhowerTaskOptimistically/);
+  const dropStart = runtime.indexOf('host.addEventListener("drop", async function (event) {');
+  const dropEnd = runtime.indexOf("\n\t\t});", dropStart);
+  const dropBody = runtime.slice(dropStart, dropEnd);
+  assert.ok(
+    dropBody.indexOf("moveEisenhowerTaskOptimistically") < dropBody.indexOf("await saveTaskEisenhowerBucket"),
+    "quadrant task should move before persistence begins"
+  );
+  assert.match(dropBody, /restoreEisenhowerTaskOptimistically/);
+  assert.doesNotMatch(dropBody, /getList\(tasks, focus\)/);
+  assert.match(css, /\.tasksCalendar\[view='list'\]\s+\.quadrant\s+\.qContent\.is-drop-target/);
 });
 
 test("task calendar fresh data adapter preserves task priority", () => {

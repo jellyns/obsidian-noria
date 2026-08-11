@@ -642,7 +642,7 @@ test("timeline settings use a draggable expandable saved-view list without raw J
   }
 });
 
-test("task timeline filter chrome localizes modes layers scales and actions", () => {
+test("task timeline filter chrome localizes the focused filter hierarchy", () => {
   const source = readPluginSource();
   const modes = extractBody(source, "getTimelineModePresetList");
   const summary = extractBody(source, "getTimelineChromeFilterSummary");
@@ -651,12 +651,13 @@ test("task timeline filter chrome localizes modes layers scales and actions", ()
   assert.match(modes, /this\.plugin\.t\("timeline\.filter\.mode\.task"\)/);
   assert.match(summary, /timeline\.filter\.summary/);
   assert.match(panel, /timeline\.filter\.layer\.\$\{layer\}/);
-  assert.match(panel, /timeline\.filter\.scale\.\$\{mode\}/);
-  assert.match(panel, /timeline\.filter\.save/);
-  assert.match(panel, /timeline\.filter\.delete/);
-  assert.match(panel, /timeline\.filter\.done/);
-  assert.match(panel, /timeline\.filter\.mark/);
+  assert.match(panel, /timeline\.filter\.manageViews/);
+  assert.match(panel, /timeline\.filter\.moreFilters/);
+  assert.match(panel, /timeline\.filter\.openOnly/);
+  assert.match(panel, /timeline\.filter\.includeDone/);
   assert.match(panel, /timeline\.filter\.searchPlaceholder/);
+  assert.doesNotMatch(panel, /timeline\.filter\.scale\.\$\{mode\}/);
+  assert.doesNotMatch(panel, /timeline\.filter\.mark/);
   assert.doesNotMatch(modes, /label:\s*"Tasks"/);
   assert.doesNotMatch(panel, /\["task",\s*"Tasks"\]/);
   assert.doesNotMatch(panel, /text:\s*"Reset"/);

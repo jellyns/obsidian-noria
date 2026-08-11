@@ -339,9 +339,9 @@ test("data service collects inbox domain from managed inbox pages", async () => 
       "inbox-action": "split"
     },
     {
-      file: { path: "00_Inbox/Closed.md", name: "Closed.md", ctime: "2026-04-20T08:00:00.000Z", mtime: "2026-05-07T09:00:00.000Z", tasks: [] },
-      "inbox-status": "已关闭",
-      "inbox-action": "archive"
+      file: { path: "00_Inbox/Ready.md", name: "Ready.md", ctime: "2026-04-20T08:00:00.000Z", mtime: "2026-05-07T09:00:00.000Z", tasks: [] },
+      "inbox-status": "ready",
+      "inbox-action": "file"
     }
   ];
   const bridge = {
@@ -349,9 +349,9 @@ test("data service collects inbox domain from managed inbox pages", async () => 
     paths: { diaryRoot: "06_Diary", projectsRoot: "01_Projects", inboxRoot: "00_Inbox" },
     inboxWorkflow: {
       statuses: [
-        { id: "triage", label: "Triage", aliases: ["待决"], terminal: false },
-        { id: "processing", label: "Processing", terminal: false },
-        { id: "closed", label: "Closed", aliases: ["已关闭"], terminal: true }
+        { id: "triage", label: "Triage", aliases: ["待决"] },
+        { id: "processing", label: "Processing" },
+        { id: "ready", label: "Ready" }
       ],
       defaultStatusId: "triage"
     },
@@ -374,13 +374,13 @@ test("data service collects inbox domain from managed inbox pages", async () => 
   const inbox = snapshot.domains.inbox;
 
   assert.equal(inbox.summary.total, 3);
-  assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byStatus)), { triage: 1, processing: 1, closed: 1 });
-  assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byAction)), { refine: 1, split: 1, archive: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byStatus)), { triage: 1, processing: 1, ready: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byAction)), { refine: 1, split: 1, file: 1 });
   assert.equal(inbox.summary.createdInRange, 2);
-  assert.equal(inbox.summary.processedInRange, 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(inbox.summary, "processedInRange"), false);
   assert.equal(inbox.summary.staleCount, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(inbox.queues.triage.map((item) => item.path))), ["00_Inbox/Idea.md"]);
-  assert.deepEqual(JSON.parse(JSON.stringify(inbox.evidence.recentProcessed.map((item) => item.path))), ["00_Inbox/Closed.md"]);
+  assert.equal(Object.prototype.hasOwnProperty.call(inbox.evidence, "recentProcessed"), false);
   assert.deepEqual(JSON.parse(JSON.stringify(inbox.evidence.staleItems.map((item) => item.path))), ["00_Inbox/Idea.md"]);
 });
 
@@ -1235,7 +1235,7 @@ test("data service resets global caches when runtime build changes", async () =>
   assert.deepEqual(reads, ["01_Projects/A.md", "01_Projects/A.md"]);
 });
 
-test("data service normalizes mixed note ctime values for trend and distribution", async () => {
+test("data service prefers semantic note created dates and falls back to mixed ctime values", async () => {
   const data = loadDataService();
   const bridge = {
     runtimeBuildId: "test-build",
@@ -1245,8 +1245,8 @@ test("data service normalizes mixed note ctime values for trend and distribution
       pagesForScope(scopeId) {
         if (scopeId !== "notes") return [];
         return [
-          { file: { path: "01_Projects/A.md", name: "A.md", ctime: new Date(2026, 4, 1, 9, 0), tasks: [] } },
-          { file: { path: "02_Areas/B.md", name: "B.md", ctime: Number(new Date(2026, 4, 2, 9, 0)), tasks: [] } },
+          { created: "2026-05-01", file: { path: "01_Projects/A.md", name: "A.md", ctime: new Date(2026, 4, 8, 9, 0), tasks: [] } },
+          { created: "2026-05-02T09:00:00.000Z", file: { path: "02_Areas/B.md", name: "B.md", ctime: Number(new Date(2026, 4, 8, 9, 0)), tasks: [] } },
           { file: { path: "06_Diary/2026/2026-05-03.md", name: "2026-05-03.md", ctime: "2026-05-03T09:00:00.000Z", tasks: [] } }
         ];
       },

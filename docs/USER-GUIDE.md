@@ -517,13 +517,19 @@ Noria does not require every module to be used every day.
 
 ### 11.3 Process Inbox
 
-Use this order:
+The default workflow uses three configurable stages:
+
+- **Triage** (`triage`): decide what the item should become or whether it should stay.
+- **Processing** (`processing`): refine, split, or merge it.
+- **Ready** (`ready`): the destination and next action are clear.
+
+Home shows Triage, Processing, and Ready by default. Review due and Needs evidence are optional groups, not stages. Use this handling order:
 
 ```text
 delete -> merge -> split/refine -> file/archive -> defer
 ```
 
-Remove temporary `inbox-*` fields when content leaves Inbox.
+Completion is not a fourth status. Successful deletion, merging, moving, or archiving removes the item from Inbox. `defer` keeps the item in Triage; it does not create a separate default stage. Add `inbox-review` only when a real review date exists. Remove temporary `inbox-*` fields when content leaves Inbox.
 
 ### 11.4 Use Task Board
 
@@ -773,7 +779,7 @@ Write-back must locate the source Markdown, verify the fingerprint, modify only 
   "exportKind": "noria.snapshot",
   "exportVersion": 1,
   "exportedAt": "",
-  "noriaVersion": "0.4.4",
+  "noriaVersion": "0.4.5",
   "payload": {}
 }
 ```

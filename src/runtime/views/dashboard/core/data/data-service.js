@@ -867,7 +867,7 @@
       const noteByBucket = new Map(trend.series.map((row) => [row.key, row]));
       const stateByBucket = new Map(dailyState.series.map((row) => [row.key, row]));
       getPagesForScope("notes").forEach((p) => {
-        const ds = normalizeDateValue(p?.file?.ctime);
+        const ds = normalizeDateValue(p?.created || p?.file?.ctime);
         if (!inRange(ds, resolved.start, resolved.end)) return;
         const bucket = bucketForDate(ds, resolved.granularity);
         const row = noteByBucket.get(bucket);
@@ -1183,8 +1183,7 @@
           if (!id) return null;
           return {
             id,
-            aliases: Array.isArray(status?.aliases) ? status.aliases.map((alias) => String(alias || "").trim()).filter(Boolean) : [],
-            terminal: status?.terminal === true
+            aliases: Array.isArray(status?.aliases) ? status.aliases.map((alias) => String(alias || "").trim()).filter(Boolean) : []
           };
         })
         .filter(Boolean);
@@ -1226,11 +1225,9 @@
 
     async function collectInboxDomain(resolved) {
       const workflow = inboxWorkflowConfig();
-      const terminalStatuses = new Set((workflow.statuses || []).filter((status) => status.terminal).map((status) => status.id));
-      const summary = { total: 0, byStatus: {}, byAction: {}, staleCount: 0, processedInRange: 0, createdInRange: 0 };
+      const summary = { total: 0, byStatus: {}, byAction: {}, staleCount: 0, createdInRange: 0 };
       const queues = {};
       const staleItems = [];
-      const recentProcessed = [];
 
       for (const page of inboxPages()) {
         const pathText = normalizePath(page?.file?.path || page?.path || "");
@@ -1245,11 +1242,7 @@
         queues[status].push(item);
 
         if (item.created && inRange(item.created, resolved.start, resolved.end)) summary.createdInRange += 1;
-        if (terminalStatuses.has(status) && item.modified && inRange(item.modified, resolved.start, resolved.end)) {
-          summary.processedInRange += 1;
-          recentProcessed.push(item);
-        }
-        if (!terminalStatuses.has(status) && item.reviewDate && item.reviewDate <= resolved.end) {
+        if (item.reviewDate && item.reviewDate <= resolved.end) {
           summary.staleCount += 1;
           staleItems.push(item);
         }
@@ -1260,14 +1253,12 @@
         queues[key] = queues[key].slice(0, 80);
       });
       staleItems.sort((a, b) => String(a.reviewDate || "").localeCompare(String(b.reviewDate || "")));
-      recentProcessed.sort((a, b) => String(b.modified || "").localeCompare(String(a.modified || "")));
 
       return {
         summary,
         queues,
         evidence: {
-          staleItems: staleItems.slice(0, 20),
-          recentProcessed: recentProcessed.slice(0, 20)
+          staleItems: staleItems.slice(0, 20)
         }
       };
     }

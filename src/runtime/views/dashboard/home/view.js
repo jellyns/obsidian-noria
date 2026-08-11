@@ -6,8 +6,6 @@ const homeRuntimeBuildId = String(
   globalThis.__noriaRuntimeBridge?.runtimeBuildId ||
   "dev"
 );
-const HOME_POMODORO_BINDING_PATH = ".obsidian/plugins/noria/views/task-timeline/pomodoro-binding.js";
-
 function homeRuntimeT(key, params = {}) {
   try {
     if (homeBridge && typeof homeBridge.t === "function") {
@@ -1553,10 +1551,8 @@ const HOME_WIDGET_REGISTRY = {
   identity: { path: ".obsidian/plugins/noria/views/dashboard/home/sections/home-identity", title: "", shell: "hero" },
   metrics: { path: ".obsidian/plugins/noria/views/dashboard/home/sections/overview-metrics", title: "", shell: "hero", props: { metricsLayout: "hero" } },
   "today-actions": { title: "", shell: "inline" },
-  "focus-strip": { title: "", shell: "inline" },
   "today-tasks-card": { path: ".obsidian/plugins/noria/views/dashboard/home/sections/overview-columns", title: "", shell: "native" },
   "inbox-card": { path: ".obsidian/plugins/noria/views/dashboard/home/sections/overview-columns", title: "", shell: "native" },
-  "habit-today-card": { path: ".obsidian/plugins/noria/views/dashboard/home/sections/overview-columns", title: "", shell: "native" },
   "countdown-card": { path: ".obsidian/plugins/noria/views/dashboard/home/sections/overview-columns", title: "", shell: "native" },
   "projects-card": { path: ".obsidian/plugins/noria/views/dashboard/home/sections/guide-panels", title: "", shell: "native", lazy: true },
   "moc-strip": { path: ".obsidian/plugins/noria/views/dashboard/home/sections/guide-panels", title: "", shell: "native", lazy: true },
@@ -1574,10 +1570,9 @@ const HOME_WIDGET_EDIT_TITLE_KEYS = {
   identity: "runtime.home.layoutEdit.widget.identity",
   metrics: "runtime.home.layoutEdit.widget.metrics",
   "today-actions": "runtime.home.layoutEdit.widget.todayActions",
-  "focus-strip": "runtime.home.layoutEdit.widget.focusStrip",
+  "daily-advice": "runtime.home.layoutEdit.widget.dailyAdvice",
   "today-tasks-card": "runtime.home.layoutEdit.widget.todayTasks",
   "inbox-card": "runtime.home.layoutEdit.widget.inbox",
-  "habit-today-card": "runtime.home.layoutEdit.widget.habitToday",
   "countdown-card": "runtime.home.layoutEdit.widget.countdown",
   "projects-card": "runtime.home.layoutEdit.widget.projects",
   "moc-strip": "runtime.home.layoutEdit.widget.moc",
@@ -1620,7 +1615,6 @@ const HOME_STAT_METRIC_REGISTRY = {
   "daily.validDays": { labelKey: "runtime.home.stat.dailyValidDays", path: "domains.dailyState.summary.validDays" },
   "inbox.total": { labelKey: "runtime.home.stat.inboxTotal", path: "domains.inbox.summary.total", include: ["inbox"] },
   "inbox.stale": { labelKey: "runtime.home.stat.inboxStale", path: "domains.inbox.summary.staleCount", include: ["inbox"] },
-  "inbox.processed": { labelKey: "runtime.home.stat.inboxProcessed", path: "domains.inbox.summary.processedInRange", include: ["inbox"] },
   "projects.active": { labelKey: "runtime.home.stat.projectsActive", path: "domains.projects.summary.activeCount", include: ["projects"] },
   "projects.open": { labelKey: "runtime.home.stat.projectsOpen", path: "domains.projects.summary.taskOpen", include: ["projects"] },
   "projects.completionRate": { labelKey: "runtime.home.stat.projectsCompletionRate", path: "domains.projects.summary.completionRate", suffix: "%", include: ["projects"] },
@@ -1688,15 +1682,6 @@ function normalizeWidgetList(rawWidgets, options = {}) {
       };
     })
     .filter((widget) => widget.type !== "builtin" || !!HOME_WIDGET_REGISTRY[widget.id]);
-  const focus = widgets.find((widget) => widget.id === "focus-strip");
-  const workbenchCards = widgets.filter((widget) => ["today-tasks-card", "inbox-card", "habit-today-card", "countdown-card"].includes(widget.id));
-  const workbenchOrder = workbenchCards.length ? Math.min(...workbenchCards.map((widget) => Number(widget.order || 0))) : Number.NaN;
-  const focusRaw = list.find((item) => String(item?.id || "") === "focus-strip");
-  const focusRawVersion = Number(focusRaw?.schemaVersion);
-  const shouldMigrateFocusOrder = !Number.isFinite(focusRawVersion) || focusRawVersion < HOME_WIDGET_SCHEMA_VERSION;
-  if (focus && Number.isFinite(workbenchOrder) && shouldMigrateFocusOrder && Number(focus.order || 0) >= workbenchOrder) {
-    focus.order = workbenchOrder - 5;
-  }
   return widgets.sort((a, b) => a.order - b.order);
 }
 
@@ -1804,16 +1789,6 @@ function shouldUseHomeHeroStrip(identity, metrics, options = {}) {
   if (String(identity.size || "") !== "wide" || String(metrics.size || "") !== "wide") return false;
   const metricsLayout = String(metrics.props?.metricsLayout || "hero");
   return metricsLayout === "hero";
-}
-
-function shouldUseHomeTodayFlowStrip(todayActions, focusStrip, options = {}) {
-  if (options.editMode === true) return false;
-  if (!todayActions || !focusStrip) return false;
-  if (todayActions.enabled === false || focusStrip.enabled === false) return false;
-  if (todayActions.collapsed === true || focusStrip.collapsed === true) return false;
-  if (hasHomeWidgetLayoutOverride(todayActions) || hasHomeWidgetLayoutOverride(focusStrip)) return false;
-  if (String(todayActions.size || "") !== "full" || String(focusStrip.size || "") !== "full") return false;
-  return todayActions.type === "builtin" && focusStrip.type === "builtin";
 }
 
 function getHomeWidgetCollapsedTitle(widget, title) {
@@ -2034,9 +2009,11 @@ function createWidgetShell(widget, title, editContext = {}, entry = {}) {
   applyHomeWidgetLayout(widget, host);
   if (widget?.enabled === false) {
     host?.addClass?.("dashboard-home-widget-shell-hidden");
-    shell.content.hidden = true;
-    shell.content.setAttr?.("aria-hidden", "true");
-    shell.content.setAttribute?.("aria-hidden", "true");
+    if (!homeEditMode) {
+      shell.content.hidden = true;
+      shell.content.setAttr?.("aria-hidden", "true");
+      shell.content.setAttribute?.("aria-hidden", "true");
+    }
   }
   applyHomeWidgetCollapsedState(widget, shell);
   createHomeWidgetShellActions(widget, shell, visibleTitle, editContext);
@@ -2159,6 +2136,55 @@ function normalizeHomeMarkdownSources(widget) {
   return [{ ...single, role: roleMeta.role, freshHours: roleMeta.freshHours }];
 }
 
+function normalizeHomeMarkdownHeading(value) {
+  return homeActionText(value)
+    .replace(/^#+\s*/, "")
+    .replace(/\s+#+\s*$/, "")
+    .trim();
+}
+
+function getHomeDailySectionSource(widget) {
+  const props = widget?.props && typeof widget.props === "object" && !Array.isArray(widget.props) ? widget.props : {};
+  if (homeActionText(props.sourceMode).toLowerCase() !== "daily-section") return null;
+  const heading = normalizeHomeMarkdownHeading(props.heading);
+  const date = formatHomeDate(props.date || homeBridge?.today || homeBridge?.now || opts?.now || new Date());
+  const diaryRoot = homeActionPath(props.diaryRoot || homeBridge?.paths?.diaryRoot || "").replace(/\/+$/, "");
+  if (!heading || !date || !diaryRoot) return null;
+  return {
+    heading,
+    path: `${diaryRoot}/${date.slice(0, 4)}/${date}.md`,
+    label: resolveWidgetTitle(widget) || heading,
+    description: "",
+    newLeaf: false,
+    open: true,
+    role: "daily-section",
+    freshHours: 0
+  };
+}
+
+function extractHomeMarkdownH2Section(markdown, heading) {
+  const target = normalizeHomeMarkdownHeading(heading).toLowerCase();
+  if (!target) return { found: false, text: "", line: 0 };
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  let start = -1;
+  let end = lines.length;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^##(?!#)\s+(.+?)\s*$/);
+    if (!match) continue;
+    if (start >= 0) {
+      end = index;
+      break;
+    }
+    if (normalizeHomeMarkdownHeading(match[1]).toLowerCase() === target) start = index;
+  }
+  if (start < 0) return { found: false, text: "", line: 0 };
+  return {
+    found: true,
+    text: lines.slice(start + 1, end).join("\n").trim(),
+    line: start + 1
+  };
+}
+
 function normalizeHomeMarkdownSourceDomId(value) {
   return homeActionText(value)
     .toLowerCase()
@@ -2267,12 +2293,55 @@ function createHomeMarkdownSingleState(widget, body, options = {}) {
 }
 
 async function renderMarkdownWidget(widget, mount) {
-  const sources = normalizeHomeMarkdownSources(widget);
   const props = widget?.props && typeof widget.props === "object" && !Array.isArray(widget.props) ? widget.props : {};
+  const dailySectionSource = getHomeDailySectionSource(widget);
+  const dailySectionMode = homeActionText(props.sourceMode).toLowerCase() === "daily-section";
+  const sources = dailySectionSource ? [dailySectionSource] : normalizeHomeMarkdownSources(widget);
   const body = mount.createDiv();
   body.addClass("dashboard-home-markdown-widget");
   body.addClass("markdown-preview-view");
   body.addClass("markdown-rendered");
+  if (dailySectionMode) {
+    body.addClass("dashboard-home-markdown-daily-section");
+    if (homeActionText(props.renderMode).toLowerCase() === "compact") {
+      body.addClass("dashboard-home-markdown-daily-section--compact");
+    }
+    body.setAttribute?.("data-noria-markdown-source-mode", "daily-section");
+    body.setAttribute?.("data-noria-markdown-section-heading", normalizeHomeMarkdownHeading(props.heading));
+    if (!dailySectionSource) {
+      if (homeEditMode) {
+        createHomeMarkdownSingleState(widget, body, {
+          state: "empty",
+          text: homeRuntimeT("runtime.home.markdown.empty"),
+          action: "configure"
+        });
+      }
+      return { state: "empty", hidden: !homeEditMode };
+    }
+    body.setAttribute?.("data-noria-markdown-source-path", dailySectionSource.path);
+    const loaded = await loadTextResult(dailySectionSource.path);
+    const section = loaded.ok
+      ? extractHomeMarkdownH2Section(loaded.text, dailySectionSource.heading)
+      : { found: false, text: "", line: 0 };
+    if (!loaded.ok || !section.found || !section.text) {
+      if (homeEditMode) {
+        createHomeMarkdownSingleState(widget, body, {
+          state: loaded.ok ? "empty" : "failed",
+          text: loaded.ok ? homeRuntimeT("runtime.home.markdown.sourceEmpty") : markdownSourceLoadFailedText(loaded),
+          source: dailySectionSource,
+          action: "configure"
+        });
+      }
+      return { state: "empty", hidden: !homeEditMode, sourcePath: dailySectionSource.path };
+    }
+    const content = body.createDiv();
+    content.addClass("dashboard-home-markdown-daily-section-content");
+    content.addClass("markdown-preview-view");
+    content.addClass("markdown-rendered");
+    const rendered = await renderMarkdownContent(section.text, content, dailySectionSource.path);
+    body.setAttribute?.("data-noria-markdown-source-state", rendered.state);
+    return { ...rendered, hidden: false, sourcePath: dailySectionSource.path, heading: dailySectionSource.heading };
+  }
   const multiSource = sources.length > 1
     || Array.isArray(props.sources)
     || Array.isArray(props.entries)
@@ -2283,7 +2352,7 @@ async function renderMarkdownWidget(widget, mount) {
       text: homeRuntimeT("runtime.home.markdown.empty"),
       action: "configure"
     });
-    return;
+    return { state: "empty", hidden: false };
   }
   if (!multiSource) {
     const source = sources[0];
@@ -2296,7 +2365,7 @@ async function renderMarkdownWidget(widget, mount) {
         source,
         action: "configure"
       });
-      return;
+      return { state: "failed", hidden: false };
     }
     const content = body.createDiv();
     content.addClass("dashboard-home-markdown-single-content");
@@ -2320,7 +2389,7 @@ async function renderMarkdownWidget(widget, mount) {
     } else {
       body.setAttribute?.("data-noria-markdown-source-state", "ready");
     }
-    return;
+    return { state: rendered.state, hidden: false };
   }
   body.addClass("dashboard-home-markdown-briefing");
   body.setAttribute?.("data-noria-markdown-source-count", String(sources.length));
@@ -2494,6 +2563,7 @@ async function renderMarkdownWidget(widget, mount) {
       empty.textContent = statusText;
     }
   }
+  return { state: homeMarkdownBriefingState(briefingStats), hidden: false };
 }
 
 function renderHomeWidgetFailure(widget, mount, error) {
@@ -3253,612 +3323,6 @@ function formatHomeDate(value) {
   return match ? match[0] : "";
 }
 
-function addHomeDays(dateText, days) {
-  const date = formatHomeDate(dateText);
-  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return date;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  d.setDate(d.getDate() + Number(days || 0));
-  return formatHomeDate(d);
-}
-
-function getHomeFocusToday(widget) {
-  return formatHomeDate(widget?.props?.date || widget?.props?.today || homeBridge?.today || homeBridge?.now || opts?.now) || formatHomeDate(new Date());
-}
-
-function getHomeFocusTaskDate(item) {
-  const dates = item?.dates && typeof item.dates === "object" ? item.dates : {};
-  return formatHomeDate(item?.bucketDate)
-    || formatHomeDate(dates.start)
-    || formatHomeDate(dates.scheduled)
-    || formatHomeDate(dates.due)
-    || formatHomeDate(dates.diaryFallback)
-    || "";
-}
-
-function getHomeFocusTaskTitle(item, index) {
-  return homeActionText(item?.text?.clean || item?.title || item?.name || item?.text || item?.rawText) || homeRuntimeT("runtime.home.focus.untitled", { index: index + 1 });
-}
-
-function getHomeFocusTaskPath(item) {
-  return homeActionPath(item?.source?.path || item?.identity?.sourcePath || item?.path || item?.file?.path || "");
-}
-
-function normalizeHomeFocusTask(item, index, today) {
-  if (!item || typeof item !== "object" || item.completed || String(item.status || "open").toLowerCase() === "cancelled") return null;
-  const date = getHomeFocusTaskDate(item);
-  const path = getHomeFocusTaskPath(item);
-  const line = Number(item?.source?.line ?? item?.identity?.line ?? item?.line ?? -1);
-  return {
-    title: getHomeFocusTaskTitle(item, index),
-    date,
-    path,
-    line: Number.isFinite(line) ? line : -1,
-    rawText: homeActionText(item?.source?.rawLine || item?.text?.raw || (typeof item?.text === "string" ? item.text : "")),
-    isToday: !!date && date === today,
-    sourceLabel: path ? path.split("/").slice(0, -1).join("/") || path : ""
-  };
-}
-
-function sortHomeFocusTasks(a, b, today) {
-  if (a.isToday !== b.isToday) return a.isToday ? -1 : 1;
-  const ad = a.date || "9999-12-31";
-  const bd = b.date || "9999-12-31";
-  if (ad !== bd) return ad.localeCompare(bd);
-  if (a.path !== b.path) return a.path.localeCompare(b.path);
-  return Number(a.line || 0) - Number(b.line || 0);
-}
-
-async function getHomeFocusSnapshot(widget, today) {
-  const props = widget.props && typeof widget.props === "object" ? widget.props : {};
-  const rangeDays = Math.max(1, Math.min(14, Number(props.rangeDays || 7)));
-  const request = {
-    preset: homeActionText(props.preset || "home") || "home",
-    range: {
-      mode: "custom",
-      start: today,
-      end: addHomeDays(today, rangeDays)
-    },
-    granularity: "day",
-    include: ["tasks", "focus", "pomodoro"]
-  };
-  if (typeof homeBridge?.data?.getSnapshot === "function") {
-    return homeBridge.data.getSnapshot(request, { ctx });
-  }
-  const factory = globalThis.dashboardCore?.data?.dataService?.createDataService;
-  if (typeof factory === "function") {
-    const service = factory({ bridge: homeBridge, ctx, app, momentApi: window?.moment });
-    return service.getSnapshot(request);
-  }
-  return null;
-}
-
-function getHomeFocusTasks(snapshot, today, limit = 3) {
-  const source = Array.isArray(snapshot?.domains?.tasks?.completion?.openItems)
-    ? snapshot.domains.tasks.completion.openItems
-    : [];
-  return source
-    .map((item, index) => normalizeHomeFocusTask(item, index, today))
-    .filter(Boolean)
-    .sort((a, b) => sortHomeFocusTasks(a, b, today))
-    .slice(0, limit);
-}
-
-function getHomeFocusTotalOpen(snapshot, fallback) {
-  const value = Number(snapshot?.domains?.tasks?.completion?.open);
-  return Number.isFinite(value) && value >= 0 ? value : Number(fallback || 0);
-}
-
-function readHomeFocusPomodoroState() {
-  try {
-    if (typeof homeBridge?.getPomodoroState === "function") return homeBridge.getPomodoroState();
-  } catch (_) {}
-  if (homeBridge?.pomodoro && typeof homeBridge.pomodoro === "object") return homeBridge.pomodoro;
-  try {
-    const runtimeBridge = globalThis.__noriaRuntimeBridge || {};
-    if (typeof runtimeBridge.getPomodoroState === "function") return runtimeBridge.getPomodoroState();
-    if (runtimeBridge.pomodoro && typeof runtimeBridge.pomodoro === "object") return runtimeBridge.pomodoro;
-  } catch (_) {}
-  return null;
-}
-
-function getHomeFocusPomodoroSaver() {
-  if (typeof homeBridge?.savePomodoroState === "function") return homeBridge.savePomodoroState.bind(homeBridge);
-  try {
-    const runtimeBridge = globalThis.__noriaRuntimeBridge || {};
-    if (typeof runtimeBridge.savePomodoroState === "function") return runtimeBridge.savePomodoroState.bind(runtimeBridge);
-  } catch (_) {}
-  return null;
-}
-
-function canSaveHomeFocusPomodoroState() {
-  return typeof getHomeFocusPomodoroSaver() === "function";
-}
-
-function syncHomeFocusPomodoroState(saved) {
-  if (!saved || typeof saved !== "object") return saved;
-  try {
-    homeBridge.pomodoro = saved;
-  } catch (_) {}
-  try {
-    const runtimeBridge = globalThis.__noriaRuntimeBridge;
-    if (runtimeBridge && typeof runtimeBridge === "object") runtimeBridge.pomodoro = saved;
-  } catch (_) {}
-  return saved;
-}
-
-function isHomeFocusPomodoroEnabled() {
-  return homeBridge?.features?.modules?.pomodoro !== false;
-}
-
-function runHomePomodoroScriptOnce(code) {
-  const registry = globalThis.__noriaHomeRuntimeLoaded && typeof globalThis.__noriaHomeRuntimeLoaded === "object"
-    ? globalThis.__noriaHomeRuntimeLoaded
-    : {};
-  globalThis.__noriaHomeRuntimeLoaded = registry;
-  const signature = `${homeRuntimeBuildId}:${String(code || "").length}`;
-  const loadedBinding = globalThis.noriaTaskTimeline?.pomodoroBinding || null;
-  if (registry["noria-task-timeline-pomodoro-binding"] === signature && loadedBinding) return;
-  const run = new Function("window", "document", "globalThis", String(code || ""));
-  run(window || {}, document || {}, globalThis);
-  registry["noria-task-timeline-pomodoro-binding"] = signature;
-}
-
-async function ensureHomeFocusPomodoroBinding() {
-  if (!isHomeFocusPomodoroEnabled()) return null;
-  let binding = globalThis.noriaTaskTimeline?.pomodoroBinding || null;
-  if (binding && typeof binding.startOrTogglePomodoroState === "function" && typeof binding.taskPomodoroMeta === "function") return binding;
-  const code = await loadText(HOME_POMODORO_BINDING_PATH);
-  if (!code) return null;
-  runHomePomodoroScriptOnce(code);
-  binding = globalThis.noriaTaskTimeline?.pomodoroBinding || null;
-  return binding && typeof binding.startOrTogglePomodoroState === "function" && typeof binding.taskPomodoroMeta === "function"
-    ? binding
-    : null;
-}
-
-function getHomeFocusTaskPomodoroEvent(task) {
-  const rawLine = homeActionText(task?.rawText || task?.title);
-  const path = homeActionPath(task?.path);
-  const line = Number(task?.line);
-  return {
-    title: task?.title || "",
-    noria: {
-      layer: "task",
-      path,
-      line: Number.isFinite(line) ? line : -1,
-      source: { path, line: Number.isFinite(line) ? line : -1, rawLine },
-      task: {
-        rawLine,
-        text: { raw: rawLine, clean: task?.title || rawLine },
-        source: { path, line: Number.isFinite(line) ? line : -1, rawLine }
-      }
-    }
-  };
-}
-
-function getHomeFocusTaskPomodoroMeta(binding, task) {
-  try {
-    if (!binding || typeof binding.taskPomodoroMeta !== "function") return null;
-    return binding.taskPomodoroMeta(getHomeFocusTaskPomodoroEvent(task));
-  } catch (_) {
-    return null;
-  }
-}
-
-function resolveHomeFocusPomodoroTaskKey(binding, state, meta) {
-  if (!meta) return "";
-  const normalized = binding && typeof binding.normalizePomodoroState === "function" ? binding.normalizePomodoroState(state || {}) : (state || {});
-  const wantedPath = homeActionPath(meta.path);
-  const wantedFingerprint = String(meta.textFingerprint || "");
-  const tasks = normalized?.tasks && typeof normalized.tasks === "object" ? normalized.tasks : {};
-  const found = Object.keys(tasks).find((key) => {
-    const record = tasks[key] || {};
-    return homeActionPath(record.path) === wantedPath && String(record.textFingerprint || "") === wantedFingerprint;
-  });
-  return found || String(meta.taskKey || "");
-}
-
-function getHomeFocusTaskPomodoroSummary(binding, task) {
-  const state = readHomeFocusPomodoroState() || {};
-  const meta = getHomeFocusTaskPomodoroMeta(binding, task);
-  const key = resolveHomeFocusPomodoroTaskKey(binding, state, meta);
-  if (!binding || !meta || !key || typeof binding.buildTaskPomodoroSummary !== "function") {
-    return { key: "", meta, summary: null };
-  }
-  const normalized = typeof binding.normalizePomodoroState === "function" ? binding.normalizePomodoroState(state) : state;
-  return { key, meta: { ...meta, taskKey: key }, summary: binding.buildTaskPomodoroSummary(normalized, key) };
-}
-
-function paintHomeFocusPomodoroState(row, button, summary, details = {}) {
-  const running = !!summary?.running;
-  const paused = !!summary?.paused;
-  if (row?.classList?.toggle) {
-    row.classList.toggle("has-pomodoro", !!summary?.visible);
-    row.classList.toggle("is-pomodoro-running", running);
-    row.classList.toggle("is-pomodoro-paused", paused);
-  }
-  if (!button) return;
-  const titleKey = running ? "runtime.home.focus.pausePomodoro" : "runtime.home.focus.startPomodoro";
-  const label = homeRuntimeT(titleKey);
-  button.textContent = running ? "||" : "P";
-  button.title = label;
-  button.setAttribute?.("aria-label", label);
-  button.setAttribute?.("data-noria-action-source", "home-focus-pomodoro");
-  button.setAttribute?.("data-noria-action-kind", "toggle-pomodoro");
-  button.setAttribute?.("data-noria-action-state", running ? "running" : paused ? "paused" : "idle");
-  button.setAttribute?.("data-noria-pomodoro-key", String(details?.key || details?.meta?.taskKey || ""));
-  button.setAttribute?.("data-noria-pomodoro-mode", String(summary?.mode || ""));
-  button.setAttribute?.("data-noria-pomodoro-running", running ? "1" : "0");
-  button.setAttribute?.("data-noria-pomodoro-paused", paused ? "1" : "0");
-  button.setAttribute?.("data-noria-pomodoro-visible", summary?.visible ? "1" : "0");
-  button.setAttribute?.("data-noria-pomodoro-remaining-ms", String(Math.max(0, Number(summary?.remainingMs) || 0)));
-  button.setAttribute?.("data-noria-pomodoro-primary", String(summary?.primaryText || ""));
-  button.setAttribute?.("data-noria-pomodoro-last-outcome", String(summary?.lastOutcome || ""));
-  button.setAttribute?.("data-noria-pomodoro-last-mode", String(summary?.lastMode || ""));
-  button.setAttribute?.("data-noria-pomodoro-last-ended-at", String(summary?.lastEndedAt || ""));
-  if (button.classList?.toggle) {
-    button.classList.toggle("is-running", running);
-    button.classList.toggle("is-paused", paused);
-  }
-}
-
-async function toggleHomeFocusPomodoroTask(binding, task) {
-  const meta = getHomeFocusTaskPomodoroMeta(binding, task);
-  const savePomodoroState = getHomeFocusPomodoroSaver();
-  if (!binding || !meta || typeof binding.startOrTogglePomodoroState !== "function" || typeof savePomodoroState !== "function") {
-    return { ok: false, reason: "pomodoro-unavailable" };
-  }
-  const state = readHomeFocusPomodoroState() || {};
-  const key = resolveHomeFocusPomodoroTaskKey(binding, state, meta);
-  const next = binding.startOrTogglePomodoroState(state, { ...meta, taskKey: key || meta.taskKey }, new Date().toISOString());
-  const result = await savePomodoroState(next, { refreshRuntime: false, source: "home-focus-strip" });
-  const saved = result?.pomodoro || next;
-  syncHomeFocusPomodoroState(saved);
-  try {
-    const refresh = homeBridge?.refresh?.requestRefresh || globalThis.__noriaRuntimeBridge?.refresh?.requestRefresh;
-    refresh?.("home", "home-focus-pomodoro-action");
-  } catch (_) {}
-  return { ok: true, pomodoro: saved };
-}
-
-function getHomeFocusPomodoroLabel(snapshot) {
-  const state = readHomeFocusPomodoroState();
-  if (state?.active) {
-    const status = String(state.active.status || "running").toLowerCase();
-    return homeRuntimeT(status === "paused" ? "runtime.home.focus.pomodoroPaused" : "runtime.home.focus.pomodoroRunning");
-  }
-  const sessions = Number(snapshot?.domains?.pomodoro?.summary?.sessions || 0);
-  const minutes = Number(snapshot?.domains?.pomodoro?.summary?.focusMinutes || 0);
-  if (sessions > 0 || minutes > 0) return homeRuntimeT("runtime.home.focus.pomodoroReady");
-  return homeRuntimeT("runtime.home.focus.pomodoroReady");
-}
-
-function getHomeFocusTaskDateLabel(task, today) {
-  if (!task?.date) return homeRuntimeT("runtime.home.focus.noDate");
-  if (task.date === today) return homeRuntimeT("runtime.home.focus.today");
-  return task.date;
-}
-
-function findHomeFocusTaskLineIndex(lines, task) {
-  const taskPrefix = /^\s*[-*]\s*\[\s\]\s*/;
-  const normalize = (value) => homeActionText(value).replace(taskPrefix, "").trim();
-  const isOpenTaskLine = (idx) => idx >= 0 && idx < lines.length && taskPrefix.test(String(lines[idx] || ""));
-  const rawText = normalize(task?.rawText);
-  if (!rawText) return -1;
-  const matches = [];
-  for (let idx = 0; idx < lines.length; idx += 1) {
-    if (isOpenTaskLine(idx) && normalize(lines[idx]) === rawText) matches.push(idx);
-  }
-  return matches.length === 1 ? matches[0] : -1;
-}
-
-async function updateHomeFocusTaskLine(task, mutateLine) {
-  const path = homeActionPath(task?.path);
-  if (!path) return { ok: false, reason: "no-path" };
-  const file = app?.vault?.getAbstractFileByPath?.(path);
-  if (!file) return { ok: false, reason: "missing-file" };
-  let outcome = { ok: false, reason: "line-not-found" };
-  const applyMutation = (current) => {
-    const source = String(current || "");
-    const lines = source.split(/\r?\n/);
-    const idx = findHomeFocusTaskLineIndex(lines, task);
-    if (idx < 0) {
-      outcome = { ok: false, reason: "line-not-found" };
-      return source;
-    }
-    const next = mutateLine(lines[idx]);
-    if (typeof next !== "string" || next === lines[idx]) {
-      outcome = { ok: false, reason: "no-change" };
-      return source;
-    }
-    lines[idx] = next;
-    outcome = { ok: true };
-    return lines.join("\n");
-  };
-  if (typeof app.vault.process === "function") {
-    await app.vault.process(file, applyMutation);
-  } else {
-    const raw = await app.vault.read(file);
-    const next = applyMutation(raw);
-    if (outcome.ok) await app.vault.modify(file, next);
-  }
-  if (!outcome.ok) return outcome;
-  try {
-    const refresh = homeBridge?.refresh?.requestRefresh || globalThis.__noriaRuntimeBridge?.refresh?.requestRefresh;
-    refresh?.("home", "home-focus-task-action");
-  } catch (_) {}
-  return outcome;
-}
-
-function completeHomeFocusTaskLine(line) {
-  if (!/^\s*[-*]\s*\[\s\]/.test(line)) return line;
-  return line.replace(/^(\s*[-*]\s*)\[\s\]/, "$1[x]");
-}
-
-function deferHomeFocusTaskLine(line, nextDate) {
-  const target = formatHomeDate(nextDate);
-  if (!target) return line;
-  const roles = [
-    { key: "due", emoji: "📅" },
-    { key: "scheduled", emoji: "⏳" },
-    { key: "start", emoji: "🛫" }
-  ];
-  for (const role of roles) {
-    const inlineRe = new RegExp(`(\\[${role.key}::\\s*)\\d{4}-\\d{2}-\\d{2}`, "i");
-    if (inlineRe.test(line)) return line.replace(inlineRe, `$1${target}`);
-    const emojiRe = new RegExp(`(${role.emoji}\\s*)\\d{4}-\\d{2}-\\d{2}`);
-    if (emojiRe.test(line)) return line.replace(emojiRe, `$1${target}`);
-  }
-  return `${line.replace(/\s+$/, "")} [due:: ${target}]`;
-}
-
-function setHomeFocusStripAttr(wrap, name, value) {
-  try {
-    if (!wrap) return;
-    if (typeof wrap.setAttr === "function") wrap.setAttr(name, value);
-    else if (typeof wrap.setAttribute === "function") wrap.setAttribute(name, value);
-  } catch (_) {}
-}
-
-function clearHomeFocusStrip(wrap) {
-  try {
-    if (!wrap) return;
-    if (typeof wrap.empty === "function") {
-      wrap.empty();
-      return;
-    }
-    wrap.textContent = "";
-    wrap.innerHTML = "";
-    while (wrap.firstChild && typeof wrap.removeChild === "function") wrap.removeChild(wrap.firstChild);
-  } catch (_) {}
-}
-
-function renderHomeFocusStripFailure(wrap, today, error) {
-  clearHomeFocusStrip(wrap);
-  const reason = String(error?.message || error || "").trim();
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-load-state", "failed");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-state", "failed");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-date", today);
-  if (reason) setHomeFocusStripAttr(wrap, "data-noria-home-focus-error", reason);
-  const summary = wrap.createDiv?.();
-  summary?.addClass?.("dashboard-home-focus-summary");
-  summary?.createDiv?.({ cls: "dashboard-home-focus-eyebrow", text: homeRuntimeT("runtime.home.focus.eyebrow") });
-  summary?.createDiv?.({ cls: "dashboard-home-focus-title", text: homeRuntimeT("runtime.home.focus.title") });
-  const meta = summary?.createDiv?.();
-  meta?.addClass?.("dashboard-home-focus-meta");
-  meta?.createEl?.("span", { cls: "dashboard-home-focus-empty-inline", text: homeRuntimeT("runtime.home.focus.empty") });
-  try { console.warn("Noria Home focus strip hydration failed", error); } catch (_) {}
-}
-
-function renderHomeFocusStripPlaceholder(wrap) {
-  const summary = wrap.createDiv?.();
-  summary?.addClass?.("dashboard-home-focus-summary");
-  summary?.createDiv?.({ cls: "dashboard-home-focus-eyebrow", text: homeRuntimeT("runtime.home.focus.eyebrow") });
-  summary?.createDiv?.({ cls: "dashboard-home-focus-title", text: homeRuntimeT("runtime.home.focus.title") });
-}
-
-async function hydrateHomeFocusStrip(widget, wrap, today) {
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-load-state", "loading");
-  const snapshot = await getHomeFocusSnapshot(widget, today);
-  const tasks = getHomeFocusTasks(snapshot, today, 3);
-  const totalOpen = getHomeFocusTotalOpen(snapshot, tasks.length);
-  const remaining = Math.max(0, totalOpen - tasks.length);
-  const pomodoroBinding = await ensureHomeFocusPomodoroBinding().catch(() => null);
-  const pomodoroLabel = getHomeFocusPomodoroLabel(snapshot);
-  clearHomeFocusStrip(wrap);
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-load-state", "ready");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-state", tasks.length ? "tasks" : "empty");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-date", today);
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-pomodoro", pomodoroLabel);
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-total-open", String(totalOpen));
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-visible", String(tasks.length));
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-remaining", String(remaining));
-
-  const summary = wrap.createDiv();
-  summary.addClass("dashboard-home-focus-summary");
-  summary.createDiv({ cls: "dashboard-home-focus-eyebrow", text: homeRuntimeT("runtime.home.focus.eyebrow") });
-  summary.createDiv({ cls: "dashboard-home-focus-title", text: homeRuntimeT("runtime.home.focus.title") });
-  const summaryMeta = summary.createDiv();
-  summaryMeta.addClass("dashboard-home-focus-meta");
-  if (!tasks.length) {
-    summaryMeta.createEl("span", { cls: "dashboard-home-focus-empty-inline", text: homeRuntimeT("runtime.home.focus.empty") });
-  } else if (remaining > 0) {
-    summaryMeta.createEl("span", { cls: "dashboard-home-focus-remaining-inline", text: homeRuntimeT("runtime.home.focus.remaining", { count: remaining }) });
-  }
-
-  const list = wrap.createDiv();
-  list.addClass("dashboard-home-focus-list");
-  if (!tasks.length) {
-    list.addClass("dashboard-home-focus-list--empty");
-    list.setAttribute?.("hidden", "true");
-    list.setAttribute?.("aria-hidden", "true");
-  } else {
-    tasks.forEach((task) => {
-      const row = list.createDiv({ cls: "dashboard-home-focus-item" });
-      row.setAttr?.("data-noria-focus-task-path", task.path);
-      row.setAttr?.("data-noria-focus-task-date", task.date || "");
-      row.setAttr?.("data-noria-focus-task-source-label", task.sourceLabel || "");
-      row.setAttr?.("data-noria-focus-task-today", task.isToday ? "true" : "false");
-
-      const reportTaskActionFailure = (e) => {
-        try {
-          homeBridge?.runtime?.notice?.("runtime.home.focus.taskUpdateFailed", { label: task.title, message: String(e?.message || e || "") });
-        } catch (_) {}
-        try {
-          console.warn("Noria Home focus task action failed", e);
-        } catch (_) {}
-      };
-
-      const doneLabel = homeRuntimeT("runtime.home.focus.markDone");
-      const done = row.createEl("button", { cls: "dashboard-home-focus-item-done" });
-      done.type = "button";
-      done.disabled = !task.path;
-      done.title = doneLabel;
-      done.setAttribute?.("aria-label", doneLabel);
-      done.addEventListener?.("click", async (event) => {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        if (done.disabled) return;
-        done.disabled = true;
-        try {
-          const result = await updateHomeFocusTaskLine(task, completeHomeFocusTaskLine);
-          if (result.ok) {
-            row.addClass?.("is-done");
-            row.setAttr?.("data-noria-focus-task-state", "done");
-          } else {
-            reportTaskActionFailure(new Error(result.reason || "update-failed"));
-            done.disabled = !task.path;
-          }
-        } catch (e) {
-          reportTaskActionFailure(e);
-          done.disabled = !task.path;
-        }
-      });
-
-      const open = row.createEl("button", { cls: "dashboard-home-focus-item-open" });
-      open.type = "button";
-      open.disabled = !task.path;
-      const dateDetail = task.date || getHomeFocusTaskDateLabel(task, today);
-      const detailLabel = [dateDetail, task.sourceLabel || task.path].filter(Boolean).join(" · ");
-      const openLabel = [task.title, detailLabel].filter(Boolean).join(" · ");
-      open.setAttribute?.("aria-label", openLabel);
-      open.title = openLabel || task.path || task.title;
-      open.createEl("span", { cls: "dashboard-home-focus-item-title", text: task.title });
-      open.addEventListener?.("click", async (event) => {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        if (!task.path || open.disabled) return;
-        open.disabled = true;
-        try {
-          await openHomeActionFile(task.path, { newLeaf: false });
-        } catch (e) {
-          try {
-            homeBridge?.runtime?.notice?.("runtime.home.action.failed", { label: task.title, message: String(e?.message || e) });
-          } catch (_) {}
-        } finally {
-          open.disabled = !task.path;
-        }
-      });
-
-      if (pomodoroBinding && isHomeFocusPomodoroEnabled()) {
-        const pomodoro = row.createEl("button", { cls: "dashboard-home-focus-item-pomodoro" });
-        pomodoro.type = "button";
-        pomodoro.disabled = !task.path || !canSaveHomeFocusPomodoroState();
-        const initial = getHomeFocusTaskPomodoroSummary(pomodoroBinding, task);
-        paintHomeFocusPomodoroState(row, pomodoro, initial.summary, initial);
-        pomodoro.addEventListener?.("click", async (event) => {
-          event?.preventDefault?.();
-          event?.stopPropagation?.();
-          if (pomodoro.disabled) return;
-          pomodoro.disabled = true;
-          try {
-            const result = await toggleHomeFocusPomodoroTask(pomodoroBinding, task);
-            if (!result.ok) {
-              reportTaskActionFailure(new Error(result.reason || "pomodoro-failed"));
-              return;
-            }
-            const nextSummary = getHomeFocusTaskPomodoroSummary(pomodoroBinding, task);
-            paintHomeFocusPomodoroState(row, pomodoro, nextSummary.summary, nextSummary);
-            const running = !!nextSummary.summary?.running;
-            const noticeKey = running ? "runtime.home.focus.pomodoroStarted" : "runtime.home.focus.pomodoroPausedNotice";
-            try {
-              homeBridge?.runtime?.notice?.(noticeKey, { label: task.title });
-            } catch (_) {}
-          } catch (e) {
-            reportTaskActionFailure(e);
-          } finally {
-            pomodoro.disabled = !task.path || !canSaveHomeFocusPomodoroState();
-          }
-        });
-      }
-
-      const deferLabel = homeRuntimeT("runtime.home.focus.defer");
-      const defer = row.createEl("button", { cls: "dashboard-home-focus-item-defer", text: homeRuntimeT("runtime.home.focus.deferShort") });
-      defer.type = "button";
-      defer.disabled = !task.path;
-      defer.title = deferLabel;
-      defer.setAttribute?.("aria-label", deferLabel);
-      defer.addEventListener?.("click", async (event) => {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        if (defer.disabled) return;
-        defer.disabled = true;
-        const nextDate = addHomeDays(today, 1);
-        try {
-          const result = await updateHomeFocusTaskLine(task, (line) => deferHomeFocusTaskLine(line, nextDate));
-          if (result.ok) {
-            row.addClass?.("is-deferred");
-            row.setAttr?.("data-noria-focus-task-state", "deferred");
-            try {
-              homeBridge?.runtime?.notice?.("runtime.home.focus.deferredNotice", { label: task.title, date: nextDate });
-            } catch (_) {}
-          } else {
-            reportTaskActionFailure(new Error(result.reason || "update-failed"));
-            defer.disabled = !task.path;
-          }
-        } catch (e) {
-          reportTaskActionFailure(e);
-          defer.disabled = !task.path;
-        }
-      });
-    });
-  }
-}
-
-async function renderHomeFocusStrip(widget, mount) {
-  const today = getHomeFocusToday(widget);
-  const wrap = mount.createDiv();
-  wrap.addClass("dashboard-home-focus-strip");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-strip", "1");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-load-state", "queued");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-state", "loading");
-  setHomeFocusStripAttr(wrap, "data-noria-home-focus-date", today);
-  renderHomeFocusStripPlaceholder(wrap);
-
-  const props = widget.props && typeof widget.props === "object" ? widget.props : {};
-  const perf = homeBridge?.performance || globalThis.__noriaRuntimeBridge?.performance || {};
-  const shouldDefer = props.defer !== false && perf.homeFocusStripDeferred !== false;
-  const run = async () => {
-    try {
-      if (shouldDefer) await nextHomeDeferredFrame();
-      if (wrap?.isConnected === false) {
-        setHomeFocusStripAttr(wrap, "data-noria-home-focus-load-state", "cancelled");
-        return;
-      }
-      await hydrateHomeFocusStrip(widget, wrap, today);
-    } catch (e) {
-      renderHomeFocusStripFailure(wrap, today, e);
-    }
-  };
-
-  if (!shouldDefer) {
-    await run();
-    return;
-  }
-  void run();
-}
-
 async function renderEntryWidget(widget, mount) {
   const props = widget.props && typeof widget.props === "object" ? widget.props : {};
   const entries = normalizeHomeEntryItems(widget);
@@ -3922,7 +3386,6 @@ async function renderBuiltinWidget(widget, mount, shell = {}) {
   if (shell.titleActions) viewInput.titleActionsHost = attachDomHelpers(shell.titleActions);
   if (widget.id === "trends" && shell.titleActions) viewInput.controlsHost = attachDomHelpers(shell.titleActions);
   if (widget.id === "today-actions") return renderTodayActionStrip(widget, mount);
-  if (widget.id === "focus-strip") return renderHomeFocusStrip(widget, mount);
   const shouldLazy = (entry.lazy && widget.props?.lazy !== false) || widget.props?.lazy === true;
   if (shouldLazy) await renderLazySection(entry.path, mount, viewInput);
   else await renderSection(entry.path, mount, viewInput);
@@ -3939,6 +3402,18 @@ async function renderWidget(widget, mount, shell = {}) {
       });
 }
 
+function applyHomeWidgetRenderResult(shell, result = {}) {
+  const host = shell?.content?.parentElement || null;
+  const state = homeActionText(result?.state || "ready") || "ready";
+  host?.setAttr?.("data-noria-widget-state", state);
+  host?.setAttribute?.("data-noria-widget-state", state);
+  if (result?.hidden !== true || homeEditMode) return;
+  host.hidden = true;
+  host?.setAttr?.("aria-hidden", "true");
+  host?.setAttribute?.("aria-hidden", "true");
+  host?.remove?.();
+}
+
 async function renderConfiguredWidgets() {
   if (homeEditMode) renderHomeLayoutEditBar();
   else renderHomeLayoutRecoveryEntry();
@@ -3952,15 +3427,6 @@ async function renderConfiguredWidgets() {
     && identityIndex >= 0
     && metricsIndex === identityIndex + 1
     ? identityIndex
-    : -1;
-  const todayActions = widgets.find((w) => w.id === "today-actions" && w.type === "builtin");
-  const focusStrip = widgets.find((w) => w.id === "focus-strip" && w.type === "builtin");
-  const todayActionsIndex = widgets.indexOf(todayActions);
-  const focusStripIndex = widgets.indexOf(focusStrip);
-  const todayFlowStartIndex = shouldUseHomeTodayFlowStrip(todayActions, focusStrip, { editMode: homeEditMode })
-    && todayActionsIndex >= 0
-    && focusStripIndex === todayActionsIndex + 1
-    ? todayActionsIndex
     : -1;
   const widgetJobs = [];
   for (const [index, widget] of widgets.entries()) {
@@ -3985,29 +3451,16 @@ async function renderConfiguredWidgets() {
       ]));
       continue;
     }
-    if (index === todayFlowStartIndex) {
-      const todayFlow = root.createDiv({ cls: "dashboard-home-today-flow" });
-      todayFlow.setAttr?.("data-noria-widget-id", "today-actions+focus-strip");
-      todayFlow.setAttr?.("data-noria-widget-size", "full");
-      todayFlow.setAttr?.("data-noria-widget-order", String(todayActions.order));
-      applyHomeWidgetLayout({ size: "full" }, todayFlow);
-      const actionsMount = todayFlow.createDiv({ cls: "dashboard-home-today-flow__actions" });
-      const focusMount = todayFlow.createDiv({ cls: "dashboard-home-today-flow__focus" });
-      consumed.add(todayActions.id);
-      consumed.add(focusStrip.id);
-      widgetJobs.push(Promise.all([
-        renderWidget(todayActions, attachDomHelpers(actionsMount)),
-        renderWidget(focusStrip, attachDomHelpers(focusMount))
-      ]));
-      continue;
-    }
     if (consumed.has(widget.id)) continue;
     const entry = HOME_WIDGET_REGISTRY[widget.id] || {};
     const title = homeEditMode ? resolveWidgetEditTitle(widget, entry) : resolveWidgetTitle(widget, entry);
     const shell = createWidgetShell(widget, title, { index, total: widgets.length }, entry);
     if (widget.enabled === false) continue;
     if (widget.collapsed === true) continue;
-    widgetJobs.push(renderWidget(widget, attachDomHelpers(shell.content), shell));
+    widgetJobs.push((async () => {
+      const result = await renderWidget(widget, attachDomHelpers(shell.content), shell);
+      applyHomeWidgetRenderResult(shell, result || {});
+    })());
   }
   await Promise.all(widgetJobs);
 }

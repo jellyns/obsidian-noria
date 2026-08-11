@@ -516,13 +516,19 @@ Noria 不要求每天完整使用所有模块。
 
 ### 11.3 处理 Inbox
 
-按以下顺序判断：
+默认工作流只有三个可配置阶段：
+
+- **判断去留**（`triage`）：判断材料该变成什么，或者是否继续保留。
+- **正在加工**（`processing`）：精炼、拆分或并入其他内容。
+- **准备迁出**（`ready`）：去向和下一步已经明确。
+
+主页默认显示“判断去留”“正在加工”和“准备迁出”。“到期回看”和“补证据”只是可选分组，不是阶段。具体处理仍按以下顺序判断：
 
 ```text
 delete → merge → split/refine → file/archive → defer
 ```
 
-内容离开 Inbox 后，应清除临时 `inbox-*` 字段。
+处理完成不是第四个状态。删除、合并、迁出或归档成功后，条目直接离开 Inbox。`defer` 表示暂时保留，状态仍属于“判断去留”，不单独建立默认阶段。只有确实存在回看日期时才填写 `inbox-review`。内容离开 Inbox 后，应清除临时 `inbox-*` 字段。
 
 ### 11.4 使用任务看板
 
@@ -772,7 +778,7 @@ sourcePath + line/blockId + fingerprint
   "exportKind": "noria.snapshot",
   "exportVersion": 1,
   "exportedAt": "",
-  "noriaVersion": "0.4.4",
+  "noriaVersion": "0.4.5",
   "payload": {}
 }
 ```

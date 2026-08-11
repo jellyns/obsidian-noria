@@ -81,17 +81,17 @@ const FLAT_HOME_WIDGET_IDS = [
   "identity",
   "metrics",
   "today-actions",
-  "focus-strip",
+  "daily-advice",
   "today-tasks-card",
   "inbox-card",
   "countdown-card",
+  "habit-history-card",
   "projects-card",
   "moc-strip",
   "review-focus",
   "trends-range",
   "note-trend-card",
   "task-trend-card",
-  "habit-history-card",
   "habit-heatmap-card",
   "workload-heatmap-card",
   "tag-distribution-card",
@@ -106,12 +106,82 @@ test("home schema v3 exposes every visual card as a first-class root widget", ()
   assert.deepEqual(plain(defaults.home.widgets.map((widget) => widget.id)), FLAT_HOME_WIDGET_IDS);
   assert.deepEqual(plain(defaults.home.widgets.map((widget) => widget.schemaVersion)), FLAT_HOME_WIDGET_IDS.map(() => 3));
   assert.equal(defaults.home.widgets.some((widget) => ["workbench", "guide", "trends"].includes(widget.id)), false);
+  const dailyAdvice = defaults.home.widgets.find((widget) => widget.id === "daily-advice");
+  assert.equal(dailyAdvice.type, "markdown");
+  assert.equal(dailyAdvice.enabled, false);
+  assert.equal(dailyAdvice.size, "full");
+  assert.equal(dailyAdvice.title, "建议");
+  assert.equal(dailyAdvice.source, "");
+  assert.deepEqual(plain(dailyAdvice.props), {
+    sourceMode: "daily-section",
+    heading: "建议",
+    renderMode: "compact"
+  });
+  assert.equal(defaults.home.widgets.some((widget) => widget.id === "focus-strip"), false);
   assert.deepEqual(plain(defaults.home.widgets.find((widget) => widget.id === "today-tasks-card").props.panels), ["tasks"]);
-  assert.deepEqual(plain(defaults.home.widgets.find((widget) => widget.id === "inbox-card").props.panels), ["inbox", "habit-today"]);
+  assert.deepEqual(plain(defaults.home.widgets.find((widget) => widget.id === "inbox-card").props.panels), ["inbox"]);
   assert.deepEqual(plain(defaults.home.widgets.find((widget) => widget.id === "countdown-card").props.panels), ["countdown"]);
   assert.equal(defaults.home.widgets.find((widget) => widget.id === "review-focus").props.defaultExpanded, true);
   assert.equal(defaults.home.widgets.find((widget) => widget.id === "habit-heatmap-card").props.heatmapMode, "habit");
   assert.equal(defaults.home.widgets.find((widget) => widget.id === "workload-heatmap-card").props.heatmapMode, "workload");
+  assert.ok(
+    defaults.home.widgets.findIndex((widget) => widget.id === "habit-history-card")
+      < defaults.home.widgets.findIndex((widget) => widget.id === "projects-card"),
+    "the full habit card should sit above projects"
+  );
+});
+
+test("home settings discard the retired focus strip and retain source-less daily-section cards", () => {
+  const Plugin = loadPluginClass();
+  const plugin = new Plugin();
+  const normalized = plugin.normalizeSettings({
+    home: {
+      widgets: [
+        { id: "focus-strip", type: "builtin", enabled: true, order: 35, size: "full", source: "focus-strip", props: {} },
+        {
+          id: "project-advice",
+          type: "markdown",
+          enabled: true,
+          order: 40,
+          size: "wide",
+          title: "项目建议",
+          source: "",
+          props: { sourceMode: "daily-section", heading: "项目建议", renderMode: "compact" }
+        }
+      ]
+    }
+  });
+
+  assert.equal(normalized.home.widgets.some((widget) => widget.id === "focus-strip"), false);
+  assert.deepEqual(plain(normalized.home.widgets.find((widget) => widget.id === "project-advice")), {
+    id: "project-advice",
+    type: "markdown",
+    schemaVersion: 3,
+    enabled: true,
+    order: 40,
+    size: "wide",
+    title: "项目建议",
+    source: "",
+    props: { sourceMode: "daily-section", heading: "项目建议", renderMode: "compact" }
+  });
+});
+
+test("home settings migrate only the retired default habit-card position above projects", () => {
+  const Plugin = loadPluginClass();
+  const plugin = new Plugin();
+  const legacy = plain(plugin.normalizeSettings({}));
+  legacy.home.widgets.find((widget) => widget.id === "habit-history-card").order = 73;
+
+  const migrated = plugin.normalizeSettings(legacy);
+  assert.equal(migrated.home.widgets.find((widget) => widget.id === "habit-history-card").order, 53);
+  assert.ok(
+    migrated.home.widgets.findIndex((widget) => widget.id === "habit-history-card")
+      < migrated.home.widgets.findIndex((widget) => widget.id === "projects-card")
+  );
+
+  legacy.home.widgets.find((widget) => widget.id === "habit-history-card").order = 17;
+  const customized = plugin.normalizeSettings(legacy);
+  assert.equal(customized.home.widgets.find((widget) => widget.id === "habit-history-card").order, 17);
 });
 
 test("home schema v3 expands legacy wrappers without losing groups, visibility, extensions, or idempotence", () => {
@@ -227,7 +297,7 @@ test("home schema v3 does not add a duplicate disabled card for a panel already 
     }
   });
 
-  assert.deepEqual(plain(migrated.home.widgets.find((widget) => widget.id === "inbox-card").props.panels), ["inbox", "habit-today"]);
+  assert.deepEqual(plain(migrated.home.widgets.find((widget) => widget.id === "inbox-card").props.panels), ["inbox"]);
   assert.equal(migrated.home.widgets.some((widget) => widget.id === "habit-today-card"), false);
   assert.deepEqual(plain(plugin.normalizeSettings(migrated).home.widgets), plain(migrated.home.widgets));
 });
@@ -329,14 +399,17 @@ test("home settings normalize configurable dashboard widgets", () => {
   const defaults = plugin.normalizeSettings({});
 
   assert.deepEqual(plain(defaults.home.widgets.map((w) => w.id)), FLAT_HOME_WIDGET_IDS);
-  assert.deepEqual(plain(defaults.home.widgets.map((w) => w.type)), FLAT_HOME_WIDGET_IDS.map(() => "builtin"));
+  assert.deepEqual(
+    plain(defaults.home.widgets.map((w) => w.type)),
+    FLAT_HOME_WIDGET_IDS.map((id) => id === "daily-advice" ? "markdown" : "builtin")
+  );
   assert.deepEqual(plain(defaults.home.widgets.map((w) => w.schemaVersion)), FLAT_HOME_WIDGET_IDS.map(() => 3));
   assert.deepEqual(plain(defaults.home.trendsRange), { mode: "last30", start: "", end: "", yearGranularity: "week" });
   assert.equal(defaults.home.widgets.find((w) => w.id === "today-actions").size, "full");
   assert.equal(defaults.home.widgets.find((w) => w.id === "today-actions").source, "today-actions");
-  assert.equal(defaults.home.widgets.find((w) => w.id === "focus-strip").size, "full");
-  assert.equal(defaults.home.widgets.find((w) => w.id === "focus-strip").source, "focus-strip");
-  assert.equal(defaults.home.widgets.find((w) => w.id === "focus-strip").order, 35);
+  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").size, "full");
+  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").enabled, false);
+  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").order, 40);
   assert.equal(defaults.home.widgets.find((w) => w.id === "trends-range").size, "full");
   assert.equal(defaults.home.widgets.find((w) => w.id === "trends-range").title, "");
   assert.equal(defaults.home.widgets.find((w) => w.id === "trends-range").titleKey, "runtime.home.facade.trends");
@@ -357,24 +430,8 @@ test("home settings normalize configurable dashboard widgets", () => {
   });
   assert.equal(legacyCollision.home.widgets.some((w) => ["workbench", "guide", "trends"].includes(w.id)), false);
   assert.ok(legacyCollision.home.widgets.find((w) => w.id === "today-tasks-card"));
-  assert.equal(legacyCollision.home.widgets.find((w) => w.id === "focus-strip").order, 35);
-
-  const legacyAppendedFocus = plugin.normalizeSettings({
-    home: {
-      widgets: [
-        { id: "identity", type: "builtin", enabled: true, order: 10, size: "wide", source: "home-identity", schemaVersion: 1 },
-        { id: "metrics", type: "builtin", enabled: true, order: 20, size: "wide", source: "overview-metrics", schemaVersion: 1 },
-        { id: "today-actions", type: "builtin", enabled: true, order: 30, size: "full", source: "today-actions", schemaVersion: 1 },
-        { id: "workbench", type: "builtin", enabled: true, order: 40, size: "full", source: "overview-columns", schemaVersion: 1 },
-        { id: "focus-strip", type: "builtin", enabled: true, order: 50, size: "full", source: "focus-strip", schemaVersion: 1 },
-        { id: "guide", type: "builtin", enabled: true, order: 60, size: "full", source: "guide-panels", schemaVersion: 1 },
-        { id: "trends", type: "builtin", enabled: true, order: 70, size: "full", source: "trends-and-stats", schemaVersion: 1 }
-      ]
-    }
-  });
-  assert.equal(legacyAppendedFocus.home.widgets.some((w) => ["workbench", "guide", "trends"].includes(w.id)), false);
-  assert.equal(legacyAppendedFocus.home.widgets.find((w) => w.id === "focus-strip").order, 35);
-  assert.equal(legacyAppendedFocus.home.widgets.find((w) => w.id === "focus-strip").schemaVersion, 3);
+  assert.equal(legacyCollision.home.widgets.some((w) => w.id === "focus-strip"), false);
+  assert.equal(legacyCollision.home.widgets.find((w) => w.id === "daily-advice").enabled, false);
 
   const custom = plugin.normalizeSettings({
     home: {
@@ -725,13 +782,13 @@ test("home widget manager adjusts first-screen cards directly while preserving p
   const plugin = new Plugin();
   plugin.settings = plugin.normalizeSettings({});
   assert.deepEqual(plain(plugin.settings.home.widgets.find((w) => w.id === "today-tasks-card").props.panels), ["tasks"]);
-  assert.deepEqual(plain(plugin.settings.home.widgets.find((w) => w.id === "inbox-card").props.panels), ["inbox", "habit-today"]);
+  assert.deepEqual(plain(plugin.settings.home.widgets.find((w) => w.id === "inbox-card").props.panels), ["inbox"]);
   assert.deepEqual(plain(plugin.settings.home.widgets.find((w) => w.id === "countdown-card").props.panels), ["countdown"]);
 
   assert.equal(plugin.moveHomeWidgetInSettings("countdown-card", "up"), true);
   assert.equal(plugin.updateHomeWidgetEnabledInSettings("inbox-card", false).enabled, false);
   assert.equal(plugin.updateHomeWidgetSizeInSettings("today-tasks-card", "wide").layout.span, 6);
-  assert.deepEqual(plain(plugin.settings.home.widgets.find((w) => w.id === "inbox-card").props.panels), ["inbox", "habit-today"]);
+  assert.deepEqual(plain(plugin.settings.home.widgets.find((w) => w.id === "inbox-card").props.panels), ["inbox"]);
   assert.equal(plugin.settings.home.widgets.some((w) => w.id === "workbench"), false);
 });
 
@@ -1191,6 +1248,28 @@ test("home widget manager can add path-backed markdown base and list presets", (
   assert.deepEqual(plain(plugin.settings.home.widgets.slice(-6).map((w) => w.id)), ["markdown-note", "markdown-briefing", "markdown-briefing-2", "markdown-briefing-3", "base-entry", "list-entry"]);
 });
 
+test("home widget manager can add a configurable daily-note section card", () => {
+  const Plugin = loadPluginClass();
+  const plugin = new Plugin();
+  plugin.settings = plugin.normalizeSettings({});
+
+  const advice = plugin.addHomeWidgetPresetToSettings("markdown", {
+    preset: "daily-section",
+    heading: "项目建议"
+  });
+
+  assert.equal(advice.type, "markdown");
+  assert.equal(advice.id, "daily-section");
+  assert.equal(advice.size, "full");
+  assert.equal(advice.title, "项目建议");
+  assert.equal(advice.source, "");
+  assert.deepEqual(plain(advice.props), {
+    sourceMode: "daily-section",
+    heading: "项目建议",
+    renderMode: "compact"
+  });
+});
+
 test("home profile-lite presets reshape built-in widgets without dropping custom widgets", () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
@@ -1233,8 +1312,8 @@ test("home profile-lite presets reshape built-in widgets without dropping custom
   assert.equal(byId.identity.size, "wide");
   assert.equal(byId.metrics.enabled, true);
   assert.equal(byId["today-actions"].enabled, true);
-  assert.equal(byId["focus-strip"].enabled, true);
-  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", ...FLAT_HOME_WIDGET_IDS.slice(10)]) {
+  assert.equal(byId["daily-advice"].enabled, false);
+  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", ...FLAT_HOME_WIDGET_IDS.slice(11)]) {
     assert.equal(byId[widgetId].enabled, true, `${widgetId} should be enabled in research`);
     assert.equal(byId[widgetId].collapsed, false);
   }
@@ -1272,7 +1351,7 @@ test("home profile-lite presets reshape built-in widgets without dropping custom
   assert.equal(reviewById["review-focus"].enabled, true, "review profile should keep the same-leaf Review Focus surface available");
   assert.equal(reviewById["review-focus"].collapsed, false);
   assert.equal(reviewById["review-focus"].props.defaultExpanded, true);
-  for (const widgetId of FLAT_HOME_WIDGET_IDS.slice(10)) assert.equal(reviewById[widgetId].enabled, true);
+  for (const widgetId of FLAT_HOME_WIDGET_IDS.slice(11)) assert.equal(reviewById[widgetId].enabled, true);
   assert.deepEqual(plain(plugin.settings.home.guidePanels), {
     inbox: false,
     projects: false,
@@ -1319,8 +1398,8 @@ test("home profile-lite presets are conservative and do not duplicate existing b
   assert.equal(byId.identity.enabled, true);
   assert.equal(byId.metrics.enabled, true);
   assert.equal(byId["today-actions"].enabled, true);
-  assert.equal(byId["focus-strip"].enabled, true);
-  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", "review-focus", ...FLAT_HOME_WIDGET_IDS.slice(10)]) {
+  assert.equal(byId["daily-advice"].enabled, false);
+  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", "review-focus", ...FLAT_HOME_WIDGET_IDS.slice(11)]) {
     assert.equal(byId[widgetId].enabled, false, `${widgetId} should be disabled in minimal`);
   }
   assert.equal(byId["markdown-briefing"].enabled, false);
@@ -1487,26 +1566,29 @@ test("home widget add preset setting uses a wide stacked layout", () => {
   assert.match(main, /addPresetSetting\.controlEl\.style\.marginInlineStart\s*=\s*"0"/);
   assert.match(main, /class NoriaHomeWidgetSourceSuggest extends obsidian\.AbstractInputSuggest/);
   assert.match(main, /getHomeWidgetSourceSuggestionPaths\(getType\(\),\s*query\)/);
-  assert.match(main, /attachHomeWidgetSourceSuggest\(inputEl,\s*\(\)\s*=>\s*widgetPresetType\)/);
+  assert.match(main, /attachHomeWidgetSourceSuggest\(inputEl,\s*\(\)\s*=>\s*isDailySectionWidgetPreset\(\)\s*\?\s*""\s*:\s*widgetPresetType\)/);
   assert.match(main, /widgetPresetVariant/);
   assert.match(main, /settings\.home\.widgetPresetVariant/);
   assert.match(main, /settings\.home\.widgetStatPresetVault/);
   assert.match(main, /settings\.home\.widgetActionPresetVault/);
   assert.match(main, /settings\.home\.widgetMarkdownPresetBriefing/);
+  assert.match(main, /settings\.home\.widgetMarkdownPresetDailySection/);
   assert.match(main, /let variantDropdown = null/);
   assert.match(main, /const renderPresetVariantOptions = \(\) =>/);
   assert.match(main, /variantDropdown\.selectEl\.innerHTML = ""/);
   assert.match(main, /renderPresetVariantOptions\(\);/);
   assert.match(main, /let sourceTextInput = null/);
   assert.match(main, /const isPathBackedWidgetPreset = \(\) =>/);
+  assert.match(main, /const isDailySectionWidgetPreset = \(\) =>/);
   assert.match(main, /const renderPresetSourceInput = \(\) =>/);
-  assert.match(main, /sourceTextInput\.inputEl\.disabled = !isPathBackedWidgetPreset\(\)/);
+  assert.match(main, /sourceTextInput\.inputEl\.disabled = !usesPresetTextInput\(\)/);
   assert.match(main, /noria-home-widget-editor/);
   assert.match(main, /formatHomeMarkdownWidgetSourceLines\(widget\)/);
   assert.match(main, /updateHomeMarkdownWidgetSourcesInSettings\(id,/);
   assert.match(main, /updateHomeWidgetTitleInSettings\(id,/);
   assert.match(main, /settings\.home\.widgetEditorMarkdown/);
   assert.match(main, /settings\.home\.widgetEditorSources/);
+  assert.match(main, /settings\.home\.widgetSectionHeading/);
 });
 
 test("home widget manager exposes one low-noise profile preset apply control", () => {
@@ -1542,7 +1624,8 @@ test("home widget shells expose quiet settings and original-place collapse actio
   assert.match(overlayActions, /top:\s*0/);
   assert.match(overlayActions, /right:\s*8px/);
   assert.match(overlayActions, /left:\s*auto/);
-  assert.match(overlayActions, /transform:\s*translateY\(calc\(-100% - 4px\)\)/);
+  assert.match(overlayActions, /transform:\s*translateY\(calc\(-100% \+ 1px\)\)/);
+  assert.doesNotMatch(overlayActions, /translateY\(calc\(-100% -/);
   assert.match(bootstrap, /\.dashboard-home-widget-shell:hover\s+\.dashboard-home-widget-shell-actions/);
   assert.match(bootstrap, /\.dashboard-home-widget-shell:focus-within\s+\.dashboard-home-widget-shell-actions/);
   assert.match(bootstrap, /\[data-noria-widget-collapsed="true"\][\s\S]*\.dashboard-home-widget-shell-actions/);
@@ -1550,16 +1633,13 @@ test("home widget shells expose quiet settings and original-place collapse actio
   assert.doesNotMatch(bootstrap, /dashboard-home-widget-shell-native\s*\{[\s\S]{0,180}padding-top:\s*34px/);
 });
 
-test("habit summaries and habit card names keep readable workbench typography", () => {
+test("habit card names keep the shared MOC entry typography", () => {
   const bootstrap = read("views/dashboard/home/sections/bootstrap-style/view.js");
-  const inboxTitle = cssBlock(bootstrap, ".dashboard-home-root .dashboard-overview-habit-context .dashboard-habit-today-title");
-  const inboxChip = cssBlock(bootstrap, ".dashboard-home-root .dashboard-overview-habit-context .dashboard-habit-today-chip");
-  const habitName = cssBlock(bootstrap, ".dashboard-habit-21-name .dashboard-task-title");
+  const habitName = cssBlock(bootstrap, ".dashboard-home-root .dashboard-home-trends-habit-history .dashboard-habit-21-name .dashboard-task-title");
 
-  assert.match(inboxTitle, /font-size:\s*12px/);
-  assert.match(inboxChip, /font-size:\s*12px/);
-  assert.match(habitName, /font-size:\s*12px/);
-  assert.match(habitName, /line-height:\s*1\.25/);
+  assert.match(habitName, /font-size:\s*var\(--dash-moc-entry-font-size\)/);
+  assert.match(habitName, /line-height:\s*var\(--dash-moc-entry-line-height\)/);
+  assert.match(habitName, /font-weight:\s*var\(--dash-moc-entry-font-weight\)/);
 });
 
 test("stat widgets can render shared habit or workload heatmap presentations", () => {
@@ -1665,7 +1745,8 @@ test("home facade renders widgets through registry and supports markdown or view
   assert.match(main, /settings\.advanced\.allowCustomViews/);
   assert.match(home, /renderActionWidget/);
   assert.match(home, /renderTodayActionStrip/);
-  assert.match(home, /renderHomeFocusStrip/);
+  assert.match(home, /getHomeDailySectionSource/);
+  assert.match(home, /extractHomeMarkdownH2Section/);
   assert.match(home, /renderStatWidget/);
   assert.match(home, /renderEntryWidget/);
   assert.match(home, /function homeActionBoolean/);
@@ -1685,14 +1766,8 @@ test("home facade renders widgets through registry and supports markdown or view
   assert.match(main, /copyHomeWidgetExtensionFields/);
   assert.match(main, /settings\.home\.widgets/);
   assert.match(main, /id:\s*"today-actions"[\s\S]*order:\s*30/);
-  assert.match(main, /id:\s*"focus-strip"[\s\S]*order:\s*35/);
+  assert.match(main, /id:\s*"daily-advice"[\s\S]*sourceMode:\s*"daily-section"/);
   assert.match(main, /runtime\.home\.todayActions\.capture/);
-  assert.match(main, /runtime\.home\.focus\.markDone/);
-  assert.match(main, /runtime\.home\.focus\.startPomodoro/);
-  assert.match(main, /runtime\.home\.focus\.defer/);
-  assert.match(home, /HOME_POMODORO_BINDING_PATH/);
-  assert.match(home, /views\/task-timeline\/pomodoro-binding\.js/);
-  assert.match(home, /dashboard-home-focus-item-pomodoro/);
   assert.match(main, /settings\.home\.widgetsManager/);
   assert.match(main, /moveHomeWidgetInSettings/);
   assert.match(main, /addHomeWidgetPresetToSettings/);
@@ -1748,19 +1823,17 @@ test("home facade renders widgets through registry and supports markdown or view
   assert.match(home, /data-noria-widget-title/);
 });
 
-test("Home combines the default capture and focus widgets into one editable flow surface", () => {
+test("Home keeps the capture workbench independent from optional daily-section cards", () => {
   const home = read("views/dashboard/home/view.js");
   const bootstrap = read("views/dashboard/home/sections/bootstrap-style/view.js");
 
-  assert.match(home, /function shouldUseHomeTodayFlowStrip\(/);
-  assert.match(home, /shouldUseHomeTodayFlowStrip\(todayActions,\s*focusStrip,\s*\{ editMode: homeEditMode \}\)/);
-  assert.match(home, /focusStripIndex\s*===\s*todayActionsIndex\s*\+\s*1/);
-  assert.match(home, /dashboard-home-today-flow/);
-  assert.match(home, /dashboard-home-today-flow__actions/);
-  assert.match(home, /dashboard-home-today-flow__focus/);
-  assert.match(bootstrap, /\.dashboard-home-today-flow\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  assert.match(bootstrap, /\.dashboard-home-today-flow__focus\s*>\s*\.dashboard-home-focus-strip\s*\{[\s\S]*display:\s*grid/);
-  assert.match(bootstrap, /\.dashboard-home-today-flow[\s\S]*\.dashboard-home-focus-list\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1/);
+  assert.match(home, /renderTodayActionStrip/);
+  assert.match(home, /sourceMode[\s\S]{0,120}"daily-section"/);
+  assert.match(home, /applyHomeWidgetRenderResult/);
+  assert.doesNotMatch(home, /dashboard-home-today-flow/);
+  assert.doesNotMatch(home, /dashboard-home-focus/);
+  assert.doesNotMatch(bootstrap, /dashboard-home-today-flow/);
+  assert.doesNotMatch(bootstrap, /dashboard-home-focus/);
 });
 
 test("home widget layout CSS maps spans onto a responsive dashboard grid", () => {
@@ -1779,7 +1852,6 @@ test("home responsive layout follows the pane container instead of the app viewp
   assert.match(bootstrap, /@container noria-home \(max-width:\s*1180px\)[\s\S]*\.dashboard-hero-strip__metrics\s*>\s*\.dashboard-metrics-host--hero[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(bootstrap, /@container noria-home \(max-width:\s*900px\)[\s\S]*\.dashboard-hero-strip__inner\s*\{[\s\S]*flex-direction:\s*column/);
   assert.match(bootstrap, /@container noria-home \(max-width:\s*860px\)[\s\S]*\.dashboard-home-today-actions\s*\{[\s\S]*grid-template-columns:\s*1fr/);
-  assert.match(bootstrap, /@container noria-home \(max-width:\s*860px\)[\s\S]*\.dashboard-home-focus-strip\s*\{[\s\S]*grid-template-columns:\s*1fr/);
   assert.match(bootstrap, /@container noria-home \(max-width:\s*520px\)[\s\S]*\.dashboard-home-today-capture-modes\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1/);
 });
 
@@ -1823,7 +1895,7 @@ test("home widget manager setting rows have scan-friendly visual styling", () =>
   const actionBlock = cssBlock(styles, '.noria-home-widget-manager-row[data-noria-widget-type="action"]');
   const controlButtonBlock = cssBlock(
     styles,
-    ":is(.noria-home-widget-manager-row, .noria-moc-entry-row) .setting-item-control button:not(.mod-cta):not(.mod-warning)"
+    ":is(.noria-home-widget-manager-row, .noria-moc-entry-row, .noria-inbox-workflow-status-row, .noria-inbox-workflow-view-row) .setting-item-control button:not(.mod-cta):not(.mod-warning)"
   );
 
   assert.match(styles, /\.noria-home-widget-manager-row/);
@@ -1847,7 +1919,7 @@ test("home widget manager setting rows have scan-friendly visual styling", () =>
   assert.match(rowBlock, /box-shadow:\s*none/);
   assert.doesNotMatch(statBlock, /border-color:\s*color-mix/);
   assert.doesNotMatch(actionBlock, /border-color:\s*color-mix/);
-  assert.ok(controlButtonBlock, "widget and MOC row controls should share one quiet tool contract");
+  assert.ok(controlButtonBlock, "widget, MOC, and Inbox row controls should share one quiet tool contract");
   assert.match(controlButtonBlock, /border:\s*0/);
   assert.match(controlButtonBlock, /background:\s*transparent/);
   assert.match(controlButtonBlock, /box-shadow:\s*none/);
@@ -1856,7 +1928,7 @@ test("home widget manager setting rows have scan-friendly visual styling", () =>
 test("MOC ordering actions reuse the home widget manager icon-control contract", () => {
   const main = read("src/main.js");
   const styles = read("styles.css");
-  const sharedControlSelector = ":is(.noria-home-widget-manager-row, .noria-moc-entry-row) .setting-item-control button:not(.mod-cta):not(.mod-warning)";
+  const sharedControlSelector = ":is(.noria-home-widget-manager-row, .noria-moc-entry-row, .noria-inbox-workflow-status-row, .noria-inbox-workflow-view-row) .setting-item-control button:not(.mod-cta):not(.mod-warning)";
   const managerControlBlock = cssBlock(styles, sharedControlSelector);
   const managerIconBlock = cssBlock(styles, `${sharedControlSelector} svg`);
   const mocRowControlBlock = cssBlock(styles, ".noria-moc-entry-row .setting-item-control");
@@ -1980,19 +2052,7 @@ test("home configurable widget surfaces use tokenized visual classes", () => {
   assert.match(bootstrap, /\.dashboard-home-today-actions\s*\{[\s\S]*grid-template-columns:\s*minmax\(18rem,\s*1fr\)\s*max-content/);
   assert.match(bootstrap, /\.dashboard-home-today-capture-input\s*\{[\s\S]*box-shadow:\s*none\s*;/);
   assert.match(bootstrap, /\.dashboard-home-today-action-button\s*\{[\s\S]*background:\s*transparent\s*;/);
-  assert.match(bootstrap, /\.dashboard-home-focus-strip\s*\{[\s\S]*grid-template-columns:\s*minmax\(9rem,\s*0\.26fr\)\s*minmax\(24rem,\s*1fr\)/);
-  assert.match(bootstrap, /\.dashboard-home-focus-empty-inline/);
-  assert.match(bootstrap, /\.dashboard-home-focus-list\[hidden\]/);
-  assert.match(bootstrap, /\.dashboard-home-focus-strip\[data-noria-home-focus-state="empty"\]\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*max-content\)/);
-  assert.match(bootstrap, /\.dashboard-home-focus-strip\[data-noria-home-focus-state="empty"\]\s*\.dashboard-home-focus-eyebrow\s*\{[\s\S]*display:\s*none/);
-  assert.match(bootstrap, /\.dashboard-home-focus-item\s*\{[\s\S]*box-shadow:\s*none/);
-  assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*background:\s*transparent\s*;/);
-  assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*box-shadow:\s*none\s*;/);
-  assert.match(bootstrap, /\.dashboard-home-focus-item-pomodoro\s*\{[\s\S]*opacity:\s*0/);
-  assert.match(bootstrap, /\.dashboard-home-focus-item\.has-pomodoro\s+\.dashboard-home-focus-item-pomodoro/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-home-focus-pomodoro-actions/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-home-focus-actions/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-home-focus-primary/);
+  assert.doesNotMatch(bootstrap, /\.dashboard-home-focus/);
   assert.match(bootstrap, /@media\s*\(max-width:\s*860px\)[\s\S]*\.dashboard-home-today-actions\s*\{[\s\S]*grid-template-columns:\s*1fr/);
   assert.match(bootstrap, /\.dashboard-home-entry-row/);
   assert.match(bootstrap, /\.dashboard-home-markdown-widget/);
@@ -2247,6 +2307,18 @@ test("home trends heatmaps reads diary word counts in bounded parallel after tas
   assert.doesNotMatch(diaryLoopBlock, /\n\s{2}try\s*\{\s*\n\s{4}const c = await ctx\.io\.load\(p\.file\.path\)/);
 });
 
+test("home note creation surfaces prefer semantic created metadata before file ctime", () => {
+  const sources = [
+    read("views/dashboard/home/sections/overview-metrics/view.js"),
+    read("views/dashboard/home/sections/trends-and-stats/blocks/note-trend/view.js"),
+    read("views/dashboard/home/sections/trends-and-stats/blocks/heatmaps/view.js"),
+    read("views/dashboard/home/sections/trends-and-stats/blocks/tag-distribution/view.js")
+  ];
+  for (const source of sources) {
+    assert.match(source, /page\?\.created\s*\|\|\s*page\?\.file\?\.ctime/);
+  }
+});
+
 test("home note trend fallback reads diary words in bounded parallel", () => {
   const noteTrend = read("views/dashboard/home/sections/trends-and-stats/blocks/note-trend/view.js");
   const cacheMissStart = noteTrend.indexOf("if (noteTrendCache.key === noteTrendCacheKey");
@@ -2313,7 +2385,7 @@ test("home trends preserves the full habit history surface outside the overview 
   const trends = read("views/dashboard/home/sections/trends-and-stats/view.js");
   const overviewColumns = read("views/dashboard/home/sections/overview-columns/view.js");
 
-  assert.match(overviewColumns, /dashboard-overview-habit-context/);
+  assert.doesNotMatch(overviewColumns, /dashboard-overview-habit-context/);
   assert.match(trends, /DEFAULT_MIDDLE_BLOCKS\s*=\s*\["habit-history",\s*"heatmaps"\]/);
   assert.match(trends, /BLOCK_VIEW_PATHS\s*=\s*\{[\s\S]*"habit-history":\s*"\.obsidian\/plugins\/noria\/views\/periodic\/dashboardHabitWeek"/);
   assert.match(trends, /createHabitHistoryShell/);
@@ -2503,16 +2575,11 @@ test("periodic stats and diary templates no longer embed weekly habit matrix or 
   const periodicLegacy = read("views/dashboard/periodic-stats/impl-legacy/view.js");
   const main = read("src/main.js");
   const templateLibrary = read("config/template-library.md");
-  const weeklyTemplate = fs.readFileSync(path.join(pluginRoot, "..", "..", "..", "02_Areas", "Templates", "Weekly Template.md"), "utf8");
-  const monthlyTemplate = fs.readFileSync(path.join(pluginRoot, "..", "..", "..", "02_Areas", "Templates", "Monthly Template.md"), "utf8");
-  const yearlyTemplate = fs.readFileSync(path.join(pluginRoot, "..", "..", "..", "02_Areas", "Templates", "Yearly Template.md"), "utf8");
 
   assert.doesNotMatch(periodicFacade, /habit-week-matrix/);
   assert.doesNotMatch(periodicLegacy, /renderWeeklyHabitBoard|weeklyHabitMatrix/);
-  for (const source of [templateLibrary, weeklyTemplate, monthlyTemplate, yearlyTemplate]) {
-    assert.doesNotMatch(source, /periodicStats/);
-    assert.doesNotMatch(source, /###\s*(周统计|月统计|年统计)/);
-  }
+  assert.doesNotMatch(templateLibrary, /periodicStats/);
+  assert.doesNotMatch(templateLibrary, /###\s*(周统计|月统计|年统计)/);
   assert.doesNotMatch(main, /###\s*(?:周统计|月统计|年统计)[\s\S]{0,180}periodicStats/);
   assert.doesNotMatch(main, /###\s*(?:Weekly stats|Monthly stats|Yearly stats)[\s\S]{0,220}periodicStats/);
 });

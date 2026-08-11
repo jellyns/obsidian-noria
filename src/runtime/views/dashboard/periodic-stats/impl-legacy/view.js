@@ -381,7 +381,7 @@ async function collectMetrics(dates) {
       });
       const stats = snapshot?.domains || {};
       const next = Object.fromEntries(dates.map((d) => [d, { notes: 0, words: 0, taskTotal: 0, taskDone: 0, weather: "", mood: "", energy: 0, focus: "" }]));
-      const noteRows = Array.isArray(stats?.notes?.series) ? stats.notes.series : [];
+      const noteRows = Array.isArray(stats?.notes?.trend?.series) ? stats.notes.trend.series : [];
       const taskRows = Array.isArray(stats?.tasks?.completion?.series) ? stats.tasks.completion.series : [];
       const stateRows = Array.isArray(stats?.dailyState?.series) ? stats.dailyState.series : [];
       dates.forEach((d, idx) => {

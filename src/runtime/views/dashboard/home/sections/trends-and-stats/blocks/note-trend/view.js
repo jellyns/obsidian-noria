@@ -56,6 +56,7 @@ const normalizeFileDate = (value) => {
   const m = raw.match(/\d{4}-\d{2}-\d{2}/);
   return m ? m[0] : "";
 };
+const noteCreatedValue = (page) => page?.created || page?.file?.ctime;
 let dayList = [];
 for (let i = days - 1; i >= 0; i--) {
   const d = new Date(today);
@@ -109,7 +110,7 @@ if (snapshotRows.length) {
   const daySet = new Set(dayList);
   const noteCountMap = {};
   noriaNotePages().forEach((p) => {
-    const ds = normalizeFileDate(p.file.ctime);
+    const ds = normalizeFileDate(noteCreatedValue(p));
     if (daySet.has(ds)) noteCountMap[ds] = (noteCountMap[ds] || 0) + 1;
   });
   const diaryPages = (noriaBridge.runtime?.pagesForManagedPath?.("diaryRoot", ctx) || []).filter((p) => {

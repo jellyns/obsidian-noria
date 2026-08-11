@@ -703,7 +703,7 @@ const NORIA_HOME_WIDGET_SIZE_LAYOUTS = {
 const NORIA_HOME_WIDGET_SCHEMA_VERSION = 3;
 const NORIA_HOME_ACTION_PRESET_IDS = ["navigation", "vault"];
 const NORIA_HOME_STAT_PRESET_IDS = ["overview", "tasks", "projects", "habits", "vault", "inbox", "habit-heatmap", "workload-heatmap"];
-const NORIA_HOME_MARKDOWN_PRESET_IDS = ["single", "briefing"];
+const NORIA_HOME_MARKDOWN_PRESET_IDS = ["single", "briefing", "daily-section"];
 const NORIA_HOME_PROFILE_PRESET_IDS = ["minimal", "execution", "research", "review"];
 const NORIA_HOME_TRENDS_BLOCK_GROUPS = ["top", "middle", "bottom", "hidden"];
 const NORIA_HOME_TRENDS_BLOCK_GROUP_KEYS = {
@@ -719,23 +719,21 @@ const NORIA_HOME_WORKBENCH_PANEL_GROUP_KEYS = {
 };
 const NORIA_HOME_WORKBENCH_DEFAULT_PANELS = {
   left: ["tasks"],
-  middle: ["inbox", "habit-today"],
+  middle: ["inbox"],
   right: ["countdown"]
 };
 const NORIA_HOME_WORKBENCH_PANEL_LABEL_KEYS = {
   tasks: "settings.home.workbenchPanelTasks",
   inbox: "settings.home.workbenchPanelInbox",
-  "habit-today": "settings.home.workbenchPanelHabitToday",
   countdown: "settings.home.workbenchPanelCountdown"
 };
 const NORIA_HOME_WIDGET_TITLE_KEYS = {
   identity: "runtime.home.layoutEdit.widget.identity",
   metrics: "runtime.home.layoutEdit.widget.metrics",
   "today-actions": "runtime.home.layoutEdit.widget.todayActions",
-  "focus-strip": "runtime.home.layoutEdit.widget.focusStrip",
+  "daily-advice": "runtime.home.layoutEdit.widget.dailyAdvice",
   "today-tasks-card": "runtime.home.layoutEdit.widget.todayTasks",
   "inbox-card": "runtime.home.layoutEdit.widget.inbox",
-  "habit-today-card": "runtime.home.layoutEdit.widget.habitToday",
   "countdown-card": "runtime.home.layoutEdit.widget.countdown",
   "projects-card": "runtime.home.layoutEdit.widget.projects",
   "moc-strip": "runtime.home.layoutEdit.widget.moc",
@@ -777,26 +775,23 @@ const NORIA_DEFAULT_HOME_WIDGETS = [
   { id: "identity", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 10, size: "wide", title: "", source: "home-identity", props: {} },
   { id: "metrics", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 20, size: "wide", title: "", source: "overview-metrics", props: { metricsLayout: "hero" } },
   { id: "today-actions", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 30, size: "full", title: "", source: "today-actions", props: {} },
-  { id: "focus-strip", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 35, size: "full", title: "", source: "focus-strip", props: {} },
+  { id: "daily-advice", type: "markdown", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: false, order: 40, size: "full", title: "建议", source: "", props: { sourceMode: "daily-section", heading: "建议", renderMode: "compact" } },
   { id: "today-tasks-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 50, size: "medium", title: "", source: "overview-columns", props: { cardMode: true, panels: ["tasks"] } },
-  { id: "inbox-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 51, size: "medium", title: "", source: "overview-columns", props: { cardMode: true, panels: ["inbox", "habit-today"] } },
+  { id: "inbox-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 51, size: "medium", title: "", source: "overview-columns", props: { cardMode: true, panels: ["inbox"] } },
   { id: "countdown-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 52, size: "medium", title: "", source: "overview-columns", props: { cardMode: true, panels: ["countdown"] } },
+  { id: "habit-history-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 53, size: "full", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "habit-history", lazy: true } },
   { id: "projects-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 60, size: "full", title: "", source: "guide-panels", props: { sectionMode: "projects" } },
   { id: "moc-strip", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 61, size: "full", title: "", source: "guide-panels", props: { sectionMode: "moc" } },
   { id: "review-focus", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 62, size: "full", title: "", source: "guide-panels", props: { sectionMode: "review", defaultExpanded: true } },
   { id: "trends-range", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 70, size: "full", title: "", titleKey: "runtime.home.facade.trends", source: "trends-and-stats", props: { renderMode: "range" } },
   { id: "note-trend-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 71, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "note-trend", lazy: true } },
   { id: "task-trend-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 72, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "task-trend", lazy: true } },
-  { id: "habit-history-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 73, size: "full", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "habit-history", lazy: true } },
   { id: "habit-heatmap-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 74, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "heatmaps", heatmapMode: "habit", lazy: true } },
   { id: "workload-heatmap-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 75, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "heatmaps", heatmapMode: "workload", lazy: true } },
   { id: "tag-distribution-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 76, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "tag-distribution", lazy: true } },
   { id: "daily-state-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 77, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "daily-state", lazy: true } }
 ];
-const NORIA_HOME_BUILTIN_WIDGET_IDS = Object.freeze([
-  ...NORIA_DEFAULT_HOME_WIDGETS.map((widget) => widget.id),
-  "habit-today-card"
-]);
+const NORIA_HOME_BUILTIN_WIDGET_IDS = Object.freeze(NORIA_DEFAULT_HOME_WIDGETS.map((widget) => widget.id));
 
 const NORIA_DEFAULT_HOME = {
   profilePreset: "custom",
@@ -1176,7 +1171,6 @@ const NORIA_I18N = {
     "settings.home.workbenchPanelHidden": "Hidden",
     "settings.home.workbenchPanelTasks": "Today tasks",
     "settings.home.workbenchPanelInbox": "Inbox",
-    "settings.home.workbenchPanelHabitToday": "Habit today strip",
     "settings.home.workbenchPanelCountdown": "Countdown",
     "settings.home.trendsBlocks": "Trends blocks",
     "settings.home.trendsBlocksDesc": "Show, hide, and place the built-in Trends blocks without editing JSON.",
@@ -1196,6 +1190,9 @@ const NORIA_I18N = {
     "settings.home.widgetActionPresetVault": "Vault",
     "settings.home.widgetMarkdownPresetSingle": "Single note",
     "settings.home.widgetMarkdownPresetBriefing": "Briefing group",
+    "settings.home.widgetMarkdownPresetDailySection": "Daily note section",
+    "settings.home.widgetSectionHeading": "Section heading",
+    "settings.home.widgetSectionHeadingDesc": "Read this H2 section from today's daily note. Enter the heading without ##.",
     "settings.home.widgetEditorMarkdown": "Edit Markdown sources",
     "settings.home.widgetEditorTitle": "Widget title",
     "settings.home.widgetEditorTitleDesc": "Optional label shown on Home. Source labels are edited separately below.",
@@ -1221,17 +1218,37 @@ const NORIA_I18N = {
     "settings.home.guideReviewCenterExpanded": "Expand review center by default",
     "settings.home.guideReviewCenterExpandedDesc": "Open the Home review center disclosure automatically. Heavy review content still mounts after the first frame.",
     "settings.inboxWorkflow.title": "Inbox workflow",
-    "settings.inboxWorkflow.desc": "Configure inbox-status values, Home lanes, and Inbox queue Base views.",
+    "settings.inboxWorkflow.desc": "Keep Inbox stages and Home groups aligned with the way you actually process notes.",
     "settings.inboxWorkflow.defaultStatus": "Default status",
     "settings.inboxWorkflow.defaultStatusDesc": "Status id written to newly created Inbox notes.",
+    "settings.inboxWorkflow.statusManager": "Stages",
+    "settings.inboxWorkflow.statusManagerDesc": "Rename, reorder, add, or remove the stages written to Inbox notes.",
+    "settings.inboxWorkflow.statusLabel": "Stage name",
+    "settings.inboxWorkflow.defaultStage.triage": "Triage",
+    "settings.inboxWorkflow.defaultStage.processing": "Processing",
+    "settings.inboxWorkflow.defaultStage.ready": "Ready",
+    "settings.inboxWorkflow.statusId": "Status id: {id}",
+    "settings.inboxWorkflow.statusColor": "Stage color",
+    "settings.inboxWorkflow.addStatus": "Add stage",
+    "settings.inboxWorkflow.homeViewManager": "Home groups",
+    "settings.inboxWorkflow.homeViewManagerDesc": "Choose which Inbox groups appear on Home, then edit their labels and order.",
+    "settings.inboxWorkflow.homeViewLabel": "Group name",
+    "settings.inboxWorkflow.homeViewId": "Group id: {id}",
+    "settings.inboxWorkflow.homeViewStatus": "Stage filter",
+    "settings.inboxWorkflow.computedRule": "Computed rule",
+    "settings.inboxWorkflow.addHomeView": "Add Home group",
+    "settings.inboxWorkflow.showOnHome": "Show on Home",
+    "settings.inboxWorkflow.moveUp": "Move up",
+    "settings.inboxWorkflow.moveDown": "Move down",
+    "settings.inboxWorkflow.remove": "Remove",
     "settings.inboxWorkflow.statuses": "Statuses JSON",
-    "settings.inboxWorkflow.statusesDesc": "Edit status objects with id, label, color, aliases, terminal, and order.",
+    "settings.inboxWorkflow.statusesDesc": "Edit status objects with id, label, color, aliases, and order.",
     "settings.inboxWorkflow.homeViews": "Home lanes JSON",
     "settings.inboxWorkflow.homeViewsDesc": "Controls which Inbox lanes appear on Home and how they filter notes.",
     "settings.inboxWorkflow.baseViews": "Base views JSON",
     "settings.inboxWorkflow.baseViewsDesc": "Controls generated Inbox queue Base table views.",
-    "settings.inboxWorkflow.advancedJson": "Advanced workflow JSON",
-    "settings.inboxWorkflow.advancedJsonDesc": "Power-user editor for statuses, Home lanes, and generated Base views.",
+    "settings.inboxWorkflow.advancedJson": "Inbox Base views",
+    "settings.inboxWorkflow.advancedJsonDesc": "Advanced filters for generated Inbox queue Base views and maintenance actions.",
     "settings.inboxWorkflow.actions": "Inbox workflow actions",
     "settings.inboxWorkflow.rebuildBase": "Rebuild Inbox Base",
     "settings.inboxWorkflow.reset": "Restore defaults",
@@ -1639,21 +1656,26 @@ const NORIA_I18N = {
     "timeline.chrome.filter": "Timeline filters",
     "timeline.chrome.filterSearch": "Filter timeline",
     "timeline.chrome.filterReset": "Reset filters",
+    "timeline.chrome.annotationSelect": "Select a time range annotation",
     "timeline.filter.mode.task": "Tasks",
     "timeline.filter.mode.record": "Records",
     "timeline.filter.mode.project": "Projects",
     "timeline.filter.mode.combined": "All",
     "timeline.filter.mode.custom": "Custom",
     "timeline.filter.layer.task": "Tasks",
-    "timeline.filter.layer.annotation": "Marks",
+    "timeline.filter.layer.annotation": "Time annotations",
     "timeline.filter.layer.pomodoro": "Pomo",
     "timeline.filter.layer.note": "Notes",
     "timeline.filter.layer.git": "Git",
-    "timeline.filter.layer.noria": "Noria",
+    "timeline.filter.layer.noria": "Noria records",
     "timeline.filter.scale.auto": "Auto",
     "timeline.filter.scale.today": "Today",
     "timeline.filter.scale.manual": "Manual",
     "timeline.filter.savedViews": "Saved views",
+    "timeline.filter.manageViews": "Save or manage views",
+    "timeline.filter.moreFilters": "More filters",
+    "timeline.filter.openOnly": "Open only",
+    "timeline.filter.includeDone": "Include completed",
     "timeline.filter.savedViewNamePlaceholder": "View name",
     "timeline.filter.saveAsView": "Save as view",
     "timeline.filter.updateView": "Update",
@@ -1669,7 +1691,7 @@ const NORIA_I18N = {
     "timeline.filter.reset": "Reset",
     "timeline.filter.searchPlaceholder": "Filter",
     "timeline.filter.presetCurrent": "Current",
-    "timeline.filter.summary": "{mode} · Layers {count} · {done}",
+    "timeline.filter.summary": "{mode} · {done}",
     "timeline.filter.summaryDoneShown": "Completed shown",
     "timeline.filter.summaryOpenOnly": "Open only",
     "timeline.filter.summaryQuery": "Query: {query}",
@@ -1735,13 +1757,13 @@ const NORIA_I18N = {
     "runtime.home.layoutEdit.widget.identity": "Identity overview",
     "runtime.home.layoutEdit.widget.metrics": "Metrics",
     "runtime.home.layoutEdit.widget.todayActions": "Today actions",
+    "runtime.home.layoutEdit.widget.dailyAdvice": "Suggestions",
     "runtime.home.layoutEdit.widget.focusStrip": "Current focus",
     "runtime.home.layoutEdit.widget.workbench": "Workbench",
     "runtime.home.layoutEdit.widget.guide": "Guide",
     "runtime.home.layoutEdit.widget.trends": "Trends and stats",
     "runtime.home.layoutEdit.widget.todayTasks": "Today tasks",
     "runtime.home.layoutEdit.widget.inbox": "Inbox",
-    "runtime.home.layoutEdit.widget.habitToday": "Habit check-ins today",
     "runtime.home.layoutEdit.widget.countdown": "Countdowns",
     "runtime.home.layoutEdit.widget.projects": "Projects",
     "runtime.home.layoutEdit.widget.moc": "MOC",
@@ -2290,25 +2312,6 @@ const NORIA_I18N = {
     "runtime.home.todayActions.timeline": "Timeline",
     "runtime.home.todayActions.calendar": "Calendar",
     "runtime.home.todayActions.review": "Review",
-    "runtime.home.focus.eyebrow": "Now",
-    "runtime.home.focus.title": "Focus strip",
-    "runtime.home.focus.untitled": "Task {index}",
-    "runtime.home.focus.empty": "No current tasks in the next week.",
-    "runtime.home.focus.today": "Today",
-    "runtime.home.focus.noDate": "No date",
-    "runtime.home.focus.remaining": "+{count} more",
-    "runtime.home.focus.pomodoroReady": "Pomodoro ready",
-    "runtime.home.focus.pomodoroRunning": "Pomodoro running",
-    "runtime.home.focus.pomodoroPaused": "Pomodoro paused",
-    "runtime.home.focus.markDone": "Mark done",
-    "runtime.home.focus.startPomodoro": "Start Pomodoro",
-    "runtime.home.focus.pausePomodoro": "Pause Pomodoro",
-    "runtime.home.focus.pomodoroStarted": "Pomodoro started: {label}",
-    "runtime.home.focus.pomodoroPausedNotice": "Pomodoro paused: {label}",
-    "runtime.home.focus.defer": "Defer to tomorrow",
-    "runtime.home.focus.deferShort": "+1d",
-    "runtime.home.focus.deferredNotice": "Deferred to {date}: {label}",
-    "runtime.home.focus.taskUpdateFailed": "Task update failed: {label} {message}",
     "runtime.home.entry.empty": "No entries configured.",
     "runtime.home.stat.empty": "No metrics configured.",
     "runtime.home.stat.unavailable": "Stats unavailable.",
@@ -2320,7 +2323,6 @@ const NORIA_I18N = {
     "runtime.home.stat.dailyValidDays": "Tracked days",
     "runtime.home.stat.inboxTotal": "Inbox items",
     "runtime.home.stat.inboxStale": "Inbox review due",
-    "runtime.home.stat.inboxProcessed": "Inbox processed",
     "runtime.home.stat.projectsActive": "Active projects",
     "runtime.home.stat.projectsOpen": "Open project tasks",
     "runtime.home.stat.projectsCompletionRate": "Project completion",
@@ -3088,7 +3090,6 @@ const NORIA_I18N = {
     "settings.home.workbenchPanelHidden": "隐藏",
     "settings.home.workbenchPanelTasks": "今日待办",
     "settings.home.workbenchPanelInbox": "Inbox",
-    "settings.home.workbenchPanelHabitToday": "今日习惯",
     "settings.home.workbenchPanelCountdown": "倒计时",
     "settings.home.trendsBlocks": "趋势统计块",
     "settings.home.trendsBlocksDesc": "不编辑 JSON 也能显示、隐藏和放置内置趋势统计块。",
@@ -3108,6 +3109,9 @@ const NORIA_I18N = {
     "settings.home.widgetActionPresetVault": "库入口",
     "settings.home.widgetMarkdownPresetSingle": "单篇笔记",
     "settings.home.widgetMarkdownPresetBriefing": "简报组",
+    "settings.home.widgetMarkdownPresetDailySection": "今日日记分区",
+    "settings.home.widgetSectionHeading": "分区标题",
+    "settings.home.widgetSectionHeadingDesc": "读取今日日记中的指定二级标题；填写时无需包含 ##。",
     "settings.home.widgetEditorMarkdown": "编辑 Markdown 来源",
     "settings.home.widgetEditorTitle": "小组件标题",
     "settings.home.widgetEditorTitleDesc": "显示在主页上的可选标题；来源标签在下方单独维护。",
@@ -3133,17 +3137,37 @@ const NORIA_I18N = {
     "settings.home.guideReviewCenterExpanded": "默认展开复盘中心",
     "settings.home.guideReviewCenterExpandedDesc": "主页打开时自动展开复盘中心；较重的复盘内容仍会在首帧后挂载。",
     "settings.inboxWorkflow.title": "Inbox 工作流",
-    "settings.inboxWorkflow.desc": "配置 inbox-status 状态、主页队列分组和 Inbox queue Base 视图。",
+    "settings.inboxWorkflow.desc": "让 Inbox 阶段和主页分组贴合你实际处理笔记的方式。",
     "settings.inboxWorkflow.defaultStatus": "默认状态",
     "settings.inboxWorkflow.defaultStatusDesc": "新建 Inbox 笔记时写入的状态 id。",
+    "settings.inboxWorkflow.statusManager": "阶段",
+    "settings.inboxWorkflow.statusManagerDesc": "直接重命名、排序、添加或删除写入 Inbox 笔记的阶段。",
+    "settings.inboxWorkflow.statusLabel": "阶段名称",
+    "settings.inboxWorkflow.defaultStage.triage": "判断去留",
+    "settings.inboxWorkflow.defaultStage.processing": "正在加工",
+    "settings.inboxWorkflow.defaultStage.ready": "准备迁出",
+    "settings.inboxWorkflow.statusId": "状态 id：{id}",
+    "settings.inboxWorkflow.statusColor": "阶段颜色",
+    "settings.inboxWorkflow.addStatus": "添加阶段",
+    "settings.inboxWorkflow.homeViewManager": "主页分组",
+    "settings.inboxWorkflow.homeViewManagerDesc": "选择主页显示哪些 Inbox 分组，并调整名称和顺序。",
+    "settings.inboxWorkflow.homeViewLabel": "分组名称",
+    "settings.inboxWorkflow.homeViewId": "分组 id：{id}",
+    "settings.inboxWorkflow.homeViewStatus": "阶段筛选",
+    "settings.inboxWorkflow.computedRule": "计算规则",
+    "settings.inboxWorkflow.addHomeView": "添加主页分组",
+    "settings.inboxWorkflow.showOnHome": "在主页显示",
+    "settings.inboxWorkflow.moveUp": "上移",
+    "settings.inboxWorkflow.moveDown": "下移",
+    "settings.inboxWorkflow.remove": "删除",
     "settings.inboxWorkflow.statuses": "状态 JSON",
-    "settings.inboxWorkflow.statusesDesc": "编辑状态对象：id、label、color、aliases、terminal、order。",
+    "settings.inboxWorkflow.statusesDesc": "编辑状态对象：id、label、color、aliases、order。",
     "settings.inboxWorkflow.homeViews": "主页分组 JSON",
     "settings.inboxWorkflow.homeViewsDesc": "控制主页 Inbox 显示哪些分组以及筛选方式。",
     "settings.inboxWorkflow.baseViews": "Base 视图 JSON",
     "settings.inboxWorkflow.baseViewsDesc": "控制生成的 Inbox queue Base 表格视图。",
-    "settings.inboxWorkflow.advancedJson": "高级工作流 JSON",
-    "settings.inboxWorkflow.advancedJsonDesc": "面向高级用户编辑状态、主页分组和生成的 Base 视图。",
+    "settings.inboxWorkflow.advancedJson": "Inbox Base 视图",
+    "settings.inboxWorkflow.advancedJsonDesc": "生成 Inbox queue Base 的高级筛选和维护操作。",
     "settings.inboxWorkflow.actions": "Inbox 工作流操作",
     "settings.inboxWorkflow.rebuildBase": "重建 Inbox Base",
     "settings.inboxWorkflow.reset": "恢复默认",
@@ -3551,21 +3575,26 @@ const NORIA_I18N = {
     "timeline.chrome.filter": "时间轴筛选",
     "timeline.chrome.filterSearch": "筛选时间轴",
     "timeline.chrome.filterReset": "重置筛选",
+    "timeline.chrome.annotationSelect": "框选时间标注",
     "timeline.filter.mode.task": "任务",
     "timeline.filter.mode.record": "记录",
     "timeline.filter.mode.project": "项目",
     "timeline.filter.mode.combined": "全部",
     "timeline.filter.mode.custom": "自定义",
     "timeline.filter.layer.task": "任务",
-    "timeline.filter.layer.annotation": "标记",
+    "timeline.filter.layer.annotation": "时间标注",
     "timeline.filter.layer.pomodoro": "番茄钟",
     "timeline.filter.layer.note": "笔记",
     "timeline.filter.layer.git": "Git",
-    "timeline.filter.layer.noria": "Noria",
+    "timeline.filter.layer.noria": "Noria 记录",
     "timeline.filter.scale.auto": "自适应",
     "timeline.filter.scale.today": "今天",
     "timeline.filter.scale.manual": "手动",
     "timeline.filter.savedViews": "已保存视图",
+    "timeline.filter.manageViews": "保存或管理视图",
+    "timeline.filter.moreFilters": "更多筛选",
+    "timeline.filter.openOnly": "仅未完成",
+    "timeline.filter.includeDone": "含已完成",
     "timeline.filter.savedViewNamePlaceholder": "视图名称",
     "timeline.filter.saveAsView": "保存为视图",
     "timeline.filter.updateView": "更新",
@@ -3581,7 +3610,7 @@ const NORIA_I18N = {
     "timeline.filter.reset": "重置",
     "timeline.filter.searchPlaceholder": "筛选",
     "timeline.filter.presetCurrent": "当前",
-    "timeline.filter.summary": "{mode} · {count} 个图层 · {done}",
+    "timeline.filter.summary": "{mode} · {done}",
     "timeline.filter.summaryDoneShown": "显示已完成",
     "timeline.filter.summaryOpenOnly": "仅未完成",
     "timeline.filter.summaryQuery": "查询：{query}",
@@ -3647,13 +3676,13 @@ const NORIA_I18N = {
     "runtime.home.layoutEdit.widget.identity": "身份概览",
     "runtime.home.layoutEdit.widget.metrics": "指标",
     "runtime.home.layoutEdit.widget.todayActions": "今日操作",
+    "runtime.home.layoutEdit.widget.dailyAdvice": "建议",
     "runtime.home.layoutEdit.widget.focusStrip": "当前推进",
     "runtime.home.layoutEdit.widget.workbench": "工作台",
     "runtime.home.layoutEdit.widget.guide": "导引",
     "runtime.home.layoutEdit.widget.trends": "趋势和统计",
     "runtime.home.layoutEdit.widget.todayTasks": "待办",
     "runtime.home.layoutEdit.widget.inbox": "Inbox",
-    "runtime.home.layoutEdit.widget.habitToday": "今日习惯",
     "runtime.home.layoutEdit.widget.countdown": "倒计时",
     "runtime.home.layoutEdit.widget.projects": "项目",
     "runtime.home.layoutEdit.widget.moc": "MOC",
@@ -4202,25 +4231,6 @@ const NORIA_I18N = {
     "runtime.home.todayActions.timeline": "时间轴",
     "runtime.home.todayActions.calendar": "日历",
     "runtime.home.todayActions.review": "复盘",
-    "runtime.home.focus.eyebrow": "现在",
-    "runtime.home.focus.title": "继续推进",
-    "runtime.home.focus.untitled": "任务 {index}",
-    "runtime.home.focus.empty": "未来一周没有当前任务。",
-    "runtime.home.focus.today": "今日",
-    "runtime.home.focus.noDate": "无日期",
-    "runtime.home.focus.remaining": "另有 {count} 项",
-    "runtime.home.focus.pomodoroReady": "番茄可续接",
-    "runtime.home.focus.pomodoroRunning": "番茄进行中",
-    "runtime.home.focus.pomodoroPaused": "番茄已暂停",
-    "runtime.home.focus.markDone": "标记完成",
-    "runtime.home.focus.startPomodoro": "开始番茄钟",
-    "runtime.home.focus.pausePomodoro": "暂停番茄钟",
-    "runtime.home.focus.pomodoroStarted": "已开始番茄钟：{label}",
-    "runtime.home.focus.pomodoroPausedNotice": "已暂停番茄钟：{label}",
-    "runtime.home.focus.defer": "推迟到明天",
-    "runtime.home.focus.deferShort": "明天",
-    "runtime.home.focus.deferredNotice": "已推迟到 {date}：{label}",
-    "runtime.home.focus.taskUpdateFailed": "任务更新失败：{label} {message}",
     "runtime.home.entry.empty": "尚未配置入口。",
     "runtime.home.stat.empty": "尚未配置统计指标。",
     "runtime.home.stat.unavailable": "统计暂不可用。",
@@ -4232,7 +4242,6 @@ const NORIA_I18N = {
     "runtime.home.stat.dailyValidDays": "记录天数",
     "runtime.home.stat.inboxTotal": "Inbox 项",
     "runtime.home.stat.inboxStale": "待复核 Inbox",
-    "runtime.home.stat.inboxProcessed": "已处理 Inbox",
     "runtime.home.stat.projectsActive": "进行中项目",
     "runtime.home.stat.projectsOpen": "未完成项目任务",
     "runtime.home.stat.projectsCompletionRate": "项目任务完成率",
@@ -4881,27 +4890,23 @@ const NORIA_DEFAULT_REVIEW_PROMPT_SETTINGS = {
 };
 const NORIA_DEFAULT_INBOX_WORKFLOW = {
   statuses: [
-    { id: "triage", label: "Triage", color: "#3b82f6", aliases: ["待决"], terminal: false, order: 10 },
-    { id: "processing", label: "Processing", color: "#f59e0b", aliases: ["加工中"], terminal: false, order: 20 },
-    { id: "ready", label: "Ready", color: "#10b981", aliases: ["准备迁出", "待迁出"], terminal: false, order: 30 },
-    { id: "deferred", label: "Deferred", color: "#8b5cf6", aliases: ["暂缓"], terminal: false, order: 40 },
-    { id: "closed", label: "Closed", color: "#64748b", aliases: ["已关闭", "关闭"], terminal: true, order: 50 }
+    { id: "triage", label: "Triage", color: "#3b82f6", aliases: ["待决"], order: 10 },
+    { id: "processing", label: "Processing", color: "#f59e0b", aliases: ["加工中"], order: 20 },
+    { id: "ready", label: "Ready", color: "#10b981", aliases: ["准备迁出", "待迁出"], order: 30 }
   ],
   defaultStatusId: "triage",
   homeViews: [
     { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", titleKey: "runtime.periodic.inbox.triageTitle", statusIds: ["triage"], includeMissingCore: true, showOnHome: true, order: 10 },
-    { id: "review-due", label: "Review due", labelKey: "runtime.periodic.inbox.reviewDue", titleKey: "runtime.periodic.inbox.reviewDueTitle", reviewDue: true, excludeTerminal: true, showOnHome: true, order: 20 },
+    { id: "review-due", label: "Review due", labelKey: "runtime.periodic.inbox.reviewDue", titleKey: "runtime.periodic.inbox.reviewDueTitle", reviewDue: true, showOnHome: false, order: 20 },
     { id: "processing", label: "Processing", labelKey: "runtime.periodic.inbox.processing", titleKey: "runtime.periodic.inbox.processingTitle", statusIds: ["processing"], actionIds: ["refine", "split", "merge"], showOnHome: true, order: 30 },
     { id: "ready", label: "Ready", labelKey: "runtime.periodic.inbox.closing", titleKey: "runtime.periodic.inbox.closingTitle", statusIds: ["ready"], actionIds: ["file", "archive", "delete"], showOnHome: true, order: 40 },
-    { id: "trust", label: "Needs trust", labelKey: "runtime.periodic.inbox.trust", titleKey: "runtime.periodic.inbox.trustTitle", missingTrust: true, showOnHome: true, order: 50 }
+    { id: "trust", label: "Needs trust", labelKey: "runtime.periodic.inbox.trust", titleKey: "runtime.periodic.inbox.trustTitle", missingTrust: true, showOnHome: false, order: 50 }
   ],
   baseViews: [
-    { id: "all-active", label: "All active", excludeTerminal: true, order: 10 },
     { id: "triage", label: "Triage", statusIds: ["triage"], includeMissingCore: true, order: 20 },
-    { id: "review-due", label: "Review due", reviewDue: true, excludeTerminal: true, order: 30 },
+    { id: "review-due", label: "Review due", reviewDue: true, order: 30 },
     { id: "processing", label: "Processing", statusIds: ["processing"], actionIds: ["refine", "split", "merge"], order: 40 },
-    { id: "ready", label: "Ready", statusIds: ["ready"], actionIds: ["file", "archive", "delete"], order: 50 },
-    { id: "closed", label: "Closed", statusIds: ["closed"], order: 90 }
+    { id: "ready", label: "Ready", statusIds: ["ready"], actionIds: ["file", "archive", "delete"], order: 50 }
   ]
 };
 const NORIA_DEFAULT_REVIEW_SKILL = [
@@ -5531,7 +5536,6 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     return [
       { id: "task", label: this.plugin.t("timeline.filter.mode.task"), layers: ["task", "annotation"], showDone: false, query: "" },
       { id: "record", label: this.plugin.t("timeline.filter.mode.record"), layers: ["note", "git", "noria"], showDone: true, query: "" },
-      { id: "project", label: this.plugin.t("timeline.filter.mode.project"), layers: ["task", "annotation", "note", "git", "noria"], showDone: true, query: "" },
       { id: "combined", label: this.plugin.t("timeline.filter.mode.combined"), layers: ["task", "annotation", "pomodoro", "note", "git", "noria"], showDone: true, query: "" }
     ];
   }
@@ -5558,7 +5562,6 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     const parts = [
       this.plugin.t("timeline.filter.summary", {
         mode: modeLabel,
-        count: layerCount,
         done: this.plugin.t(state.showDone ? "timeline.filter.summaryDoneShown" : "timeline.filter.summaryOpenOnly")
       })
     ];
@@ -5568,12 +5571,6 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     }
     if (state.excludeTags.length) {
       parts.push(this.plugin.t("timeline.filter.summaryExcludeTags", { tags: state.excludeTags.join(", ") }));
-    }
-    if (state.markMode) parts.push(this.plugin.t("timeline.filter.summaryMark"));
-    if (state.scaleMode && state.scaleMode !== "auto") {
-      parts.push(this.plugin.t("timeline.filter.summaryScale", {
-        scale: this.plugin.t(`timeline.filter.scale.${state.scaleMode}`)
-      }));
     }
     return {
       modeId,
@@ -5600,7 +5597,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       query: preset.query,
       includeTags: [],
       excludeTags: [],
-      markMode: false
+      markMode: current.markMode
     });
   }
   getTimelinePresetList() {
@@ -5724,7 +5721,6 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     if (state.showDone !== defaults.showDone) return true;
     if (state.query) return true;
     if (state.includeTags.length || state.excludeTags.length) return true;
-    if (state.markMode) return true;
     if (state.scaleMode !== defaults.scaleMode) return true;
     if (state.manualCenter && state.manualCenter !== defaults.manualCenter) return true;
     if (state.manualZoomIndex !== defaults.manualZoomIndex) return true;
@@ -5871,7 +5867,10 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         }
       );
     });
-    const savedViewActions = savedViews.createDiv({ cls: "noria-tl-filter-saved-view-actions" });
+    const savedViewEditor = savedViews.createEl("details", { cls: "noria-tl-filter-saved-view-editor" });
+    savedViewEditor.open = activePresetModified;
+    savedViewEditor.createEl("summary", { text: this.plugin.t("timeline.filter.manageViews") });
+    const savedViewActions = savedViewEditor.createDiv({ cls: "noria-tl-filter-saved-view-actions" });
     const savedViewName = savedViewActions.createEl("input", {
       cls: "noria-tl-filter-saved-view-name",
       attr: {
@@ -5966,39 +5965,11 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         }
       );
     });
-    const layers = panel.createDiv({ cls: "noria-tl-filter-chip-row" });
-    ["task", "annotation", "pomodoro", "note", "git", "noria"].forEach((layer) => {
-      const label = this.plugin.t(`timeline.filter.layer.${layer}`);
-      createChip(layers, `layer-${layer}`, label, state.layers.includes(layer), () => toggleLayer(layer));
-    });
-    const scaleRow = panel.createDiv({ cls: "noria-tl-filter-chip-row noria-tl-filter-scale-row" });
-    ["auto", "today", "manual"].forEach((mode) => {
-      const label = this.plugin.t(`timeline.filter.scale.${mode}`);
-      createChip(
-        scaleRow,
-        `scale-${mode}`,
-        label,
-        state.scaleMode === mode,
-        () => apply({ ...state, scaleMode: mode }),
-        { "data-noria-timeline-scale": mode }
-      );
-    });
     const filterActiveForTools = this.timelineChromeFilterIsActive(state);
     const tools = panel.createDiv({ cls: "noria-tl-filter-tools" });
-    createChip(tools, "status-done", this.plugin.t("timeline.filter.done"), state.showDone, () => apply({ ...state, showDone: !state.showDone }));
-    createChip(
-      tools,
-      "mode-mark",
-      this.plugin.t("timeline.filter.mark"),
-      state.markMode === true,
-      () => {
-        const nextLayers = state.markMode
-          ? state.layers
-          : Array.from(new Set([...(state.layers || []), "annotation"]));
-        apply({ ...state, markMode: !state.markMode, layers: nextLayers });
-      },
-      { "data-noria-timeline-mode": "mark" }
-    );
+    tools.classList.add("noria-tl-filter-completion-row");
+    createChip(tools, "status-open", this.plugin.t("timeline.filter.openOnly"), !state.showDone, () => apply({ ...state, showDone: false }));
+    createChip(tools, "status-done", this.plugin.t("timeline.filter.includeDone"), state.showDone, () => apply({ ...state, showDone: true }));
     if (filterActiveForTools) {
       const reset = tools.createEl("button", {
         cls: "noria-tl-filter-reset",
@@ -6017,7 +5988,16 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         apply(this.getTimelineChromeFilterDefaults());
       });
     }
-    const tagInputs = panel.createDiv({ cls: "noria-tl-filter-tag-inputs" });
+    const advanced = panel.createEl("details", { cls: "noria-tl-filter-advanced" });
+    advanced.open = !activeMode || !!state.query || state.includeTags.length > 0 || state.excludeTags.length > 0;
+    advanced.createEl("summary", { text: this.plugin.t("timeline.filter.moreFilters") });
+    const advancedBody = advanced.createDiv({ cls: "noria-tl-filter-advanced-body" });
+    const layers = advancedBody.createDiv({ cls: "noria-tl-filter-chip-row noria-tl-filter-layer-row" });
+    ["task", "annotation", "pomodoro", "note", "git", "noria"].forEach((layer) => {
+      const label = this.plugin.t(`timeline.filter.layer.${layer}`);
+      createChip(layers, `layer-${layer}`, label, state.layers.includes(layer), () => toggleLayer(layer));
+    });
+    const tagInputs = advancedBody.createDiv({ cls: "noria-tl-filter-tag-inputs" });
     const createTagInput = (kind, current, placeholderKey) => {
       const className = kind === "include"
         ? "noria-tl-filter-tag-input noria-tl-filter-tag-input--include"
@@ -6211,6 +6191,36 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       this.renderTimelineFilterPanel(filterBtn);
       filterBtn.setAttribute("data-noria-action-state", "open");
       filterBtn.setAttribute("aria-expanded", "true");
+    });
+
+    const annotationSelectActive = currentFilterState.markMode === true;
+    const annotationSelectBtn = center.createEl("button", {
+      cls: "noria-tl-toolbar-icon-btn noria-tl-toolbar-link--annotation-select" + (annotationSelectActive ? " noria-tl-toolbar-link--on" : ""),
+      type: "button",
+      attr: {
+        title: this.plugin.t("timeline.chrome.annotationSelect"),
+        "aria-label": this.plugin.t("timeline.chrome.annotationSelect"),
+        "aria-pressed": annotationSelectActive ? "true" : "false",
+        "data-noria-action-source": "tasks-timeline-toolbar",
+        "data-noria-action-kind": "toggle-annotation-select",
+        "data-noria-action-state": annotationSelectActive ? "active" : "idle"
+      }
+    });
+    this.paintTimelineChromeIcon(annotationSelectBtn, "scan-line", "⌁");
+    annotationSelectBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const nextActive = currentFilterState.markMode !== true;
+      const nextLayers = nextActive
+        ? Array.from(new Set([...(currentFilterState.layers || []), "annotation"]))
+        : currentFilterState.layers;
+      this._timelineFilterState = this.normalizeTimelineChromeFilterState({
+        ...currentFilterState,
+        markMode: nextActive,
+        layers: nextLayers
+      });
+      this._timelineFilterPanelOpen = false;
+      void this.refreshTimelineRuntimeFromChrome();
     });
 
     const pomodoroLayerActive = currentFilterState.layers.includes("pomodoro");
@@ -9960,6 +9970,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
           });
       }
       if (String(widget.type || "").toLowerCase() === "markdown") {
+        const isDailySectionWidget = String(widget.props?.sourceMode || "").toLowerCase() === "daily-section";
         const editor = containerEl.createEl("details", { cls: "noria-home-widget-editor" });
         editor.setAttr("data-noria-widget-id", id);
         editor.setAttr("data-noria-widget-type", "markdown");
@@ -9977,24 +9988,47 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
               });
           });
         titleSetting.settingEl?.addClass?.("noria-home-widget-editor-field");
-        const sourceSetting = new obsidian.Setting(editor)
-          .setName(this.t("settings.home.widgetEditorSources"))
-          .setDesc(this.t("settings.home.widgetEditorSourcesDesc"))
-          .addTextArea((ta) => {
-            ta
-              .setPlaceholder(this.t("settings.home.widgetEditorSourcesPlaceholder"))
-              .setValue(this.plugin.formatHomeMarkdownWidgetSourceLines(widget))
-              .onChange(async (value) => {
-                if (!this.plugin.updateHomeMarkdownWidgetSourcesInSettings(id, value)) return;
-                await this.plugin.saveSettings();
-                this.plugin.requestNoriaRefresh("home", "settings:home-widget-markdown-sources");
-              });
-            try {
-              ta.inputEl?.addClass?.("noria-home-widget-editor-source");
-              ta.inputEl?.classList?.add?.("noria-home-widget-editor-source");
-            } catch (_) {}
-          });
-        sourceSetting.settingEl?.addClass?.("noria-home-widget-editor-field");
+        if (isDailySectionWidget) {
+          const headingSetting = new obsidian.Setting(editor)
+            .setName(this.t("settings.home.widgetSectionHeading"))
+            .setDesc(this.t("settings.home.widgetSectionHeadingDesc"))
+            .addText((text) => {
+              text
+                .setPlaceholder(this.t("runtime.home.layoutEdit.widget.dailyAdvice"))
+                .setValue(String(widget.props?.heading || ""))
+                .onChange(async (value) => {
+                  const heading = String(value || "").trim().replace(/^#+\s*/, "");
+                  if (!heading) return;
+                  const updated = this.plugin.updateHomeWidgetInSettings(id, (current) => ({
+                    ...current,
+                    props: { ...(current.props || {}), sourceMode: "daily-section", heading, renderMode: "compact" }
+                  }));
+                  if (!updated) return;
+                  await this.plugin.saveSettings();
+                  this.plugin.requestNoriaRefresh("home", "settings:home-widget-daily-section");
+                });
+            });
+          headingSetting.settingEl?.addClass?.("noria-home-widget-editor-field");
+        } else {
+          const sourceSetting = new obsidian.Setting(editor)
+            .setName(this.t("settings.home.widgetEditorSources"))
+            .setDesc(this.t("settings.home.widgetEditorSourcesDesc"))
+            .addTextArea((ta) => {
+              ta
+                .setPlaceholder(this.t("settings.home.widgetEditorSourcesPlaceholder"))
+                .setValue(this.plugin.formatHomeMarkdownWidgetSourceLines(widget))
+                .onChange(async (value) => {
+                  if (!this.plugin.updateHomeMarkdownWidgetSourcesInSettings(id, value)) return;
+                  await this.plugin.saveSettings();
+                  this.plugin.requestNoriaRefresh("home", "settings:home-widget-markdown-sources");
+                });
+              try {
+                ta.inputEl?.addClass?.("noria-home-widget-editor-source");
+                ta.inputEl?.classList?.add?.("noria-home-widget-editor-source");
+              } catch (_) {}
+            });
+          sourceSetting.settingEl?.addClass?.("noria-home-widget-editor-field");
+        }
       }
     });
     let widgetPresetType = "action";
@@ -10039,7 +10073,8 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       if (widgetPresetType === "markdown") {
         return [
           ["single", this.t("settings.home.widgetMarkdownPresetSingle")],
-          ["briefing", this.t("settings.home.widgetMarkdownPresetBriefing")]
+          ["briefing", this.t("settings.home.widgetMarkdownPresetBriefing")],
+          ["daily-section", this.t("settings.home.widgetMarkdownPresetDailySection")]
         ];
       }
       return [["", this.t("settings.home.widgetPresetVariant")]];
@@ -10052,22 +10087,32 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       variantDropdown.setValue(widgetPresetVariant);
       variantDropdown.selectEl.disabled = !["action", "stat", "markdown"].includes(widgetPresetType);
     };
-    const isPathBackedWidgetPreset = () => ["markdown", "base", "list"].includes(widgetPresetType);
+    const isDailySectionWidgetPreset = () => widgetPresetType === "markdown" && widgetPresetVariant === "daily-section";
+    const isPathBackedWidgetPreset = () => ["base", "list"].includes(widgetPresetType)
+      || (widgetPresetType === "markdown" && !isDailySectionWidgetPreset());
+    const usesPresetTextInput = () => isPathBackedWidgetPreset() || isDailySectionWidgetPreset();
     const getPresetSourcePlaceholder = () => {
       if (widgetPresetType === "base") return "02_Areas/知识库管理/Inbox queue.base";
       if (widgetPresetType === "list") return "01_Projects/Project list.md";
       if (widgetPresetType === "markdown" && widgetPresetVariant === "briefing") {
         return NORIA_HOME_BRIEFING_DEFAULT_SOURCE;
       }
+      if (isDailySectionWidgetPreset()) return this.t("runtime.home.layoutEdit.widget.dailyAdvice");
       return "Dashboard/Notes.md";
     };
     const renderPresetSourceInput = () => {
       if (!sourceTextInput?.inputEl) return;
-      sourceTextInput.inputEl.disabled = !isPathBackedWidgetPreset();
+      sourceTextInput.inputEl.disabled = !usesPresetTextInput();
       sourceTextInput.inputEl.placeholder = getPresetSourcePlaceholder();
-      sourceTextInput.inputEl.title = isPathBackedWidgetPreset() ? this.t("settings.home.widgetSourcePathDesc") : "";
+      sourceTextInput.inputEl.title = isDailySectionWidgetPreset()
+        ? this.t("settings.home.widgetSectionHeadingDesc")
+        : (isPathBackedWidgetPreset() ? this.t("settings.home.widgetSourcePathDesc") : "");
+      sourceTextInput.inputEl.setAttribute?.(
+        "aria-label",
+        isDailySectionWidgetPreset() ? this.t("settings.home.widgetSectionHeading") : this.t("settings.home.widgetSourcePath")
+      );
       if (sourceTextInput.inputEl.style) {
-        sourceTextInput.inputEl.style.opacity = isPathBackedWidgetPreset() ? "1" : "0.55";
+        sourceTextInput.inputEl.style.opacity = usesPresetTextInput() ? "1" : "0.55";
       }
     };
     const addPresetSetting = new obsidian.Setting(containerEl);
@@ -10130,7 +10175,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
             inputEl.style.minWidth = "220px";
             inputEl.style.flex = "1 1 260px";
           }
-          this.plugin.attachHomeWidgetSourceSuggest(inputEl, () => widgetPresetType);
+          this.plugin.attachHomeWidgetSourceSuggest(inputEl, () => isDailySectionWidgetPreset() ? "" : widgetPresetType);
         } catch (_) {}
         renderPresetSourceInput();
       })
@@ -10138,7 +10183,11 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
         if (typeof btn.setIcon === "function") btn.setIcon("plus");
         btn.setButtonText(this.t("settings.home.widgetAddButton"));
         btn.onClick(async () => {
-          const added = this.plugin.addHomeWidgetPresetToSettings(widgetPresetType, { source: isPathBackedWidgetPreset() ? widgetPresetSource : "", preset: widgetPresetVariant });
+          const added = this.plugin.addHomeWidgetPresetToSettings(widgetPresetType, {
+            source: isPathBackedWidgetPreset() ? widgetPresetSource : "",
+            heading: isDailySectionWidgetPreset() ? widgetPresetSource : "",
+            preset: widgetPresetVariant
+          });
           if (!added) return;
           await this.plugin.saveSettings();
           this.plugin.requestNoriaRefresh("home", "settings:home-widgets-add");
@@ -10182,26 +10231,290 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
   renderInboxWorkflowSettings(containerEl) {
     this.addSettingHeading(containerEl, "settings.inboxWorkflow.title", "settings.inboxWorkflow.desc");
     const workflow = this.plugin.getInboxWorkflowConfig();
-    const saveWorkflow = async (patch = {}) => {
-      this.plugin.settings.inboxWorkflow = this.plugin.normalizeInboxWorkflowConfig({
-        ...(this.plugin.settings.inboxWorkflow || workflow),
-        ...patch
-      });
+    const defaultStatusById = new Map((NORIA_DEFAULT_INBOX_WORKFLOW.statuses || []).map((status) => [status.id, status]));
+    const displayStatusLabel = (status) => {
+      const fallback = defaultStatusById.get(String(status?.id || ""));
+      const isUntouchedDefault = !!fallback && String(status?.label || "") === String(fallback.label || "");
+      return isUntouchedDefault
+        ? this.t(`settings.inboxWorkflow.defaultStage.${status.id}`)
+        : String(status?.label || status?.id || "");
+    };
+    const displayHomeViewLabel = (view) => view?.labelKey ? this.t(view.labelKey) : String(view?.label || view?.id || "");
+    const withOrder = (items) => items.map((item, index) => ({ ...item, order: (index + 1) * 10 }));
+    const uniqueId = (label, items, prefix) => {
+      const used = new Set((items || []).map((item) => String(item?.id || "")));
+      const base = this.plugin.normalizeInboxWorkflowId(label, `${prefix}-${used.size + 1}`);
+      let id = base;
+      let suffix = 2;
+      while (used.has(id)) id = `${base}-${suffix++}`;
+      return id;
+    };
+    const saveWorkflow = async (patch = {}, reason = "settings:inbox-workflow") => {
+      this.plugin.settings.inboxWorkflow = this.plugin.normalizeInboxWorkflowConfig({ ...workflow, ...patch });
       await this.plugin.saveSettings();
-      this.plugin.requestNoriaRefresh("home", "settings:inbox-workflow");
+      this.plugin.requestNoriaRefresh("home", reason);
+      this.display();
     };
     new obsidian.Setting(containerEl)
       .setName(this.t("settings.inboxWorkflow.defaultStatus"))
       .setDesc(this.t("settings.inboxWorkflow.defaultStatusDesc"))
       .addDropdown((dd) => {
         for (const status of workflow.statuses || []) {
-          dd.addOption(status.id, `${status.label} (${status.id})`);
+          dd.addOption(status.id, `${displayStatusLabel(status)} (${status.id})`);
         }
         dd.setValue(workflow.defaultStatusId || workflow.statuses?.[0]?.id || "")
           .onChange(async (value) => {
             await saveWorkflow({ defaultStatusId: value });
           });
       });
+    const decorateIconButton = (button, icon, control, label, disabled = false) => {
+      if (typeof button.setIcon === "function") button.setIcon(icon);
+      else button.setButtonText(icon === "trash-2" ? "-" : icon === "arrow-up" ? "↑" : "↓");
+      if (typeof button.setTooltip === "function") button.setTooltip(label);
+      this.decorateSettingsManagerIconButton(button.buttonEl, control, label);
+      if (typeof button.setDisabled === "function") button.setDisabled(disabled);
+    };
+    const moveItem = (items, index, offset) => {
+      const target = index + offset;
+      if (target < 0 || target >= items.length) return items;
+      const next = [...items];
+      [next[index], next[target]] = [next[target], next[index]];
+      return withOrder(next);
+    };
+
+    const statusManager = containerEl.createDiv({ cls: "noria-inbox-workflow-manager noria-inbox-workflow-status-manager" });
+    let statusInput = null;
+    const addStatus = async () => {
+      const label = String(statusInput?.value || "").trim();
+      if (!label) {
+        statusInput?.focus?.();
+        return;
+      }
+      const statuses = [...(workflow.statuses || [])];
+      statuses.push({
+        id: uniqueId(label, statuses, "stage"),
+        label,
+        color: "",
+        aliases: [],
+        order: (statuses.length + 1) * 10
+      });
+      await saveWorkflow({ statuses }, "settings:inbox-workflow-status-add");
+    };
+    const statusHead = new obsidian.Setting(statusManager)
+      .setName(this.t("settings.inboxWorkflow.statusManager"))
+      .setDesc(this.t("settings.inboxWorkflow.statusManagerDesc"))
+      .addText((text) => {
+        statusInput = text.inputEl;
+        text.setPlaceholder(this.t("settings.inboxWorkflow.statusLabel"));
+        text.inputEl?.addEventListener?.("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          void addStatus();
+        });
+      })
+      .addButton((button) => {
+        if (typeof button.setIcon === "function") button.setIcon("plus");
+        else button.setButtonText("+");
+        if (typeof button.setTooltip === "function") button.setTooltip(this.t("settings.inboxWorkflow.addStatus"));
+        button.onClick(addStatus);
+      });
+    statusHead.settingEl?.addClass?.("noria-inbox-workflow-manager-head");
+
+    (workflow.statuses || []).forEach((status, index) => {
+      const statuses = workflow.statuses || [];
+      const displayLabel = displayStatusLabel(status);
+      const row = new obsidian.Setting(statusManager)
+        .setName(displayLabel)
+        .setDesc(this.t("settings.inboxWorkflow.statusId", { id: status.id }));
+      row.settingEl?.addClass?.("noria-inbox-workflow-status-row");
+      row.settingEl?.setAttribute?.("data-noria-inbox-status-id", status.id);
+      row.addText((text) => {
+        let draft = displayLabel;
+        let committing = false;
+        const commitLabel = async () => {
+          const label = String(draft || "").trim();
+          if (committing || !label || label === displayLabel) return;
+          committing = true;
+          const next = statuses.map((item, itemIndex) => itemIndex === index ? { ...item, label } : item);
+          await saveWorkflow({ statuses: next }, "settings:inbox-workflow-status-label");
+        };
+        text.setValue(displayLabel).onChange((value) => { draft = value; });
+        text.inputEl?.setAttribute?.("aria-label", `${this.t("settings.inboxWorkflow.statusLabel")}: ${displayLabel}`);
+        text.inputEl?.addEventListener?.("blur", () => { void commitLabel(); });
+        text.inputEl?.addEventListener?.("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          text.inputEl?.blur?.();
+        });
+      });
+      if (typeof row.addColorPicker === "function") {
+        row.addColorPicker((picker) => {
+          picker.setValue(status.color || "#64748b").onChange(async (value) => {
+            const next = statuses.map((item, itemIndex) => itemIndex === index ? { ...item, color: value } : item);
+            await saveWorkflow({ statuses: next }, "settings:inbox-workflow-status-color");
+          });
+          picker.colorPickerEl?.setAttribute?.("aria-label", `${displayLabel}: ${this.t("settings.inboxWorkflow.statusColor")}`);
+        });
+      }
+      row
+        .addButton((button) => {
+          decorateIconButton(button, "arrow-up", "move-up", this.t("settings.inboxWorkflow.moveUp"), index === 0);
+          button.onClick(async () => {
+            if (index === 0) return;
+            await saveWorkflow({ statuses: moveItem(statuses, index, -1) }, "settings:inbox-workflow-status-order");
+          });
+        })
+        .addButton((button) => {
+          decorateIconButton(button, "arrow-down", "move-down", this.t("settings.inboxWorkflow.moveDown"), index === statuses.length - 1);
+          button.onClick(async () => {
+            if (index >= statuses.length - 1) return;
+            await saveWorkflow({ statuses: moveItem(statuses, index, 1) }, "settings:inbox-workflow-status-order");
+          });
+        })
+        .addButton((button) => {
+          decorateIconButton(button, "trash-2", "remove", this.t("settings.inboxWorkflow.remove"), statuses.length <= 1);
+          button.onClick(async () => {
+            if (statuses.length <= 1) return;
+            const nextStatuses = withOrder(statuses.filter((_item, itemIndex) => itemIndex !== index));
+            const stripStatus = (views) => (views || []).map((view) => ({
+              ...view,
+              statusIds: (view.statusIds || []).filter((id) => id !== status.id)
+            }));
+            await saveWorkflow({
+              statuses: nextStatuses,
+              defaultStatusId: workflow.defaultStatusId === status.id ? nextStatuses[0].id : workflow.defaultStatusId,
+              homeViews: stripStatus(workflow.homeViews),
+              baseViews: stripStatus(workflow.baseViews)
+            }, "settings:inbox-workflow-status-remove");
+          });
+        });
+    });
+    advancedBody.appendChild(search);
+
+    const viewManager = containerEl.createDiv({ cls: "noria-inbox-workflow-manager noria-inbox-workflow-view-manager" });
+    let viewInput = null;
+    let addViewStatusId = workflow.defaultStatusId || workflow.statuses?.[0]?.id || "";
+    const addHomeView = async () => {
+      const label = String(viewInput?.value || "").trim();
+      if (!label) {
+        viewInput?.focus?.();
+        return;
+      }
+      const homeViews = [...(workflow.homeViews || [])];
+      homeViews.push({
+        id: uniqueId(label, homeViews, "group"),
+        label,
+        statusIds: addViewStatusId ? [addViewStatusId] : [],
+        actionIds: [],
+        showOnHome: true,
+        order: (homeViews.length + 1) * 10
+      });
+      await saveWorkflow({ homeViews }, "settings:inbox-workflow-home-view-add");
+    };
+    const viewHead = new obsidian.Setting(viewManager)
+      .setName(this.t("settings.inboxWorkflow.homeViewManager"))
+      .setDesc(this.t("settings.inboxWorkflow.homeViewManagerDesc"))
+      .addText((text) => {
+        viewInput = text.inputEl;
+        text.setPlaceholder(this.t("settings.inboxWorkflow.homeViewLabel"));
+        text.inputEl?.addEventListener?.("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          void addHomeView();
+        });
+      })
+      .addDropdown((dropdown) => {
+        (workflow.statuses || []).forEach((status) => dropdown.addOption(status.id, displayStatusLabel(status)));
+        dropdown.setValue(addViewStatusId).onChange((value) => { addViewStatusId = value; });
+      })
+      .addButton((button) => {
+        if (typeof button.setIcon === "function") button.setIcon("plus");
+        else button.setButtonText("+");
+        if (typeof button.setTooltip === "function") button.setTooltip(this.t("settings.inboxWorkflow.addHomeView"));
+        button.onClick(addHomeView);
+      });
+    viewHead.settingEl?.addClass?.("noria-inbox-workflow-manager-head");
+
+    (workflow.homeViews || []).forEach((view, index) => {
+      const homeViews = workflow.homeViews || [];
+      const currentStatusId = view.statusIds?.length === 1 ? view.statusIds[0] : "";
+      const displayLabel = displayHomeViewLabel(view);
+      const row = new obsidian.Setting(viewManager)
+        .setName(displayLabel)
+        .setDesc(this.t("settings.inboxWorkflow.homeViewId", { id: view.id }));
+      row.settingEl?.addClass?.("noria-inbox-workflow-view-row");
+      row.settingEl?.setAttribute?.("data-noria-inbox-home-view-id", view.id);
+      row.addText((text) => {
+        let draft = displayLabel;
+        let committing = false;
+        const commitLabel = async () => {
+          const label = String(draft || "").trim();
+          if (committing || !label || label === displayLabel) return;
+          committing = true;
+          const next = homeViews.map((item, itemIndex) => itemIndex === index
+            ? { ...item, label, labelKey: "", titleKey: "" }
+            : item);
+          await saveWorkflow({ homeViews: next }, "settings:inbox-workflow-home-view-label");
+        };
+        text.setValue(displayLabel).onChange((value) => { draft = value; });
+        text.inputEl?.setAttribute?.("aria-label", `${this.t("settings.inboxWorkflow.homeViewLabel")}: ${displayLabel}`);
+        text.inputEl?.addEventListener?.("blur", () => { void commitLabel(); });
+        text.inputEl?.addEventListener?.("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          text.inputEl?.blur?.();
+        });
+      });
+      row.addDropdown((dropdown) => {
+        dropdown.addOption("", this.t("settings.inboxWorkflow.computedRule"));
+        (workflow.statuses || []).forEach((status) => dropdown.addOption(status.id, displayStatusLabel(status)));
+        dropdown.setValue(currentStatusId).onChange(async (value) => {
+          if (!value) return;
+          const next = homeViews.map((item, itemIndex) => itemIndex === index ? {
+            ...item,
+            statusIds: [value],
+            actionIds: [],
+            includeMissingCore: false,
+            reviewDue: false,
+            missingTrust: false
+          } : item);
+          await saveWorkflow({ homeViews: next }, "settings:inbox-workflow-home-view-filter");
+        });
+        dropdown.selectEl?.setAttribute?.("aria-label", `${displayLabel}: ${this.t("settings.inboxWorkflow.homeViewStatus")}`);
+      });
+      row.addToggle((toggle) => {
+        toggle.setValue(view.showOnHome !== false).onChange(async (value) => {
+          const next = homeViews.map((item, itemIndex) => itemIndex === index ? { ...item, showOnHome: value } : item);
+          await saveWorkflow({ homeViews: next }, "settings:inbox-workflow-home-view-visible");
+        });
+        toggle.toggleEl?.setAttribute?.("aria-label", `${displayLabel}: ${this.t("settings.inboxWorkflow.showOnHome")}`);
+        toggle.toggleEl?.setAttribute?.("title", this.t("settings.inboxWorkflow.showOnHome"));
+      });
+      row
+        .addButton((button) => {
+          decorateIconButton(button, "arrow-up", "move-up", this.t("settings.inboxWorkflow.moveUp"), index === 0);
+          button.onClick(async () => {
+            if (index === 0) return;
+            await saveWorkflow({ homeViews: moveItem(homeViews, index, -1) }, "settings:inbox-workflow-home-view-order");
+          });
+        })
+        .addButton((button) => {
+          decorateIconButton(button, "arrow-down", "move-down", this.t("settings.inboxWorkflow.moveDown"), index === homeViews.length - 1);
+          button.onClick(async () => {
+            if (index >= homeViews.length - 1) return;
+            await saveWorkflow({ homeViews: moveItem(homeViews, index, 1) }, "settings:inbox-workflow-home-view-order");
+          });
+        })
+        .addButton((button) => {
+          decorateIconButton(button, "trash-2", "remove", this.t("settings.inboxWorkflow.remove"));
+          button.onClick(async () => {
+            await saveWorkflow({
+              homeViews: withOrder(homeViews.filter((_item, itemIndex) => itemIndex !== index))
+            }, "settings:inbox-workflow-home-view-remove");
+          });
+        });
+    });
+
     const addJsonSetting = (parentEl, nameKey, descKey, key) => {
       const setting = new obsidian.Setting(parentEl)
         .setName(this.t(nameKey))
@@ -10223,8 +10536,6 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       this.applyFullWidthJsonSetting(setting);
     };
     this.renderAdvancedDisclosure(containerEl, "settings.inboxWorkflow.advancedJson", "settings.inboxWorkflow.advancedJsonDesc", (details) => {
-      addJsonSetting(details, "settings.inboxWorkflow.statuses", "settings.inboxWorkflow.statusesDesc", "statuses");
-      addJsonSetting(details, "settings.inboxWorkflow.homeViews", "settings.inboxWorkflow.homeViewsDesc", "homeViews");
       addJsonSetting(details, "settings.inboxWorkflow.baseViews", "settings.inboxWorkflow.baseViewsDesc", "baseViews");
       new obsidian.Setting(details)
         .setName(this.t("settings.inboxWorkflow.actions"))
@@ -10238,6 +10549,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
             this.plugin.settings.inboxWorkflow = this.plugin.cloneDefaultInboxWorkflow();
             await this.plugin.saveSettings();
             this.plugin.requestNoriaRefresh("home", "settings:inbox-workflow-reset");
+            this.display();
           })
         );
     });
@@ -13904,7 +14216,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       },
       inbox: {
         title: "Inbox stats",
-        metrics: ["inbox.total", "inbox.stale", "inbox.processed", "tasks.open"]
+        metrics: ["inbox.total", "inbox.stale", "tasks.open"]
       },
       overview: {
         title: "Stats",
@@ -13958,6 +14270,25 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     }
     if (kind === "markdown") {
       const variant = this.normalizeHomeWidgetPresetVariant("markdown", options?.preset || options?.variant);
+      if (variant === "daily-section") {
+        const heading = String(options?.heading || options?.section || "建议").trim().replace(/^#+\s*/, "");
+        if (!heading) return null;
+        return {
+          id: this.getUniqueHomeWidgetId("daily-section", list),
+          type: "markdown",
+          schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION,
+          enabled: true,
+          order,
+          size: "full",
+          title: explicitTitle || heading,
+          source: "",
+          props: {
+            sourceMode: "daily-section",
+            heading,
+            renderMode: "compact"
+          }
+        };
+      }
       if (variant === "briefing") {
         const sources = this.parseHomeMarkdownWidgetSourceLines(source || NORIA_HOME_BRIEFING_DEFAULT_SOURCE, {});
         if (!sources.length) return null;
@@ -14276,10 +14607,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   normalizeInboxWorkflowConfig(input = {}) {
     const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
     const defaults = this.cloneDefaultInboxWorkflow();
-    const rawStatuses = Array.isArray(raw.statuses) ? raw.statuses : defaults.statuses;
+    const inputStatuses = Array.isArray(raw.statuses) ? raw.statuses : defaults.statuses;
     const statuses = [];
     const seen = new Set();
-    rawStatuses.forEach((item, index) => {
+    inputStatuses.forEach((item, index) => {
       const obj = item && typeof item === "object" && !Array.isArray(item) ? item : {};
       const id = this.normalizeInboxWorkflowId(obj.id || obj.label);
       if (!id || seen.has(id)) return;
@@ -14290,7 +14621,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         label: String(obj.label || id).trim() || id,
         color: String(obj.color || "").trim(),
         aliases: this.normalizeInboxTextList(obj.aliases),
-        terminal: obj.terminal === true,
         order: Number.isFinite(orderValue) ? orderValue : (index + 1) * 10
       });
     });
@@ -14303,8 +14633,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     const normalizeActionIds = (value) => this.normalizeInboxTextList(value)
       .map((id) => this.normalizeInboxWorkflowId(id))
       .filter((id, index, arr) => id && arr.indexOf(id) === index);
+    const inputHomeViews = Array.isArray(raw.homeViews) ? raw.homeViews : defaults.homeViews;
     const normalizeViews = (value, fallback, { home = false } = {}) => {
       const source = Array.isArray(value) ? value : fallback;
+      const fallbackById = new Map((fallback || []).map((item) => [String(item?.id || ""), item]));
       const out = [];
       const viewSeen = new Set();
       source.forEach((item, index) => {
@@ -14320,18 +14652,19 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
           label: String(obj.label || id).trim() || id,
           statusIds: statusIdsForView,
           actionIds,
-          excludeTerminal: obj.excludeTerminal === true,
           includeMissingCore: obj.includeMissingCore === true,
           reviewDue: obj.reviewDue === true,
           missingTrust: obj.missingTrust === true,
           showOnHome: home ? obj.showOnHome !== false : obj.showOnHome === true,
           order: Number.isFinite(orderValue) ? orderValue : (index + 1) * 10
         };
-        const labelKey = String(obj.labelKey || "").trim();
-        const titleKey = String(obj.titleKey || "").trim();
+        const fallbackView = fallbackById.get(id);
+        const usesDefaultLabel = !!fallbackView && String(obj.label || id).trim() === String(fallbackView.label || id).trim();
+        const labelKey = String(obj.labelKey || (usesDefaultLabel ? fallbackView?.labelKey : "") || "").trim();
+        const titleKey = String(obj.titleKey || (usesDefaultLabel ? fallbackView?.titleKey : "") || "").trim();
         if (labelKey) view.labelKey = labelKey;
         if (titleKey) view.titleKey = titleKey;
-        const hasCriterion = view.statusIds.length || view.actionIds.length || view.excludeTerminal || view.includeMissingCore || view.reviewDue || view.missingTrust;
+        const hasCriterion = view.statusIds.length || view.actionIds.length || view.includeMissingCore || view.reviewDue || view.missingTrust;
         if (hasCriterion) out.push(view);
       });
       return out.sort((a, b) => Number(a.order || 0) - Number(b.order || 0) || String(a.id).localeCompare(String(b.id)));
@@ -14341,7 +14674,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     return {
       statuses: finalStatuses.map((item) => ({ ...item, aliases: [...(item.aliases || [])] })),
       defaultStatusId,
-      homeViews: normalizeViews(raw.homeViews, defaults.homeViews, { home: true }),
+      homeViews: normalizeViews(inputHomeViews, defaults.homeViews, { home: true }),
       baseViews: normalizeViews(raw.baseViews, defaults.baseViews, { home: false })
     };
   }
@@ -14369,11 +14702,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     return this.getInboxWorkflowConfig().defaultStatusId || "triage";
   }
 
-  getInboxTerminalStatusIds(config = this.getInboxWorkflowConfig()) {
-    return (config.statuses || []).filter((item) => item.terminal === true).map((item) => item.id);
-  }
-
-  buildInboxQueueViewFilterLines(view, config = this.getInboxWorkflowConfig()) {
+  buildInboxQueueViewFilterLines(view) {
     const lines = [];
     const orLines = [];
     for (const id of view.statusIds || []) orLines.push(`        - inbox-status == ${JSON.stringify(id)}`);
@@ -14390,7 +14719,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       lines.push("      and:");
       lines.push("        - or:");
       lines.push(...orLines.map((line) => `          ${line.trim().replace(/^- /, "- ")}`));
-    } else if (view.excludeTerminal || view.reviewDue || view.missingTrust) {
+    } else if (view.reviewDue || view.missingTrust) {
       lines.push("      and:");
     }
     if (view.reviewDue) {
@@ -14402,12 +14731,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       lines.push("        - or:");
       lines.push("          - inbox-action == \"file\"");
       lines.push("          - inbox-action == \"archive\"");
-    }
-    if (view.excludeTerminal) {
-      if (!lines.length) lines.push("      and:");
-      for (const id of this.getInboxTerminalStatusIds(config)) {
-        lines.push(`        - inbox-status != ${JSON.stringify(id)}`);
-      }
     }
     return lines.length ? ["    filters:", ...lines] : [];
   }
@@ -14464,7 +14787,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     for (const view of baseViews) {
       lines.push("  - type: table");
       lines.push(`    name: ${view.label}`);
-      lines.push(...this.buildInboxQueueViewFilterLines(view, config));
+      lines.push(...this.buildInboxQueueViewFilterLines(view));
       lines.push("    order:");
       lines.push(...orderLines);
     }
@@ -15004,7 +15327,6 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       const workbenchPanelToCard = {
         tasks: "today-tasks-card",
         inbox: "inbox-card",
-        "habit-today": "habit-today-card",
         countdown: "countdown-card"
       };
       const expandLegacyWorkbench = (raw) => {
@@ -15175,8 +15497,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
           return !!this.normalizePath(item?.path || item?.source || item?.file || item?.note || "").replace(/^\/+/, "");
         });
         const hasMarkdownSources = hasPathItems(migrated.props?.sources) || hasPathItems(migrated.props?.entries);
+        const sourceMode = String(migrated.props?.sourceMode || "").trim().toLowerCase();
+        const hasDailySectionSource = sourceMode === "daily-section" && !!String(migrated.props?.heading || "").trim().replace(/^#+\s*/, "");
         const hasEntryProps = Array.isArray(migrated.props?.entries) && migrated.props.entries.length > 0;
-        if (type === "markdown" && !source && !hasMarkdownSources) return;
+        if (type === "markdown" && !source && !hasMarkdownSources && !hasDailySectionSource) return;
         if (type === "view" && !source) return;
         if ((type === "base" || type === "list") && !source && !hasEntryProps) return;
         const order = Number.isFinite(Number(migrated.order)) ? Number(migrated.order) : Number(fallbackWidget.order || 0);
@@ -15184,6 +15508,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         let title = String(migrated.title ?? fallbackWidget.title ?? "").trim();
         if (type === "builtin" && id === "trends" && title === "Trends") title = "";
         if (type === "builtin" && id === "guide" && title === "Guide") title = "";
+        const normalizedProps = migrated.props && typeof migrated.props === "object" && !Array.isArray(migrated.props)
+          ? cloneHomeWidgetExtensionValue(migrated.props)
+          : cloneHomeWidgetExtensionValue(fallbackWidget.props || {});
+        if (id === "inbox-card") normalizedProps.panels = ["inbox"];
         byId.set(id, {
           ...copyHomeWidgetExtensionFields(migrated),
           id,
@@ -15195,9 +15523,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
           title,
           ...(titleKey ? { titleKey } : {}),
           source,
-          props: migrated.props && typeof migrated.props === "object" && !Array.isArray(migrated.props)
-            ? cloneHomeWidgetExtensionValue(migrated.props)
-            : cloneHomeWidgetExtensionValue(fallbackWidget.props || {})
+          props: normalizedProps
         });
       };
       NORIA_DEFAULT_HOME_WIDGETS.forEach((fallback) => {
@@ -15207,15 +15533,13 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       });
       list.forEach((raw) => pushWidget(raw, {}));
       const normalized = Array.from(byId.values());
-      const focus = normalized.find((widget) => widget.id === "focus-strip");
-      const workbenchCards = normalized.filter((widget) => ["today-tasks-card", "inbox-card", "habit-today-card", "countdown-card"].includes(widget.id));
-      const workbenchOrder = workbenchCards.length ? Math.min(...workbenchCards.map((widget) => Number(widget.order || 0))) : Number.NaN;
-      const focusRaw = list.find((item) => String(item?.id || "") === "focus-strip");
-      const focusRawVersion = Number(focusRaw?.schemaVersion);
-      const shouldMigrateFocusOrder = !Number.isFinite(focusRawVersion) || focusRawVersion < NORIA_HOME_WIDGET_SCHEMA_VERSION;
-      if (focus && Number.isFinite(workbenchOrder) && shouldMigrateFocusOrder && Number(focus.order || 0) >= workbenchOrder) {
-        focus.order = workbenchOrder - 5;
-      }
+      const habitHistory = normalized.find((widget) => widget.id === "habit-history-card");
+      const projects = normalized.find((widget) => widget.id === "projects-card");
+      const taskTrend = normalized.find((widget) => widget.id === "task-trend-card");
+      const usesRetiredHabitPosition = Number(habitHistory?.order) === 73
+        && Number(projects?.order) === 60
+        && Number(taskTrend?.order) === 72;
+      if (usesRetiredHabitPosition) habitHistory.order = 53;
       return normalized.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
     };
     if (!merged.home || typeof merged.home !== "object" || Array.isArray(merged.home)) {
@@ -17393,8 +17717,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       }
       case "inboxWorkflow":
         return zh
-          ? `${note}# Inbox 处置工作流\n\n> 主入口：用 [[Inbox queue.base|Inbox 队列]] 看全队。每条仍在 Inbox 的 Markdown 用 frontmatter 标注 \`inbox-action\`、\`inbox-status\`、\`inbox-shape\`、\`inbox-next\` 和可选 \`inbox-review\`。\n\n## 最短路径\n\n- delete：无价值或重复材料直接删除。\n- merge：并入已有笔记或项目。\n- split/refine：拆分或提炼成可用材料。\n- file/archive：迁出到合适位置或归档。\n- defer：暂缓，写明 \`inbox-review\`。\n\n## 迁出检查\n\n- 有明确成品形态或去向。\n- 有必要的来源、链接或上下文。\n- 迁出后删除临时 \`inbox-*\` 字段。\n`
-          : `${note}# Inbox workflow\n\n> Use [[Inbox queue.base|Inbox queue]] as the queue view. Markdown files still in Inbox can use \`inbox-action\`, \`inbox-status\`, \`inbox-shape\`, \`inbox-next\`, and optional \`inbox-review\` frontmatter.\n\n## Default path\n\n- delete: remove noise or duplicates.\n- merge: merge into an existing note or project.\n- split/refine: turn the capture into usable material.\n- file/archive: move it to the right place or archive it.\n- defer: postpone with \`inbox-review\`.\n\n## Close-out check\n\n- Destination or final shape is clear.\n- Source, links, or context are enough to keep trust.\n- Remove temporary \`inbox-*\` fields after moving out of Inbox.\n`;
+          ? `${note}# Inbox 处置工作流\n\n> Inbox 是临时决策队列，不是长期存放区。用 [[Inbox queue.base|Inbox 队列]] 集中查看仍待处理的 Markdown。\n\n## 默认阶段\n\n| 阶段 | 状态 id | 含义 |\n| --- | --- | --- |\n| 判断去留 | \`triage\` | 判断删除、合并、拆分、加工、迁出或继续保留。 |\n| 正在加工 | \`processing\` | 正在精炼、拆分或并入其他内容。 |\n| 准备迁出 | \`ready\` | 去向和下一步已经明确，可以离开 Inbox。 |\n\n主页默认显示这三个阶段。“到期回看”和“补证据”只是可选分组，不是工作流阶段。阶段名称、顺序与主页分组可在 Noria 设置的“主页 > Inbox 工作流”中调整。\n\n处理完成不是第四个状态。删除、合并、迁出或归档成功后，条目直接离开 Inbox；迁出的内容会清除临时 \`inbox-*\` 字段。\n\n## 处理顺序\n\n\`delete -> merge -> split/refine -> file/archive -> defer\`\n\n\`defer\` 表示暂时保留，状态仍为 \`triage\`（判断去留），不是独立的默认阶段。只有确实存在回看日期时才填写 \`inbox-review\`。\n\n## 最小字段\n\n- \`inbox-status\`：当前阶段 id；新捕捉默认写入 \`triage\`。\n- \`inbox-action\`：已经明确时再写下一步动作。\n- \`inbox-next\`：需要时记录目标位置或去向。\n- \`inbox-shape\`：需要时记录预期成品形态。\n- \`inbox-review\`：仅在有真实回看日期时使用。\n\n无需为了完整而填满所有字段。\n\n## 迁出检查\n\n- 去向或成品形态已经明确。\n- 来源、链接或上下文足以让内容以后仍可理解。\n- 需要删除、移动或拆分时，先确认实际范围。\n`
+          : `${note}# Inbox workflow\n\n> Inbox is a temporary decision queue, not long-term storage. Use [[Inbox queue.base|Inbox queue]] to review Markdown that still needs handling.\n\n## Default stages\n\n| Stage | Status id | Meaning |\n| --- | --- | --- |\n| Triage | \`triage\` | Decide whether to delete, merge, split, refine, move, or keep the item. |\n| Processing | \`processing\` | Refine, split, or merge the item. |\n| Ready | \`ready\` | The destination and next action are clear; the item can leave Inbox. |\n\nHome shows these three stages by default. Review due and Needs evidence are optional groups, not workflow stages. Stage names, order, and Home groups can be changed in Noria settings under Home > Inbox workflow.\n\nCompletion is not a fourth status. After deletion, merging, moving, or archiving succeeds, the item leaves Inbox; moved content has its temporary \`inbox-*\` fields removed.\n\n## Handling order\n\n\`delete -> merge -> split/refine -> file/archive -> defer\`\n\n\`defer\` keeps the item in \`triage\`; it is not a separate default stage. Add \`inbox-review\` only when a real review date exists.\n\n## Minimal fields\n\n- \`inbox-status\`: current stage id; new captures start as \`triage\`.\n- \`inbox-action\`: add the next handling action once it is known.\n- \`inbox-next\`: optional destination or direction.\n- \`inbox-shape\`: optional intended output form.\n- \`inbox-review\`: only for a real review date.\n\nDo not fill every field for completeness.\n\n## Ready-to-move check\n\n- Destination or final shape is clear.\n- Source, links, or context are sufficient for future understanding.\n- Confirm the actual scope before deleting, moving, or splitting content.\n`;
       case "inboxQueue":
         return this.buildInboxQueueBaseSeed();
       case "dailyTemplate":
@@ -17910,6 +18234,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       pluginVersion: String(this.manifest?.version || ""),
       pluginId: String(this.manifest?.id || noriaIdentity.PUBLIC_PLUGIN_ID),
       generatedAt: new Date().toISOString(),
+      today: this.getLocalYmd(),
       storagePaths: { ...storagePaths },
       homeEditMode: this._homeEditMode === true,
       locale,
@@ -18778,6 +19103,21 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     return this.app.workspace.getLeaf("tab");
   }
 
+  activateWorkspaceLeaf(leaf) {
+    const workspace = this.app?.workspace;
+    if (!leaf || typeof workspace?.setActiveLeaf !== "function") return false;
+    const root = typeof leaf.getRoot === "function" ? leaf.getRoot() : null;
+    if (
+      root &&
+      (root === workspace.leftSplit || root === workspace.rightSplit) &&
+      typeof root.expand === "function"
+    ) {
+      root.expand();
+    }
+    workspace.setActiveLeaf(leaf, { focus: true });
+    return true;
+  }
+
   /** 隐藏的恢复标签只保留轻量宿主，首次可见或激活时再挂载完整主页 runtime。 */
   async runHomeLeavesStartupRecovery() {
     if (!this.isModuleEnabled("home")) return;
@@ -18951,7 +19291,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
           : this.app.workspace.getLeaf("tab"));
     }
     await leaf.setViewState({ type: VIEW_TYPE_NORIA_TASK_TIMELINE, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    this.activateWorkspaceLeaf(leaf);
     /**
      * 与 `openTasksBoardLeaf` 对齐：恢复出的旧 leaf 首次激活时可能未完整重挂 runtime，表现为空白直至重开 Tab。
      */
@@ -19011,7 +19351,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         ? this.app.workspace.getRightLeaf(false)
         : this.app.workspace.getLeaf("tab"));
     await leaf.setViewState({ type: VIEW_TYPE_NORIA_CALENDAR, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    this.activateWorkspaceLeaf(leaf);
     if (hadExisting && leaf.view && typeof leaf.view.reload === "function") {
       await leaf.view.reload();
     }
@@ -19059,7 +19399,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     }
     const { leaf, hadExisting } = this.pickLeafForView(VIEW_TYPE_NORIA_TASKS);
     await leaf.setViewState({ type: VIEW_TYPE_NORIA_TASKS, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    this.activateWorkspaceLeaf(leaf);
     /**
      * 冷启动阶段常见现象：workspace 恢复出的旧 leaf 在首次激活时未完整重挂 runtime，
      * 表现为“首次打开异常、关闭重开正常”。这里做一次轻量健康检查，不健康则强制 reload。
@@ -19100,11 +19440,11 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     };
     const beforeHealth = hadExisting ? readHomeLeafHealth(leaf && leaf.view ? leaf.view : null) : null;
     if (hadExisting && beforeHealth && (beforeHealth.hasRoot || beforeHealth.hasError || beforeHealth.isRendering)) {
-      this.app.workspace.revealLeaf(leaf);
+      this.activateWorkspaceLeaf(leaf);
       return leaf;
     }
     await leaf.setViewState({ type: VIEW_TYPE_NORIA_HOME, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    this.activateWorkspaceLeaf(leaf);
     const openSeq = (Number(this._homeOpenSeq || 0) + 1);
     this._homeOpenSeq = openSeq;
     if (hadExisting) {
@@ -19133,7 +19473,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     }
     const { leaf } = this.pickLeafForView(VIEW_TYPE_NORIA_STATS);
     await leaf.setViewState({ type: VIEW_TYPE_NORIA_STATS, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    this.activateWorkspaceLeaf(leaf);
   }
 
   resolveReviewSelection(input = {}) {
@@ -19870,9 +20210,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       throw new Error("No workspace leaf available");
     }
     await leaf.openFile(file, { active: true });
-    try {
-      this.app.workspace.revealLeaf(leaf);
-    } catch (_) {}
+    this.activateWorkspaceLeaf(leaf);
     return { ok: true, path, leaf };
   }
 

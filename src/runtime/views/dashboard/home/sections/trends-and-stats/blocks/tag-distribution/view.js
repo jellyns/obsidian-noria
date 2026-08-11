@@ -29,6 +29,7 @@ const normalizeFileDate = (value) => {
   const m = raw.match(/\d{4}-\d{2}-\d{2}/);
   return m ? m[0] : "";
 };
+const noteCreatedValue = (page) => page?.created || page?.file?.ctime;
 const inStatsRange = (date) => {
   const ds = normalizeFileDate(date);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return false;
@@ -92,7 +93,7 @@ if (Array.isArray(snapshotDistribution?.items) && snapshotDistribution.items.len
     if (!p.file || (p.file.extension && p.file.extension !== "md")) return;
     const path = p.file.path || "";
     if (isSkippedPath(path)) return;
-    if (statsRange && !inStatsRange(p.file.ctime)) return;
+    if (statsRange && !inStatsRange(noteCreatedValue(p))) return;
     totalMd++;
     const seg = path.split("/");
     const top = seg.length >= 2 ? seg[0] : tagDistributionT("runtime.home.trends.rootVault");

@@ -78,6 +78,19 @@ const now = new Date();
 const todayStr = now.toISOString().slice(0, 10);
 const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const normalizeDiary = (n) => (/^\d{8}$/.test(n) ? `${n.slice(0,4)}-${n.slice(4,6)}-${n.slice(6,8)}` : n);
+const noteCreatedValue = (page) => page?.created || page?.file?.ctime;
+const normalizeNoteDate = (value) => {
+  if (!value) return "";
+  if (value instanceof Date) return toDateStr(value);
+  if (typeof value === "number" && Number.isFinite(value)) return toDateStr(new Date(value));
+  try {
+    if (typeof value.toISODate === "function") return String(value.toISODate()).slice(0, 10);
+    if (typeof value.toFormat === "function") return String(value.toFormat("yyyy-MM-dd")).slice(0, 10);
+    if (typeof value.format === "function") return String(value.format("YYYY-MM-DD")).slice(0, 10);
+  } catch (_) {}
+  const match = String(value || "").match(/\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : "";
+};
 
 const diaryPagesFromRuntime = noriaBridge.runtime?.pagesForManagedPath?.("diaryRoot", ctx) || [];
 const diaryPagesForDates = (diaryPagesFromRuntime && diaryPagesFromRuntime.length > 0)
@@ -91,7 +104,7 @@ const diaryDates = diaryPagesForDates
 let firstTs = Infinity;
 if (diaryDates.length) firstTs = new Date([...diaryDates].sort()[0]).getTime();
 else pages.forEach((p) => {
-  const t = p.file.ctime;
+  const t = noteCreatedValue(p);
   if (!t) return;
   const ts = new Date(t).getTime();
   if (!isNaN(ts) && ts < firstTs) firstTs = ts;
@@ -99,7 +112,7 @@ else pages.forEach((p) => {
 const daysUsed = firstTs !== Infinity ? Math.max(1, Math.floor((now.getTime() - firstTs) / 86400000)) : 1;
 
 const diarySet = new Set(diaryDates);
-const pageDateSet = new Set(pages.filter((p) => p.file.ctime).map((p) => String(p.file.ctime).slice(0, 10)));
+const pageDateSet = new Set(pages.map((p) => normalizeNoteDate(noteCreatedValue(p))).filter(Boolean));
 let streak = 0;
 for (let i = 0; i < 365; i++) {
   const d = new Date(now); d.setDate(now.getDate() - i);
@@ -107,7 +120,7 @@ for (let i = 0; i < 365; i++) {
   if (diarySet.has(ds) || pageDateSet.has(ds)) streak++; else break;
 }
 
-const createdToday = metricPages.filter((p) => String(p.file.ctime || "").slice(0, 10) === todayStr).length;
+const createdToday = metricPages.filter((p) => normalizeNoteDate(noteCreatedValue(p)) === todayStr).length;
 
 const metricsCache = getMetricsCacheState();
 if (!metricsCache.byPath || typeof metricsCache.byPath !== "object" || Array.isArray(metricsCache.byPath)) {

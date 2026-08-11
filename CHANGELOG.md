@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.5 - 2026-08-11
+
+- Simplified Inbox to three configurable stages and removed the retired terminal-stage model from settings, Home, statistics, managed Bases, and documentation.
+- Added configurable daily-section Home cards, removed duplicate habit and focus surfaces, and improved card-toolbar hit testing without changing the established dashboard composition.
+- Added immediate Eisenhower drag-and-drop with Markdown-backed quadrant placement, and reorganized Task Timeline filters around saved views, content type, completion state, tags, and search.
+- Removed the Calendar date-cell context-menu composer and aligned note statistics with frontmatter `created` dates before filesystem creation times.
+- Added the reproducible Chinese IPARA demo Vault source assets and expanded regression coverage for the updated workflows.
+
 ## 0.4.4 - 2026-08-07
 
 - Removed theme-inherited underlines from compact month task titles while preserving source navigation and keyboard access.

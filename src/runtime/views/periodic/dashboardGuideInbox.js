@@ -33,7 +33,6 @@ statuses.forEach((status) => {
     if (aliasNorm) aliasToId.set(aliasNorm, id);
   });
 });
-const terminalIds = new Set(statuses.filter((item) => item.terminal === true).map((item) => String(item.id)));
 const homeViews = objectList(workflow.homeViews)
   .map((item, index) => item && typeof item === "object" ? { ...item, order: Number.isFinite(Number(item.order)) ? Number(item.order) : (index + 1) * 10 } : null)
   .filter((item) => item && item.showOnHome !== false)
@@ -178,11 +177,10 @@ function extractInboxPreview(content, item = {}) {
 function classifyInboxItem(item) {
   const action = item.action;
   const closing = ["file", "archive", "delete"].includes(action);
-  const terminal = item.statusId && terminalIds.has(item.statusId);
   const missingCore = !action || !item.statusId || !item.shape;
-  const reviewDue = !!item.review && item.review <= todayKey && !terminal;
+  const reviewDue = !!item.review && item.review <= todayKey;
   const missingTrust = closing && action !== "delete" && (!item.next || (!item.hasSource && !item.hasRelated));
-  return { reviewDue, missingCore, missingTrust, terminal };
+  return { reviewDue, missingCore, missingTrust };
 }
 
 function inboxNeedEntries(item) {
@@ -341,7 +339,7 @@ function inboxStatusActionText(statusId) {
 function firstKnownStatus(ids) {
   for (const id of textList(ids)) {
     const value = String(id || "");
-    if (value && statusById.has(value) && !terminalIds.has(value)) return value;
+    if (value && statusById.has(value)) return value;
   }
   return "";
 }
@@ -357,14 +355,13 @@ function statusFromWorkflowAction(action) {
   }
   if (["refine", "split", "merge"].includes(actionId) && statusById.has("processing")) return "processing";
   if (["file", "archive"].includes(actionId) && statusById.has("ready")) return "ready";
-  if (actionId === "defer" && statusById.has("deferred")) return "deferred";
   return "";
 }
 
 function inboxStatusWritebackTarget(item, writeback) {
   if (!item || writeback?.state !== "ready") return "";
   const nextStatus = statusFromWorkflowAction(item.action);
-  if (!nextStatus || nextStatus === item.statusId || terminalIds.has(nextStatus)) return "";
+  if (!nextStatus || nextStatus === item.statusId) return "";
   return nextStatus;
 }
 
@@ -688,7 +685,6 @@ function renderInboxStructuralHandoff(parent, label, path, kind, options = {}) {
 
 function viewMatches(item, view) {
   if (!view) return false;
-  if (view.excludeTerminal && item.flags.terminal) return false;
   const statusIds = new Set(textList(view.statusIds).map(String));
   const actionIds = new Set(textList(view.actionIds).map(String));
   const checks = [];
@@ -697,7 +693,6 @@ function viewMatches(item, view) {
   if (view.includeMissingCore) checks.push(item.flags.missingCore);
   if (view.reviewDue) checks.push(item.flags.reviewDue);
   if (view.missingTrust) checks.push(item.flags.missingTrust);
-  if (view.excludeTerminal && checks.length === 0) checks.push(!item.flags.terminal);
   return checks.some(Boolean);
 }
 
@@ -794,7 +789,7 @@ async function runInboxItemBuildQueue(rows, workerCount = 6) {
 const dvRows = bridge.runtime?.pagesForManagedPath?.("inboxRoot", ctx) || [];
 const items = await runInboxItemBuildQueue(dvRows);
 
-const activeItems = items.filter((x) => !x.flags.terminal);
+const activeItems = items;
 const lanes = homeViews.map((lane) => ({
   ...lane,
   id: normalizeId(lane.id || lane.label) || "inbox",

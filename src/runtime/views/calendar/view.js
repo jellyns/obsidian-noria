@@ -1105,19 +1105,6 @@ async function render() {
       state.selectedDate = day.date;
       void render().then(() => openPeriod("daily", day.date, event));
     });
-    btn.addEventListener("contextmenu", (event) => {
-      event.preventDefault?.();
-      event.stopPropagation?.();
-      state.selectedDate = day.date;
-      if (state.taskDate !== day.date) {
-        state.taskDraft = "";
-        state.taskTime = "";
-        state.taskTimeTouched = false;
-        state.timeOpen = false;
-      }
-      state.taskDate = day.date;
-      void render();
-    });
   });
   renderTaskPanel();
 }

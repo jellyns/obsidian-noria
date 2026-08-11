@@ -235,7 +235,7 @@ function makePlugin(options = {}) {
   }
   const mainLeaf = { id: "main", async setViewState(state) { this.state = state; } };
   const rightLeaf = { id: "right", async setViewState(state) { this.state = state; } };
-  const revealed = [];
+  const activated = [];
   const getLeafCalls = [];
   const getRightLeafCalls = [];
   plugin.app = {
@@ -251,8 +251,11 @@ function makePlugin(options = {}) {
         getRightLeafCalls.push(create);
         return rightLeaf;
       },
-      revealLeaf(leaf) {
-        revealed.push(leaf);
+      setActiveLeaf(leaf, activationOptions) {
+        activated.push({ leaf, options: activationOptions });
+      },
+      revealLeaf() {
+        throw new Error("legacy revealLeaf path must not be used");
       },
       trigger() {}
     },
@@ -314,7 +317,7 @@ function makePlugin(options = {}) {
   plugin.__modified = modified;
   plugin.__renamed = renamed;
   plugin.__folders = folders;
-  plugin.__leaves = { mainLeaf, rightLeaf, revealed, getLeafCalls, getRightLeafCalls };
+  plugin.__leaves = { mainLeaf, rightLeaf, activated, getLeafCalls, getRightLeafCalls };
   return plugin;
 }
 
@@ -323,8 +326,7 @@ test("inbox workflow settings normalize to configurable status, home view, and b
   const settings = plugin.normalizeSettings({});
 
   assert.equal(settings.inboxWorkflow.defaultStatusId, "triage");
-  assert.deepEqual(plain(settings.inboxWorkflow.statuses.map((item) => item.id)), ["triage", "processing", "ready", "deferred", "closed"]);
-  assert.equal(settings.inboxWorkflow.statuses.find((item) => item.id === "closed").terminal, true);
+  assert.deepEqual(plain(settings.inboxWorkflow.statuses.map((item) => item.id)), ["triage", "processing", "ready"]);
   assert.ok(settings.inboxWorkflow.homeViews.length >= 3);
   assert.ok(settings.inboxWorkflow.baseViews.length >= 3);
   assert.deepEqual(plain(settings.inboxWorkflow.homeViews.map((item) => item.labelKey)), [
@@ -341,12 +343,15 @@ test("inbox workflow settings normalize to configurable status, home view, and b
     "runtime.periodic.inbox.closingTitle",
     "runtime.periodic.inbox.trustTitle"
   ]);
+  assert.deepEqual(plain(settings.inboxWorkflow.homeViews.map((item) => item.showOnHome)), [
+    true, false, true, true, false
+  ]);
 
   const custom = plugin.normalizeSettings({
     inboxWorkflow: {
       statuses: [
         { id: "capture", label: "Capture", aliases: ["待决"], color: "#2563eb" },
-        { id: "done", label: "Done", aliases: ["已关闭"], terminal: true }
+        { id: "done", label: "Done" }
       ],
       defaultStatusId: "capture",
       homeViews: [{ id: "capture-lane", label: "Capture lane", statusIds: ["capture"], showOnHome: true }],
@@ -362,6 +367,108 @@ test("inbox workflow settings normalize to configurable status, home view, and b
   assert.deepEqual(plain(custom.inboxWorkflow.baseViews.map((item) => item.id)), ["done-view"]);
 });
 
+test("Inbox workflow settings use direct status and Home-group managers instead of raw JSON", () => {
+  const source = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const start = source.indexOf("renderInboxWorkflowSettings(containerEl)");
+  const end = source.indexOf("renderHomeWorkbenchPanelControls", start);
+  assert.ok(start > 0 && end > start, "Inbox workflow settings renderer should be found");
+  const body = source.slice(start, end);
+
+  assert.match(body, /noria-inbox-workflow-status-row/);
+  assert.match(body, /noria-inbox-workflow-view-row/);
+  assert.match(body, /settings\.inboxWorkflow\.addStatus/);
+  assert.match(body, /settings\.inboxWorkflow\.addHomeView/);
+  assert.match(body, /settings\.inboxWorkflow\.showOnHome/);
+  assert.match(body, /decorateSettingsManagerIconButton/);
+  assert.doesNotMatch(body, /addJsonSetting\(details,\s*"settings\.inboxWorkflow\.statuses"/);
+  assert.doesNotMatch(body, /addJsonSetting\(details,\s*"settings\.inboxWorkflow\.homeViews"/);
+});
+
+test("Inbox workflow settings localize untouched defaults without replacing custom labels", () => {
+  const source = fs.readFileSync(pluginPath("src/main.js"), "utf8");
+  const start = source.indexOf("renderInboxWorkflowSettings(containerEl)");
+  const end = source.indexOf("renderHomeWorkbenchPanelControls", start);
+  assert.ok(start > 0 && end > start, "Inbox workflow settings renderer should be found");
+  const body = source.slice(start, end);
+
+  for (const key of ["triage", "processing", "ready"]) {
+    assert.match(source, new RegExp(`settings\\.inboxWorkflow\\.defaultStage\\.${key}`));
+  }
+  assert.match(body, /displayStatusLabel/);
+  assert.match(body, /displayHomeViewLabel/);
+  assert.match(body, /label\s*===\s*displayLabel/);
+  assert.match(body, /view\?\.labelKey\s*\?\s*this\.t\(view\.labelKey\)/);
+});
+
+test("default Inbox workflow has no standalone deferred stage", () => {
+  const source = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const runtime = fs.readFileSync(pluginPath("views/periodic/dashboardGuideInbox.js"), "utf8");
+  const start = source.indexOf("const NORIA_DEFAULT_INBOX_WORKFLOW");
+  const end = source.indexOf("const NORIA_DEFAULT_REVIEW_SKILL", start);
+  const defaults = source.slice(start, end);
+
+  assert.doesNotMatch(defaults, /id:\s*"deferred"/);
+  assert.doesNotMatch(runtime, /actionId === "defer"[\s\S]{0,100}return "deferred"/);
+});
+
+test("managed Inbox workflow notes describe the current three-stage model in both locales", () => {
+  const english = makePlugin({ language: "en" }).getManagedNoteSeed("inboxWorkflow");
+  const chinese = makePlugin({ language: "zh-CN" }).getManagedNoteSeed("inboxWorkflow");
+
+  for (const stage of ["Triage", "Processing", "Ready"]) {
+    assert.match(english, new RegExp(`\\| ${stage} \\|`));
+  }
+  for (const stage of ["判断去留", "正在加工", "准备迁出"]) {
+    assert.match(chinese, new RegExp(`\\| ${stage} \\|`));
+  }
+  assert.match(english, /shows these three stages by default/);
+  assert.match(chinese, /默认显示这三个阶段/);
+  assert.match(english, /Completion is not a fourth status/);
+  assert.match(chinese, /处理完成不是第四个状态/);
+  assert.match(english, /not a separate default stage/);
+  assert.match(chinese, /不是独立的默认阶段/);
+  assert.doesNotMatch(english, /- defer: postpone/);
+  assert.doesNotMatch(chinese, /- defer：暂缓/);
+});
+
+test("Inbox workflow uses three active stages without a terminal-stage mechanism", () => {
+  const plugin = makePlugin();
+  const settings = plugin.normalizeSettings({});
+  const source = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const runtime = fs.readFileSync(pluginPath("views/periodic/dashboardGuideInbox.js"), "utf8");
+  const english = makePlugin({ language: "en" }).getManagedNoteSeed("inboxWorkflow");
+  const chinese = makePlugin({ language: "zh-CN" }).getManagedNoteSeed("inboxWorkflow");
+
+  assert.deepEqual(
+    plain(settings.inboxWorkflow.statuses.map((status) => status.id)),
+    ["triage", "processing", "ready"]
+  );
+  assert.equal(settings.inboxWorkflow.statuses.some((status) => "terminal" in status), false);
+  assert.doesNotMatch(source, /settings\.inboxWorkflow\.terminal|excludeTerminal|getInboxTerminalStatusIds/);
+  assert.doesNotMatch(runtime, /terminalIds|flags\.terminal|excludeTerminal/);
+  assert.doesNotMatch(english, /\| Closed \||`closed`/);
+  assert.doesNotMatch(chinese, /\| 已关闭 \||`closed`/);
+});
+
+test("Inbox workflow preserves explicit custom stages without legacy status migrations", () => {
+  const plugin = makePlugin();
+  const custom = plugin.normalizeInboxWorkflowConfig({
+    statuses: [
+      { id: "triage", label: "Triage" },
+      { id: "later", label: "Later", color: "#7c3aed", terminal: true }
+    ],
+    defaultStatusId: "triage",
+    homeViews: [
+      { id: "triage", label: "Triage", statusIds: ["triage"], includeMissingCore: true, showOnHome: true, order: 10 },
+      { id: "later", label: "Later", statusIds: ["later"], excludeTerminal: true, showOnHome: true, order: 20 }
+    ]
+  });
+  assert.deepEqual(plain(custom.statuses.map((status) => status.id)), ["triage", "later"]);
+  assert.equal(custom.statuses.some((status) => "terminal" in status), false);
+  assert.equal(custom.homeViews.some((view) => "excludeTerminal" in view), false);
+  assert.equal(custom.homeViews.find((view) => view.id === "later").showOnHome, true);
+});
+
 test("inbox starter notes and base seeds write configured status ids instead of Chinese legacy values", () => {
   const plugin = makePlugin({ language: "en" });
   plugin.settings = plugin.normalizeSettings({});
@@ -374,25 +481,25 @@ test("inbox starter notes and base seeds write configured status ids instead of 
   const defaultBase = plugin.getManagedNoteSeed("inboxQueue");
   assert.doesNotMatch(defaultBase, /待决|加工中|已关闭/);
   assert.match(defaultBase, /inbox-status == "triage"/);
-  assert.match(defaultBase, /inbox-status != "closed"/);
+  assert.doesNotMatch(defaultBase, /inbox-status !=/);
 
   plugin.settings = plugin.normalizeSettings({
     inboxWorkflow: {
       statuses: [
         { id: "capture", label: "Capture", aliases: ["待决"] },
-        { id: "done", label: "Done", aliases: ["已关闭"], terminal: true }
+        { id: "done", label: "Done" }
       ],
       defaultStatusId: "capture",
       baseViews: [
         { id: "capture", label: "Capture", statusIds: ["capture"] },
-        { id: "active", label: "Active", excludeTerminal: true }
+        { id: "active", label: "Active", statusIds: ["capture"] }
       ]
     }
   });
   const customBase = plugin.getManagedNoteSeed("inboxQueue");
   assert.match(customBase, /name: Capture/);
   assert.match(customBase, /inbox-status == "capture"/);
-  assert.match(customBase, /inbox-status != "done"/);
+  assert.doesNotMatch(customBase, /inbox-status !=/);
   assert.doesNotMatch(customBase, /待决|加工中|已关闭/);
 });
 
@@ -402,7 +509,7 @@ test("runtime bridge and home inbox view use configured inbox workflow instead o
     inboxWorkflow: {
       statuses: [
         { id: "capture", label: "Capture", aliases: ["待决"] },
-        { id: "done", label: "Done", aliases: ["已关闭"], terminal: true }
+        { id: "done", label: "Done", aliases: ["已关闭"] }
       ],
       defaultStatusId: "capture",
       homeViews: [{ id: "capture", label: "Capture", statusIds: ["capture"], showOnHome: true }]
@@ -425,8 +532,8 @@ test("home inbox runtime renders configured workflow lanes from object arrays", 
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "capture", label: "Capture", aliases: ["待决"], terminal: false },
-          { id: "done", label: "Done", aliases: ["已关闭"], terminal: true }
+          { id: "capture", label: "Capture", aliases: ["待决"] },
+          { id: "done", label: "Done", aliases: ["已关闭"] }
         ],
         homeViews: [
           { id: "capture", label: "Capture", statusIds: ["capture"], showOnHome: true }
@@ -483,8 +590,7 @@ test("home inbox runtime localizes default workflow lane labels by key", async (
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", aliases: ["待决"], terminal: false },
-          { id: "closed", label: "Closed", aliases: ["已关闭"], terminal: true }
+          { id: "triage", label: "Triage", aliases: ["待决"] },
         ],
         homeViews: [
           { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", titleKey: "runtime.periodic.inbox.triageTitle", statusIds: ["triage"], showOnHome: true }
@@ -531,8 +637,7 @@ test("home inbox runtime renders row workbench metadata without adding an action
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "ready", label: "Ready", aliases: ["准备迁出"], terminal: false },
-          { id: "closed", label: "Closed", aliases: ["已关闭"], terminal: true }
+          { id: "ready", label: "Ready", aliases: ["准备迁出"] },
         ],
         homeViews: [
           { id: "ready", label: "Ready", labelKey: "runtime.periodic.inbox.closing", titleKey: "runtime.periodic.inbox.closingTitle", statusIds: ["ready"], actionIds: ["file"], showOnHome: true }
@@ -590,9 +695,8 @@ test("home inbox rows expose processing needs and primary next metadata without 
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", statusIds: ["triage"], showOnHome: true },
@@ -657,8 +761,8 @@ test("home inbox rows keep primary next metadata without rendering safe-next adv
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "ready", label: "Ready", terminal: false }
+          { id: "triage", label: "Triage" },
+          { id: "ready", label: "Ready" }
         ],
         homeViews: [
           { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", statusIds: ["triage"], showOnHome: true },
@@ -727,9 +831,9 @@ test("home inbox rows expose gentle rhythm cues without a separate suggestion pa
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "defer", label: "Deferred", terminal: false }
+          { id: "triage", label: "Triage" },
+          { id: "ready", label: "Ready" },
+          { id: "defer", label: "Deferred" }
         ],
         homeViews: [
           { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", statusIds: ["triage"], showOnHome: true },
@@ -809,8 +913,7 @@ test("home inbox workbench exposes queue scope and overflow without adding actio
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", statusIds: ["triage"], includeMissingCore: true, showOnHome: true }
@@ -856,10 +959,9 @@ test("home inbox workbench exposes queue health without adding action controls",
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "processing", label: "Processing", terminal: false },
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "deferred", label: "Deferred", aliases: ["暂缓"], terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "processing", label: "Processing" },
+          { id: "ready", label: "Ready" },
+          { id: "deferred", label: "Deferred", aliases: ["暂缓"] },
         ],
         homeViews: [
           { id: "processing", label: "Processing", labelKey: "runtime.periodic.inbox.processing", statusIds: ["processing"], showOnHome: true },
@@ -952,8 +1054,7 @@ test("home inbox overflow expands in place through a quiet summary text action",
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", statusIds: ["triage"], includeMissingCore: true, showOnHome: true }
@@ -1017,8 +1118,8 @@ test("home inbox workbench exposes current priority without adding action contro
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "ready", label: "Ready", terminal: false }
+          { id: "triage", label: "Triage" },
+          { id: "ready", label: "Ready" }
         ],
         homeViews: [
           { id: "triage", label: "Triage", labelKey: "runtime.periodic.inbox.triage", statusIds: ["triage"], includeMissingCore: true, showOnHome: true },
@@ -1075,8 +1176,7 @@ test("home inbox rows expose source-aware workbench actions and keyboard open be
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", statusIds: ["triage"], showOnHome: true }
@@ -1137,7 +1237,7 @@ test("home inbox source open reports failure on the same row", async () => {
       },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false }
+          { id: "triage", label: "Triage" }
         ],
         homeViews: [
           { id: "triage", label: "Triage", statusIds: ["triage"], showOnHome: true }
@@ -1172,9 +1272,8 @@ test("home inbox exposes SOP writeback boundaries without adding row action rail
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", statusIds: ["triage"], includeMissingCore: true, showOnHome: true },
@@ -1251,9 +1350,8 @@ test("home inbox exposes structural action confirmation boundaries before destru
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", statusIds: ["triage"], includeMissingCore: true, showOnHome: true },
@@ -1333,9 +1431,8 @@ test("home inbox renders one quiet structural preview panel that follows focused
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "ready", label: "Ready", statusIds: ["ready"], actionIds: ["file", "archive", "delete"], showOnHome: true }
@@ -1473,8 +1570,7 @@ test("home inbox structural panel marks destructive candidates unavailable with 
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "ready", label: "Ready", statusIds: ["ready"], actionIds: ["delete", "archive"], showOnHome: true }
@@ -1553,8 +1649,7 @@ test("home inbox structural panel exposes one confirmed move action only for fil
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "ready", label: "Ready", statusIds: ["ready"], actionIds: ["file", "delete"], showOnHome: true }
@@ -1640,8 +1735,7 @@ test("home inbox structural panel exposes one confirmed task conversion action f
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "ready", label: "Ready", statusIds: ["ready"], actionIds: ["file"], showOnHome: true }
@@ -1732,10 +1826,9 @@ test("runtime bridge updates inbox status only through a bounded frontmatter wri
     managedPaths: { inboxRoot: "Inbox" },
     inboxWorkflow: {
       statuses: [
-        { id: "triage", label: "Triage", terminal: false },
-        { id: "processing", label: "Processing", terminal: false },
-        { id: "ready", label: "Ready", terminal: false },
-        { id: "closed", label: "Closed", terminal: true }
+        { id: "triage", label: "Triage" },
+        { id: "processing", label: "Processing" },
+        { id: "ready", label: "Ready" },
       ],
       defaultStatusId: "triage"
     }
@@ -1782,9 +1875,9 @@ test("inbox status writeback rejects a stale expected status inside the file tra
     managedPaths: { inboxRoot: "Inbox" },
     inboxWorkflow: {
       statuses: [
-        { id: "triage", label: "Triage", terminal: false },
-        { id: "processing", label: "Processing", terminal: false },
-        { id: "ready", label: "Ready", terminal: false }
+        { id: "triage", label: "Triage" },
+        { id: "processing", label: "Processing" },
+        { id: "ready", label: "Ready" }
       ],
       defaultStatusId: "triage"
     }
@@ -1829,8 +1922,7 @@ test("runtime bridge moves out only confirmed file-action inbox notes and clears
     managedPaths: { inboxRoot: "Inbox" },
     inboxWorkflow: {
       statuses: [
-        { id: "ready", label: "Ready", terminal: false },
-        { id: "closed", label: "Closed", terminal: true }
+        { id: "ready", label: "Ready" },
       ],
       defaultStatusId: "ready"
     }
@@ -1950,8 +2042,7 @@ test("runtime bridge converts confirmed task-shaped inbox notes into source-link
     managedPaths: { inboxRoot: "Inbox" },
     inboxWorkflow: {
       statuses: [
-        { id: "ready", label: "Ready", terminal: false },
-        { id: "closed", label: "Closed", terminal: true }
+        { id: "ready", label: "Ready" },
       ],
       defaultStatusId: "ready"
     }
@@ -2075,10 +2166,9 @@ test("home inbox renders low-noise status writeback actions only for SOP-ready s
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "processing", label: "Processing", terminal: false },
-          { id: "ready", label: "Ready", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
+          { id: "processing", label: "Processing" },
+          { id: "ready", label: "Ready" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", statusIds: ["triage"], includeMissingCore: true, showOnHome: true },
@@ -2162,8 +2252,7 @@ test("home inbox runtime exposes quiet markdown previews on each row", async () 
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", statusIds: ["triage"], showOnHome: true }
@@ -2242,8 +2331,7 @@ test("home inbox runtime bounds markdown content reads while preserving rows", a
       paths: { inboxRoot: "Inbox" },
       inboxWorkflow: {
         statuses: [
-          { id: "triage", label: "Triage", terminal: false },
-          { id: "closed", label: "Closed", terminal: true }
+          { id: "triage", label: "Triage" },
         ],
         homeViews: [
           { id: "triage", label: "Triage", statusIds: ["triage"], showOnHome: true }
@@ -2274,17 +2362,18 @@ test("rebuilding inbox queue base is explicit and uses current configured base v
     inboxWorkflow: {
       statuses: [
         { id: "capture", label: "Capture" },
-        { id: "done", label: "Done", terminal: true }
+        { id: "refine", label: "Refine" }
       ],
       defaultStatusId: "capture",
-      baseViews: [{ id: "active", label: "Active", excludeTerminal: true }]
+      baseViews: [{ id: "capture", label: "Capture", statusIds: ["capture"] }]
     }
   });
 
   const result = await plugin.rebuildInboxQueueBase();
   assert.equal(result.ok, true);
-  assert.match(plugin.__files.get("Config/Inbox queue.base").text, /name: Active/);
-  assert.match(plugin.__files.get("Config/Inbox queue.base").text, /inbox-status != "done"/);
+  assert.match(plugin.__files.get("Config/Inbox queue.base").text, /name: Capture/);
+  assert.match(plugin.__files.get("Config/Inbox queue.base").text, /inbox-status == "capture"/);
+  assert.doesNotMatch(plugin.__files.get("Config/Inbox queue.base").text, /inbox-status !=/);
 });
 
 test("task timeline opens in the right sidebar by default and can be switched back to main tabs", async () => {
@@ -2295,7 +2384,8 @@ test("task timeline opens in the right sidebar by default and can be switched ba
   assert.equal(plugin.__leaves.rightLeaf.state.type, "noria-task-timeline");
   assert.deepEqual(plugin.__leaves.getRightLeafCalls, [false]);
   assert.deepEqual(plugin.__leaves.getLeafCalls, []);
-  assert.equal(plugin.__leaves.revealed[0], plugin.__leaves.rightLeaf);
+  assert.equal(plugin.__leaves.activated[0]?.leaf, plugin.__leaves.rightLeaf);
+  assert.equal(plugin.__leaves.activated[0]?.options?.focus, true);
 
   const mainPlugin = makePlugin();
   mainPlugin.settings = mainPlugin.normalizeSettings({
@@ -2305,4 +2395,5 @@ test("task timeline opens in the right sidebar by default and can be switched ba
   assert.equal(mainPlugin.__leaves.mainLeaf.state.type, "noria-task-timeline");
   assert.deepEqual(mainPlugin.__leaves.getRightLeafCalls, []);
   assert.deepEqual(mainPlugin.__leaves.getLeafCalls, ["tab"]);
+  assert.equal(mainPlugin.__leaves.activated[0]?.leaf, mainPlugin.__leaves.mainLeaf);
 });

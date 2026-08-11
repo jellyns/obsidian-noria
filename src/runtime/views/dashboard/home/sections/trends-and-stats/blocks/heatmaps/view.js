@@ -109,6 +109,7 @@ const normalizeFileDate = (value) => {
   const m = raw.match(/\d{4}-\d{2}-\d{2}/);
   return m ? m[0] : "";
 };
+const noteCreatedValue = (page) => page?.created || page?.file?.ctime;
 const inStatsRange = (date) => {
   const ds = normalizeFileDate(date);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return false;
@@ -292,7 +293,7 @@ if (showWorkload && noteTrendRows.length) {
   });
 } else if (showWorkload) {
   noriaPagesForScope("notes").forEach((p) => {
-    const ds = normalizeFileDate(p.file.ctime);
+    const ds = normalizeFileDate(noteCreatedValue(p));
     if (/^\d{4}-\d{2}-\d{2}$/.test(ds) && inStatsRange(ds)) noteCountMap[ds] = (noteCountMap[ds] || 0) + 1;
   });
 }

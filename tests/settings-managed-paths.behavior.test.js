@@ -1384,6 +1384,11 @@ test("Noria Calendar runtime view parses and calls the bridge API", () => {
   assert.match(source, /getPickerModel/);
   assert.match(source, /addDateTask/);
   assert.match(source, /contextmenu/);
+  assert.equal(
+    (source.match(/addEventListener\("contextmenu"/g) || []).length,
+    2,
+    "only month and year scale switches should use right click; date cells should not open the task composer"
+  );
   assert.match(source, /noria-calendar-task-panel/);
   assert.match(source, /formatTaskDateHeading/);
   assert.match(source, /formatTaskTimeRange/);
@@ -1707,6 +1712,51 @@ test("home leaf open sets view state for new leaves only", async () => {
   await plugin.openDashboardHomeLeaf();
   assert.equal(setViewStates, 1);
   assert.equal(reloads, 0);
+});
+
+test("task board leaf activation uses the current workspace activation API", async () => {
+  const plugin = makePlugin();
+  plugin.settings = plugin.normalizeSettings({});
+  let activatedLeaf = null;
+  let activationOptions = null;
+  const leaf = {
+    view: {},
+    async setViewState() {}
+  };
+  plugin.pickLeafForView = () => ({ leaf, hadExisting: false });
+  plugin.app.workspace.setActiveLeaf = (candidate, options) => {
+    activatedLeaf = candidate;
+    activationOptions = options;
+  };
+  plugin.app.workspace.revealLeaf = () => {
+    throw new Error("legacy revealLeaf path must not be used");
+  };
+
+  await plugin.openTasksBoardLeaf();
+
+  assert.equal(activatedLeaf, leaf);
+  assert.equal(activationOptions?.focus, true);
+});
+
+test("sidebar leaf activation expands its workspace split", () => {
+  const plugin = makePlugin();
+  let expansions = 0;
+  const rightSplit = {
+    expand() {
+      expansions += 1;
+    }
+  };
+  const leaf = {
+    getRoot() {
+      return rightSplit;
+    }
+  };
+  plugin.app.workspace.rightSplit = rightSplit;
+  plugin.app.workspace.leftSplit = {};
+  plugin.app.workspace.setActiveLeaf = () => {};
+
+  assert.equal(plugin.activateWorkspaceLeaf(leaf), true);
+  assert.equal(expansions, 1);
 });
 
 test("home leaf open reveals a healthy existing leaf without rerender or delayed recovery", async () => {

@@ -1,14 +1,14 @@
 (() => {
-  globalThis.dashboardPeriodicStatsFallbackBoardsFactory = function createFallbackBoards(ctx) {
-    const ctx = ctx?.ctx;
-    const makeCard = ctx?.makeCard;
-    const habitRegistryPath = ctx?.habitRegistryPath;
-    const getSectionTaskEntries = ctx?.getSectionTaskEntries;
-    const getSectionItems = ctx?.getSectionItems;
-    const normalizeHabit = ctx?.normalizeHabit;
-    const extractTaskDate = ctx?.extractTaskDate;
-    const bridge = ctx?.bridge || globalThis.__noriaRuntimeBridge || {};
-    const diaryRoot = ctx?.diaryRoot || "";
+  globalThis.dashboardPeriodicStatsFallbackBoardsFactory = function createFallbackBoards(factoryInput) {
+    const ctx = factoryInput?.ctx;
+    const makeCard = factoryInput?.makeCard;
+    const habitRegistryPath = factoryInput?.habitRegistryPath;
+    const getSectionTaskEntries = factoryInput?.getSectionTaskEntries;
+    const getSectionItems = factoryInput?.getSectionItems;
+    const normalizeHabit = factoryInput?.normalizeHabit;
+    const extractTaskDate = factoryInput?.extractTaskDate;
+    const bridge = factoryInput?.bridge || globalThis.__noriaRuntimeBridge || {};
+    const diaryRoot = factoryInput?.diaryRoot || "";
     const boardT = (key, params = {}) => {
       try {
         if (bridge && typeof bridge.t === "function") return bridge.t(key, params);

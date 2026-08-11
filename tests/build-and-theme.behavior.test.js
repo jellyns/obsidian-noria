@@ -702,24 +702,12 @@ test("home workbench columns respond to the Home pane container instead of viewp
   assert.match(bootstrap, /@container noria-home-workbench \(max-width:\s*640px\)[\s\S]*\.dashboard-workbench-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
 });
 
-test("home overview secondary habit context stays today-strip only", () => {
+test("home overview leaves habits to the first-class habit history card", () => {
   const bootstrap = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8");
   const overviewColumns = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "overview-columns", "view.js"), "utf8");
 
-  assert.match(overviewColumns, /dashboard-overview-habit-context/);
-  assert.match(overviewColumns, /dashboardGuideInbox[\s\S]*dashboardHabitWeek[\s\S]*dashboardCountdown/);
-
-  const habitGridBlock = bootstrap.match(/\.dashboard-home-root\s+\.dashboard-overview-habit-context\s+\.dashboard-habit-21-grid\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const habitToolBlock = bootstrap.match(/\.dashboard-home-root\s+\.dashboard-overview-habit-context\s+\.dashboard-habit-21-shell\s*>\s*button\.dashboard-guide-icon-btn\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const todayStripBlock = bootstrap.match(/\.dashboard-home-root\s+\.dashboard-overview-habit-context\s+\.dashboard-habit-today-strip\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-
-  assert.ok(habitGridBlock, "overview habit context should hide the long history grid");
-  assert.match(habitGridBlock, /display:\s*none/);
-  assert.ok(habitToolBlock, "overview habit context should hide secondary habit tools");
-  assert.match(habitToolBlock, /display:\s*none/);
-  assert.ok(todayStripBlock, "overview habit context should tighten the today strip");
-  assert.match(todayStripBlock, /border-bottom:\s*0/);
-  assert.match(todayStripBlock, /padding-bottom:\s*0/);
+  assert.doesNotMatch(overviewColumns, /dashboard-overview-habit-context|dashboardHabitWeek/);
+  assert.doesNotMatch(bootstrap, /dashboard-overview-habit-context/);
 });
 
 test("home trends habit history hides duplicate today strip and reuses MOC entry typography", () => {
@@ -1307,8 +1295,17 @@ test("home link shadow guard removes task and inbox row underlines", () => {
     assert.ok(block, `${selector} should explicitly opt out of decorative link shadows`);
     assert.match(block, /box-shadow:\s*none/);
     assert.match(block, /background-image:\s*none/);
+    assert.match(block, /--link-decoration:\s*none/);
+    assert.match(block, /--link-decoration-hover:\s*none/);
     assert.doesNotMatch(block, /text-decoration(?:-[a-z-]+)?:/);
   }
+
+  const mocBlock = bootstrap.match(/\.dashboard-moc-chip\s*\{[\s\S]*?\n\s*\}/)?.[0] || "";
+  assert.ok(mocBlock, "MOC links should have a visual chip contract");
+  assert.match(mocBlock, /--link-decoration:\s*none/);
+  assert.match(mocBlock, /--link-decoration-hover:\s*none/);
+  assert.match(mocBlock, /background-image:\s*none/);
+  assert.doesNotMatch(mocBlock, /text-decoration(?:-[a-z-]+)?:/);
 
   const calloutLinkShadowRules = [...bootstrap.matchAll(/\.dashboard-home-root\s+\.callout\[data-callout="(?:info|abstract|success)"\]\s+\.callout-content\s+a\.internal-link[^\{]*\{[^}]*box-shadow:\s*var\(--dash-shadow-inset-soft\)/g)].map((m) => m[0]);
   assert.ok(calloutLinkShadowRules.length > 0, "ordinary callout links may keep the soft inset treatment");

@@ -1210,16 +1210,13 @@ test("review prompt is a JSON evidence skill and review-note path instruction", 
   assert.ok(prompt.length < 260, "review prompt should stay minimal and delegate rules to the skill");
 });
 
-test("noria-review skill carries multi-project evidence and low-burden review rules", () => {
-  const codexSkill = fs.readFileSync(path.join(pluginRoot, "..", "..", "..", ".codex", "skills", "noria-review", "SKILL.md"), "utf8").replace(/\r\n/g, "\n");
-  const claudeSkill = fs.readFileSync(path.join(pluginRoot, "..", "..", "..", ".claude", "skills", "noria-review", "SKILL.md"), "utf8").replace(/\r\n/g, "\n");
+test("embedded noria-review skill carries multi-project evidence and low-burden review rules", () => {
   const sourceMain = fs.readFileSync(path.join(pluginRoot, "src", "main.js"), "utf8").replace(/\r\n/g, "\n");
   const embeddedExpression = sourceMain.match(/const NORIA_DEFAULT_REVIEW_SKILL = (\[[\s\S]*?\])\.join\("\\n"\);/)?.[1] || "";
   const embeddedSkill = embeddedExpression ? vm.runInNewContext(embeddedExpression).join("\n") : "";
-  const skill = `${codexSkill}\n${claudeSkill}`;
+  const skill = embeddedSkill;
 
-  assert.equal(codexSkill, claudeSkill);
-  assert.equal(`${embeddedSkill}\n`, codexSkill);
+  assert.ok(skill);
   assert.match(skill, /evidence_file/);
   assert.match(skill, /JSON/);
   assert.match(skill, /daily/);

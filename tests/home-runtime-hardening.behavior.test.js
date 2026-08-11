@@ -40,19 +40,6 @@ function loadHabitFileEnsurer(app, ensureParentFolder = async () => {}) {
   );
 }
 
-function loadHomeFocusTaskWriter(app, homeBridge = {}) {
-  const source = readSource("views/dashboard/home/view.js");
-  const start = source.indexOf("function findHomeFocusTaskLineIndex");
-  const end = source.indexOf("\nfunction completeHomeFocusTaskLine", start);
-  assert.ok(start >= 0 && end > start, "expected Home focus task writer");
-  return new Function("app", "homeBridge", `
-    const homeActionText = (value) => String(value || "").trim();
-    const homeActionPath = (value) => homeActionText(value).replace(/\\\\/g, "/").replace(/^\\/+/, "");
-    ${source.slice(start, end)}
-    return { findHomeFocusTaskLineIndex, updateHomeFocusTaskLine };
-  `)(app, homeBridge);
-}
-
 function loadTodayTaskStatus(app) {
   const source = readSource("views/periodic/dashboardTodayTasks.js");
   const start = source.indexOf("const markTaskStatus = async");
@@ -783,6 +770,115 @@ test("periodic stats core boot reads missing core files in parallel and scopes c
   }
 });
 
+test("periodic stats fallback scripts compile in the runtime AsyncFunction boundary", async () => {
+  const cases = [
+    {
+      path: "views/dashboard/periodic-stats/impl-legacy/fallbacks/charts.js",
+      factory: "dashboardPeriodicStatsFallbackChartsFactory"
+    },
+    {
+      path: "views/dashboard/periodic-stats/impl-legacy/fallbacks/boards.js",
+      factory: "dashboardPeriodicStatsFallbackBoardsFactory"
+    }
+  ];
+
+  for (const entry of cases) {
+    const runtimeGlobal = {};
+    const run = new AsyncFunction(
+      "ctx",
+      "input",
+      "app",
+      "moment",
+      "window",
+      "document",
+      "globalThis",
+      readSource(entry.path)
+    );
+    await run({}, {}, {}, {}, {}, {}, runtimeGlobal);
+    assert.equal(typeof runtimeGlobal[entry.factory], "function", `${entry.path} should register its fallback factory`);
+  }
+});
+
+test("periodic stats consumes the normalized notes trend series from data service", async () => {
+  const source = readSource("views/dashboard/periodic-stats/impl-legacy/view.js");
+  const start = source.indexOf("async function collectMetrics(dates)");
+  const end = source.indexOf("\nfunction buildDailySeries", start);
+  assert.ok(start >= 0 && end > start, "expected periodic stats metrics collector");
+
+  const runtimeGlobal = {
+    dashboardCore: {
+      data: {
+        dataService: {
+          createDataService() {
+            return {
+              async getSnapshot() {
+                return {
+                  domains: {
+                    notes: {
+                      trend: {
+                        series: [
+                          { key: "2026-08-01", notes: 2, words: 310 },
+                          { key: "2026-08-02", notes: 1, words: 180 }
+                        ]
+                      }
+                    },
+                    tasks: {
+                      completion: {
+                        series: [
+                          { key: "2026-08-01", planned: 3, done: 2 },
+                          { key: "2026-08-02", planned: 1, done: 1 }
+                        ]
+                      }
+                    },
+                    dailyState: {
+                      series: [
+                        { key: "2026-08-01", energy: 4, focus: 3, weather: "晴", mood: "稳定" },
+                        { key: "2026-08-02", energy: 5, focus: 4, weather: "多云", mood: "很好" }
+                      ]
+                    }
+                  }
+                };
+              }
+            };
+          }
+        }
+      }
+    }
+  };
+  const loadCollector = new AsyncFunction(
+    "globalThis",
+    "bridge",
+    "ctx",
+    "app",
+    "window",
+    "resolvedScope",
+    `${source.slice(start, end)}; return collectMetrics;`
+  );
+  const collectMetrics = await loadCollector(runtimeGlobal, {}, {}, {}, { moment: {} }, "monthly");
+  const metrics = await collectMetrics(["2026-08-01", "2026-08-02"]);
+
+  assert.deepEqual(metrics["2026-08-01"], {
+    notes: 2,
+    words: 310,
+    taskTotal: 3,
+    taskDone: 2,
+    weather: "晴",
+    mood: "稳定",
+    energy: 4,
+    focus: "3"
+  });
+  assert.deepEqual(metrics["2026-08-02"], {
+    notes: 1,
+    words: 180,
+    taskTotal: 1,
+    taskDone: 1,
+    weather: "多云",
+    mood: "很好",
+    energy: 5,
+    focus: "4"
+  });
+});
+
 test("periodic stats core boot skips retired unused metrics adapters", () => {
   const source = readSource("views/dashboard/periodic-stats/view.js");
   const coreStart = source.indexOf("const coreFiles = [");
@@ -1013,6 +1109,177 @@ test("home markdown widget uses MarkdownRenderer and unloads prior child compone
   assert.equal(renders.length, 2);
   assert.deepEqual(unloads, [1]);
   assert.deepEqual(loads, [1, 2]);
+});
+
+test("home daily-section markdown card resolves the managed diary and renders only the requested h2 body", async () => {
+  const mount = createFakeElement();
+  const reads = [];
+  const renders = [];
+  const loadSource = async (pathText) => {
+    const normalized = String(pathText || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (normalized.endsWith("bootstrap-style.js")) return "";
+    reads.push(normalized);
+    if (normalized === "06_Diary/2026/2026-08-10.md") {
+      return "## 待办\n\n- [ ] 不应显示\n\n## 建议\n\n- 合并两项重复工作。\n- 先确认当前发布边界。\n\n## 复盘\n\n不应显示";
+    }
+    return "";
+  };
+
+  await runRuntimeSource("views/dashboard/home/view.js", {
+    input: {
+      mount,
+      noriaBridge: {
+        runtimeBuildId: "daily-section-ready-build",
+        today: "2026-08-10",
+        paths: { diaryRoot: "06_Diary" },
+        performance: { viewSourceCache: false, homeLazySections: false },
+        homeSettings: {
+          widgets: [
+            {
+              id: "daily-advice",
+              type: "markdown",
+              enabled: true,
+              order: 10,
+              size: "full",
+              title: "建议",
+              source: "",
+              props: { sourceMode: "daily-section", heading: "建议", renderMode: "compact" }
+            }
+          ]
+        },
+        t(key) { return key; }
+      }
+    },
+    ctxFallback: { io: { load: loadSource }, container: mount, paragraph() {} },
+    app: { vault: { adapter: { read: loadSource } } },
+    globals: {
+      obsidian: {
+        MarkdownRenderer: {
+          async render(_app, markdown, el, sourcePath) {
+            renders.push({ markdown, sourcePath });
+            el.createDiv({ text: markdown });
+          }
+        }
+      },
+      window: { moment: {} },
+      document: {
+        getElementById: () => null,
+        createElement: (tag) => createFakeElement(tag),
+        head: createFakeElement("head")
+      }
+    }
+  });
+
+  assert.deepEqual(reads.filter((pathText) => pathText.startsWith("06_Diary/")), ["06_Diary/2026/2026-08-10.md"]);
+  assert.deepEqual(renders, [{
+    markdown: "- 合并两项重复工作。\n- 先确认当前发布边界。",
+    sourcePath: "06_Diary/2026/2026-08-10.md"
+  }]);
+  const shell = flattenElements(mount).find((el) => el.attrs?.["data-noria-widget-id"] === "daily-advice");
+  assert.ok(shell);
+  assert.notEqual(shell.hidden, true);
+  assert.equal(shell.attrs["data-noria-widget-state"], "ready");
+});
+
+test("home daily-section card removes its normal shell when the requested section is absent", async () => {
+  const mount = createFakeElement();
+  let renderCount = 0;
+  const loadSource = async (pathText) => {
+    const normalized = String(pathText || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (normalized.endsWith("bootstrap-style.js")) return "";
+    if (normalized === "06_Diary/2026/2026-08-10.md") return "## 待办\n\n- [ ] 今日任务\n\n## 复盘\n\n内容";
+    return "";
+  };
+
+  await runRuntimeSource("views/dashboard/home/view.js", {
+    input: {
+      mount,
+      noriaBridge: {
+        runtimeBuildId: "daily-section-empty-build",
+        today: "2026-08-10",
+        paths: { diaryRoot: "06_Diary" },
+        performance: { viewSourceCache: false, homeLazySections: false },
+        homeSettings: {
+          widgets: [{
+            id: "daily-advice",
+            type: "markdown",
+            enabled: true,
+            order: 10,
+            size: "full",
+            title: "建议",
+            source: "",
+            props: { sourceMode: "daily-section", heading: "建议", renderMode: "compact" }
+          }]
+        },
+        t(key) { return key; }
+      }
+    },
+    ctxFallback: { io: { load: loadSource }, container: mount, paragraph() {} },
+    app: { vault: { adapter: { read: loadSource } } },
+    globals: {
+      obsidian: { MarkdownRenderer: { async render() { renderCount += 1; } } },
+      window: { moment: {} },
+      document: {
+        getElementById: () => null,
+        createElement: (tag) => createFakeElement(tag),
+        head: createFakeElement("head")
+      }
+    }
+  });
+
+  const shell = flattenElements(mount).find((el) => el.attrs?.["data-noria-widget-id"] === "daily-advice");
+  assert.ok(shell);
+  assert.equal(shell.hidden, true);
+  assert.equal(shell.attrs["aria-hidden"], "true");
+  assert.equal(shell.attrs["data-noria-widget-state"], "empty");
+  assert.equal(renderCount, 0);
+});
+
+test("home edit mode keeps the disabled daily-section card visible as a configuration placeholder", async () => {
+  const mount = createFakeElement();
+  await runRuntimeSource("views/dashboard/home/view.js", {
+    input: {
+      mount,
+      noriaBridge: {
+        runtimeBuildId: "daily-section-edit-build",
+        homeEditMode: true,
+        performance: { viewSourceCache: false, homeLazySections: false },
+        homeSettings: {
+          widgets: [{
+            id: "daily-advice",
+            type: "markdown",
+            enabled: false,
+            order: 10,
+            size: "full",
+            title: "建议",
+            source: "",
+            props: { sourceMode: "daily-section", heading: "建议", renderMode: "compact" }
+          }]
+        },
+        runtime: {
+          editHomeWidget() { return { ok: true }; },
+          openHomeWidgetSettings() { return { ok: true }; }
+        },
+        t(key) { return key; }
+      }
+    },
+    ctxFallback: { io: { load: async () => "" }, container: mount, paragraph() {} },
+    app: { vault: { adapter: { read: async () => "" } } },
+    globals: {
+      window: { moment: {} },
+      document: {
+        getElementById: () => null,
+        createElement: (tag) => createFakeElement(tag),
+        head: createFakeElement("head")
+      }
+    }
+  });
+
+  const shell = flattenElements(mount).find((el) => el.attrs?.["data-noria-widget-id"] === "daily-advice");
+  assert.ok(shell);
+  assert.notEqual(shell.hidden, true);
+  assert.equal(shell.attrs["data-noria-widget-enabled"], "false");
+  assert.ok(flattenElements(shell).some((el) => el.attrs?.["data-noria-widget-edit-action"] === "show"));
 });
 
 test("home markdown widget renders multiple source notes as a briefing group", async () => {
@@ -3374,512 +3641,6 @@ test("home today action strip suppresses legacy timeline actions and keeps daily
   assert.deepEqual(commandIds, []);
 });
 
-test("home facade renders focus strip from the shared task snapshot without duplicating the task board", async () => {
-  const mount = createFakeElement();
-  const snapshotRequests = [];
-  const commandIds = [];
-  const timelineRequests = [];
-  const links = [];
-  const loadSource = async (pathText) => {
-    const normalized = String(pathText || "").replace(/\\/g, "/").replace(/^\/+/, "");
-    if (normalized.endsWith("bootstrap-style.js")) return "";
-    return "";
-  };
-
-  await runRuntimeSource("views/dashboard/home/view.js", {
-    input: {
-      mount,
-      noriaBridge: {
-        runtimeBuildId: "focus-strip-build",
-        performance: { viewSourceCache: false, homeLazySections: false, homeFocusStripDeferred: false },
-        homeSettings: {
-          widgets: [
-            {
-              id: "focus-strip",
-              type: "builtin",
-              enabled: true,
-              order: 10,
-              size: "full",
-              title: "",
-              props: { date: "2026-06-09" }
-            }
-          ]
-        },
-        data: {
-          async getSnapshot(request = {}, context = {}) {
-            snapshotRequests.push({ request: JSON.parse(JSON.stringify(request)), hasCtx: !!context.ctx });
-            return {
-              domains: {
-                tasks: {
-                  completion: {
-                    open: 4,
-                    completionRate: 20,
-                    openItems: [
-                      {
-                        status: "open",
-                        completed: false,
-                        title: "写出论文核心问题一页纸版本",
-                        bucketDate: "2026-06-09",
-                        dates: { due: "2026-06-09", scheduled: "", start: "" },
-                        source: { path: "01_Projects/Paper/tasks.md", line: 8 },
-                        text: { clean: "写出论文核心问题一页纸版本" }
-                      },
-                      {
-                        status: "open",
-                        completed: false,
-                        title: "整理 AMR 方法植入记录",
-                        bucketDate: "2026-06-10",
-                        dates: { due: "2026-06-10", scheduled: "", start: "" },
-                        source: { path: "01_Projects/ZFD/tasks.md", line: 12 },
-                        text: { clean: "整理 AMR 方法植入记录" }
-                      },
-                      {
-                        status: "open",
-                        completed: false,
-                        title: "复核 Noria Home Focus Strip",
-                        bucketDate: "2026-06-11",
-                        dates: { scheduled: "2026-06-11", due: "", start: "" },
-                        source: { path: "02_Areas/知识库管理/Noria插件优化方案.md", line: 20 },
-                        text: { clean: "复核 Noria Home Focus Strip" }
-                      },
-                      {
-                        status: "open",
-                        completed: false,
-                        title: "不应默认展示的第四条",
-                        bucketDate: "2026-06-12",
-                        dates: { due: "2026-06-12", scheduled: "", start: "" },
-                        source: { path: "00_Inbox/Fourth.md", line: 1 },
-                        text: { clean: "不应默认展示的第四条" }
-                      }
-                    ]
-                  }
-                },
-                pomodoro: {
-                  summary: { sessions: 2, focusMinutes: 50 }
-                }
-              }
-            };
-          }
-        },
-        t(key, params = {}) {
-          return params.count != null ? `${key}:${params.count}` : key;
-        },
-        async openTasksTimeline(request = {}) {
-          timelineRequests.push({ ...request });
-        }
-      }
-    },
-    ctxFallback: {
-      io: { load: loadSource },
-      container: mount,
-      paragraph() {}
-    },
-    app: {
-      commands: {
-        async executeCommandById(id) {
-          commandIds.push(id);
-        }
-      },
-      workspace: {
-        async openLinkText(pathText, sourcePath, newLeaf) {
-          links.push({ pathText, sourcePath, newLeaf });
-        }
-      },
-      vault: {
-        adapter: { read: loadSource }
-      }
-    },
-    globals: {
-      window: { moment: {} },
-      document: {
-        getElementById: () => null,
-        createElement: (tag) => createFakeElement(tag),
-        head: createFakeElement("head")
-      }
-    }
-  });
-
-  assert.deepEqual(snapshotRequests, [
-    {
-      request: {
-        preset: "home",
-        range: { mode: "custom", start: "2026-06-09", end: "2026-06-16" },
-        granularity: "day",
-        include: ["tasks", "focus", "pomodoro"]
-      },
-      hasCtx: true
-    }
-  ]);
-
-  const strip = flattenElements(mount).find((el) => el.classList?.contains?.("dashboard-home-focus-strip"));
-  assert.ok(strip, "focus strip should render inside Home");
-  assert.equal(strip.attrs["data-noria-home-focus-date"], "2026-06-09");
-  assert.equal(strip.attrs["data-noria-home-focus-pomodoro"], "runtime.home.focus.pomodoroReady");
-  assert.equal(strip.attrs["data-noria-home-focus-remaining"], "1");
-  const shell = flattenElements(mount).find((el) => el.attrs?.["data-noria-widget-id"] === "focus-strip");
-  assert.ok(shell?.classList?.contains?.("dashboard-home-widget-shell"));
-  assert.equal(shell.attrs["data-noria-widget-type"], "builtin");
-
-  const items = flattenElements(mount).filter((el) => el.classList?.contains?.("dashboard-home-focus-item"));
-  assert.equal(items.length, 3, "focus strip should cap visible tasks to three");
-  const text = flattenElements(mount).map((el) => el.textContent).filter(Boolean).join(" ");
-  assert.match(text, /runtime.home.focus.title/);
-  assert.match(text, /写出论文核心问题一页纸版本/);
-  assert.match(text, /整理 AMR 方法植入记录/);
-  assert.match(text, /复核 Noria Home Focus Strip/);
-  assert.doesNotMatch(text, /不应默认展示的第四条/);
-  assert.match(text, /runtime.home.focus.remaining:1/);
-  assert.doesNotMatch(text, /runtime.home.focus.pomodoroReady/);
-  assert.doesNotMatch(text, /2026-06-09|2026-06-10|2026-06-11/);
-
-  const buttons = flattenElements(mount).filter((el) => el.tagName === "button");
-  assert.equal(buttons.filter((button) => button.classList?.contains?.("dashboard-home-focus-primary")).length, 0);
-  assert.equal(buttons.some((button) => button.textContent === "runtime.home.focus.timeline"), false);
-  const openButtons = buttons.filter((button) => button.classList?.contains?.("dashboard-home-focus-item-open"));
-  assert.equal(openButtons.length, 3);
-  assert.match(openButtons[0].attrs["aria-label"], /2026-06-09/);
-  await openButtons[0].click();
-
-  assert.deepEqual(links, [{ pathText: "01_Projects/Paper/tasks", sourcePath: "", newLeaf: false }]);
-  assert.deepEqual(commandIds, []);
-  assert.deepEqual(timelineRequests, []);
-});
-
-test("home focus task resolver rejects ambiguous duplicate-title fallbacks", () => {
-  const writer = loadHomeFocusTaskWriter({ vault: {} });
-  const lines = [
-    "- [ ] 同名任务 [due:: 2026-05-01]",
-    "- [ ] 并发插入任务",
-    "- [ ] 同名任务 [due:: 2026-05-03]"
-  ];
-
-  assert.equal(writer.findHomeFocusTaskLineIndex(lines, { line: 1, rawText: "同名任务" }), -1);
-  assert.equal(writer.findHomeFocusTaskLineIndex(lines, { line: 0, rawText: "同名任务" }), -1);
-});
-
-test("home focus task actions preserve concurrent edits through vault.process", async () => {
-  const path = "Tasks.md";
-  const file = { path, extension: "md", text: "- [ ] 目标任务 [due:: 2026-05-03]\n" };
-  let processCalls = 0;
-  const app = {
-    vault: {
-      getAbstractFileByPath(filePath) {
-        return filePath === path ? file : null;
-      },
-      async read() {
-        return file.text;
-      },
-      async modify(target, text) {
-        target.text = String(text);
-      },
-      async process(target, transform) {
-        processCalls += 1;
-        target.text = `- [ ] 并发插入任务\n${target.text}`;
-        target.text = String(transform(target.text));
-      }
-    }
-  };
-  const writer = loadHomeFocusTaskWriter(app, { refresh: { requestRefresh() {} } });
-
-  const result = await writer.updateHomeFocusTaskLine(
-    { path, line: 0, rawText: "目标任务 [due:: 2026-05-03]" },
-    (line) => line.replace("[ ]", "[x]")
-  );
-
-  assert.equal(result.ok, true);
-  assert.equal(processCalls, 1);
-  assert.match(file.text, /^- \[ \] 并发插入任务$/m);
-  assert.match(file.text, /^- \[x\] 目标任务 \[due:: 2026-05-03\]$/m);
-});
-
-test("home focus strip keeps task operations inline without a duplicate global action rail", async () => {
-  const mount = createFakeElement();
-  const files = new Map([
-    [
-      "01_Projects/Paper/tasks.md",
-      [
-        "- [ ] 写出论文核心问题一页纸版本 [due:: 2026-06-09]",
-        "- [ ] 整理 AMR 方法植入记录 [scheduled:: 2026-06-09]"
-      ].join("\n")
-    ]
-  ]);
-  const writes = [];
-  const refreshes = [];
-  const notices = [];
-  const links = [];
-  const savedPomodoroStates = [];
-  let pomodoroState = { version: 2, workLen: 25, breakLen: 5, activeAttachTaskKey: "", active: null, tasks: {} };
-  const loadSource = async (pathText) => {
-    const normalized = String(pathText || "").replace(/\\/g, "/").replace(/^\/+/, "");
-    if (normalized.endsWith("pomodoro-binding.js")) return readSource("views/task-timeline/pomodoro-binding.js");
-    return "";
-  };
-
-  await runRuntimeSource("views/dashboard/home/view.js", {
-    input: {
-      mount,
-      noriaBridge: {
-        runtimeBuildId: "focus-strip-inline-actions",
-        performance: { viewSourceCache: false, homeLazySections: false, homeFocusStripDeferred: false },
-        homeSettings: {
-          widgets: [
-            {
-              id: "focus-strip",
-              type: "builtin",
-              enabled: true,
-              order: 10,
-              size: "full",
-              title: "",
-              props: { date: "2026-06-09" }
-            }
-          ]
-        },
-        data: {
-          async getSnapshot() {
-            return {
-              domains: {
-                tasks: {
-                  completion: {
-                    open: 2,
-                    openItems: [
-                      {
-                        status: "open",
-                        completed: false,
-                        title: "写出论文核心问题一页纸版本",
-                        bucketDate: "2026-06-09",
-                        dates: { due: "2026-06-09", scheduled: "", start: "" },
-                        source: {
-                          path: "01_Projects/Paper/tasks.md",
-                          line: 0,
-                          rawLine: "- [ ] 写出论文核心问题一页纸版本 [due:: 2026-06-09]"
-                        },
-                        text: {
-                          clean: "写出论文核心问题一页纸版本",
-                          raw: "写出论文核心问题一页纸版本"
-                        }
-                      },
-                      {
-                        status: "open",
-                        completed: false,
-                        title: "整理 AMR 方法植入记录",
-                        bucketDate: "2026-06-09",
-                        dates: { due: "", scheduled: "2026-06-09", start: "" },
-                        source: {
-                          path: "01_Projects/Paper/tasks.md",
-                          line: 1,
-                          rawLine: "- [ ] 整理 AMR 方法植入记录 [scheduled:: 2026-06-09]"
-                        },
-                        text: {
-                          clean: "整理 AMR 方法植入记录",
-                          raw: "整理 AMR 方法植入记录"
-                        }
-                      }
-                    ]
-                  }
-                },
-                pomodoro: { summary: { sessions: 0, focusMinutes: 0 } }
-              }
-            };
-          }
-        },
-        runtime: {
-          notice(key, params = {}) {
-            notices.push({ key, params });
-          }
-        },
-        refresh: {
-          requestRefresh(scope, reason) {
-            refreshes.push({ scope, reason });
-          }
-        },
-        t(key, params = {}) {
-          return params.date ? `${key}:${params.date}` : key;
-        },
-        getPomodoroState() {
-          return pomodoroState;
-        },
-        async savePomodoroState(nextState) {
-          pomodoroState = JSON.parse(JSON.stringify(nextState || {}));
-          savedPomodoroStates.push(pomodoroState);
-          return { ok: true, pomodoro: pomodoroState };
-        },
-        async openTasksTimeline() {
-          throw new Error("focus strip should not expose a duplicate timeline action");
-        }
-      }
-    },
-    ctxFallback: {
-      io: { load: loadSource },
-      container: mount,
-      paragraph() {}
-    },
-    app: {
-      workspace: {
-        async openLinkText(pathText, sourcePath, newLeaf) {
-          links.push({ pathText, sourcePath, newLeaf });
-        }
-      },
-      vault: {
-        getAbstractFileByPath(pathText) {
-          return files.has(pathText) ? { path: pathText } : null;
-        },
-        async read(file) {
-          return files.get(file.path) || "";
-        },
-        async modify(file, next) {
-          files.set(file.path, next);
-          writes.push(next);
-        },
-        adapter: { read: loadSource }
-      }
-    },
-    globals: {
-      window: { moment: {} },
-      document: {
-        getElementById: () => null,
-        createElement: (tag) => createFakeElement(tag),
-        head: createFakeElement("head")
-      }
-    }
-  });
-
-  const all = flattenElements(mount);
-  assert.equal(all.some((el) => el.classList?.contains?.("dashboard-home-focus-actions")), false);
-  assert.equal(all.some((el) => el.classList?.contains?.("dashboard-home-focus-primary")), false);
-  assert.equal(all.some((el) => el.textContent === "runtime.home.focus.timeline"), false);
-
-  const openButton = all.find((el) => el.classList?.contains?.("dashboard-home-focus-item-open"));
-  await openButton.click();
-  assert.deepEqual(links, [{ pathText: "01_Projects/Paper/tasks", sourcePath: "", newLeaf: false }]);
-
-  const doneButtons = all.filter((el) => el.classList?.contains?.("dashboard-home-focus-item-done"));
-  const pomodoroButtons = all.filter((el) => el.classList?.contains?.("dashboard-home-focus-item-pomodoro"));
-  const deferButtons = all.filter((el) => el.classList?.contains?.("dashboard-home-focus-item-defer"));
-  assert.equal(doneButtons.length, 2);
-  assert.equal(pomodoroButtons.length, 2);
-  assert.equal(deferButtons.length, 2);
-  assert.equal(pomodoroButtons[0].attrs["data-noria-action-source"], "home-focus-pomodoro");
-  assert.equal(pomodoroButtons[0].attrs["data-noria-action-kind"], "toggle-pomodoro");
-  assert.ok(pomodoroButtons[0].attrs["data-noria-pomodoro-key"], "focus pomodoro button should expose the internal task key");
-  assert.equal(pomodoroButtons[0].attrs["data-noria-pomodoro-running"], "0");
-  assert.equal(pomodoroButtons[0].attrs["data-noria-pomodoro-paused"], "0");
-
-  const previousRuntimeBridge = globalThis.__noriaRuntimeBridge;
-  const runtimeBridge = { pomodoro: null };
-  globalThis.__noriaRuntimeBridge = runtimeBridge;
-  try {
-    await pomodoroButtons[0].click();
-  } finally {
-    if (previousRuntimeBridge === undefined) delete globalThis.__noriaRuntimeBridge;
-    else globalThis.__noriaRuntimeBridge = previousRuntimeBridge;
-  }
-  assert.equal(savedPomodoroStates.length, 1);
-  assert.equal(savedPomodoroStates[0].active?.status, "running");
-  assert.equal(savedPomodoroStates[0].tasks[savedPomodoroStates[0].active.taskKey].path, "01_Projects/Paper/tasks.md");
-  assert.equal(savedPomodoroStates[0].tasks[savedPomodoroStates[0].active.taskKey].lineHint, 0);
-  assert.deepEqual(runtimeBridge.pomodoro, savedPomodoroStates[0]);
-  assert.equal(pomodoroButtons[0].textContent, "||");
-  assert.equal(pomodoroButtons[0].classList.contains("is-running"), true);
-  assert.equal(pomodoroButtons[0].attrs["data-noria-pomodoro-running"], "1");
-  assert.equal(pomodoroButtons[0].attrs["data-noria-pomodoro-paused"], "0");
-
-  await doneButtons[0].click();
-  assert.match(files.get("01_Projects/Paper/tasks.md"), /^- \[x\] 写出论文核心问题一页纸版本/m);
-
-  await deferButtons[1].click();
-  assert.match(files.get("01_Projects/Paper/tasks.md"), /整理 AMR 方法植入记录 \[scheduled:: 2026-06-10\]/);
-  assert.equal(writes.length, 2);
-  assert.deepEqual(refreshes, [
-    { scope: "home", reason: "home-focus-pomodoro-action" },
-    { scope: "home", reason: "home-focus-task-action" },
-    { scope: "home", reason: "home-focus-task-action" }
-  ]);
-  assert.deepEqual(notices, [
-    {
-      key: "runtime.home.focus.pomodoroStarted",
-      params: { label: "写出论文核心问题一页纸版本" }
-    },
-    {
-      key: "runtime.home.focus.deferredNotice",
-      params: { label: "整理 AMR 方法植入记录", date: "2026-06-10" }
-    }
-  ]);
-});
-
-test("home focus strip resolves legacy workbench order collisions and keeps empty state inline", async () => {
-  const mount = createFakeElement();
-  const commandIds = [];
-  const loadSource = async () => "";
-
-  await runRuntimeSource("views/dashboard/home/view.js", {
-    input: {
-      mount,
-      noriaBridge: {
-        runtimeBuildId: "focus-empty-build",
-        performance: { viewSourceCache: false, homeLazySections: false, homeFocusStripDeferred: false },
-        homeSettings: {
-          widgets: [
-            { id: "today-tasks-card", type: "builtin", enabled: true, order: 40, size: "medium", source: "overview-columns", schemaVersion: 2, props: { cardMode: true, panels: ["tasks"] } },
-            { id: "focus-strip", type: "builtin", enabled: true, order: 50, size: "full", source: "focus-strip", schemaVersion: 1, props: { date: "2026-06-09" } }
-          ]
-        },
-        data: {
-          async getSnapshot() {
-            return {
-              domains: {
-                tasks: { completion: { open: 0, openItems: [] } },
-                pomodoro: { summary: { sessions: 0, focusMinutes: 0 } }
-              }
-            };
-          }
-        },
-        t(key) {
-          return key;
-        }
-      }
-    },
-    ctxFallback: {
-      io: { load: loadSource },
-      container: mount,
-      paragraph() {}
-    },
-    app: {
-      commands: {
-        async executeCommandById(id) {
-          commandIds.push(id);
-        }
-      },
-      vault: {
-        adapter: { read: loadSource }
-      }
-    },
-    globals: {
-      window: { moment: {} },
-      document: {
-        getElementById: () => null,
-        createElement: (tag) => createFakeElement(tag),
-        head: createFakeElement("head")
-      }
-    }
-  });
-
-  const shells = flattenElements(mount).filter((el) => el.attrs?.["data-noria-widget-id"]);
-  assert.deepEqual(shells.map((el) => el.attrs["data-noria-widget-id"]), ["focus-strip", "today-tasks-card"]);
-
-  const strip = flattenElements(mount).find((el) => el.classList?.contains?.("dashboard-home-focus-strip"));
-  assert.equal(strip.attrs["data-noria-home-focus-state"], "empty");
-  const inlineEmpty = flattenElements(mount).find((el) => el.classList?.contains?.("dashboard-home-focus-empty-inline"));
-  assert.equal(inlineEmpty.textContent, "runtime.home.focus.empty");
-  const list = flattenElements(mount).find((el) => el.classList?.contains?.("dashboard-home-focus-list"));
-  assert.equal(list.attrs.hidden, "true");
-  assert.equal(flattenElements(mount).filter((el) => el.classList?.contains?.("dashboard-home-widget-empty")).length, 0);
-  assert.equal(flattenElements(mount).filter((el) => el.classList?.contains?.("dashboard-home-focus-primary")).length, 0);
-
-  const timeline = flattenElements(mount).find((el) => el.textContent === "runtime.home.focus.timeline");
-  assert.equal(timeline, undefined);
-  assert.deepEqual(commandIds, []);
-});
-
 test("home facade renders base and list widgets as file entry launchers", async () => {
   const mount = createFakeElement();
   const links = [];
@@ -4165,177 +3926,6 @@ test("home hero starts identity and metrics rendering without serializing first 
   });
 
   assert.deepEqual(events, ["identity-start", "metrics-start", "identity-resolve"]);
-});
-
-test("home facade starts later workbench widgets while focus snapshot is still loading", async () => {
-  const mount = createFakeElement();
-  const events = [];
-  const loadSource = async (pathText) => {
-    const normalized = String(pathText || "").replace(/\\/g, "/").replace(/^\/+/, "");
-    if (normalized.endsWith("bootstrap-style.js")) return "";
-    if (normalized.endsWith("overview-columns.js")) {
-      events.push("workbench-start");
-      return "input.mount.createDiv({ text: 'workbench body' });";
-    }
-    return "";
-  };
-
-  await runRuntimeSource("views/dashboard/home/view.js", {
-    input: {
-      mount,
-      noriaBridge: {
-        runtimeBuildId: "post-focus-parallel-build",
-        performance: { viewSourceCache: false, homeLazySections: false, homeFocusStripDeferred: false },
-        homeSettings: {
-          widgets: [
-            { id: "focus-strip", type: "builtin", enabled: true, order: 10, size: "full", props: { date: "2026-06-09" } },
-            { id: "today-tasks-card", type: "builtin", enabled: true, order: 20, size: "medium", source: "overview-columns", props: { cardMode: true, panels: ["tasks"] } }
-          ]
-        },
-        data: {
-          async getSnapshot() {
-            events.push("focus-start");
-            return new Promise((resolve) => {
-              setTimeout(() => {
-                events.push("focus-resolve");
-                resolve({ domains: { tasks: { completion: { open: 0, openItems: [] } } } });
-              }, 20);
-            });
-          }
-        },
-        t(key, params = {}) {
-          return params.count != null ? `${key}:${params.count}` : key;
-        }
-      }
-    },
-    ctxFallback: {
-      io: { load: loadSource },
-      container: mount,
-      paragraph() {}
-    },
-    app: {
-      vault: {
-        adapter: { read: loadSource }
-      }
-    },
-    globals: {
-      window: { moment: {} },
-      document: {
-        getElementById: () => null,
-        createElement: (tag) => createFakeElement(tag),
-        head: createFakeElement("head")
-      }
-    }
-  });
-
-  assert.deepEqual(events, ["focus-start", "workbench-start", "focus-resolve"]);
-});
-
-test("home focus strip hydrates after first paint instead of blocking the workbench", async () => {
-  const mount = createFakeElement();
-  const events = [];
-  const timers = [];
-  let resolveSnapshot;
-  const snapshotPromise = new Promise((resolve) => {
-    resolveSnapshot = resolve;
-  });
-  const loadSource = async (pathText) => {
-    const normalized = String(pathText || "").replace(/\\/g, "/").replace(/^\/+/, "");
-    if (normalized.endsWith("bootstrap-style.js")) return "";
-    if (normalized.endsWith("overview-columns.js")) {
-      events.push("workbench-rendered");
-      return "input.mount.createDiv({ text: 'workbench body' });";
-    }
-    return "";
-  };
-
-  await runRuntimeSource("views/dashboard/home/view.js", {
-    input: {
-      mount,
-      noriaBridge: {
-        runtimeBuildId: "focus-strip-deferred-build",
-        performance: { viewSourceCache: false, homeLazySections: false },
-        homeSettings: {
-          widgets: [
-            { id: "focus-strip", type: "builtin", enabled: true, order: 10, size: "full", props: { date: "2026-06-09" } },
-            { id: "today-tasks-card", type: "builtin", enabled: true, order: 20, size: "medium", source: "overview-columns", props: { cardMode: true, panels: ["tasks"] } }
-          ]
-        },
-        data: {
-          async getSnapshot() {
-            events.push("focus-snapshot-start");
-            return snapshotPromise;
-          }
-        },
-        t(key, params = {}) {
-          return params.count != null ? `${key}:${params.count}` : key;
-        }
-      }
-    },
-    ctxFallback: {
-      io: { load: loadSource },
-      container: mount,
-      paragraph() {}
-    },
-    app: {
-      vault: {
-        adapter: { read: loadSource }
-      }
-    },
-    globals: {
-      setTimeout: (fn, ms) => {
-        timers.push({ fn, ms });
-        return timers.length;
-      },
-      window: { moment: {} },
-      document: {
-        getElementById: () => null,
-        createElement: (tag) => createFakeElement(tag),
-        head: createFakeElement("head")
-      }
-    }
-  });
-
-  assert.deepEqual(events, ["workbench-rendered"]);
-  assert.match(flattenElements(mount).map((el) => el.textContent).filter(Boolean).join(" "), /workbench body/);
-  const strip = flattenElements(mount).find((el) => el.classList?.contains?.("dashboard-home-focus-strip"));
-  assert.ok(strip, "focus strip shell should render before its snapshot resolves");
-  assert.equal(strip.attrs["data-noria-home-focus-load-state"], "queued");
-  assert.equal(strip.attrs["data-noria-home-focus-date"], "2026-06-09");
-  assert.match(flattenElements(strip).map((el) => el.textContent).filter(Boolean).join(" "), /runtime\.home\.focus\.title/);
-  assert.equal(flattenElements(mount).filter((el) => el.classList?.contains?.("dashboard-home-focus-item")).length, 0);
-
-  await flushQueuedTimers(timers, 1);
-  assert.deepEqual(events, ["workbench-rendered", "focus-snapshot-start"]);
-  assert.equal(strip.attrs["data-noria-home-focus-load-state"], "loading");
-
-  resolveSnapshot({
-    domains: {
-      tasks: {
-        completion: {
-          open: 1,
-          openItems: [
-            {
-              status: "open",
-              completed: false,
-              title: "异步补齐 Focus Strip",
-              bucketDate: "2026-06-09",
-              source: { path: "01_Projects/Noria/tasks.md", line: 2 },
-              text: { clean: "异步补齐 Focus Strip" }
-            }
-          ]
-        }
-      },
-      pomodoro: { summary: { sessions: 0, focusMinutes: 0 } }
-    }
-  });
-  await Promise.resolve();
-  await Promise.resolve();
-  await new Promise((resolve) => setImmediate(resolve));
-
-  assert.equal(strip.attrs["data-noria-home-focus-load-state"], "ready");
-  assert.equal(strip.attrs["data-noria-home-focus-state"], "tasks");
-  assert.match(flattenElements(mount).map((el) => el.textContent).filter(Boolean).join(" "), /异步补齐 Focus Strip/);
 });
 
 test("home project card hydrates after first paint instead of blocking the accepted workbench", async () => {
@@ -6304,17 +5894,17 @@ test("home overview and guide child view loaders share build-bound source and ru
   assert.match(guidePanels, /const run = getHomeChildViewRunner\(sourcePath,\s*loadedSourceCode\)/);
 });
 
-test("home overview keeps Inbox as the second workbench column and habits as secondary context", () => {
+test("home overview keeps Inbox as a focused second workbench column", () => {
   const overviewColumns = readSource("views/dashboard/home/sections/overview-columns/view.js");
 
-  assert.match(overviewColumns, /DEFAULT_WORKBENCH_PANELS\s*=\s*\{[\s\S]*leftPanels:\s*\["tasks"\][\s\S]*middlePanels:\s*\["inbox",\s*"habit-today"\][\s\S]*rightPanels:\s*\["countdown"\]/);
+  assert.match(overviewColumns, /DEFAULT_WORKBENCH_PANELS\s*=\s*\{[\s\S]*leftPanels:\s*\["tasks"\][\s\S]*middlePanels:\s*\["inbox"\][\s\S]*rightPanels:\s*\["countdown"\]/);
   assert.match(overviewColumns, /function getOverviewWorkbenchPanelLayout/);
   assert.match(overviewColumns, /WORKBENCH_PANEL_GROUPS\s*=\s*\[[\s\S]*\["middle",\s*"middlePanels"\]/);
   assert.match(overviewColumns, /inbox:\s*\{[\s\S]*titleKey:\s*"runtime\.home\.overview\.inboxTitle"[\s\S]*dashboardGuideInbox/);
-  assert.match(overviewColumns, /"habit-today":\s*\{[\s\S]*titleKey:\s*"runtime\.home\.overview\.habitsTitle"[\s\S]*dashboardHabitWeek/);
+  assert.doesNotMatch(overviewColumns, /"habit-today":\s*\{/);
   assert.match(overviewColumns, /panelIds\.includes\("inbox"\)[\s\S]*wrap\.card\.addClass\("dashboard-guide-inbox"\)/);
   assert.match(overviewColumns, /dashboard-overview-inbox-mount/);
-  assert.match(overviewColumns, /dashboard-overview-habit-context/);
+  assert.doesNotMatch(overviewColumns, /dashboard-overview-habit-context/);
   assert.match(overviewColumns, /data-noria-overview-panel-group/);
   assert.doesNotMatch(overviewColumns, /dashboardHabitWeek", \{[^\n]*actionsHost:/);
 });

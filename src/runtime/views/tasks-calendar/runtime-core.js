@@ -1693,6 +1693,27 @@ function applyTimelineSettingsToRoot() {
 		return line;
 	}
 
+	function normalizeEisenhowerBucketOverride(value) {
+		var bucket = String(value || "").trim().toLowerCase();
+		return ["q1", "q2", "q3", "q4"].indexOf(bucket) >= 0 ? bucket : "";
+	}
+
+	function getTaskEisenhowerBucketOverride(task) {
+		var raw = String((task && (task.rawText || task.sourceRawLine)) || "");
+		return normalizeEisenhowerBucketOverride(
+			(task && task.noriaQuadrant) || getInlineFieldValue(raw, "noria-quadrant")
+		);
+	}
+
+	function getPriorityForEisenhowerBucket(task, targetBucket) {
+		var bucket = normalizeEisenhowerBucketOverride(targetBucket);
+		var current = normalizePriorityValue(task && task.priority);
+		var low = current === "low" || current === "lowest";
+		if (bucket === "q1" || bucket === "q2") return low ? "normal" : current;
+		if (bucket === "q3" || bucket === "q4") return low ? current : "low";
+		return current;
+	}
+
 function getMeta(tasks) {
 	function getLastRegexMatch(text, regexWithGlobal) {
 		var last = null;
@@ -3425,6 +3446,40 @@ async function syncTaskEditorDependencies(currentMeta, currentId, beforeRefs, af
 	try { triggerTaskFreshRefresh(); } catch (_) {}
 	try { scheduleTasksCalendarSoftRefresh(320); } catch (_) {}
 	return { currentId: currentIdNeeded, beforeIds: beforeIds };
+}
+
+async function saveTaskEisenhowerBucket(taskEl, targetBucket) {
+	var bucket = normalizeEisenhowerBucketOverride(targetBucket);
+	if (!bucket) throw new Error("invalid quadrant");
+	var meta = collectTaskMeta(taskEl);
+	if (!meta.filePath) throw new Error("missing task path");
+	var currentTask = findTaskRowForSaveMeta(meta) || {
+		priority: taskEl ? taskEl.getAttribute("data-priority") : "normal"
+	};
+	var nextPriority = getPriorityForEisenhowerBucket(currentTask, bucket);
+	var nextLine = "";
+	await processTaskMarkdownFile(meta.filePath, function (content) {
+		var lines = content.split(/\r?\n/);
+		var idx = pickTaskLineIndex(lines, meta.lineIndex, meta.rawText, meta.rawSig, "", "");
+		if (idx < 0) throw new Error("task line not found: " + meta.filePath + " @" + meta.lineIndex);
+		var line = applyTaskPriorityMarker(lines[idx], nextPriority);
+		line = stripInlineField(line, "noria-quadrant");
+		line = upsertInlineField(line, "noria-quadrant", bucket).replace(/\s{2,}/g, " ").trimEnd();
+		nextLine = line;
+		lines[idx] = line;
+		return lines.join("\n");
+	});
+	if (currentTask) {
+		currentTask.priority = nextPriority;
+		currentTask.noriaQuadrant = bucket;
+		currentTask.rawText = nextLine;
+	}
+	if (taskEl) {
+		taskEl.setAttribute("data-priority", nextPriority);
+		taskEl.setAttribute("data-eisen-bucket", bucket);
+	}
+	triggerTaskFreshRefresh();
+	return { bucket: bucket, priority: nextPriority };
 }
 
 async function saveTaskDateTime(taskEl, newStartMoment, newEndMoment, options) {
@@ -15066,6 +15121,8 @@ function getList(tasks, focusDate) {
 	}
 	function classifyEisenhowerBucket(entry) {
 		var task = entry.task;
+		var manualBucket = getTaskEisenhowerBucketOverride(task);
+		if (manualBucket) { return manualBucket; }
 		/* #tl/#timeline 日程：仅占「不重要」半区（Q3/Q4），避免占满重要象限干扰四象决策 */
 		var low = taskIsLowPriorityForEisen(task) || isTimelineTaggedTask(task);
 		var urgent = false;
@@ -15138,9 +15195,106 @@ function getList(tasks, focusDate) {
 	qHtml += "<span class='eisenLabel eisenY bottom'><span class='eisenTick eisenTick--up' aria-hidden='true'></span><span class='eisenLabelText'>" + eisenNotImportant + "</span></span>";
 	qHtml += "</div></div>";
 	var listNode = mountHtmlContainer("list tc-quadrant-view", qHtml, {"data-month": monthName, "data-eisen": eisenhowerGranularity});
+	var eisenDragTaskEl = null;
+	var eisenDragSourceBucket = "";
+	function clearEisenhowerDropState() {
+		try {
+			listNode.querySelectorAll(".qContent.is-drop-target").forEach(function (host) {
+				host.classList.remove("is-drop-target");
+			});
+			if (eisenDragTaskEl) eisenDragTaskEl.classList.remove("is-dragging");
+		} catch (_) {}
+		eisenDragTaskEl = null;
+		eisenDragSourceBucket = "";
+	}
+	function syncEisenhowerBucketHost(host) {
+		if (!host) return;
+		try {
+			host.querySelectorAll(".qEmpty").forEach(function (node) { node.remove(); });
+			var count = host.querySelectorAll(".qTask").length;
+			var section = host.closest(".quadrant");
+			var counter = section && section.querySelector(".qCount");
+			if (counter) counter.textContent = String(count);
+			if (!count) {
+				var emptyNode = host.ownerDocument.createElement("div");
+				emptyNode.className = "qEmpty";
+				emptyNode.textContent = tcRuntimeT("runtime.tasksCalendar.eisenhower.empty");
+				host.appendChild(emptyNode);
+			}
+		} catch (_) {}
+	}
+	function moveEisenhowerTaskOptimistically(taskEl, targetHost, targetBucket) {
+		if (!taskEl || !targetHost) return null;
+		var sourceHost = taskEl.parentElement;
+		var snapshot = {
+			taskEl: taskEl,
+			sourceHost: sourceHost,
+			targetHost: targetHost,
+			nextSibling: taskEl.nextSibling,
+			previousBucket: taskEl.getAttribute("data-eisen-bucket") || ""
+		};
+		targetHost.querySelectorAll(".qEmpty").forEach(function (node) { node.remove(); });
+		targetHost.appendChild(taskEl);
+		taskEl.setAttribute("data-eisen-bucket", targetBucket);
+		taskEl.classList.add("is-saving");
+		syncEisenhowerBucketHost(sourceHost);
+		syncEisenhowerBucketHost(targetHost);
+		return snapshot;
+	}
+	function restoreEisenhowerTaskOptimistically(snapshot) {
+		if (!snapshot || !snapshot.taskEl || !snapshot.sourceHost) return;
+		var taskEl = snapshot.taskEl;
+		var sourceHost = snapshot.sourceHost;
+		sourceHost.querySelectorAll(".qEmpty").forEach(function (node) { node.remove(); });
+		if (snapshot.nextSibling && snapshot.nextSibling.parentElement === sourceHost) {
+			sourceHost.insertBefore(taskEl, snapshot.nextSibling);
+		} else {
+			sourceHost.appendChild(taskEl);
+		}
+		taskEl.setAttribute("data-eisen-bucket", snapshot.previousBucket);
+		taskEl.classList.remove("is-saving");
+		syncEisenhowerBucketHost(snapshot.targetHost);
+		syncEisenhowerBucketHost(sourceHost);
+	}
+	function bindEisenhowerDropTarget(host, targetBucket) {
+		host.addEventListener("dragenter", function (event) {
+			if (!eisenDragTaskEl || targetBucket === eisenDragSourceBucket) return;
+			event.preventDefault();
+			host.classList.add("is-drop-target");
+		});
+		host.addEventListener("dragover", function (event) {
+			if (!eisenDragTaskEl || targetBucket === eisenDragSourceBucket) return;
+			event.preventDefault();
+			if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+		});
+		host.addEventListener("dragleave", function (event) {
+			if (!host.contains(event.relatedTarget)) host.classList.remove("is-drop-target");
+		});
+		host.addEventListener("drop", async function (event) {
+			event.preventDefault();
+			var taskEl = eisenDragTaskEl;
+			if (!taskEl || targetBucket === eisenDragSourceBucket) {
+				clearEisenhowerDropState();
+				return;
+			}
+			var optimisticMove = moveEisenhowerTaskOptimistically(taskEl, host, targetBucket);
+			try {
+				await saveTaskEisenhowerBucket(taskEl, targetBucket);
+				taskEl.classList.remove("is-saving");
+				clearEisenhowerDropState();
+			} catch (error) {
+				restoreEisenhowerTaskOptimistically(optimisticMove);
+				clearEisenhowerDropState();
+				showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.saveFailed", {
+					message: error && error.message ? error.message : error
+				}));
+			}
+		});
+	}
 	function fillBucket(q, maxCount) {
 		var host = listNode.querySelector(".qContent[data-q='" + q + "']");
 		if (!host) return;
+		bindEisenhowerDropTarget(host, q);
 		var items = buckets[q];
 		items.sort((a, b) => {
 			var da = coerceTemporalToYmd(a.task && a.task.due) || "9999-12-31";
@@ -15160,9 +15314,21 @@ function getList(tasks, focusDate) {
 			return String(getTaskKey(a.task)).localeCompare(String(getTaskKey(b.task)));
 		});
 		for (var i = 0; i < Math.min(items.length, maxCount || 120); i++) {
-			var node = buildTaskElement(items[i].task, items[i].typ, items[i].dateStr, listNode.ownerDocument, { eisenContentOnly: true });
+			let node = buildTaskElement(items[i].task, items[i].typ, items[i].dateStr, listNode.ownerDocument, { eisenContentOnly: true });
 			if (!node) continue;
 			node.classList.add("qTask", "tc-cal-item--eisen-content");
+			node.draggable = true;
+			node.setAttribute("data-eisen-bucket", q);
+			node.addEventListener("dragstart", function (event) {
+				eisenDragTaskEl = node;
+				eisenDragSourceBucket = q;
+				node.classList.add("is-dragging");
+				if (event.dataTransfer) {
+					event.dataTransfer.effectAllowed = "move";
+					event.dataTransfer.setData("text/plain", getTaskIdentityKey(node));
+				}
+			});
+			node.addEventListener("dragend", clearEisenhowerDropState);
 			try {
 				var reason = q === "q1"
 					? tcRuntimeT("runtime.tasksCalendar.eisenhower.q1Reason")
