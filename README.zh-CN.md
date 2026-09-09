@@ -222,3 +222,27 @@ npm run install:vault -- "/path/to/test-vault"
 ## 许可证
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+## 社区交流
+
+欢迎提问、分享工作流，并提出改进建议，中英文均可。
+
+[加入 Noria Discord 社区](https://discord.gg/JjCyDvFvgY) · [Obsidian Forum](https://forum.obsidian.md/t/noria-connecting-notes-projects-tasks-and-reviews-in-obsidian/118107) · [GitHub Issues](https://github.com/jellyns/obsidian-noria/issues)
+
+扫描二维码加入 Noria Discord 社区：
+
+<a href="https://discord.gg/JjCyDvFvgY"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/community/discord-qr.png" alt="加入 Noria Discord 社区的二维码" width="220"></a>
+
+[社区使用说明](docs/COMMUNITY.md#中文)
+
+## 支持开发
+
+如果 Noria 对你有帮助，欢迎自愿支持开发与维护。所有功能均向每位用户开放。
+
+使用**支付宝**扫描二维码，支持 Noria：
+
+<a href="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg" alt="Noria 支付宝赞助二维码" width="220"></a>
+
+[支持开发说明](docs/SUPPORT.md#中文)

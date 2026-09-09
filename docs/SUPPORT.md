@@ -10,7 +10,7 @@ Sponsorship does not unlock features or purchase priority fixes or dedicated sup
 
 Scan this QR code with Alipay to support Noria.
 
-![Alipay QR code for supporting Noria](assets/support/alipay.jpg)
+<a href="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg" alt="Alipay QR code for supporting Noria" width="220"></a>
 
 ## 中文
 
@@ -22,6 +22,6 @@ Noria 是由个人持续维护的开源项目。自愿赞助用于支持开发�
 
 使用支付宝扫描二维码，自愿支持 Noria 的开发与维护。
 
-![Noria 支付宝赞助二维码](assets/support/alipay.jpg)
+<a href="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg" alt="Noria 支付宝赞助二维码" width="220"></a>
 
 [社区交流](COMMUNITY.md#中文) · [参与贡献](../CONTRIBUTING.md)

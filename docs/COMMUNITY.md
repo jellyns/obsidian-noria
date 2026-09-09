@@ -10,6 +10,8 @@ Share how you use Noria, ask for help, and suggest improvements to workflows, ap
 
 [Join Noria on Discord](https://discord.gg/JjCyDvFvgY) — English and Chinese are welcome.
 
+<a href="https://discord.gg/JjCyDvFvgY"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/community/discord-qr.png" alt="QR code to join the Noria Discord community" width="220"></a>
+
 Start with `start-here` for installation, guides, and community rules. Ask questions in `help-and-feedback`, share workflows in `showcase`, and follow `announcements` for updates.
 
 ## Get started
@@ -38,6 +40,8 @@ Please follow the [Code of Conduct](../CODE_OF_CONDUCT.md). Report security vuln
 [在 Obsidian Forum 阅读 Noria 介绍并参与讨论](https://forum.obsidian.md/t/noria-connecting-notes-projects-tasks-and-reviews-in-obsidian/118107)。
 
 [加入 Noria Discord 社区](https://discord.gg/JjCyDvFvgY)，欢迎中英文交流。
+
+<a href="https://discord.gg/JjCyDvFvgY"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/community/discord-qr.png" alt="加入 Noria Discord 社区的二维码" width="220"></a>
 
 从 `start-here` 查看安装、手册和社区规则，在 `help-and-feedback` 求助与反馈，在 `showcase` 分享工作流，在 `announcements` 查看更新。
 

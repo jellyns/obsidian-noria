@@ -222,3 +222,27 @@ Replace the example path with a separate test vault. The command builds the plug
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+## Community
+
+Ask questions, share workflows, and suggest improvements. English and Chinese are welcome.
+
+[Join Noria on Discord](https://discord.gg/JjCyDvFvgY) · [Obsidian Forum](https://forum.obsidian.md/t/noria-connecting-notes-projects-tasks-and-reviews-in-obsidian/118107) · [GitHub Issues](https://github.com/jellyns/obsidian-noria/issues)
+
+Scan to join the Noria Discord community:
+
+<a href="https://discord.gg/JjCyDvFvgY"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/community/discord-qr.png" alt="QR code to join the Noria Discord community" width="220"></a>
+
+[Community guide](docs/COMMUNITY.md)
+
+## Support development
+
+If Noria helps you, voluntary support is welcome and helps sustain development and maintenance. All features remain available to everyone.
+
+Scan with **Alipay** to support Noria:
+
+<a href="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg"><img src="https://raw.githubusercontent.com/jellyns/obsidian-noria/main/docs/assets/support/alipay.jpg" alt="Alipay QR code for supporting Noria" width="220"></a>
+
+[About supporting Noria](docs/SUPPORT.md)
