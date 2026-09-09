@@ -266,8 +266,7 @@ test("native backend is the sole renderer and consumes one already-filtered even
   assert.equal(instance.getDiagnostics().eventCount, 2);
   assert.equal(instance.getDiagnostics().renderCount, 1);
 
-  const currentMs = Date.parse("2026-07-11T12:00:00+08:00");
-  const dayStart = new Date(currentMs);
+  const dayStart = new Date("2026-07-11T09:00:00+08:00");
   dayStart.setHours(0, 0, 0, 0);
   assert.equal(harness.calls.viewportInputs.length, 2);
   harness.calls.viewportInputs.forEach((input) => {
@@ -300,7 +299,7 @@ test("native backend preserves the legacy date-string center for date-only tasks
   const instance = await harness.engine.mountTimelineBackend("native", harness.backendContext);
   harness.flushFrame();
 
-  assert.notEqual(harness.calls.layoutInputs[0].eventIndex.events[0].startMs, Date.parse("2026-07-10"));
+  assert.equal(harness.calls.layoutInputs[0].eventIndex.events[0].startMs, new Date(2026, 6, 10).getTime());
   assert.equal(harness.calls.viewportInputs[0].centerMs, Date.parse("2026-07-10"));
   instance.dispose();
 });
