@@ -1,15 +1,14 @@
 .noria-task-timeline-native-root {
   --noria-task-timeline-title-size: 11px;
   --noria-task-timeline-title-line: 16px;
-  --noria-task-timeline-range-title-size: 11px;
-  --noria-task-timeline-range-title-line: 13px;
   position: relative;
   box-sizing: border-box;
   min-width: 0;
-  min-height: 280px;
+  min-height: 0;
   overflow: hidden;
   background: var(--noria-task-timeline-time-surface);
   color: var(--noria-task-timeline-time-ink);
+  font-family: var(--font-interface);
   container-type: inline-size;
 }
 
@@ -40,23 +39,25 @@
   background: var(--noria-task-timeline-time-band);
 }
 
-.noria-task-timeline-native-overview-band {
-  background: var(--noria-task-timeline-overview-band);
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-root .noria-task-timeline-native-overview-band {
+  background: var(--noria-task-timeline-time-band);
+  border-top: 1px solid var(--background-modifier-border);
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.noria-task-timeline-native-overview-band:focus-visible {
+  outline: 1px solid var(--interactive-accent);
+  outline-offset: -2px;
 }
 
 .noria-task-timeline-native-background,
-.noria-task-timeline-native-grid,
 .noria-task-timeline-native-weekends,
 .noria-task-timeline-native-markers,
 .noria-task-timeline-native-events,
 .noria-task-timeline-native-state-layer {
   position: absolute;
   inset: 0;
-}
-
-.noria-task-timeline-native-grid {
-  z-index: 100;
-  pointer-events: none;
 }
 
 .noria-task-timeline-native-weekends {
@@ -79,15 +80,6 @@
   pointer-events: none;
 }
 
-.noria-task-timeline-native-date {
-  color: var(--noria-task-timeline-time-muted);
-  font-family: var(--font-interface);
-  font-size: 10px;
-  font-weight: 560;
-  line-height: 14px;
-  white-space: nowrap;
-}
-
 .noria-task-timeline-native-weekend {
   background: var(--noria-task-timeline-today-wash);
   opacity: 0.3;
@@ -103,6 +95,10 @@
 }
 
 .noria-task-timeline-native-root[data-noria-pan-state="active"] .noria-task-timeline-native-main {
+  cursor: grabbing;
+}
+
+.noria-task-timeline-native-root[data-noria-pan-state="active"] .noria-task-timeline-native-overview-band {
   cursor: grabbing;
 }
 
@@ -123,7 +119,8 @@
   pointer-events: none;
 }
 
-.noria-task-timeline-native-title {
+.noria-task-timeline-root--tasks-timeline .timeline-event-label.noria-task-timeline-native-title {
+  z-index: 1;
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -137,42 +134,85 @@
   font-weight: var(--noria-task-timeline-task-open-weight, 600);
 }
 
-.noria-task-timeline-native-title[hidden] {
-  display: none ;
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-root .noria-task-timeline-native-title[hidden] {
+  display: none;
 }
 
 .noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-title {
-  color: var(--noria-task-timeline-time-muted);
-  font-weight: var(--noria-task-timeline-task-done-weight, 500);
-}
-
-.noria-task-timeline-native-title[data-noria-task-visual-role="primary-range-title"] {
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
-  color: color-mix(in srgb, var(--noria-task-timeline-task-blue-deep) 28%, var(--noria-task-timeline-time-ink));
-  font-family: var(--font-interface), Arial, Helvetica, sans-serif;
-  font-size: var(--noria-task-timeline-range-title-size);
-  line-height: var(--noria-task-timeline-range-title-line);
-  pointer-events: none;
-  cursor: default;
+  color: var(--noria-task-timeline-time-ink);
+  font-weight: var(--noria-task-timeline-task-open-weight, 600);
 }
 
 .noria-task-timeline-native-point {
-  border: 1px solid var(--noria-task-timeline-task-blue-deep);
+  z-index: 1;
+  border: 1px solid var(--interactive-accent);
   border-radius: 50%;
-  background: var(--noria-task-timeline-task-blue);
+  background: var(--interactive-accent);
   pointer-events: auto;
   cursor: pointer;
 }
 
 .noria-task-timeline-native-rail {
+  z-index: 0;
   border: 0;
-  background: transparent;
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--noria-task-timeline-task-blue) 8%, transparent);
-  opacity: 1;
-  pointer-events: auto;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--interactive-accent) 38%, transparent);
+  opacity: 0;
+  pointer-events: none;
   cursor: pointer;
 }
+
+.noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-rail,
+.noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-point {
+  background: color-mix(in srgb, var(--color-green, #51876d) 75%, var(--text-muted));
+  border-color: color-mix(in srgb, var(--color-green, #51876d) 75%, var(--text-muted));
+}
+
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-root .timeline-band-1 .noria-task-timeline-native-overview-date {
+  color: var(--noria-task-timeline-time-muted);
+  font-family: var(--font-interface);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.noria-task-timeline-native-overview-events > [data-noria-overview-event-id] {
+  opacity: 0.16;
+  border: 0;
+}
+
+.noria-task-timeline-native-overview-active {
+  opacity: 0.6;
+}
+
+.noria-task-timeline-native-task-unit[data-noria-task-details="active"] .noria-task-timeline-native-rail,
+.noria-task-timeline-native-task-unit[data-noria-drag-state="active"] .noria-task-timeline-native-rail {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.noria-task-timeline-native-tooltip {
+  position: absolute;
+  z-index: 150;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.noria-task-timeline-native-tooltip[hidden] { display: none; }
+.noria-task-timeline-native-tooltip-title { font-weight: 600; margin-bottom: 4px; }
+.noria-task-timeline-native-tooltip-time,
+.noria-task-timeline-native-tooltip-source { color: var(--text-muted); font-size: 11px; }
 
 .noria-task-timeline-native-handle-zone {
   z-index: 1;
@@ -230,3 +270,124 @@
 .noria-task-timeline-native-state--error {
   color: var(--text-error);
 }
+
+.noria-task-timeline-native-overflow {
+  position: absolute;
+  bottom: 4px;
+  left: 8px;
+  right: 8px;
+  color: var(--noria-task-timeline-time-muted);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.noria-task-timeline-native-root[data-noria-mark-mode="active"] .noria-task-timeline-native-main { cursor: crosshair; }
+.noria-task-timeline-native-annotations { z-index: 20; }
+.noria-task-timeline-native-annotation { pointer-events: auto; }
+.noria-task-timeline-native-root .noria-task-timeline-native-annotation-label {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 3px;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--noria-annotation-color) 18%, transparent);
+  color: var(--text-normal);
+  font: 500 11px/19px var(--font-interface);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.noria-task-timeline-native-root .noria-task-timeline-native-annotation-label:hover,
+.noria-task-timeline-native-annotation[data-noria-annotation-selected="true"] .noria-task-timeline-native-annotation-label {
+  background: color-mix(in srgb, var(--noria-annotation-color) 30%, transparent);
+}
+.noria-task-timeline-native-annotation-label:focus-visible {
+  outline: 1px solid var(--interactive-accent);
+  outline-offset: -1px;
+}
+.noria-task-timeline-native-annotation-handle {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 7px;
+  background: color-mix(in srgb, var(--noria-annotation-color) 75%, var(--text-normal));
+  border-radius: 2px;
+  cursor: ew-resize;
+  z-index: 1;
+}
+.noria-task-timeline-native-annotation-handle.is-start { left: 0; }
+.noria-task-timeline-native-annotation-handle.is-end { right: 0; }
+.noria-task-timeline-native-root .noria-task-timeline-native-annotation-more {
+  display: block;
+  min-height: 0;
+  line-height: 20px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+  pointer-events: auto;
+}
+.noria-task-timeline-native-range-preview { z-index: 30; pointer-events: none; }
+.noria-task-timeline-native-selection {
+  background: color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+  border-inline: 1px solid color-mix(in srgb, var(--interactive-accent) 65%, transparent);
+  pointer-events: none;
+}
+.noria-task-timeline-native-selection-label {
+  position: absolute;
+  bottom: 6px;
+  left: 5px;
+  max-width: calc(100% - 10px);
+  color: var(--text-normal);
+  background: var(--background-primary);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.noria-task-timeline-annotation-popover {
+  position: fixed;
+  z-index: 9999;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow-y: auto;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font: 13px/1.4 var(--font-interface);
+}
+.noria-task-timeline-annotation-heading { font-weight: 600; margin-bottom: 12px; }
+.noria-task-timeline-annotation-editor form { display: grid; gap: 10px; }
+.noria-task-timeline-annotation-field { display: grid; gap: 4px; }
+.noria-task-timeline-annotation-field > span { color: var(--text-muted); font-size: 12px; }
+.noria-task-timeline-annotation-field input,
+.noria-task-timeline-annotation-field select { width: 100%; min-width: 0; }
+.noria-task-timeline-annotation-help { color: var(--text-muted); font-size: 11px; }
+.noria-task-timeline-annotation-error { color: var(--text-error); font-size: 12px; }
+.noria-task-timeline-annotation-error[hidden],
+.noria-task-timeline-annotation-help[hidden] { display: none; }
+.noria-task-timeline-annotation-editor .noria-task-timeline-context-colors { display: flex; gap: 9px; }
+.noria-task-timeline-annotation-editor .noria-task-timeline-color-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--text-normal); outline-offset: 2px;
+}
+.noria-task-timeline-annotation-actions { display: flex; gap: 8px; justify-content: flex-end; padding-top: 3px; }
+.noria-task-timeline-annotation-actions .noria-task-timeline-annotation-delete { margin-right: auto; color: var(--text-error); }
+.noria-task-timeline-annotation-list .noria-task-timeline-annotation-list-item {
+  display: block; width: 100%; height: auto; padding: 8px; border: 0; box-shadow: none;
+  background: transparent; text-align: left; white-space: normal;
+}
+.noria-task-timeline-annotation-list .noria-task-timeline-annotation-list-item:hover { background: var(--background-modifier-hover); }

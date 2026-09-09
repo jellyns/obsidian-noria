@@ -155,10 +155,9 @@ test("native renderer emits the accepted two-band compatibility DOM", () => {
   assert.equal(byAttribute(host, "data-noria-timeline-band", "main").length, 1);
   assert.equal(byAttribute(host, "data-noria-timeline-band", "overview").length, 1);
   assert.equal(byClass(host, "timeline-event-label").length, 2);
-  assert.equal(byClass(host, "timeline-event-icon").length, 1);
+  assert.equal(byClass(host, "timeline-event-icon").length, 2);
   assert.equal(byClass(host, "timeline-event-tape").length, 1);
-  assert.equal(byAttribute(host, "data-noria-task-visual-role", "primary-title").length, 1);
-  assert.equal(byAttribute(host, "data-noria-task-visual-role", "primary-range-title").length, 1);
+  assert.equal(byAttribute(host, "data-noria-task-visual-role", "primary-title").length, 2);
   assert.equal(byAttribute(host, "data-noria-task-handle-role", "start").length, 1);
   assert.equal(byAttribute(host, "data-noria-task-handle-role", "end").length, 1);
   assert.equal(byAttribute(host, "data-noria-task-handle-zone", "local-title").length, 1);
@@ -167,9 +166,12 @@ test("native renderer emits the accepted two-band compatibility DOM", () => {
   assert.equal(byAttribute(host, "data-noria-timeline-marker", "now").length, 1);
   assert.equal(byClass(host, "noria-task-timeline-native-weekend").length, 1);
   assert.equal(byAttribute(host, "role", "button").length, 2);
-  assert.equal(byAttribute(host, "tabindex", "0").length, 2);
+  assert.equal(byAttribute(host, "tabindex", "0").length, 3);
+  const footer = byAttribute(host, "data-noria-timeline-band", "overview")[0];
+  assert.equal(footer.getAttribute("tabindex"), "0");
+  assert.match(footer.getAttribute("aria-label"), /arrow keys/i);
   const point = byClass(host, "noria-task-timeline-native-point")[0];
-  const rangeTitle = byAttribute(host, "data-noria-task-visual-role", "primary-range-title")[0];
+  const rangeTitle = byAttribute(host, "data-noria-task-group-key", "task:range")[0].__noriaTaskRefs.title;
   const rangeRail = byAttribute(host, "data-noria-task-visual-role", "duration-rail")[0];
   const handleZone = byAttribute(host, "data-noria-task-handle-zone", "local-title")[0];
   const rangeMoveHandle = handleZone.parentElement.children.find((node) => node.getAttribute("data-noria-task-handle-role") === "move");
@@ -181,6 +183,12 @@ test("native renderer emits the accepted two-band compatibility DOM", () => {
   assert.equal(rangeTitle.style.transform || "", "");
   assert.equal(rangeRail.style.height, "2px");
   assert.equal(rangeRail.getAttribute("data-noria-source-action"), null);
+  assert.equal(rangeRail.getAttribute("tabindex"), null);
+  assert.equal(rangeTitle.getAttribute("role"), "button");
+  assert.equal(rangeTitle.getAttribute("tabindex"), "0");
+  const mainBand = byAttribute(host, "data-noria-timeline-band", "main")[0];
+  assert.equal(byAttribute(mainBand, "data-noria-tick-date").length, 0);
+  assert.equal(byAttribute(host, "data-noria-tick-date").length, model.overviewPlan.dateTicks.length);
   assert.equal(handleZone.getAttribute("aria-hidden"), "true");
   assert.equal(handleZone.style.top, rangeTitle.style.top);
   assert.equal(handleZone.style.height, rangeTitle.style.height);
@@ -200,6 +208,25 @@ test("native renderer builds the initial surface through one fragment commit", (
   assert.equal(host.children.length, 2);
 });
 
+test("phase labels and selected endpoint handles render above tasks without a second date axis", () => {
+  const hooks = loadRendererHooks();
+  const document = fakeDocument();
+  const host = hooks.renderer.createNativeTimelineHost(document.createElement("div"));
+  const events = [...taskEvents(), { id: "phase", layer: "annotation", title: "Field visits",
+    start: "2026-07-11T10:00:00+08:00", end: "2026-07-11T15:00:00+08:00",
+    payload: { annotation: { projectPath: "Projects/Garden", projectName: "Garden" } } }];
+  const model = plans(hooks, events);
+  hooks.renderer.renderNativeTimeline(host, { ...model, state: "ready" });
+  const label = byClass(host, "noria-task-timeline-native-annotation-label")[0];
+  assert.equal(label.textContent, "Garden · Field visits");
+  assert.equal(byAttribute(host, "data-noria-annotation-handle").length, 0);
+  model.mainPlan.annotationUnits[0].selected = true;
+  hooks.renderer.updateNativeTimeline(host, { ...model, state: "ready" });
+  assert.equal(byAttribute(host, "data-noria-annotation-handle").length, 2);
+  const main = byAttribute(host, "data-noria-timeline-band", "main")[0];
+  assert.equal(byAttribute(main, "data-noria-tick-date").length, 0);
+});
+
 test("native renderer consumes range title rail and handle bounds only from layout", () => {
   const hooks = loadRendererHooks();
   const document = fakeDocument();
@@ -211,7 +238,7 @@ test("native renderer consumes range title rail and handle bounds only from layo
 
   hooks.renderer.renderNativeTimeline(host, { ...model, state: "ready" });
 
-  const rangeTitle = byAttribute(host, "data-noria-task-visual-role", "primary-range-title")[0];
+  const rangeTitle = byAttribute(host, "data-noria-task-group-key", "task:range")[0].__noriaTaskRefs.title;
   const rangeRail = byAttribute(host, "data-noria-task-visual-role", "duration-rail")[0];
   const handleZone = byAttribute(host, "data-noria-task-handle-zone", "local-title")[0];
   assert.equal(host.getAttribute("data-noria-timeline-density"), "wide");
@@ -235,9 +262,7 @@ test("native layout degrades saturated 280 and 320px lanes without overlapping v
   for (const widthPx of [280, 320]) {
     const viewport = hooks.viewport.createViewport({ centerMs, msPerPx: 3_600_000 / 12, widthPx });
     const heightPx = 96;
-    const metrics = { safeTopPx: 24, safeBottomPx: 10, titleHeightPx: 16, laneStepPx: 22 };
-    const maxLane = Math.floor((heightPx - metrics.safeBottomPx - metrics.safeTopPx - metrics.titleHeightPx) / metrics.laneStepPx);
-    const events = Array.from({ length: maxLane + 2 }, (_, index) => ({
+    const events = Array.from({ length: 6 }, (_, index) => ({
       id: `task:dense:${index}`,
       taskKey: `task:dense:${index}`,
       layer: "task",
@@ -259,9 +284,9 @@ test("native layout degrades saturated 280 and 320px lanes without overlapping v
     const hidden = plan.taskUnits.filter((unit) => unit.title.visible === false);
 
     assert.equal(plan.taskUnits.length, events.length);
-    assert.equal(visible.length, maxLane + 1);
-    assert.equal(hidden.length, 1);
-    assert.equal(plan.taskUnits.filter((unit) => unit.point.visible).length, events.length);
+    assert.ok(visible.length > 0 && visible.length < events.length);
+    assert.equal(plan.hiddenTaskCount, hidden.length);
+    assert.equal(plan.taskUnits.filter((unit) => unit.point.visible).length, visible.length);
     assert.equal(hooks.layout.findLayoutCollisions(plan).length, 0);
     assert.deepEqual(
       Array.from(plan.taskUnits, (unit) => [unit.taskKey, unit.title.visible]),
@@ -276,9 +301,7 @@ test("native timeline typography grows in discrete normal and wide density steps
   assert.match(css, /--noria-task-timeline-title-size:\s*11px/);
   assert.match(css, /data-noria-timeline-density="normal"[\s\S]{0,220}--noria-task-timeline-title-size:\s*12px/);
   assert.match(css, /data-noria-timeline-density="wide"[\s\S]{0,220}--noria-task-timeline-title-size:\s*12px/);
-  assert.match(css, /--noria-task-timeline-range-title-size:\s*11px/);
   assert.match(css, /font-size:\s*var\(--noria-task-timeline-title-size\)/);
-  assert.match(css, /font-size:\s*var\(--noria-task-timeline-range-title-size\)/);
 });
 
 test("native hidden titles use the standard hidden-state display rule", () => {
@@ -363,7 +386,7 @@ test("native renderer stylesheet reuses accepted Noria timeline tokens", () => {
   const css = fs.readFileSync(sourcePath("views/task-timeline/native.css"), "utf8");
   assert.match(css, /\.noria-task-timeline-native-root/);
   assert.match(css, /--noria-task-timeline-time-band/);
-  assert.match(css, /--noria-task-timeline-overview-band/);
+  assert.match(css, /--noria-task-timeline-time-band/);
   assert.match(css, /--noria-task-timeline-task-blue/);
   assert.match(css, /--noria-task-timeline-now-cursor/);
   assert.doesNotMatch(css, /linear-gradient|radial-gradient|box-shadow:\s*0\s+[2-9]px/i);

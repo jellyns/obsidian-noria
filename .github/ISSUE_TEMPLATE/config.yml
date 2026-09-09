@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and workflows / 使用交流
+    url: https://discord.gg/JjCyDvFvgY
+    about: Ask for help and share how you use Noria. English and Chinese are welcome.
+  - name: Obsidian Forum introduction / 图文介绍与讨论
+    url: https://forum.obsidian.md/t/noria-connecting-notes-projects-tasks-and-reviews-in-obsidian/118107
+    about: See the illustrated introduction and join the ongoing discussion.

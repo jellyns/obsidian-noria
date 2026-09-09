@@ -2198,6 +2198,82 @@ test("vault file changes silently invalidate data caches without forcing a home 
   assert.doesNotMatch(body, /reloadOpenNoriaViews/);
 });
 
+function makeTaskInvalidationFixture() {
+  const { EventEmitter } = require("node:events");
+  const plugin = makePlugin();
+  plugin.settings = plugin.normalizeSettings({});
+  const file = { path: "Noria/Projects/Launch/Launch.md", stat: { mtime: 1 } };
+  let text = "- [ ] Prepare introduction";
+  const vault = Object.assign(new EventEmitter(), { cachedRead: async () => text });
+  const metadataCache = Object.assign(new EventEmitter(), {
+    initialized: true,
+    getFileCache: () => ({ listItems: [{ task: " " }] })
+  });
+  const context = { console, Date, localStorage: { getItem: () => "" } };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(pluginPath("views/dashboard/core/data/data-service.js"), "utf8"), context);
+  const app = { vault, metadataCache, workspace: {} };
+  const service = context.dashboardCore.data.dataService.createDataService({
+    app,
+    now: "2026-09-09",
+    bridge: {
+      runtimeBuildId: "task-invalidation-test",
+      paths: { projectsRoot: "Noria/Projects" },
+      runtime: { filesForScope: () => [file] }
+    }
+  });
+  const query = () => service.getTasks({
+    range: { mode: "custom", start: "2026-09-09", end: "2026-09-09" },
+    rangePolicy: "allFacts",
+    status: "all"
+  });
+  const refreshes = [];
+  app.workspace.trigger = (event) => {
+    if (event === "noria:tasks-invalidated") refreshes.push(query());
+  };
+  plugin.app = app;
+  plugin.registerEvent = () => {};
+  plugin.createDataService = async () => service;
+  plugin.registerNoriaDataInvalidationEvents();
+  return {
+    file, vault, metadataCache, query, refreshes,
+    setText(value) { text = value; },
+    async settle() {
+      await new Promise((resolve) => setImmediate(resolve));
+      return Promise.all(refreshes);
+    }
+  };
+}
+
+test("task change notifications expose fresh data to immediate consumers", async () => {
+  const fixture = makeTaskInvalidationFixture();
+  assert.equal((await fixture.query()).items[0].dates.scheduled, "");
+  fixture.file.stat.mtime = 2;
+  fixture.setText("- [ ] Prepare introduction [scheduled:: 2026-09-09]");
+  fixture.vault.emit("modify", fixture.file);
+  const results = await fixture.settle();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].items[0].dates.scheduled, "2026-09-09");
+});
+
+test("metadata completion refreshes tasks read before the vault text cache was ready", async () => {
+  const fixture = makeTaskInvalidationFixture();
+  await fixture.query();
+  fixture.file.stat.mtime = 2;
+  fixture.vault.emit("modify", fixture.file);
+  await fixture.settle();
+  // Obsidian may expose the new mtime before cachedRead and its task index are ready.
+  await fixture.query();
+  const previousRefreshes = fixture.refreshes.length;
+  fixture.setText("- [x] Prepare introduction [scheduled:: 2026-09-09]");
+  fixture.metadataCache.emit("changed", fixture.file);
+  const results = await fixture.settle();
+  assert.equal(results.length, previousRefreshes + 1);
+  const task = results.at(-1).items[0];
+  assert.equal(task.dates.scheduled, "2026-09-09");
+  assert.equal(task.source.rawLine, "- [x] Prepare introduction [scheduled:: 2026-09-09]");
+});
+
 test("task snapshot cache honors TTL and invalidates task scopes", async () => {
   const plugin = makePlugin();
   plugin.settings = plugin.normalizeSettings({ performance: { taskSnapshotTtlMs: 1000, refreshDebounceMs: 20 } });

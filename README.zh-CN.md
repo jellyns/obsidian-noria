@@ -2,7 +2,7 @@
 
 **语言**： [English](README.md) | 简体中文
 
-![version](https://img.shields.io/badge/version-0.4.5-blue)
+![version](https://img.shields.io/badge/version-0.4.6-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.5%2B-7c3aed)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -12,7 +12,7 @@
 
 **让知识进入行动，让行动沉淀为知识。**
 
-Noria 是一款以灵活主页为中心的 Obsidian 个人工作台。它把日常记录、笔记与知识库管理，同计划、执行和复盘连接起来；通过任务看板、任务时间轴、项目、Inbox、MOC、习惯、趋势统计与复盘中心，帮助你看清当前状态、专注下一步，并让长期积累重新服务于行动。
+Noria 是一款以灵活主页为中心的 Obsidian 个人工作台。它把日常记录、笔记与知识库管理，同计划、执行和复盘连接起来；通过任务看板、任务时间轴、日历、项目、Inbox、MOC、习惯、趋势统计与复盘中心，帮助你看清当前状态、专注下一步，并让长期积累重新服务于行动。
 
 ![Noria 主页看板](docs/assets/zh-CN/home-dashboard.png)
 
@@ -57,13 +57,15 @@ Markdown 小组件可以展示由其他流程生成的每日简报、当前建�
 
 ### 任务时间轴
 
-任务时间轴把任务放进一天或一周的时间结构里。它适合处理“今天怎么展开、哪些任务有明确时段、哪些事情只是待排”这类问题。你可以在主视图中查看日/周节奏，也可以把侧边任务轴常驻在右侧，用较低切换成本感知当前安排。
+任务时间轴将带日期的任务和项目阶段放到同一条时间线上。可以在主编辑区查看整体安排，也可以在侧栏常驻查看当前任务；从日尺度放大到小时，就能查看一天内的具体排期。
 
-时间轴不是为了把一天切得更碎，而是让安排自然落到时间上。对于喜欢进入心流的人，它更像一个低干扰参照：任务可以先被捕捉，再被安排到合适时段，推进过程中仍能回到原始笔记和项目语境。
+任务统一以圆点和短标题显示，完成状态由圆点颜色表达，标题保持清晰。悬停或键盘聚焦可查看完整时间、持续跨度与来源笔记；拖动底部日期行或缩略图可平移时间范围。
 
-Noria 自有渲染器保留已经收敛的侧栏视觉，同时支持打开任务来源、平移与缩放、Today 与概览导航、任务移动和区间调整、范围标记以及可复用筛选。任务、记录、项目、标记、番茄钟、笔记、Git 活动和 Noria 轨迹都只是可选图层，不会默认堆成信息噪声。
+通过命名的项目或全局时间标注，可以在任务上方标明阶段。编辑这些时段不会修改任务日期，任务仍保留在原来的 Markdown 笔记中。
 
-![任务时间轴](docs/assets/zh-CN/task-timeline.png)
+![任务时间轴中的两周任务与项目阶段](docs/assets/zh-CN/task-timeline-wide.png)
+
+*此处配图使用示例任务，展示 Noria 0.4.6 的 Timeline 交互。* [时间轴使用说明](docs/zh-CN/USER-GUIDE.md#4-任务时间轴)
 
 ### 日历
 
@@ -87,7 +89,7 @@ Noria 自有渲染器保留已经收敛的侧栏视觉，同时支持打开任�
 
 ### 按你的知识库配置
 
-Noria 可以使用新的 `Noria/` 标准工作区，也可以通过路径和扫描范围接入已有知识库。设置页覆盖路径、主页小组件、任务过滤、模板、外观、天气、复盘提示词和维护工具。它会适配你的知识系统，而不是把知识库改成固定目录。
+Noria 可以使用新的 `Noria/` 标准工作区，也可以通过路径和扫描范围接入已有知识库。设置页覆盖路径、主页小组件、任务过滤、日历来源与周期模板、外观、天气、复盘提示词和维护工具。它会适配你的知识系统，而不是把知识库改成固定目录。
 
 ---
 
@@ -160,6 +162,8 @@ Obsidian 保存设置后，插件目录通常是：
 
 - [用户手册](docs/zh-CN/USER-GUIDE.md)：安装初始化、全部模块、设置、常用工作流、FAQ、路径与开发参考。
 - [GitHub Issues](https://github.com/jellyns/obsidian-noria/issues)：提交 Bug 和功能建议。
+- [社区交流](docs/COMMUNITY.md#中文)：使用帮助、工作流分享与交流群入口。
+- [支持开发](docs/SUPPORT.md#中文)：自愿支持 Noria 的持续维护。
 - [Changelog](CHANGELOG.md)：版本变更。
 - [Contributing](CONTRIBUTING.md)：本地开发、验证和 PR 要求。
 - [Security](SECURITY.md)：安全问题报告方式。
@@ -189,10 +193,10 @@ npm run check
 如果要把当前构建结果安装到单独测试库，并保持安装目录干净：
 
 ```bash
-npm run install:vault -- F:/NoriaTest
+npm run install:vault -- "/path/to/test-vault"
 ```
 
-该命令会构建插件，并只复制 `manifest.json`、`main.js`、`styles.css` 到 `F:/NoriaTest/.obsidian/plugins/noria/`。已有 Noria `data.json` 会保留。
+将示例路径替换为一个独立的测试库。该命令会构建插件，并只复制 `manifest.json`、`main.js`、`styles.css` 到该库的 `.obsidian/plugins/noria/` 目录。已有 Noria `data.json` 会保留。
 
 ---
 

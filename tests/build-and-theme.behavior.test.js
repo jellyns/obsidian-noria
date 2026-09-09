@@ -39,8 +39,8 @@ test("package scripts build bundled main.js from src with obsidian external", ()
   assert.equal(pkg.scripts["build:release"], "npm run build");
   assert.match(pkg.scripts["release:check"], /npm run build:release/);
   assert.match(pkg.scripts["release:check"], /release-check\.mjs/);
-  assert.equal(pkg.scripts.test, "node --test .\\tests\\*.js");
   assert.match(pkg.scripts.check, /npm run build/);
+  assert.match(pkg.scripts.check, /npm test/);
   assert.match(pkg.devDependencies.esbuild, /^\^/);
   assert.equal(fs.existsSync(pluginPath("src", "main.js")), true);
   assert.equal(fs.existsSync(pluginPath("main.js")), true);

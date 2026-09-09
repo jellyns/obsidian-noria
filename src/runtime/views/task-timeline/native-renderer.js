@@ -76,13 +76,14 @@
       overflow: "hidden"
     });
     const background = createElement(documentRef, "div", "timeline-ether-bg noria-task-timeline-native-background");
-    const grid = createElement(documentRef, "div", "timeline-band-layer noria-task-timeline-native-grid");
     const weekends = createElement(documentRef, "div", "timeline-band-layer noria-task-timeline-native-weekends");
     const markers = createElement(documentRef, "div", "timeline-band-layer noria-task-timeline-native-markers");
     const events = createElement(documentRef, "div", "timeline-band-layer timeline-band-events noria-task-timeline-native-events");
+    const annotations = createElement(documentRef, "div", "timeline-band-layer noria-task-timeline-native-annotations");
+    const rangePreview = createElement(documentRef, "div", "timeline-band-layer noria-task-timeline-native-range-preview");
     const stateLayer = createElement(documentRef, "div", "timeline-band-layer noria-task-timeline-native-state-layer");
-    [background, grid, weekends, markers, events, stateLayer].forEach((node) => band.appendChild(node));
-    return { band, background, grid, weekends, markers, events, stateLayer };
+    [background, weekends, markers, events, annotations, rangePreview, stateLayer].forEach((node) => band.appendChild(node));
+    return { band, background, weekends, markers, events, annotations, rangePreview, stateLayer };
   }
 
   function updateBandGeometry(state, mainPlan, overviewPlan) {
@@ -97,19 +98,6 @@
     });
     setStyles(state.main.band, { width: `${widthPx}px`, height: `${mainHeight}px` });
     setStyles(state.overviewBand, { width: `${widthPx}px`, height: `${overviewHeight}px` });
-  }
-
-  function renderDateTicks(state, plan) {
-    const fragment = state.document.createDocumentFragment();
-    (Array.isArray(plan?.dateTicks) ? plan.dateTicks : []).forEach((tick) => {
-      const node = createElement(state.document, "div", "timeline-date-label noria-task-timeline-native-date", {
-        "data-noria-tick-date": tick.date
-      });
-      node.textContent = text(tick.label);
-      setStyles(node, { position: "absolute", left: `${finite(tick.px, 0)}px`, bottom: "0" });
-      fragment.appendChild(node);
-    });
-    state.main.grid.replaceChildren(fragment);
   }
 
   function renderWeekendWashes(state, plan) {
@@ -141,6 +129,51 @@
     state.main.markers.replaceChildren(fragment);
   }
 
+  function renderAnnotations(state, plan) {
+    const fragment = state.document.createDocumentFragment();
+    (plan.annotationUnits || []).forEach(unit => {
+      const wrapper = createElement(state.document, "div", "noria-task-timeline-native-annotation", {
+        "data-noria-annotation-id": unit.id, "data-noria-annotation-selected": unit.selected ? "true" : "false"
+      });
+      applyBounds(wrapper, unit.bounds);
+      wrapper.style.setProperty?.("--noria-annotation-color", unit.color);
+      const button = createElement(state.document, "button", "noria-task-timeline-native-annotation-label", {
+        type: "button", "data-noria-annotation-id": unit.id, "aria-label": unit.label, title: unit.label
+      });
+      button.textContent = unit.label;
+      wrapper.appendChild(button);
+      if (unit.selected && !unit.isInstant) {
+        ["start", "end"].forEach(role => {
+          if ((role === "start" && unit.clippedStart) || (role === "end" && unit.clippedEnd)) return;
+          const handle = createElement(state.document, "div", `noria-task-timeline-native-annotation-handle is-${role}`, {
+            "data-noria-annotation-id": unit.id, "data-noria-annotation-handle": role, "aria-hidden": "true"
+          });
+          wrapper.appendChild(handle);
+        });
+      }
+      fragment.appendChild(wrapper);
+    });
+    if (plan.hiddenAnnotations?.length) {
+      const more = createElement(state.document, "button", "noria-task-timeline-native-annotation-more", {
+        type: "button", "data-noria-timeline-action": "more-annotations"
+      });
+      more.textContent = plan.locale === "zh-CN" ? `另有 ${plan.hiddenAnnotations.length} 个阶段…` : `${plan.hiddenAnnotations.length} more phases…`;
+      applyBounds(more, plan.annotationOverflowBounds);
+      fragment.appendChild(more);
+    }
+    state.main.annotations.replaceChildren(fragment);
+    state.main.rangePreview.replaceChildren();
+    if (plan.rangePreview) {
+      const preview = createElement(state.document, "div", "noria-task-timeline-native-selection", { "data-noria-range-preview": "active" });
+      applyBounds(preview, plan.rangePreview.bounds);
+      const label = createElement(state.document, "div", "noria-task-timeline-native-selection-label");
+      const format = value => new Date(value).toLocaleString(plan.locale || "en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+      label.textContent = `${format(plan.rangePreview.startMs)} → ${format(plan.rangePreview.endMs)}`;
+      preview.appendChild(label);
+      state.main.rangePreview.appendChild(preview);
+    }
+  }
+
   function createTaskNode(state, unit) {
     const wrapper = createElement(state.document, "div", "noria-task-timeline-native-task-unit", {
       "data-noria-task-group-key": unit.taskKey
@@ -162,7 +195,7 @@
       }
       setAttribute(refs.point, "data-noria-task-unit-key", unit.taskKey);
       setAttribute(refs.point, "data-noria-task-visual-role", unit.point.role || "point");
-      const pointOwnsSourceAction = unit.isInstant && unit.title?.visible === false;
+      const pointOwnsSourceAction = unit.title?.visible === false || unit.title?.bounds?.width < 16;
       setAttribute(refs.point, "aria-hidden", pointOwnsSourceAction ? "false" : "true");
       setAttribute(refs.point, "role", pointOwnsSourceAction ? "button" : "");
       setAttribute(refs.point, "tabindex", pointOwnsSourceAction ? "0" : "");
@@ -181,9 +214,7 @@
       setAttribute(refs.rail, "data-noria-task-unit-key", unit.taskKey);
       setAttribute(refs.rail, "data-noria-task-visual-role", unit.rail.role || "duration-rail");
       setAttribute(refs.rail, "data-noria-source-action", "");
-      setAttribute(refs.rail, "role", "button");
-      setAttribute(refs.rail, "tabindex", "0");
-      setAttribute(refs.rail, "aria-label", unit.title?.text || unit.taskKey);
+      setAttribute(refs.rail, "aria-hidden", "true");
       applyBounds(refs.rail, unit.rail.bounds);
     } else if (refs.rail) {
       refs.rail.remove?.();
@@ -240,6 +271,7 @@
   }
 
   function updateTaskNode(state, refs, unit) {
+    refs.unit = unit;
     const titleVisible = unit.title?.visible !== false;
     setAttribute(refs.wrapper, "data-noria-task-group-key", unit.taskKey);
     setAttribute(refs.wrapper, "data-noria-task-title-visible", titleVisible ? "true" : "false");
@@ -247,10 +279,11 @@
     setAttribute(refs.title, "data-noria-task-unit-key", unit.taskKey);
     setAttribute(refs.title, "data-noria-task-visual-role", unit.title?.role || "primary-title");
     setAttribute(refs.title, "data-noria-source-action", "");
-    setAttribute(refs.title, "role", titleVisible && unit.isInstant ? "button" : "");
-    setAttribute(refs.title, "tabindex", titleVisible && unit.isInstant ? "0" : "");
-    setAttribute(refs.title, "aria-label", titleVisible && unit.isInstant ? (unit.title?.text || unit.taskKey) : "");
-    setAttribute(refs.title, "aria-hidden", titleVisible && unit.isInstant ? "" : "true");
+    setAttribute(refs.title, "role", titleVisible ? "button" : "");
+    setAttribute(refs.title, "tabindex", titleVisible ? "0" : "");
+    const statusText = state.mainPlan?.locale === "zh-CN" ? (unit.status === "done" ? "已完成" : "未完成") : (unit.status === "done" ? "Completed" : "Open");
+    setAttribute(refs.title, "aria-label", titleVisible ? `${unit.title?.text || unit.taskKey} · ${statusText}` : "");
+    setAttribute(refs.title, "aria-hidden", titleVisible ? "" : "true");
     refs.title.hidden = !titleVisible;
     refs.title.textContent = text(unit.title?.text);
     applyBounds(refs.title, unit.title?.bounds);
@@ -285,7 +318,18 @@
     const mode = text(model?.state || "ready") || "ready";
     setAttribute(state.host, "data-noria-timeline-state", mode);
     state.main.stateLayer.replaceChildren();
-    if (mode === "ready" || model?.showStateMessage === false) return;
+    if (mode === "ready") {
+      const count = finite(model?.mainPlan?.hiddenTaskCount, 0);
+      if (count > 0) {
+        const node = createElement(state.document, "div", "noria-task-timeline-native-overflow", { role: "status" });
+        node.textContent = model.mainPlan.locale === "zh-CN"
+          ? `还有 ${count} 条任务 · 放大时间轴或增大视图查看`
+          : `${count} more tasks · zoom in or enlarge this view`;
+        state.main.stateLayer.appendChild(node);
+      }
+      return;
+    }
+    if (model?.showStateMessage === false) return;
     const node = createElement(
       state.document,
       "div",
@@ -296,6 +340,91 @@
     state.main.stateLayer.appendChild(node);
   }
 
+  let detailsId = 0;
+
+  function showTaskDetails(state, taskKey) {
+    const refs = state.taskNodes.get(taskKey);
+    const unit = refs?.unit;
+    const visible = unit && unit.title?.visible !== false;
+    state.detailsKey = visible ? taskKey : "";
+    state.taskNodes.forEach((item, key) => {
+      setAttribute(item.wrapper, "data-noria-task-details", visible && key === taskKey ? "active" : "");
+      setAttribute(item.title, "aria-describedby", visible && key === taskKey ? state.detailsTooltipId : "");
+    });
+    if (!visible) {
+      if (state.detailsTooltip) state.detailsTooltip.hidden = true;
+      return;
+    }
+    if (!state.detailsTooltip) {
+      state.detailsTooltip = createElement(state.document, "div", "noria-task-timeline-native-tooltip", {
+        role: "tooltip", id: state.detailsTooltipId
+      });
+      state.detailsTitle = createElement(state.document, "div", "noria-task-timeline-native-tooltip-title");
+      state.detailsTime = createElement(state.document, "div", "noria-task-timeline-native-tooltip-time");
+      state.detailsSource = createElement(state.document, "div", "noria-task-timeline-native-tooltip-source");
+      state.detailsStatus = createElement(state.document, "div", "noria-task-timeline-native-tooltip-status");
+      [state.detailsTitle, state.detailsTime, state.detailsStatus, state.detailsSource].forEach(node => state.detailsTooltip.appendChild(node));
+      state.host.appendChild(state.detailsTooltip);
+    }
+    const locale = state.mainPlan?.locale === "zh-CN" ? "zh-CN" : "en";
+    const dateOptions = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+    const format = value => new Date(value).toLocaleString(locale, dateOptions);
+    state.detailsTitle.textContent = text(unit.title.text);
+    state.detailsTime.textContent = unit.isInstant ? format(unit.startMs) : `${format(unit.startMs)} → ${format(unit.endMs)}`;
+    state.detailsStatus.textContent = locale === "zh-CN" ? (unit.status === "done" ? "已完成" : "未完成") : (unit.status === "done" ? "Completed" : "Open");
+    state.detailsSource.textContent = text(unit.sourcePath);
+    state.detailsSource.hidden = !unit.sourcePath;
+    const tooltip = state.detailsTooltip;
+    tooltip.hidden = false;
+    tooltip.style.width = `${Math.min(320, Math.max(80, state.mainPlan.widthPx - 16))}px`;
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    const below = unit.title.bounds.bottom + 10;
+    setStyles(tooltip, {
+      left: `${Math.max(8, Math.min(unit.title.bounds.left, state.mainPlan.widthPx - width - 8))}px`,
+      top: `${below + height <= state.mainPlan.heightPx - 4 ? below : Math.max(4, unit.title.bounds.top - height - 8)}px`
+    });
+  }
+
+  function attachTaskDetails(state) {
+    if (!state.host.addEventListener) return;
+    state.detailsTooltipId = `noria-timeline-details-${++detailsId}`;
+    const taskKey = target => {
+      for (let node = target; node && node !== state.host; node = node.parentElement) {
+        const key = node.getAttribute?.("data-noria-task-group-key");
+        if (key) return key;
+      }
+      return "";
+    };
+    const clearTimer = () => { globalThis.clearTimeout(state.detailsTimer); state.detailsTimer = null; };
+    const handlers = {
+      pointerover: event => {
+        const key = taskKey(event.target);
+        if (!key || key === taskKey(event.relatedTarget)) return;
+        state.hoverKey = key;
+        clearTimer();
+        state.detailsTimer = globalThis.setTimeout(() => showTaskDetails(state, key), 140);
+      },
+      pointerout: event => {
+        if (taskKey(event.target) === taskKey(event.relatedTarget)) return;
+        state.hoverKey = "";
+        clearTimer();
+        showTaskDetails(state, state.focusedKey || "");
+      },
+      focusin: event => { state.focusedKey = taskKey(event.target); clearTimer(); showTaskDetails(state, state.focusedKey); },
+      focusout: event => { state.focusedKey = taskKey(event.relatedTarget); showTaskDetails(state, state.focusedKey || state.hoverKey || ""); },
+      keydown: event => {
+        if (event.key !== "Escape") return;
+        clearTimer(); state.hoverKey = ""; state.focusedKey = ""; showTaskDetails(state, "");
+      }
+    };
+    Object.entries(handlers).forEach(([type, handler]) => state.host.addEventListener(type, handler));
+    state.disposeDetails = () => {
+      clearTimer();
+      Object.entries(handlers).forEach(([type, handler]) => state.host.removeEventListener(type, handler));
+    };
+  }
+
   function updateSurface(state, model) {
     const mainPlan = model?.mainPlan || {};
     const overviewPlan = model?.overviewPlan || {};
@@ -303,13 +432,14 @@
     const density = densityWidthPx > 560 ? "wide" : (densityWidthPx > 320 ? "normal" : "compact");
     setAttribute(state.host, "data-noria-timeline-density", density);
     updateBandGeometry(state, mainPlan, overviewPlan);
-    renderDateTicks(state, mainPlan);
     renderWeekendWashes(state, mainPlan);
     renderMarkers(state, mainPlan);
+    renderAnnotations(state, mainPlan);
     reconcileTaskNodes(state, mainPlan);
     overviewApi.renderOverview(state.overviewBand, overviewPlan);
     renderState(state, model);
     state.model = model;
+    if (state.detailsKey) showTaskDetails(state, state.detailsKey);
     return state.host;
   }
 
@@ -334,6 +464,7 @@
       model: null,
       disposed: false
     };
+    attachTaskDetails(state);
     host.__noriaNativeTimelineState = state;
     host.removeAttribute?.("data-noria-timeline-disposed");
     return updateSurface(state, model);
@@ -350,6 +481,7 @@
     const state = host.__noriaNativeTimelineState;
     if (state && !state.disposed) {
       state.disposed = true;
+      state.disposeDetails?.();
       state.taskNodes.clear();
     }
     host.replaceChildren?.();

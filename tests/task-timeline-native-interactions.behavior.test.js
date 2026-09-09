@@ -106,10 +106,9 @@ function deferred() {
   return { promise, resolve };
 }
 
-test("pointer intents cover pan zoom Today overview navigation and range selection", () => {
+test("pointer intents cover pan zoom Today and range selection", () => {
   const { viewport, interactions } = loadInteractionHooks();
   const main = viewportState(viewport);
-  const overview = viewportState(viewport, { msPerPx: 10 * 60_000 });
 
   const pan = interactions.pointerToTimelineIntent({ action: "pan", viewport: main, originPx: 100, currentPx: 130 });
   assert.equal(pan.type, "viewport-pan");
@@ -126,10 +125,6 @@ test("pointer intents cover pan zoom Today overview navigation and range selecti
     centerMs: todayMs,
     reason: "today"
   });
-
-  const overviewIntent = interactions.pointerToTimelineIntent({ action: "overview-navigate", viewport: overview, pointerPx: 210 });
-  assert.equal(overviewIntent.type, "viewport-center");
-  assert.ok(Math.abs(overviewIntent.centerMs - viewport.pxToDateMs(overview, 210)) <= 1);
 
   const range = interactions.pointerToTimelineIntent({ action: "select-range", viewport: main, originPx: 210, currentPx: 90 });
   assert.equal(range.type, "select-range");
@@ -261,6 +256,33 @@ test("plain wheel pans the timeline while Ctrl wheel keeps pointer-centered zoom
   assert.ok(Math.abs(viewport.pxToDateMs(current, 90) - anchorBefore) <= 1);
   assert.equal(zoomEvent.defaultPrevented, true);
   assert.equal(zoomEvent.propagationStopped, true);
+});
+
+test("unified footer drag pans at the main scale without click recentering or selecting annotations", () => {
+  const { viewport, interactions } = loadInteractionHooks();
+  const document = new FakeNode();
+  const host = new FakeNode();
+  const band = new FakeNode({ "data-noria-timeline-band": "overview" }, host);
+  const date = new FakeNode({}, band);
+  const original = viewportState(viewport);
+  let current = original;
+  let selections = 0;
+  let centers = 0;
+  interactions.attachTimelineInteractions(host, {
+    document, markMode: true,
+    getViewport: () => current,
+    getOverviewViewport: () => viewportState(viewport, { msPerPx: 86_400_000 }),
+    updateViewport: next => { current = next; },
+    centerOn: () => { centers += 1; },
+    selectRange: () => { selections += 1; }
+  });
+  host.emit("pointerdown", { target: date, clientX: 150, pointerId: 1, shiftKey: true });
+  document.emit("pointermove", { target: date, clientX: 190, pointerId: 1 });
+  document.emit("pointerup", { target: date, clientX: 190, pointerId: 1 });
+  host.emit("click", { target: date, clientX: 190 });
+  assert.equal(current.centerMs, original.centerMs - 40 * 60_000);
+  assert.equal(centers, 0);
+  assert.equal(selections, 0);
 });
 
 test("background drag exposes one grab state and clears it after panning", () => {
@@ -610,9 +632,64 @@ test("controller disposal is idempotent and removes host listeners", () => {
   assert.equal(Array.from(host.listeners.values()).every((listeners) => listeners.size === 0), true);
 });
 
+test("phase label activation and endpoint adjustment do not open or move a task", () => {
+  const { viewport, interactions } = loadInteractionHooks();
+  const document = new FakeNode();
+  const host = new FakeNode();
+  host.ownerDocument = document;
+  const band = new FakeNode({ "data-noria-timeline-band": "main" }, host);
+  const label = new FakeNode({ "data-noria-annotation-id": "phase" }, band);
+  const handle = new FakeNode({ "data-noria-annotation-id": "phase", "data-noria-annotation-handle": "end" }, label);
+  const opened = [], previews = [], cancelled = [];
+  interactions.attachTimelineInteractions(host, {
+    document, getViewport: () => viewportState(viewport), getAnnotation: () => taskFixture({ id: "phase" }),
+    openAnnotation: id => opened.push(id), previewAnnotationRange: intent => previews.push(intent),
+    cancelAnnotationRange: intent => cancelled.push(intent),
+    openSource() { throw Error("phase interaction must not open a task"); },
+    commitTaskTime() { throw Error("phase interaction must not write task dates"); },
+    updateViewport() { throw Error("phase interaction must not pan"); }
+  });
+  host.emit("pointerdown", { target: label, clientX: 150, pointerId: 1 });
+  host.emit("click", { target: label });
+  host.emit("keydown", { target: label, key: "Enter" });
+  assert.deepEqual(opened, ["phase", "phase"]);
+  host.emit("pointerdown", { target: handle, clientX: 150, pointerId: 1 });
+  document.emit("pointermove", { target: handle, clientX: 180, pointerId: 1 });
+  assert.equal(previews[0].annotationId, "phase");
+  assert.equal(previews[0].endMs, Date.parse("2026-07-11T12:30:00+08:00"));
+  host.emit("keydown", { target: handle, key: "Escape" });
+  assert.equal(cancelled[0].endMs, Date.parse("2026-07-11T12:00:00+08:00"));
+  interactions.disposeTimelineInteractions(host);
+});
+
 test("native interactions remain intent-only and do not write vault files", () => {
   const source = fs.readFileSync(sourcePath("views/task-timeline/native-interactions.js"), "utf8");
   assert.doesNotMatch(source, /vault\.(?:modify|create|delete|rename)|adapter\.write|processFrontMatter/);
+});
+
+test("Escape from an editor input cancels the active phase drag before pointer release", () => {
+  const { viewport, interactions } = loadInteractionHooks();
+  const document = new FakeNode();
+  const host = new FakeNode();
+  host.ownerDocument = document;
+  const band = new FakeNode({ "data-noria-timeline-band": "main" }, host);
+  const handle = new FakeNode({ "data-noria-annotation-id": "phase", "data-noria-annotation-handle": "end" }, band);
+  const input = new FakeNode({}, document);
+  input.tagName = "INPUT";
+  const previews = [], cancelled = [];
+  interactions.attachTimelineInteractions(host, {
+    document, getViewport: () => viewportState(viewport), getAnnotation: () => taskFixture({ id: "phase" }),
+    previewAnnotationRange: intent => previews.push(intent), cancelAnnotationRange: intent => cancelled.push(intent)
+  });
+  host.emit("pointerdown", { target: handle, clientX: 150, pointerId: 1 });
+  document.emit("pointermove", { target: handle, clientX: 180, pointerId: 1 });
+  const escape = document.emit("keydown", { target: input, key: "Escape" });
+  assert.equal(cancelled.length, 1);
+  assert.equal(cancelled[0].endMs, Date.parse("2026-07-11T12:00:00+08:00"));
+  assert.equal(escape.defaultPrevented, true);
+  document.emit("pointerup", { target: handle, clientX: 180, pointerId: 1 });
+  assert.equal(previews.length, 1, "pointer release must not reapply a cancelled draft");
+  interactions.disposeTimelineInteractions(host);
 });
 
 test("native drag handles only capture pointers while their task is active", () => {

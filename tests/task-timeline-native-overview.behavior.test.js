@@ -92,6 +92,23 @@ function viewports(viewport, widthPx = 278) {
   };
 }
 
+test("unified footer follows the main hour scale and retains the midnight date", () => {
+  const { viewport, overview } = loadOverviewHooks();
+  const centerMs = new Date(2026, 8, 9, 0).getTime();
+  const main = viewport.createViewport({ centerMs, msPerPx: 3_600_000 / 70, widthPx: 840 });
+  const map = viewport.createViewport({ centerMs, msPerPx: 86_400_000 / 40, widthPx: 840 });
+  const plan = overview.buildOverviewPlan({ mainViewport: main, overviewViewport: map, heightPx: 56, locale: "en", measureText: label => label.length * 6 });
+  assert.ok(plan.dateTicks.length >= 5);
+  assert.ok(plan.dateTicks.every(tick => tick.timeMs >= new Date(2026, 8, 8, 18).getTime() && tick.timeMs <= new Date(2026, 8, 9, 6).getTime()));
+  assert.ok(plan.dateTicks.every(tick => /\d{2}:\d{2}/.test(tick.label)));
+  assert.ok(plan.dateTicks.some(tick => /Sep 8/.test(tick.label)));
+  assert.ok(plan.dateTicks.some(tick => /Sep 9.*00:00/.test(tick.label)));
+  const host = fakeDocument().createElement("div");
+  overview.renderOverview(host, plan);
+  assert.equal(byAttribute(host, "data-noria-overview-window").length, 0);
+  assert.equal(byAttribute(host, "data-noria-overview-label-role").length, 0);
+});
+
 test("native overview reproduces the accepted bottom-band dimensions and semantic layers", () => {
   const { viewport, overview } = loadOverviewHooks();
   const states = viewports(viewport);
@@ -107,7 +124,6 @@ test("native overview reproduces the accepted bottom-band dimensions and semanti
   assert.equal(plan.widthPx, 278);
   assert.ok(Math.abs(plan.heightPx - 86.4) <= 0.01);
   assert.equal(plan.zIndex.info, 118);
-  assert.equal(plan.contextLabels.filter((item) => item.role === "today").length, 0);
   assert.equal(plan.todayMarker?.label, undefined);
   assert.ok(Number.isFinite(plan.todayMarker?.x));
   assert.ok(plan.dateTicks.length >= 2);
@@ -115,9 +131,7 @@ test("native overview reproduces the accepted bottom-band dimensions and semanti
   assert.ok(plan.eventItems.some((item) => item.layer === "task" && item.type === "segment"));
   assert.ok(plan.eventItems.some((item) => item.layer === "annotation"));
   assert.ok(plan.eventItems.some((item) => item.layer === "git"));
-  assert.ok(plan.viewportWindow.widthPx > 0);
-  assert.ok(plan.viewportWindow.leftPx < plan.viewportWindow.rightPx);
-  assert.equal(plan.viewportWindow.heightPx, plan.heightPx - 4);
+  assert.ok(plan.eventItems.some(item => item.activeBounds));
 });
 
 test("native overview localizes date and month labels while keeping Today marker text-free", () => {
@@ -136,12 +150,8 @@ test("native overview localizes date and month labels while keeping Today marker
   const chinese = overview.buildOverviewPlan({ ...common, locale: "zh-CN", todayLabel: "今日" });
 
   assert.ok(english.dateTicks.some((item) => /Jul\s+\d+/.test(item.label)));
-  assert.ok(english.contextLabels.some((item) => item.role === "month" && item.label === "Jul"));
-  assert.equal(english.contextLabels.some((item) => item.role === "today"), false);
   assert.equal(english.todayMarker?.label, undefined);
   assert.ok(chinese.dateTicks.some((item) => /7月\d+日/.test(item.label)));
-  assert.ok(chinese.contextLabels.some((item) => item.role === "month" && item.label === "7月"));
-  assert.equal(chinese.contextLabels.some((item) => item.role === "today"), false);
   assert.equal(chinese.todayMarker?.label, undefined);
   assert.equal(chinese.todayMarker?.x, english.todayMarker?.x);
 });
@@ -164,7 +174,7 @@ test("native overview consumes only the already-filtered event array", () => {
   assert.equal(plan.eventItems.some((item) => item.layer === "task"), false);
 });
 
-test("native overview keeps duration segments on the accepted 20px information lane", () => {
+test("native overview separates overlapping duration segments below the single date axis", () => {
   const { viewport, overview } = loadOverviewHooks();
   const states = viewports(viewport);
   const plan = overview.buildOverviewPlan({
@@ -173,6 +183,8 @@ test("native overview keeps duration segments on the accepted 20px information l
       layer: "task",
       start: "2026-07-11T09:00:00+08:00",
       end: "2026-07-11T10:00:00+08:00"
+    }, {
+      id: "overlap", layer: "task", start: "2026-07-11T09:30:00+08:00", end: "2026-07-11T11:00:00+08:00"
     }],
     mainViewport: states.main,
     overviewViewport: states.overview,
@@ -181,7 +193,8 @@ test("native overview keeps duration segments on the accepted 20px information l
     now: "2026-07-11T12:30:00+08:00"
   });
 
-  assert.equal(plan.eventItems[0].bounds.top, 20);
+  assert.notEqual(plan.eventItems[0].bounds.top, plan.eventItems[1].bounds.top);
+  assert.ok(plan.eventItems.every((item) => item.bounds.top > plan.axisHeightPx && item.bounds.top + item.bounds.height < plan.heightPx));
 });
 
 test("native overview can render a buffered coordinate surface from a narrower visible range", () => {
@@ -206,32 +219,24 @@ test("native overview can render a buffered coordinate surface from a narrower v
 
   assert.deepEqual(JSON.parse(JSON.stringify(plan.visibleRange)), visibleRange);
   assert.deepEqual(Array.from(plan.eventItems, (item) => item.id), ["inside"]);
-  assert.equal(plan.contextLabels.filter((item) => item.role === "today").length, 0);
   assert.ok(Number.isFinite(plan.todayMarker?.x));
 });
 
-test("overview window remains synchronized after main and overview resize", () => {
+test("overview emphasizes only the visible portion of each task after pan and resize", () => {
   const { viewport, overview } = loadOverviewHooks();
-  const states = viewports(viewport);
-  const initial = overview.buildOverviewPlan({
-    events: [],
-    mainViewport: states.main,
-    overviewViewport: states.overview,
-    widthPx: 278,
-    heightPx: 75
-  });
-  const resizedMain = viewport.resizeViewport(states.main, 420);
-  const resizedOverview = viewport.resizeViewport(states.overview, 420);
-  const resized = overview.buildOverviewPlan({
-    events: [],
-    mainViewport: resizedMain,
-    overviewViewport: resizedOverview,
-    widthPx: 420,
-    heightPx: 75
-  });
-
-  assert.notEqual(initial.viewportWindow.widthPx, resized.viewportWindow.widthPx);
-  assert.equal(resized.viewportWindow.leftPx + resized.viewportWindow.widthPx / 2, 210);
+  const centerMs = new Date(2026, 8, 8, 12).getTime();
+  const main = viewport.createViewport({ centerMs, widthPx: 120, msPerPx: 60_000 });
+  const map = viewport.createViewport({ centerMs, widthPx: 120, msPerPx: 720_000 });
+  const events = [{ id: "range", layer: "task", start: new Date(2026, 8, 8, 10).toISOString(), end: new Date(2026, 8, 8, 14).toISOString() }];
+  const build = (mainViewport, overviewViewport = map) => overview.buildOverviewPlan({ events, mainViewport, overviewViewport, heightPx: 56 }).eventItems[0];
+  assert.equal(build(main).bounds.width, 20);
+  assert.equal(build(main).activeBounds.left, 55);
+  assert.equal(build(main).activeBounds.width, 10);
+  const panned = build(viewport.panByPx(main, 40));
+  assert.ok(Math.abs(panned.activeBounds.left - 51.6666666667) < 0.001);
+  assert.equal(panned.activeBounds.width, 10);
+  assert.equal(build(viewport.resizeViewport(main, 240), viewport.resizeViewport(map, 240)).activeBounds.width, 20);
+  assert.equal(build(viewport.createViewport({ ...main, centerMs: centerMs + 6 * 3_600_000 })).activeBounds, undefined);
 });
 
 test("overview renderer owns exactly one text-free Today marker and exposes parity attributes", () => {
@@ -256,44 +261,68 @@ test("overview renderer owns exactly one text-free Today marker and exposes pari
   assert.equal(todayMarkers.length, 1);
   assert.equal(todayMarkers[0].textContent, "");
   assert.equal(byAttribute(host, "data-noria-overview-label-role", "today").length, 0);
-  assert.equal(byAttribute(host, "data-noria-overview-window").length, 1);
+  assert.equal(byAttribute(host, "data-noria-overview-window").length, 0);
   assert.ok(byAttribute(host, "data-noria-overview-event-id", "annotation:one").length >= 1);
   assert.ok(byAttribute(host, "data-noria-tick-date").length >= 2);
 });
 
-test("overview window updates in place without rebuilding event ticks", () => {
+test("three-hour and daily ticks remain aligned to local midnight", () => {
   const { viewport, overview } = loadOverviewHooks();
-  const states = viewports(viewport);
-  const plan = overview.buildOverviewPlan({
-    events: fixture().events,
-    mainViewport: states.main,
-    overviewViewport: states.overview,
-    widthPx: 278,
-    heightPx: 75
-  });
-  const document = fakeDocument();
-  const host = document.createElement("div");
-  overview.renderOverview(host, plan);
-  const beforeItems = byAttribute(host, "data-noria-overview-event-id").length;
-  const pannedMain = viewport.panByPx(states.main, 24);
-
-  const updated = overview.updateOverviewWindow(host, pannedMain, states.overview);
-
-  assert.equal(updated.startMs, viewport.visibleRange(pannedMain).startMs);
-  assert.equal(byAttribute(host, "data-noria-overview-event-id").length, beforeItems);
-  assert.equal(byAttribute(host, "data-noria-overview-window")[0].style.left, `${updated.leftPx}px`);
+  for (const hours of [3, 24]) {
+    const main = viewport.createViewport({ centerMs: new Date(2026, 8, 9, 0).getTime(), msPerPx: hours * 3_600_000 / 56, widthPx: 560 });
+    const plan = overview.buildOverviewPlan({ mainViewport: main, overviewViewport: main, heightPx: 56 });
+    assert.ok(plan.dateTicks.some(tick => new Date(tick.timeMs).getHours() === 0));
+    assert.ok(plan.dateTicks.every(tick => new Date(tick.timeMs).getHours() % hours === 0));
+  }
 });
 
-test("overview navigation intent maps pointer position to an overview date", () => {
+test("overview distinguishes hours within one day instead of repeating a date", () => {
   const { viewport, overview } = loadOverviewHooks();
-  const states = viewports(viewport);
-  const document = fakeDocument();
-  const host = document.createElement("div");
-  host._rect = { left: 40, top: 20, width: 278, height: 75 };
+  const centerMs = Date.parse("2026-09-12T12:00:00+08:00");
+  const state = viewport.createViewport({ centerMs, msPerPx: 3_600_000 / 100, widthPx: 800 });
+  const plan = overview.buildOverviewPlan({ mainViewport: state, overviewViewport: state, heightPx: 80, locale: "en" });
+  const labels = Array.from(plan.dateTicks, (tick) => tick.label);
+  assert.ok(labels.length >= 3);
+  assert.equal(new Set(labels).size, labels.length);
+  assert.ok(labels.every((label) => /\d{2}:\d{2}/.test(label)));
+});
 
-  const intent = overview.readOverviewNavigationIntent({ clientX: 179 }, host, states.overview);
+test("overview long-range ticks include years so different years are distinguishable", () => {
+  const { viewport, overview } = loadOverviewHooks();
+  const centerMs = Date.parse("2026-07-01T00:00:00Z");
+  const state = viewport.createViewport({ centerMs, msPerPx: 365 * 86_400_000 / 120, widthPx: 800 });
+  const plan = overview.buildOverviewPlan({ mainViewport: state, overviewViewport: state, heightPx: 80, locale: "en" });
+  const labels = Array.from(plan.dateTicks, (tick) => tick.label);
+  assert.ok(labels.length >= 3);
+  assert.ok(labels.every((label) => /20\d{2}/.test(label)));
+  assert.equal(new Set(labels).size, labels.length);
+});
 
-  assert.equal(intent.type, "center-main-viewport");
-  assert.equal(intent.dateMs, states.overview.centerMs);
-  assert.equal(intent.xPx, 139);
+test("overview labels remain inside narrow panes and do not overlap near magnified boundaries", () => {
+  const { viewport, overview } = loadOverviewHooks();
+  for (const widthPx of [220, 278, 900]) {
+    const centerMs = Date.parse("2026-09-01T00:00:00+08:00");
+    const state = viewport.createViewport({ centerMs, msPerPx: 86_400_000 / 58, widthPx,
+      zones: [{ startMs: centerMs - 86_400_000, endMs: centerMs + 2 * 86_400_000, magnify: 2 }] });
+    const plan = overview.buildOverviewPlan({ mainViewport: state, overviewViewport: state, heightPx: 80,
+      locale: "zh-CN", measureText: (label) => label.length * 10 });
+    assert.ok(plan.dateTicks.length > 0);
+    let previousRight = 0;
+    for (const tick of plan.dateTicks) {
+      assert.ok(tick.labelLeftPx >= previousRight, "visible date labels must not collide");
+      assert.ok(tick.labelLeftPx + tick.labelWidthPx <= widthPx, "a complete label must fit the pane");
+      previousRight = tick.labelLeftPx + tick.labelWidthPx;
+    }
+  }
+});
+
+test("month ticks follow calendar boundaries instead of showing July twice", () => {
+  const { viewport, overview } = loadOverviewHooks();
+  const state = viewport.createViewport({ centerMs: Date.parse("2027-07-01T00:00:00+08:00"),
+    msPerPx: 30 * 86_400_000 / 100, widthPx: 1400 });
+  const plan = overview.buildOverviewPlan({ mainViewport: state, overviewViewport: state, heightPx: 80, locale: "en" });
+  const labels = Array.from(plan.dateTicks, (tick) => tick.label);
+  assert.ok(labels.includes("Jul 2027"));
+  assert.equal(new Set(labels).size, labels.length);
+  assert.ok(plan.dateTicks.every((tick) => new Date(tick.timeMs).getDate() === 1));
 });

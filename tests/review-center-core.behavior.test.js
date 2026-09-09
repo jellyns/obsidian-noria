@@ -139,6 +139,34 @@ test("review section upsert appends a missing section without changing existing 
   assert.match(result.markdown, /\n\n## 周复盘\n\nnew review\n$/);
 });
 
+test("review replacement stops at a following parent heading", () => {
+  const original = "## Weekly review\n\nold review\n\n### Detail\n\nold detail\n\n# Private notes\n\nkeep this  \nexactly\n";
+  const result = upsertReviewSection(original, "Weekly review", "new review");
+  assert.equal(result.previousBody, "old review\n\n### Detail\n\nold detail");
+  assert.equal(result.markdown, "## Weekly review\n\nnew review\n\n# Private notes\n\nkeep this  \nexactly\n");
+});
+
+test("review lookup ignores frontmatter comments and fenced heading examples", () => {
+  const prefix = "---\n# metadata comment\n## Weekly review\ntitle: sample\n---\n\n````markdown\n## Weekly review\nexample only\n```\n# still code\n````\n\n";
+  const original = `${prefix}## Weekly review\n\nreal review\n\n## Notes\n\nkeep\n`;
+  assert.equal(extractReviewSection(original, "Weekly review").body, "real review");
+  assert.equal(upsertReviewSection(original, "Weekly review", "new review").markdown,
+    `${prefix}## Weekly review\n\nnew review\n\n## Notes\n\nkeep\n`);
+});
+
+test("review extraction retains fenced headings and recognizes indented ATX boundaries", () => {
+  const body = "text\n\n~~~md\n# example\n## example\n```\n~~~\n\n### Detail\n\nkeep detail";
+  const original = `  ## Weekly review ##\n\n${body}\n\n   # Notes #\n\nkeep notes\n`;
+  assert.equal(extractReviewSection(original, "Weekly review").body, body);
+  assert.equal(upsertReviewSection(original, "Weekly review", "new review").markdown,
+    "## Weekly review\n\nnew review\n\n   # Notes #\n\nkeep notes\n");
+});
+
+test("an empty heading ends a review and an unclosed code fence hides later headings", () => {
+  assert.equal(extractReviewSection("## Weekly review\n\nbody\n\n##\n\nkeep\n", "Weekly review").body, "body");
+  assert.equal(extractReviewSection("```md\n## Weekly review\n\nexample\n", "Weekly review").exists, false);
+});
+
 test("review fingerprints normalize line endings and trailing whitespace only", () => {
   const first = fingerprintReviewSection("Summary  \r\n\r\n- next\t\r\n");
   const equivalent = fingerprintReviewSection("Summary\n\n- next");

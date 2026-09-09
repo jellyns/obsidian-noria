@@ -10,8 +10,8 @@
   }
 
   const DEFAULT_METRICS = Object.freeze({
-    safeTopPx: 24,
-    safeBottomPx: 10,
+    safeTopPx: 12,
+    safeBottomPx: 24,
     horizontalPaddingPx: 8,
     titleHeightPx: 16,
     laneGapPx: 6,
@@ -98,12 +98,11 @@
       measured = finite(measureText(title, "task-title", {
         widthPx,
         fontSizePx: titleFontSizePx(widthPx),
-        fontWeight: 600,
-        fontFamily: "Arial, Helvetica, sans-serif"
+        fontWeight: 600
       }), 0);
     } catch (_) {}
     if (!(measured > 0)) measured = Math.max(1, text(title).length) * 7;
-    return clamp(measured + 1, metrics.minTitleWidthPx, metrics.maxTitleWidthPx);
+    return clamp(Math.ceil(measured) + 2, metrics.minTitleWidthPx, metrics.maxTitleWidthPx);
   }
 
   function visibleDraft(group, viewport, widthPx, heightPx, measureText, metrics) {
@@ -117,21 +116,19 @@
     const rawEndX = instant ? rawStartX : viewportApi.dateMsToPx(viewport, event.endMs);
     const visibleStartX = clamp(Math.min(rawStartX, rawEndX), 0, widthPx);
     const visibleEndX = clamp(Math.max(rawStartX, rawEndX), 0, widthPx);
-    const anchorX = instant ? rawStartX : visibleStartX + (visibleEndX - visibleStartX) / 2;
+    const anchorX = clamp(rawStartX, metrics.horizontalPaddingPx + metrics.markerSizePx / 2,
+      Math.max(metrics.horizontalPaddingPx + metrics.markerSizePx / 2, widthPx - metrics.markerSizePx / 2));
     const title = text(event.title || event.text || group.taskKey);
-    const titleWidth = measureTitleWidth(title, measureText, metrics, widthPx);
-    const preferredLeft = instant
-      ? anchorX + metrics.markerSizePx / 2 + metrics.markerGapPx
-      : anchorX - titleWidth / 2;
-    const minLeft = metrics.horizontalPaddingPx;
-    const maxLeft = Math.max(minLeft, widthPx - metrics.horizontalPaddingPx - titleWidth);
-    const titleLeft = clamp(preferredLeft, minLeft, maxLeft);
+    const titleLeft = anchorX + metrics.markerSizePx / 2 + metrics.markerGapPx;
+    const titleWidth = Math.min(measureTitleWidth(title, measureText, metrics, widthPx),
+      Math.max(0, widthPx - metrics.horizontalPaddingPx - titleLeft));
 
     return {
       taskKey: group.taskKey,
       eventId: text(event.id),
+      sourcePath: text(event.source?.path),
       title,
-      status: normalizedStatus(event),
+      status: isDone(event) ? "done" : normalizedStatus(event),
       startMs: event.startMs,
       endMs: event.endMs,
       isInstant: instant,
@@ -163,12 +160,17 @@
     drafts.forEach((draft) => {
       let lane = 0;
       let bounds = rect(draft.titleLeft, metrics.safeTopPx, draft.titleWidth, metrics.titleHeightPx);
-      const conflicts = () => placed.some((item) => item.titleVisible !== false && collides(item.titleBounds, bounds, metrics.laneGapPx, 1));
+      const occupiedBounds = () => {
+        const left = Math.min(bounds.left - metrics.markerGapPx - metrics.markerSizePx, draft.visibleStartX);
+        const right = Math.max(bounds.right, draft.visibleEndX);
+        return rect(left, bounds.top, right - left, bounds.height);
+      };
+      const conflicts = () => placed.some((item) => item.titleVisible !== false && collides(item.occupiedBounds, occupiedBounds(), metrics.laneGapPx, 1));
       while (lane < maxLane && conflicts()) {
         lane += 1;
         bounds = rect(draft.titleLeft, metrics.safeTopPx + lane * metrics.laneStepPx, draft.titleWidth, metrics.titleHeightPx);
       }
-      placed.push({ ...draft, lane, titleBounds: bounds, titleVisible: !conflicts() });
+      placed.push({ ...draft, lane, titleBounds: bounds, occupiedBounds: occupiedBounds(), titleVisible: !conflicts() });
     });
     return placed;
   }
@@ -198,10 +200,11 @@
     const pointBounds = rect(pointLeft, centerY - metrics.markerSizePx / 2, metrics.markerSizePx, metrics.markerSizePx);
     const railLeft = item.isInstant ? item.anchorX : item.visibleStartX;
     const railWidth = item.isInstant ? 0 : Math.max(0, item.visibleEndX - item.visibleStartX);
-    const railBounds = rect(railLeft, centerY - metrics.railHeightPx / 2, railWidth, metrics.railHeightPx);
+    const railBounds = rect(railLeft, titleBounds.bottom + 2, railWidth, metrics.railHeightPx);
     return {
       taskKey: item.taskKey,
       eventId: item.eventId,
+      sourcePath: item.sourcePath,
       status: item.status,
       startMs: item.startMs,
       endMs: item.endMs,
@@ -211,23 +214,61 @@
       clippedStart: item.clippedStart,
       clippedEnd: item.clippedEnd,
       title: {
-        role: item.isInstant ? "primary-title" : "primary-range-title",
+        role: "primary-title",
         text: item.title,
         visible: item.titleVisible !== false,
-        fontWeight: isDone({ status: item.status }) ? 400 : 600,
+        fontWeight: 600,
         bounds: titleBounds
       },
       point: {
         role: "point",
-        visible: item.isInstant,
+        visible: item.titleVisible !== false,
         bounds: pointBounds
       },
       rail: {
         role: item.isInstant ? "instant-anchor" : "duration-rail",
-        visible: !item.isInstant,
+        visible: !item.isInstant && item.titleVisible !== false,
         bounds: railBounds
       },
       handles: buildHandles(item.taskKey, titleBounds, metrics, item.isInstant)
+    };
+  }
+
+  function layoutAnnotations(events, viewport, widthPx, heightPx, selectedId) {
+    const range = viewportApi.visibleRange(viewport);
+    const laneCount = heightPx < 190 ? 1 : 2;
+    const units = [];
+    const hidden = [];
+    const candidates = events.filter(event => text(event.layer) === "annotation" &&
+      event.startMs <= range.endMs && event.endMs >= range.startMs)
+      .sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId) ||
+        a.startMs - b.startMs || text(a.id).localeCompare(text(b.id)));
+    candidates.forEach(event => {
+      const annotation = event.payload?.annotation || event;
+      const projectPath = text(annotation.projectPath);
+      const projectName = text(annotation.projectName) || projectPath.split("/").pop()?.replace(/\.md$/i, "");
+      const label = projectPath ? `${projectName} · ${text(event.title)}` : text(event.title);
+      const left = clamp(viewportApi.dateMsToPx(viewport, event.startMs), 8, Math.max(8, widthPx - 10));
+      const right = clamp(viewportApi.dateMsToPx(viewport, event.endMs), left + 2, Math.max(left + 2, widthPx - 8));
+      let lane = 0;
+      while (lane < laneCount && units.some(unit => unit.lane === lane && left < unit.bounds.right + 6 && right + 6 > unit.bounds.left)) lane += 1;
+      const unit = {
+        id: event.id, label, annotation, lane, selected: event.id === selectedId,
+        startMs: event.startMs, endMs: event.endMs, isInstant: event.isInstant,
+        color: /^#[\da-f]{6}$/i.test(event.color) ? event.color : "#8ab4f8",
+        clippedStart: event.startMs < range.startMs, clippedEnd: event.endMs > range.endMs,
+        bounds: rect(left, 8 + lane * 25, right - left, 21)
+      };
+      if (lane < laneCount) units.push(unit);
+      else hidden.push(unit);
+    });
+    const usedLanes = units.length ? Math.max(...units.map(unit => unit.lane)) + 1 : 0;
+    const height = usedLanes ? 8 + usedLanes * 25 + (hidden.length ? 20 : 0) : 0;
+    return {
+      annotationUnits: units,
+      hiddenAnnotations: hidden,
+      annotationHeightPx: height,
+      annotationOverflowBounds: hidden.length ? rect(8, 8 + usedLanes * 25, Math.max(0, widthPx - 16), 20) : null
     };
   }
 
@@ -240,6 +281,8 @@
     const index = options.eventIndex && Array.isArray(options.eventIndex.events)
       ? options.eventIndex
       : eventIndexApi.createEventIndex(Array.isArray(options.events) ? options.events : []);
+    const annotations = layoutAnnotations(index.events, viewport, widthPx, heightPx, options.selectedAnnotationId);
+    metrics.safeTopPx += annotations.annotationHeightPx;
     const groups = groupTaskEvents(index.events);
     const drafts = groups
       .map((group) => visibleDraft(group, viewport, widthPx, heightPx, options.measureText, metrics))
@@ -251,7 +294,9 @@
       heightPx,
       visibleRange: viewportApi.visibleRange(viewport),
       metrics,
-      taskUnits
+      ...annotations,
+      taskUnits,
+      hiddenTaskCount: taskUnits.filter((unit) => !unit.title.visible).length
     };
   }
 

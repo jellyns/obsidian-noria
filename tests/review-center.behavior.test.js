@@ -2170,6 +2170,30 @@ test("daily final rechecks the review fingerprint when a missing target is creat
   assert.doesNotMatch(current, /my local final/);
 });
 
+test("daily final replacement protects parent sections and fenced examples", () => {
+  const diary = loadDiaryBlocks();
+  const prefix = "# Journal\n\n```md\n## Review\n### Summary\nexample\n```\n\n";
+  const tail = "# Private notes\n\n### Summary\nkeep this  \nexactly\n";
+  const original = `${prefix}## Review\n\n### Summary\nold summary\n\n### My notes\n~~~md\n### Summary\nkeep code\n~~~\n\n${tail}`;
+  const updated = diary.replaceFinalReviewSections(original, { summary: "new summary" });
+  assert.ok(updated.startsWith(prefix));
+  assert.ok(updated.endsWith(tail));
+  assert.ok(updated.includes("### My notes\n~~~md\n### Summary\nkeep code\n~~~"));
+  assert.ok(updated.includes("### Summary\n\nnew summary"));
+  assert.ok(!updated.includes("old summary"));
+});
+
+test("diary utility loads in the Obsidian renderer without replacing its ambient module", () => {
+  const ambientExports = { owner: "Obsidian" };
+  const context = { module: { exports: ambientExports }, globalThis: null };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(pluginPath("views/dashboard/core/utils/diary-day-blocks.js"), "utf8"), context);
+  const result = context.dashboardCore.utils.diaryDayBlocks.replaceFinalReviewSections("## Review\n\nold", { summary: "new" });
+  assert.match(result, /### Summary\n\nnew/);
+  assert.equal(context.module.exports, ambientExports);
+});
+
 test("period final load and save preserve frontmatter and unrelated sections", async () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
@@ -2187,7 +2211,7 @@ test("period final load and save preserve frontmatter and unrelated sections", a
     "",
     "old review",
     "",
-    "## Notes",
+    "# Notes",
     "",
     "keep note"
   ].join("\n");
@@ -2220,7 +2244,7 @@ test("period final load and save preserve frontmatter and unrelated sections", a
   assert.match(current, /^---\ntype: weekly\n---/);
   assert.match(current, /## Plan\n\nkeep plan/);
   assert.match(current, /## Weekly review\n\nnew review\n\n- next/);
-  assert.match(current, /## Notes\n\nkeep note/);
+  assert.match(current, /# Notes\n\nkeep note/);
 });
 
 test("missing period final stays read-only until save creates the Calendar target", async () => {
@@ -2245,8 +2269,8 @@ test("missing period final stays read-only until save creates the Calendar targe
   plugin.loadTextFromVault = async () => current;
   plugin.createCalendarNoteIfMissing = async () => {
     created += 1;
-    current = "# 2026-07\n\n## Plan\n\nkeep\n";
-    return { file: { path: spec.path }, created: true };
+    current = "# 2026-07\n\n## Plan\n\nkeep\n\n## Monthly review\n\n### GDD\n\n- Highlight:\n";
+    return { file: { path: spec.path }, created: true, initialContent: current };
   };
   plugin.writeTextToVault = async (_path, text) => {
     writes += 1;
@@ -2287,7 +2311,7 @@ test("period final rechecks the review fingerprint after a missing target is cre
   plugin.loadTextFromVault = async () => current;
   plugin.createCalendarNoteIfMissing = async () => {
     current = "# 2026-07\n\n## Monthly review\n\ncreated elsewhere\n";
-    return { file: { path: spec.path }, created: true };
+    return { file: { path: spec.path }, created: true, initialContent: "# 2026-07\n\n## Monthly review\n\n### GDD\n\n- Highlight:\n" };
   };
   plugin.writeTextToVault = async (_path, text) => {
     writes += 1;

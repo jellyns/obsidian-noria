@@ -1,0 +1,44 @@
+{
+  "projects": {
+    "Field notebook": "花园观察",
+    "Illustrated guide": "口袋指南",
+    "Community walk": "社区漫步"
+  },
+  "phases": {
+    "Explore the gardens": "实地观察",
+    "Make the field guide": "制作指南",
+    "Share the walk": "分享与漫步"
+  },
+  "tasks": {
+    "Map five garden stops": "选出五处花园观察点",
+    "Choose field questions": "列出实地观察问题",
+    "Photograph morning light": "拍下花园的晨光",
+    "Count pollinator visits": "记录传粉昆虫来访",
+    "Interview a garden volunteer": "采访花园志愿者",
+    "Identify ten local plants": "辨认十种本地植物",
+    "Sketch the rain garden": "画一张雨水花园速写",
+    "Check plant names": "核对植物名称",
+    "Link photos to field notes": "将照片关联到观察笔记",
+    "Finish the field notebook": "整理完成观察手记",
+    "Collect cover references": "收集封面设计参考",
+    "Choose a pocket format": "确定口袋本开本",
+    "Draft the opening story": "写下开篇故事",
+    "Draw the walking map": "绘制花园漫步地图",
+    "Write six plant portraits": "写六篇植物小传",
+    "Build the photo spread": "编排照片跨页",
+    "Add a field checklist": "加入随身观察清单",
+    "Review captions and credits": "校对图注与署名",
+    "Print a pocket-size proof": "打印口袋指南样本",
+    "Publish the field guide": "发布花园口袋指南",
+    "Pick a sunset route": "挑选日落漫步路线",
+    "Check accessible paths": "检查路线无障碍通行",
+    "Walk the route with a friend": "和朋友一起试走路线",
+    "Prepare the event page": "准备漫步活动页面",
+    "Share the walk invitation": "发出花园漫步邀请",
+    "Plan three observation stops": "设计三处观察停留点",
+    "Prepare a rain-day route": "准备雨天备用路线",
+    "Rehearse the opening story": "试讲开场故事",
+    "Host the garden walk": "带大家走进花园",
+    "Gather next-edition ideas": "收集下一版指南灵感"
+  }
+}

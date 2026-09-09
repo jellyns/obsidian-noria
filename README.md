@@ -2,7 +2,7 @@
 
 **Language**: English | [简体中文](README.zh-CN.md)
 
-![version](https://img.shields.io/badge/version-0.4.5-blue)
+![version](https://img.shields.io/badge/version-0.4.6-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.5%2B-7c3aed)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -12,7 +12,7 @@
 
 **Turn knowledge into action, and action into lasting knowledge.**
 
-Noria connects daily records, notes, and knowledge management with planning, execution, and review. Its configurable Home brings together Task Board, Task Timeline, projects, Inbox and MOCs, habits, trends, and Review Center, helping you see the current state, choose the next useful action, and let long-term knowledge support ongoing work.
+Noria connects daily records, notes, and knowledge management with planning, execution, and review. Its configurable Home brings together Task Board, Task Timeline, Calendar, projects, Inbox and MOCs, habits, trends, and Review Center, helping you see the current state, choose the next useful action, and let long-term knowledge support ongoing work.
 
 ![Noria Home dashboard](docs/assets/en/home-dashboard.png)
 
@@ -57,13 +57,15 @@ Tasks remain in their original notes. New tasks can be written back to the match
 
 ### Task Timeline
 
-Task Timeline puts tasks into a time context. It helps answer questions like "how does today unfold," "where should this task sit," and "what is already occupying attention." You can arrange tasks by date and time block, or keep the side timeline open as a lightweight view of the current schedule.
+Task Timeline brings dated tasks and project phases into one view. Use the main area for a broader plan or keep the sidebar open for the current schedule. Zoom from days into hours to see how a day unfolds.
 
-The timeline is not meant to add more constraints. It makes time placement visible so capture, planning, and actual progress stay connected, while each task still keeps its original note and project context.
+Every task uses a circle followed by a short title. Circle color shows completion while titles stay readable; hover or focus a task to see its full schedule, duration, and source note. Drag the bottom date row or minimap to move through time.
 
-The Noria-owned renderer keeps the accepted side-panel design while supporting source opening, background pan and zoom, Today and overview navigation, task move/resize, range marks, and reusable filters. Tasks, records, projects, annotations, Pomodoro data, notes, Git activity, and Noria traces remain selectable layers rather than mandatory noise.
+Name project or global time annotations to mark phases above the tasks. These periods can be edited without changing task dates, and tasks remain connected to their original Markdown notes.
 
-![Task Timeline](docs/assets/en/task-timeline.png)
+![Task Timeline showing tasks and project phases across two weeks](docs/assets/en/task-timeline-wide.png)
+
+*Timeline screenshots use example tasks and show the interactions in Noria 0.4.6.* [Timeline guide](docs/USER-GUIDE.md#4-task-timeline)
 
 ### Calendar
 
@@ -87,7 +89,7 @@ The same data layer powers Home statistics, task views, timeline summaries, peri
 
 ### Configure It Around Your Vault
 
-Noria can run in a new portable `Noria/` workspace or connect to an existing vault through paths and scan scopes. Settings cover paths, Home widgets, task filtering, templates, appearance, weather, review prompts, and diagnostics. The goal is to fit your knowledge system rather than force your vault into a fixed directory layout.
+Noria can run in a new portable `Noria/` workspace or connect to an existing vault through paths and scan scopes. Settings cover paths, Home widgets, task filtering, Calendar sources and period templates, appearance, weather, review prompts, and diagnostics. The goal is to fit your knowledge system rather than force your vault into a fixed directory layout.
 
 ---
 
@@ -160,6 +162,8 @@ It should not contain `src/`, `tests/`, `scripts/`, `node_modules/`, or the full
 
 - [User Guide](docs/USER-GUIDE.md): installation, every module, Settings, common workflows, troubleshooting, paths, and developer reference.
 - [GitHub Issues](https://github.com/jellyns/obsidian-noria/issues): bug reports and feature requests.
+- [Community](docs/COMMUNITY.md): help, workflow sharing, and community channels.
+- [Support development](docs/SUPPORT.md): voluntary support for Noria's maintenance.
 - [Changelog](CHANGELOG.md): release history.
 - [Contributing](CONTRIBUTING.md): local development, validation, and PR expectations.
 - [Security](SECURITY.md): how to report security issues.
@@ -189,10 +193,10 @@ npm run check
 To install the current build into a separate test vault while keeping the plugin directory clean:
 
 ```bash
-npm run install:vault -- F:/NoriaTest
+npm run install:vault -- "/path/to/test-vault"
 ```
 
-That command builds the plugin and copies only `manifest.json`, `main.js`, and `styles.css` to `F:/NoriaTest/.obsidian/plugins/noria/`. Existing Noria `data.json` is preserved.
+Replace the example path with a separate test vault. The command builds the plugin and copies only `manifest.json`, `main.js`, and `styles.css` into that vault's `.obsidian/plugins/noria/` directory. Existing Noria `data.json` is preserved.
 
 ---
 

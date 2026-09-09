@@ -6,7 +6,7 @@
   }
 
   const MINUTE = 60_000;
-  const ACTIVATION_ROLES = new Set(["primary-title", "primary-range-title", "point", "duration-rail"]);
+  const ACTIVATION_ROLES = new Set(["primary-title", "point", "duration-rail"]);
   const pendingTaskCommits = new Set();
 
   function text(value) {
@@ -82,13 +82,6 @@
     }
     if (action === "today") {
       return { type: "viewport-center", centerMs: finite(input.nowMs, Date.now()), reason: "today" };
-    }
-    if (action === "overview-navigate" && input.viewport) {
-      return {
-        type: "viewport-center",
-        centerMs: viewportApi.pxToDateMs(input.viewport, finite(input.pointerPx, input.viewport.widthPx / 2)),
-        reason: "overview"
-      };
     }
     if (action === "select-range" && input.viewport) {
       const first = viewportApi.pxToDateMs(input.viewport, finite(input.originPx, 0));
@@ -239,7 +232,6 @@
       });
     };
     const getViewport = () => typeof options.getViewport === "function" ? options.getViewport() : options.viewport || null;
-    const getOverviewViewport = () => typeof options.getOverviewViewport === "function" ? options.getOverviewViewport() : options.overviewViewport || null;
     const deadzone = Math.max(0, finite(options.dragDeadzonePx, 4));
     const ownsPointer = (session, event) => (
       session?.pointerId == null || event?.pointerId == null || session.pointerId === event.pointerId
@@ -268,7 +260,9 @@
             options.cancelTaskPreview({ ...session.intent, phase: "cancel", reason }, event);
           } catch (_) {}
         }
-      } else if (session.kind === "select" && session.intent && typeof options.cancelRangePreview === "function") {
+      } else if (session.kind === "annotation") {
+        options.cancelAnnotationRange?.({ annotationId: session.annotationId, startMs: session.task.startMs, endMs: session.task.endMs });
+      } else if (session.kind === "select" && typeof options.cancelRangePreview === "function") {
         try {
           options.cancelRangePreview({ ...session.intent, phase: "cancel", reason }, event);
         } catch (_) {}
@@ -290,6 +284,17 @@
     const onClick = (event) => {
       const actionNode = ancestor(event.target, (node) => !!attr(node, "data-noria-timeline-action"));
       const action = attr(actionNode, "data-noria-timeline-action");
+      if (action === "more-annotations") {
+        options.showHiddenAnnotations?.(event);
+        event.preventDefault?.();
+        return;
+      }
+      const annotation = ancestor(event.target, node => !!attr(node, "data-noria-annotation-id"));
+      if (annotation) {
+        if (!attr(event.target, "data-noria-annotation-handle")) options.openAnnotation?.(attr(annotation, "data-noria-annotation-id"), event);
+        event.preventDefault?.();
+        return;
+      }
       if (action === "today") {
         applyViewportIntent(options, pointerToTimelineIntent({ action: "today", nowMs: typeof options.now === "function" ? options.now() : options.now }), event);
         event.preventDefault?.();
@@ -297,8 +302,6 @@
       }
       const bandNode = ancestor(event.target, (node) => !!attr(node, "data-noria-timeline-band"));
       if (attr(bandNode, "data-noria-timeline-band") === "overview") {
-        const viewport = getOverviewViewport();
-        if (viewport) applyViewportIntent(options, pointerToTimelineIntent({ action: "overview-navigate", viewport, pointerPx: eventX(host, event) }), event);
         event.preventDefault?.();
         return;
       }
@@ -326,12 +329,19 @@
     };
 
     const onKeyDown = (event) => {
+      if (event.defaultPrevented) return;
       if (event.key === "Escape" && state.active) {
         cancelActive("cancelled", event);
         event.preventDefault?.();
         return;
       }
       if (state.active || event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) return;
+      const annotation = ancestor(event.target, node => !!attr(node, "data-noria-annotation-id"));
+      if (annotation && (event.key === "Enter" || event.key === " ")) {
+        options.openAnnotation?.(attr(annotation, "data-noria-annotation-id"), event);
+        event.preventDefault?.(); return;
+      }
+      if (event.key === "Escape") options.cancelRangePreview?.();
       const roleNode = ancestor(event.target, (node) => ACTIVATION_ROLES.has(attr(node, "data-noria-task-visual-role")));
       const taskKey = taskKeyFromTarget(roleNode || event.target);
       const intent = keyboardToTimelineIntent({
@@ -382,6 +392,19 @@
         event.stopPropagation?.();
         return;
       }
+      const annotation = ancestor(event.target, node => !!attr(node, "data-noria-annotation-id"));
+      if (annotation) {
+        const role = attr(event.target, "data-noria-annotation-handle");
+        const annotationId = attr(annotation, "data-noria-annotation-id");
+        const task = options.getAnnotation?.(annotationId);
+        if (role && task) {
+          state.active = { kind: "annotation", annotationId, task, role, owner: annotation,
+            pointerId: event.pointerId, originPx: eventX(host, event), viewport: getViewport(), moved: false, intent: null };
+          event.preventDefault?.(); event.stopPropagation?.();
+        }
+        return;
+      }
+      if (ancestor(event.target, node => attr(node, "data-noria-timeline-action") === "more-annotations")) return;
       const handle = ancestor(event.target, (node) => !!attr(node, "data-noria-task-handle-role"));
       const taskKey = taskKeyFromTarget(handle || event.target);
       if (handle && taskKey && typeof options.getTask === "function") {
@@ -420,11 +443,13 @@
       ));
       if (taskSurface) return;
       const band = ancestor(event.target, (node) => !!attr(node, "data-noria-timeline-band"));
-      if (attr(band, "data-noria-timeline-band") !== "main") return;
+      const bandKind = attr(band, "data-noria-timeline-band");
+      if (bandKind !== "main" && bandKind !== "overview") return;
       const viewport = getViewport();
       if (!viewport) return;
+      if (bandKind === "overview") band.focus?.({ preventScroll: true });
       state.active = {
-        kind: event.shiftKey || options.markMode === true ? "select" : "pan",
+        kind: bandKind === "main" && (event.shiftKey || options.markMode === true) ? "select" : "pan",
         owner: band,
         pointerId: event.pointerId == null ? null : event.pointerId,
         originPx: eventX(host, event),
@@ -471,7 +496,10 @@
       const currentPx = eventX(host, event);
       if (!session.moved && Math.abs(currentPx - session.originPx) < deadzone) return;
       session.moved = true;
-      if (session.kind === "task") {
+      if (session.kind === "annotation") {
+        session.intent = { ...buildTaskIntent(session, currentPx, "preview"), annotationId: session.annotationId };
+        options.previewAnnotationRange?.(session.intent, event);
+      } else if (session.kind === "task") {
         session.intent = buildTaskIntent(session, currentPx, "preview");
         if (session.intent) {
           exposeTaskPreview(session, session.intent, event);
@@ -533,7 +561,10 @@
       const currentPx = eventX(host, event);
       if (session.moved || Math.abs(currentPx - session.originPx) >= deadzone) {
         session.moved = true;
-        if (session.kind === "task") {
+        if (session.kind === "annotation") {
+          session.intent = { ...buildTaskIntent(session, currentPx, "preview"), annotationId: session.annotationId };
+          options.previewAnnotationRange?.(session.intent, event);
+        } else if (session.kind === "task") {
           session.intent = buildTaskIntent(session, currentPx, "preview");
         } else if (session.kind === "pan") {
           session.intent = pointerToTimelineIntent({ action: "pan", viewport: session.viewport, originPx: session.originPx, currentPx });
@@ -552,6 +583,7 @@
       else if (session.kind === "select" && session.moved && session.intent) {
         try { options.selectRange?.(session.intent, event); } catch (_) {}
       }
+      else if (session.kind === "select") options.cancelRangePreview?.();
       event.preventDefault?.();
       event.stopPropagation?.();
     };
@@ -562,8 +594,17 @@
       event.preventDefault?.();
     };
 
+    const onDocumentKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      if (state.active) cancelActive("cancelled", event);
+      else if (options.markMode) options.cancelRangePreview?.();
+      else return;
+      event.preventDefault?.();
+    };
+
     listen(host, "click", onClick);
     listen(host, "keydown", onKeyDown);
+    listen(documentRef, "keydown", onDocumentKeyDown, true);
     listen(host, "wheel", onWheel, { passive: false });
     listen(host, "pointerdown", onPointerDown, true);
     listen(documentRef, "pointermove", onPointerMove, true);

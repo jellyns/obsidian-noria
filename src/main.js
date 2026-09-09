@@ -412,6 +412,10 @@ function normalizePomodoroTaskKey(key) {
 const NORIA_DEFAULT_WORKSPACE_ROOT = "Noria";
 const NORIA_USER_GUIDE_URL = "https://github.com/jellyns/obsidian-noria/blob/main/docs/USER-GUIDE.md";
 const NORIA_USER_GUIDE_URL_ZH = "https://github.com/jellyns/obsidian-noria/blob/main/docs/zh-CN/USER-GUIDE.md";
+const NORIA_COMMUNITY_URL = "https://github.com/jellyns/obsidian-noria/blob/main/docs/COMMUNITY.md";
+const NORIA_SUPPORT_URL = "https://github.com/jellyns/obsidian-noria/blob/main/docs/SUPPORT.md";
+const NORIA_BUG_REPORT_URL = "https://github.com/jellyns/obsidian-noria/issues/new?template=bug_report.md";
+const NORIA_FEATURE_REQUEST_URL = "https://github.com/jellyns/obsidian-noria/issues/new?template=feature_request.md";
 const NORIA_LEGACY_HOME_QUOTE_PATH = "02_Areas/知识库管理/清单-名言.md";
 const NORIA_IPARA_HOME_QUOTE_PATH = "02_Areas/知识库管理/Quotes.md";
 
@@ -979,6 +983,12 @@ const NORIA_I18N = {
     "settings.overview.profileCustom": "Custom paths",
     "settings.overview.profileCustomDesc": "Keep manually edited Overview paths.",
     "settings.overview.openUserGuide": "Open user guide",
+    "settings.overview.helpAndFeedback": "Help and feedback",
+    "settings.overview.helpAndFeedbackDesc": "Report a problem, suggest an improvement, or share how you use Noria.",
+    "settings.overview.reportIssue": "Report a problem",
+    "settings.overview.suggestFeature": "Suggest an improvement",
+    "settings.overview.community": "Community",
+    "settings.overview.supportDevelopment": "Support development",
     "settings.overview.syncObsidianTemplates": "Sync Obsidian templates",
     "settings.overview.syncObsidianTemplatesDesc": "Align Daily Notes and Templates plugin settings with Noria template paths.",
     "settings.overview.syncObsidianTemplatesReady": "Obsidian template settings already point to Noria templates.",
@@ -2898,6 +2908,12 @@ const NORIA_I18N = {
     "settings.overview.profileCustom": "自定义路径",
     "settings.overview.profileCustomDesc": "保留总览中手动维护的路径。",
     "settings.overview.openUserGuide": "打开用户指南",
+    "settings.overview.helpAndFeedback": "帮助与反馈",
+    "settings.overview.helpAndFeedbackDesc": "报告问题、提出改进建议，或交流 Noria 的使用方法。",
+    "settings.overview.reportIssue": "问题反馈",
+    "settings.overview.suggestFeature": "功能建议",
+    "settings.overview.community": "社区交流",
+    "settings.overview.supportDevelopment": "支持开发",
     "settings.overview.syncObsidianTemplates": "同步 Obsidian 模板配置",
     "settings.overview.syncObsidianTemplatesDesc": "将 Daily Notes 和 Templates 插件设置对齐到 Noria 模板路径。",
     "settings.overview.syncObsidianTemplatesReady": "Obsidian 模板配置已指向 Noria 模板。",
@@ -5345,6 +5361,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     this._timelineRuntimeLastMountFinishedAt = 0;
     this._timelineRuntimeGeneration = 0;
     this._timelineManualScaleSaveTimer = null;
+    this._timelineTasksInvalidationRef = null;
   }
   getViewType() {
     return VIEW_TYPE_NORIA_TASK_TIMELINE;
@@ -6734,6 +6751,13 @@ class NoriaTaskTimelineView extends NoriaPaneView {
           if (!callbacksCurrent()) return;
           self._timelineFocusToday = typeof focusToday === "function" ? focusToday : null;
         },
+        onTimelineMarkModeChange: (active) => {
+          if (!callbacksCurrent()) return;
+          const current = self.normalizeTimelineChromeFilterState(self._timelineFilterState);
+          if (current.markMode === active) return;
+          self._timelineFilterState = { ...current, markMode: active === true };
+          self.renderTimelineAppChrome();
+        },
         requestToggleTodayFocus: (nextState) => {
           if (!callbacksCurrent()) return;
           self._requestToggleTodayFocus(nextState);
@@ -6836,6 +6860,11 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     const generation = this.invalidateTimelineRuntimeMount(this.bucketHostEl || this.hostEl);
     this.containerEl.empty();
     this.hostEl = this.containerEl.createDiv({ cls: "noria-itemview-host noria-task-timeline-host" });
+    if (this._timelineTasksInvalidationRef) this.app.workspace.offref(this._timelineTasksInvalidationRef);
+    this._timelineTasksInvalidationRef = this.app.workspace.on("noria:tasks-invalidated", () => {
+      if (!this.hostEl || !this.plugin.isModuleEnabled("taskTimeline") || this.isTimelineBlankPhase()) return;
+      void this.refreshTimelineRuntimeFromChrome();
+    });
     if (!this.plugin.isModuleEnabled("taskTimeline")) {
       this.plugin.renderDisabledModuleState(this.hostEl, "taskTimeline");
       return;
@@ -6853,6 +6882,8 @@ class NoriaTaskTimelineView extends NoriaPaneView {
   }
   async onClose() {
     this.closeTimelineFilterPanel();
+    if (this._timelineTasksInvalidationRef) this.app.workspace.offref(this._timelineTasksInvalidationRef);
+    this._timelineTasksInvalidationRef = null;
     this.invalidateTimelineRuntimeMount(this.bucketHostEl || this.hostEl);
     this.setTimelineRuntimeMountState("closed");
     this.hostEl = null;
@@ -9223,6 +9254,29 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
           void this.runSettingsActionButton(btn, () => this.plugin.openUserGuide());
         });
       });
+    const helpSetting = new obsidian.Setting(containerEl)
+      .setName(this.t("settings.overview.helpAndFeedback"))
+      .setDesc(this.t("settings.overview.helpAndFeedbackDesc"));
+    const helpLinks = helpSetting.descEl.createDiv();
+    const languageAnchor = this.plugin.getNoriaLocale() === "zh" ? "#中文" : "";
+    const destinations = [
+      ["settings.overview.reportIssue", NORIA_BUG_REPORT_URL],
+      ["settings.overview.suggestFeature", NORIA_FEATURE_REQUEST_URL],
+      ["settings.overview.community", `${NORIA_COMMUNITY_URL}${languageAnchor}`],
+      ["settings.overview.supportDevelopment", `${NORIA_SUPPORT_URL}${languageAnchor}`]
+    ];
+    destinations.forEach(([label, url], index) => {
+      if (index) helpLinks.createSpan({ text: " · " });
+      const link = helpLinks.createEl("a", {
+        text: this.t(label),
+        cls: "external-link",
+        attr: { href: url, target: "_blank", rel: "noopener noreferrer" }
+      });
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.plugin.openNoriaExternalUrl(url);
+      });
+    });
     const templateSyncSetting = new obsidian.Setting(containerEl)
       .setName(this.t("settings.overview.syncObsidianTemplates"))
       .setDesc(this.t("settings.overview.syncObsidianTemplatesDesc"))
@@ -12638,6 +12692,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
 
   openUserGuide() {
     const url = this.getNoriaLocale() === "zh" ? NORIA_USER_GUIDE_URL_ZH : NORIA_USER_GUIDE_URL;
+    return this.openNoriaExternalUrl(url);
+  }
+
+  openNoriaExternalUrl(url) {
     try {
       if (obsidian.Platform && typeof obsidian.Platform.openUrl === "function") {
         obsidian.Platform.openUrl(url);
@@ -16327,6 +16385,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       color: this.sanitizeTimelineAnnotationColor(raw.color),
       opacity,
       note: String(raw.note || raw.description || "").trim(),
+      projectPath: String(raw.projectPath || "").trim().replace(/\\/g, "/"),
+      projectName: raw.projectPath ? String(raw.projectName || "").trim() : "",
       tags
     };
   }
@@ -16350,8 +16410,14 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   }
 
   async saveTimelineAnnotations(nextAnnotations, reason = "timeline-annotations-save") {
+    const previous = this.settings.timelineAnnotations;
     this.settings.timelineAnnotations = this.normalizeTimelineAnnotations(nextAnnotations);
-    await this.saveSettings();
+    const pending = this.settings.timelineAnnotations;
+    try { await this.saveSettings(); }
+    catch (error) {
+      if (this.settings.timelineAnnotations === pending) this.settings.timelineAnnotations = previous;
+      throw error;
+    }
     this.requestNoriaRefresh("timeline", reason, { reloadViews: true });
     return { ok: true, annotations: this.getTimelineAnnotations() };
   }
@@ -17910,19 +17976,19 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         return !!r && (normalized === r || normalized.startsWith(`${r}/`));
       };
       const affectsTasks = under(paths.diaryRoot) || under(paths.projectsRoot) || under(paths.inboxRoot);
-      this.invalidateTaskSnapshots(affectsTasks ? "tasks" : scope);
       void this.createDataService()
-        .then((service) => service.invalidate(`vault:${reason || "change"}:${normalized}`, scope))
+        .then((service) => {
+          service.invalidate(`vault:${reason || "change"}:${normalized}`, scope);
+          this.invalidateTaskSnapshots(affectsTasks ? "tasks" : scope);
+          if (affectsTasks) {
+            this.app?.workspace?.trigger?.("noria:tasks-invalidated", {
+              path: normalized,
+              reason: reason || "change",
+              scope: "tasks"
+            });
+          }
+        })
         .catch(() => {});
-      if (affectsTasks) {
-        try {
-          this.app?.workspace?.trigger?.("noria:tasks-invalidated", {
-            path: normalized,
-            reason: reason || "change",
-            scope: "tasks"
-          });
-        } catch (_) {}
-      }
     };
     const invalidateForFile = (file, reason) => invalidateForPath(file?.path || "", reason);
     try {
@@ -17934,6 +18000,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         invalidateForPath(oldPath || "", "rename-old");
         invalidateForFile(file, "rename");
       }));
+      // Vault events can precede cached text and task-index updates.
+      if (typeof this.app?.metadataCache?.on === "function") {
+        this.registerEvent(this.app.metadataCache.on("changed", (file) => invalidateForFile(file, "metadata")));
+      }
     } catch (_) {}
   }
 
@@ -20171,7 +20241,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       try {
         const file = await vault.create(path, content);
         this.invalidateReviewCenterHomeSummaryCacheForPath(path);
-        return { file: file || { path }, created: true };
+        return { file: file || { path }, created: true, initialContent: content };
       } catch (error) {
         const appeared = vault?.getAbstractFileByPath?.(path) || null;
         const message = String(error?.message || error || "");
@@ -21650,15 +21720,22 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       };
     }
 
+    let createdContent = null;
     const indexedFile = this.app?.vault?.getAbstractFileByPath?.(targetPath) || null;
     if (selection.mode !== "daily" && !indexedFile && !target.exists) {
       const spec = { ...(target.calendarSpec || {}), path: targetPath };
-      await this.createCalendarNoteIfMissing(spec);
+      const creation = await this.createCalendarNoteIfMissing(spec);
+      if (creation.created === true && typeof creation.initialContent === "string") createdContent = creation.initialContent;
     }
 
     const U = selection.mode === "daily" ? await this.ensureDiaryDayBlocks() : null;
     const seed = selection.mode === "daily" ? await this.getTodayDiarySeedText() : "";
-    const expectedFingerprint = String(finalModel?.baseFingerprint || "");
+    let expectedFingerprint = String(finalModel?.baseFingerprint || "");
+    if (createdContent !== null && expectedFingerprint === reviewCenterCore.fingerprintReviewSection("")) {
+      // Compare against the exact template we created, never a subsequent read that might include another writer's changes.
+      const heading = this.getReviewFinalSectionHeading(selection.mode, createdContent) || target.sectionHeading;
+      expectedFingerprint = reviewCenterCore.fingerprintReviewSection(reviewCenterCore.extractReviewSection(createdContent, heading).body);
+    }
     const mutation = await this.processReviewFinalTarget(targetPath, (currentMarkdown) => {
       const sectionHeading = this.getReviewFinalSectionHeading(selection.mode, currentMarkdown)
         || finalModel?.sectionHeading

@@ -116,8 +116,10 @@ function createHarness(options = {}) {
     vm.runInContext(code, context, { filename: `views/task-timeline/${name}` });
   };
   run("engine-contract.js");
+  run("native-viewport.js");
   const root = context.noriaTaskTimeline;
   root.nativeViewport = {
+    placeTickLabels: root.nativeViewport.placeTickLabels,
     createViewport(input = {}) {
       calls.viewportInputs.push(input);
       return { ...input };
@@ -260,7 +262,7 @@ test("native backend is the sole renderer and consumes one already-filtered even
   assert.equal(harness.calls.overviewInputs[0].events.length, 2);
   assert.equal(harness.calls.interactionOptions.length, 1);
   assert.equal(harness.timelineEl.getAttribute("data-noria-timeline-backend"), "native");
-  assert.deepEqual(Object.keys(instance).sort(), ["centerOn", "dispose", "getDiagnostics", "host", "refresh", "resize"]);
+  assert.deepEqual(Object.keys(instance).sort(), ["centerOn", "clearAnnotationPreview", "dispose", "getDiagnostics", "host", "previewAnnotation", "refresh", "resize", "selectAnnotation", "setMarkMode"]);
   assert.equal(instance.getDiagnostics().eventCount, 2);
   assert.equal(instance.getDiagnostics().renderCount, 1);
 
@@ -276,7 +278,7 @@ test("native backend is the sole renderer and consumes one already-filtered even
     }]));
   });
   const mainMarkers = harness.calls.renders[0].model.mainPlan.markers;
-  assert.equal(mainMarkers.find((marker) => marker.kind === "today").bounds.height, 360 * 0.76);
+  assert.equal(mainMarkers.find((marker) => marker.kind === "today").bounds.height, 360 - 56);
   assert.equal(mainMarkers.find((marker) => marker.kind === "now").bounds.width, 1);
 
   harness.resizeCallbacks[0]();
@@ -328,22 +330,10 @@ test("native backend applies one runtime locale to the main axis and overview", 
   const instance = await harness.engine.mountTimelineBackend("native", harness.backendContext);
   harness.flushFrame();
 
-  assert.equal(harness.calls.renders[0].model.mainPlan.dateTicks[0].label, "7月11日");
+  assert.equal(harness.calls.renders[0].model.mainPlan.locale, "zh-CN");
   assert.equal(harness.calls.overviewInputs[0].locale, "zh-CN");
   assert.equal(harness.calls.overviewInputs[0].todayLabel, "今日");
   instance.dispose();
-});
-
-test("native main axis adapts labels to sub-day and date-scale intervals", () => {
-  const harness = createHarness();
-  const formatter = harness.context.__noriaTaskTimelineNativeBackendTestHooks.formatMainTickLabel;
-  const HOUR = 60 * 60 * 1000;
-  const DAY = 24 * HOUR;
-
-  assert.equal(formatter(new Date(2026, 6, 11, 9, 30).getTime(), HOUR, "zh-CN"), "09:30");
-  assert.equal(formatter(new Date(2026, 6, 12, 0, 0).getTime(), 30 * 60 * 1000, "zh-CN"), "7月12日 00:00");
-  assert.equal(formatter(new Date(2026, 6, 11, 0, 0).getTime(), DAY, "zh-CN"), "7月11日");
-  assert.equal(formatter(new Date(2026, 6, 11, 9, 30).getTime(), HOUR, "en"), "09:30");
 });
 
 test("task timeline view measures native geometry from the timeline surface while observing its stable stage", () => {
@@ -385,6 +375,8 @@ test("task timeline text measurement uses the native title typography supplied b
 
   assert.equal(measured, 120, "measurement must follow the rendered 12px native title, not the inherited 15px surface font");
   assert.equal(canvasContext.font, "600 12px Arial");
+  context.measureNativeTitle("Publish the field guide", "task-title", { fontSizePx: 12, fontWeight: 600 });
+  assert.equal(canvasContext.font, "600 12px Inherited UI", "theme fonts must be measured when no font override is supplied");
 });
 
 test("formal task timeline disposes an existing native mount before replacing its container", () => {
@@ -613,17 +605,25 @@ test("formal task timeline rejects stale Markdown before drag writeback", () => 
   assert.match(body, /requestRefresh\?\.\("timeline", "task-timeline-drag-conflict"\)/);
 });
 
-test("formal task timeline persists range annotations through the runtime bridge", () => {
-  const view = fs.readFileSync(sourcePath("views/task-timeline/view.js"), "utf8");
-  const start = view.indexOf("async function taskTimelineSaveRange");
-  const end = view.indexOf("\n}\n\nfunction taskTimelineOpenRangeMenu", start);
-  const body = view.slice(start, end);
-  const menuStart = view.indexOf("function taskTimelineOpenRangeMenu");
-  const menuEnd = view.indexOf("\n}\n\nfunction taskTimelineTextMeasurer", menuStart);
-  const menuBody = view.slice(menuStart, menuEnd);
-
-  assert.match(body, /taskTimelineBridge\.timeline\?\.saveAnnotation/);
-  assert.match(body, /api\.saveAnnotation\(\{[\s\S]*type:\s*"span"[\s\S]*start:\s*range\.start\.toISOString\(\)[\s\S]*end:\s*range\.end\.toISOString\(\)/);
-  assert.match(body, /requestRefresh\?\.\("timeline", "task-timeline-annotation-range", \{ reloadViews: true \}\)/);
-  assert.match(menuBody, /taskTimelineSaveRange\(range, color\)/);
+test("native range previews and annotation drafts cancel without changing canonical events", async () => {
+  const modes = [];
+  const harness = createHarness({ settings: { markMode: true }, context: { onMarkModeChange: value => modes.push(value) } });
+  const instance = await harness.engine.mountTimelineBackend("native", harness.backendContext);
+  harness.flushFrame();
+  const interactions = harness.calls.interactionOptions[0];
+  interactions.previewRange({ startMs: Date.parse("2026-07-11T09:02:00+08:00"), endMs: Date.parse("2026-07-11T10:01:00+08:00") });
+  harness.flushFrame();
+  assert.equal(harness.calls.updates.at(-1).model.mainPlan.rangePreview.startMs, Date.parse("2026-07-11T09:00:00+08:00"));
+  instance.previewAnnotation({ id: "draft", layer: "annotation", title: "Draft phase", start: "2026-07-11T09:00:00+08:00", end: "2026-07-11T10:00:00+08:00" });
+  harness.flushFrame();
+  assert.equal(harness.calls.layoutInputs.at(-1).events.length, 3);
+  assert.equal(instance.getDiagnostics().eventCount, 2);
+  instance.clearAnnotationPreview();
+  interactions.cancelRangePreview();
+  harness.flushFrame();
+  assert.equal(harness.calls.layoutInputs.at(-1).events.length, 2);
+  assert.equal(harness.calls.updates.at(-1).model.mainPlan.rangePreview, undefined);
+  assert.equal(interactions.markMode, false);
+  assert.equal(modes.at(-1), false);
+  instance.dispose();
 });

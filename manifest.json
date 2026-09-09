@@ -1,10 +1,11 @@
 {
   "id": "noria",
   "name": "Noria",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "minAppVersion": "1.5.0",
   "description": "A configurable workbench for notes, knowledge, tasks, projects, habits, timelines, statistics, and reviews.",
   "author": "Biao Zhou",
   "authorUrl": "https://github.com/jellyns",
+  "fundingUrl": "https://github.com/jellyns/obsidian-noria/blob/main/docs/SUPPORT.md",
   "isDesktopOnly": true
 }

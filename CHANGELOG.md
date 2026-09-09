@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.6 - 2026-09-09
+
+- Refined Task Timeline with consistent task markers, readable completed titles, details on hover or keyboard focus, and a continuous date/minimap navigation area across day and hour scales.
+- Added named project and global phase annotations with preview, save, edit, delete, and cancel actions that leave task dates unchanged.
+- Fixed daily and periodic review replacement crossing into a following parent heading or treating headings inside fenced examples as note structure.
+- Fixed the first periodic review save treating its newly created template as an external edit, while retaining conflict checks for subsequent changes.
+- Fixed task views retaining stale schedules or completion state after source edits by invalidating cached data before refresh notifications and again when Obsidian finishes indexing the note.
+- Added community, feedback, feature suggestion, and support links to Settings → Overview, with bilingual community/support pages and clearer feedback templates.
+- Updated English and Chinese README and user guides with Timeline day/hour screenshots and the current interaction model; made the test command portable across Windows and Linux.
+
 ## 0.4.5 - 2026-08-11
 
 - Simplified Inbox to three configurable stages and removed the retired terminal-stage model from settings, Home, statistics, managed Bases, and documentation.

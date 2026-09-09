@@ -101,8 +101,6 @@ test("manifest and package identify the plugin as Noria with canonical release m
   assert.equal(pkg.repository?.type, "git");
   assert.equal(pkg.repository?.url, "git+https://github.com/jellyns/obsidian-noria.git");
   assert.equal(pkg.homepage, "https://github.com/jellyns/obsidian-noria#readme");
-  assert.equal(manifest.version, "0.4.5");
-  assert.equal(pkg.version, "0.4.5");
   assert.equal(manifest.version, pkg.version);
 });
 
@@ -295,7 +293,9 @@ test("public docs contain no retired product name or stale internal references",
     "README.md",
     "README.zh-CN.md",
     "docs/USER-GUIDE.md",
-    "docs/zh-CN/USER-GUIDE.md"
+    "docs/zh-CN/USER-GUIDE.md",
+    "docs/COMMUNITY.md",
+    "docs/SUPPORT.md"
   ];
   const combined = publicFiles.map(read).join("\n");
   const retiredPattern = new RegExp(["Z", "board"].join("-") + "|" + ["z", "board"].join("-") + "|" + ["z", "board"].join(""), "i");
@@ -305,7 +305,7 @@ test("public docs contain no retired product name or stale internal references",
   assert.match(combined, /AI|API/);
   assert.equal(fs.existsSync(pluginPath("docs", "Noria-UI-system.md")), false);
   assert.equal(fs.existsSync(pluginPath("docs", "archive", "2026-05-05-ui-system.md")), false);
-  assert.equal(fs.existsSync(pluginPath("_archive", "2026-05-05-ui-system.md")), true);
+  assert.equal(fs.existsSync(pluginPath("_archive", "2026-05-05-ui-system.md")), false);
   assert.equal(fs.existsSync(pluginPath("docs", ["Z", "board-UI-system.md"].join("-"))), false);
 });
 

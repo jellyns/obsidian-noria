@@ -3,9 +3,57 @@
  * 供 statusSelector、dashboardDailyRecap、及未来脚本共用；勿在多处复制正则。
  * 挂载：globalThis.dashboardCore.utils.diaryDayBlocks
  */
-(() => {
-  const root = globalThis.dashboardCore || (globalThis.dashboardCore = {});
-  root.utils = root.utils || {};
+((createUtils) => {
+  // Obsidian also exposes an ambient module; only export from a CommonJS wrapper.
+  if (typeof module === "object" && module.exports && module !== globalThis.module) {
+    module.exports = createUtils();
+  } else {
+    const root = globalThis.dashboardCore || (globalThis.dashboardCore = {});
+    root.utils = root.utils || {};
+    root.utils.diaryDayBlocks = createUtils();
+  }
+})(() => {
+
+  // Review headings are top-level ATX headings, outside metadata and code fences.
+  const scanAtxHeadings = (text) => {
+    const headings = [];
+    let fence = null;
+    let frontmatter = false;
+    let lineNumber = 0;
+    for (const match of String(text || "").matchAll(/[^\r\n]*(?:\r\n|\r|\n|$)/g)) {
+      if (!match[0]) continue;
+      const line = match[0].replace(/[\r\n]+$/, "");
+      const currentLine = lineNumber++;
+      if (currentLine === 0 && /^\uFEFF?---[ \t]*$/.test(line)) {
+        frontmatter = true;
+        continue;
+      }
+      if (frontmatter) {
+        if (/^(?:---|\.\.\.)[ \t]*$/.test(line)) frontmatter = false;
+        continue;
+      }
+      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fence) {
+        if (marker && marker[1][0] === fence[0]
+          && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+        continue;
+      }
+      if (marker && (marker[1][0] !== "`" || !marker[2].includes("`"))) {
+        fence = marker[1];
+        continue;
+      }
+      const heading = /^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$/.exec(line);
+      if (!heading) continue;
+      headings.push({
+        level: heading[1].length,
+        title: String(heading[2] || "").replace(/[ \t]+#+[ \t]*$/, "").trim(),
+        line: currentLine,
+        start: match.index,
+        end: match.index + match[0].length
+      });
+    }
+    return headings;
+  };
 
   const blockEnd = "(?=^(?:###|##)\\s|^```|$(?![\\s\\S]))";
 
@@ -433,7 +481,9 @@
 
   const extractRecapBlock = (text) => {
     const raw = String(text || "");
-    const match = raw.match(/^##\s+(复盘|Review)\s*$/mi);
+    const headings = scanAtxHeadings(raw);
+    const matchIndex = headings.findIndex((heading) => heading.level === 2 && /^(复盘|Review)$/i.test(heading.title));
+    const match = headings[matchIndex];
     if (!match) {
       return {
         found: false,
@@ -443,25 +493,32 @@
         language: inferDiaryLanguage(raw)
       };
     }
-    const start = match.index;
-    const afterHead = start + match[0].length;
-    const rest = raw.slice(afterHead);
-    const nextSection = rest.search(/\n##\s+/);
-    const end = nextSection === -1 ? raw.length : afterHead + nextSection + 1;
+    const start = match.start;
+    const afterHead = match.end;
+    const nextSection = headings.slice(matchIndex + 1).find((heading) => heading.level <= 2);
+    const end = nextSection ? nextSection.start : raw.length;
     return {
       found: true,
       before: raw.slice(0, start).replace(/\s*$/, ""),
       body: raw.slice(afterHead, end).replace(/^\s+/, "").replace(/\s+$/, ""),
-      after: raw.slice(end).replace(/^\s*/, ""),
-      language: headingDiaryLanguage(match[1])
+      after: raw.slice(end),
+      language: headingDiaryLanguage(match.title)
     };
   };
 
   const stripChildSections = (body, headings) => {
-    const escaped = headings.map((h) => String(h).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-    if (!escaped) return String(body || "");
-    const re = new RegExp(`^###\\s*(?:${escaped})[^\\n]*(?:\\r?\\n)+[\\s\\S]*?(?=^###\\s+|^##\\s+|$(?![\\s\\S]))`, "gm");
-    return String(body || "").replace(re, "").replace(/\n{3,}/g, "\n\n").trim();
+    const raw = String(body || "");
+    const sections = scanAtxHeadings(raw);
+    let cursor = 0;
+    let preserved = "";
+    for (let index = 0; index < sections.length; index += 1) {
+      const section = sections[index];
+      if (section.level !== 3 || !headings.some((heading) => section.title.startsWith(heading))) continue;
+      preserved += raw.slice(cursor, section.start);
+      const next = sections.slice(index + 1).find((heading) => heading.level <= 3);
+      cursor = next ? next.start : raw.length;
+    }
+    return (preserved + raw.slice(cursor)).replace(/\n{3,}/g, "\n\n").trim();
   };
 
   const buildFinalReviewBlock = (payload, language = runtimeDiaryLanguage()) => {
@@ -681,7 +738,8 @@
     return { hasTodayTasks, hasInbox, hasState, hasGdd, hasThought, hasGratitude };
   };
 
-  root.utils.diaryDayBlocks = {
+  return {
+    scanAtxHeadings,
     DAILY_STATE_KEYS: DAILY_STATE_KEYS.slice(),
     normalizeYmd,
     getDiaryPathForDate,
@@ -710,4 +768,4 @@
     appendDiaryInboxLine,
     getRecapFillFlags
   };
-})();
+});

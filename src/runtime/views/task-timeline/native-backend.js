@@ -8,8 +8,6 @@
   const MINUTE = 60_000;
   const HOUR = 60 * MINUTE;
   const DAY = 24 * HOUR;
-  const MAIN_HEIGHT_RATIO = 0.76;
-  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   function text(value) {
     return String(value == null ? "" : value).trim();
@@ -184,44 +182,11 @@
     }];
   }
 
-  function dateLabel(value, locale) {
-    const date = new Date(value);
-    if (normalizeLocale(locale) === "zh-CN") return `${date.getMonth() + 1}月${date.getDate()}日`;
-    return `${MONTHS[date.getMonth()]} ${date.getDate()}`;
-  }
-
-  function timeLabel(value) {
-    const date = new Date(value);
-    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  }
-
-  function formatMainTickLabel(value, intervalMs, locale) {
-    const date = new Date(value);
-    const interval = finite(intervalMs, DAY);
-    if (interval < DAY) {
-      const time = timeLabel(value);
-      return date.getHours() === 0 && date.getMinutes() === 0
-        ? `${dateLabel(value, locale)} ${time}`
-        : time;
-    }
-    if (interval >= 365 * DAY) return String(date.getFullYear());
-    if (interval >= 30 * DAY) {
-      return normalizeLocale(locale) === "zh-CN"
-        ? `${date.getFullYear()}年${date.getMonth() + 1}月`
-        : `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
-    }
-    return dateLabel(value, locale);
-  }
-
   function decorateMainPlan(plan, viewport, viewportApi, currentMs, locale) {
     const widthPx = Math.max(0, finite(plan?.widthPx, viewport.widthPx));
     const heightPx = Math.max(0, finite(plan?.heightPx, 0));
     plan.densityWidthPx = widthPx;
-    plan.dateTicks = viewportApi.buildTimeTicks(viewport, { minSpacingPx: 72 }).map((tick) => ({
-      date: new Date(tick.timeMs).toISOString().slice(0, 10),
-      label: formatMainTickLabel(tick.timeMs, tick.intervalMs, locale),
-      px: tick.px
-    }));
+    plan.locale = normalizeLocale(locale);
     const range = viewportApi.visibleRange(viewport);
     const weekendWashes = [];
     let cursor = startOfLocalDay(range.startMs) - DAY;
@@ -372,6 +337,9 @@
     let canonicalIndex = apis.eventIndex.createEventIndex(events);
     let taskMap = buildTaskMap(canonicalIndex);
     const previews = new Map();
+    const annotationPreviews = new Map();
+    let selectedAnnotationId = "";
+    let rangePreview = null;
     let mainViewport = null;
     let overviewViewport = null;
     let rendered = false;
@@ -412,8 +380,10 @@
     };
 
     const effectiveIndex = () => {
-      if (!previews.size) return canonicalIndex;
-      const next = canonicalIndex.events.map((event) => previews.get(text(event.taskKey || event.id)) || event);
+      if (!previews.size && !annotationPreviews.size) return canonicalIndex;
+      const next = canonicalIndex.events.map((event) => event.layer === "annotation"
+        ? annotationPreviews.get(event.id) || event : previews.get(text(event.taskKey || event.id)) || event);
+      annotationPreviews.forEach((event, id) => { if (!next.some(item => item.id === id)) next.push(event); });
       return apis.eventIndex.createEventIndex(next);
     };
 
@@ -453,8 +423,8 @@
       }
       initializeViewports(rect.width);
       const index = effectiveIndex();
-      const mainHeight = Math.max(1, rect.height * MAIN_HEIGHT_RATIO);
-      const overviewHeight = Math.max(1, rect.height - mainHeight);
+      const overviewHeight = Math.min(rect.height * 0.3, 56);
+      const mainHeight = Math.max(1, rect.height - overviewHeight);
       const mainPlan = decorateMainPlan(
         apis.layout.buildRenderPlan({
           eventIndex: index,
@@ -462,6 +432,7 @@
           viewport: mainViewport,
           widthPx: rect.width,
           heightPx: mainHeight,
+          selectedAnnotationId,
           measureText: context.measureText
         }),
         mainViewport,
@@ -469,6 +440,11 @@
         nowMs(context),
         locale
       );
+      if (rangePreview) {
+        const left = clamp(apis.viewport.dateMsToPx(mainViewport, rangePreview.startMs), 0, rect.width);
+        const right = clamp(apis.viewport.dateMsToPx(mainViewport, rangePreview.endMs), left, rect.width);
+        mainPlan.rangePreview = { ...rangePreview, bounds: { left, top: 0, width: right - left, height: mainHeight } };
+      }
       const overviewPlan = apis.overview.buildOverviewPlan({
         events: index.events,
         mainViewport,
@@ -478,7 +454,8 @@
         totalHeightPx: rect.height,
         now: new Date(nowMs(context)).toISOString(),
         locale,
-        todayLabel
+        todayLabel,
+        measureText: context.measureText
       });
       const model = {
         mainPlan,
@@ -569,9 +546,30 @@
         schedule(result === false ? "task-commit-failed" : "task-commit");
         return result;
       },
-      previewRange: context.previewRange,
-      cancelRangePreview: context.cancelRangePreview,
-      selectRange: context.selectRange
+      getAnnotation: id => effectiveIndex().events.find(event => event.layer === "annotation" && event.id === id),
+      openAnnotation: (id, event) => context.editAnnotation?.(interactionOptions.getAnnotation(id), event),
+      showHiddenAnnotations: event => context.showHiddenAnnotations?.(host.__noriaNativeTimelineState?.mainPlan?.hiddenAnnotations || [], event),
+      previewAnnotationRange: (intent, event) => context.previewAnnotationRange?.(intent, event),
+      cancelAnnotationRange: (intent, event) => context.previewAnnotationRange?.(intent, event),
+      previewRange: (intent, event) => {
+        const step = 5 * 60_000;
+        const startMs = Math.round(intent.startMs / step) * step;
+        rangePreview = { startMs, endMs: Math.max(startMs + step, Math.round(intent.endMs / step) * step) };
+        schedule("range-preview");
+        context.previewRange?.(rangePreview, event);
+      },
+      cancelRangePreview: (intent, event) => {
+        rangePreview = null;
+        interactionOptions.markMode = false;
+        host.removeAttribute?.("data-noria-mark-mode");
+        context.onMarkModeChange?.(false);
+        schedule("range-cancel");
+        context.cancelRangePreview?.(intent, event);
+      },
+      selectRange: (intent, event) => {
+        interactionOptions.previewRange(intent, event);
+        context.selectRange?.(rangePreview, event);
+      }
     };
     const detachInteractions = context.interactive === false
       ? () => {}
@@ -586,6 +584,24 @@
 
     const instance = {
       host,
+      selectAnnotation(id) { selectedAnnotationId = text(id); schedule("annotation-select"); },
+      previewAnnotation(event) {
+        if (!event?.id) return;
+        annotationPreviews.set(event.id, event);
+        selectedAnnotationId = event.id;
+        rangePreview = null;
+        schedule("annotation-preview");
+      },
+      clearAnnotationPreview() {
+        annotationPreviews.clear(); selectedAnnotationId = ""; rangePreview = null;
+        schedule("annotation-preview-clear");
+      },
+      setMarkMode(value) {
+        interactionOptions.markMode = value === true;
+        if (value) host.setAttribute?.("data-noria-mark-mode", "active");
+        else host.removeAttribute?.("data-noria-mark-mode");
+        context.onMarkModeChange?.(value === true);
+      },
       refresh(input) {
         if (input && typeof input === "object" && Array.isArray(input.events)) {
           events = input.events;
@@ -635,13 +651,15 @@
           manualScaleTimer = null;
         }
         previews.clear();
+        annotationPreviews.clear();
       }
     };
+    if (settings.markMode === true) host.setAttribute?.("data-noria-mark-mode", "active");
     return instance;
   }
 
   engine.registerTimelineBackend({ id: "native", mount: mountNativeBackend });
-  root.nativeBackend = { mountNativeBackend, formatMainTickLabel };
+  root.nativeBackend = { mountNativeBackend };
 
   if (globalThis.__NORIA_TASK_TIMELINE_TEST__) {
     globalThis.__noriaTaskTimelineNativeBackendTestHooks = root.nativeBackend;

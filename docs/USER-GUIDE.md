@@ -178,7 +178,9 @@ When a selected date has no matching note, Noria creates it from the active path
 
 Task Timeline is Noria's own time view for observing tasks across dates, time blocks, and stages. Tasks still come from source Markdown; the view provides organization, filtering, and interaction.
 
-![Task Timeline](assets/en/task-timeline.png)
+![Tasks and project phases across two weeks](assets/en/task-timeline-wide.png)
+
+*This section describes Timeline in Noria 0.4.6. Screenshots use example tasks.*
 
 ### 4.1 Main Area And Sidebar
 
@@ -193,19 +195,21 @@ Task Timeline should load after Obsidian restores the workspace and should not r
 - Use the wheel to pan horizontally through time.
 - Drag an empty part of the time band to pan.
 - Use `Ctrl/Cmd + wheel` to zoom.
-- Click or drag the overview band to navigate quickly.
+- Drag either the bottom date row or the minimap to pan. Focus this area and use the arrow keys to pan or `+` / `-` to zoom.
 
-Axis labels change between year, month, day, hour, and minute according to the range instead of repeating the same date.
+Dates and the minimap share one continuous bottom area. There is one date row; at an hourly scale, the date appears on the first tick and when the day changes. Brighter minimap segments indicate the visible range.
+
+![The same example tasks at an hourly scale](assets/en/task-timeline-hours.png)
 
 ### 4.3 Task Visuals And Write-Back
 
-A task title, position point, and interval bar form one visual unit:
+Task rows remain mixed across projects. The circle and short title identify the task; extra details appear during interaction:
 
-- a point task keeps one position point aligned with its title;
-- interval handles appear only while hovering or editing;
-- incomplete tasks use clearer weight, while completed tasks remain normal;
+- every task uses the same circle followed by its short title, positioned at its start time; tasks that started before the visible range stay at the left edge;
+- hover or focus reveals full times, the duration rail, and source details; interval handles appear only during interaction;
+- circle color expresses completion; completed titles keep the same color and weight as incomplete titles;
 - full titles are shown when space allows and truncated only when necessary;
-- clicking a title opens the Markdown source;
+- clicking a title or circle opens the task in its Markdown source;
 - dragging a task or interval boundary writes back to the source task line.
 
 Before writing, Noria checks the source fingerprint and rejects an overwrite when the source has changed.
@@ -219,8 +223,7 @@ Filters support:
 - showing or hiding completed tasks;
 - text queries;
 - including only specified tags;
-- excluding specified tags;
-- Mark mode.
+- excluding specified tags.
 
 Filters change only the view and do not modify tasks.
 
@@ -235,9 +238,17 @@ include tags, exclude tags, mark mode
 
 When the current state differs from a saved view, Noria marks it as modified. Only an explicit update overwrites the saved view.
 
+### 4.6 Time Annotations
+
+1. Click the toolbar button **Select a time range annotation**, then drag across an empty part of the main area to preview a range. You can also use `Shift + drag`.
+2. Enter a name, choose a project registered on Home or **Global period**, and adjust the times and color.
+3. Select **Save** to keep the annotation. **Cancel** or **Escape** discards the draft. Either action returns to normal panning.
+
+Annotations appear as compact phase bands above the mixed task rows. Project annotations show **Project · Phase**. Overlapping bands use up to two rows; open **More phases** to access additional annotations. Click a band name to edit or delete it. While editing, dragging an endpoint changes the draft; use **Save** to keep it or **Escape** to cancel. Annotations do not change task dates. They describe phases or periods; they are not tasks or measured work time.
+
 ## 5. Calendar
 
-Noria Calendar lives in the sidebar and opens or creates daily, weekly, monthly, quarterly, and yearly notes.
+Noria Calendar lives in the sidebar and opens or creates daily, weekly, monthly, quarterly, and yearly notes, giving period planning, daily records, and reviews a direct path into the matching Markdown file.
 
 ### 5.1 Main Actions
 
@@ -540,15 +551,21 @@ Completion is not a fourth status. Successful deletion, merging, moving, or arch
 
 ### 11.5 Use Task Timeline
 
-1. Use Today, wheel pan, background drag, or the overview band to locate the range.
+1. Use Today, wheel pan, background drag, or the bottom navigation to locate the range.
 2. Choose layers, completion state, and tag filters.
-3. Click a title to open its source; hover for details.
-4. Drag a task or interval boundary when time needs adjustment.
-5. Save a useful center, scale, layer set, and filters as a named view.
+3. Click a title or circle to open its source; hover or focus for details.
+4. Use a task's interaction handles when its schedule needs adjustment.
+5. Add a named project or global time annotation when you want to show a phase without changing task dates.
+6. Save a useful center, scale, layer set, and filters as a named view.
 
 ### 11.6 Advance Projects And Knowledge
 
-Open a project home note from the Home project card, maintain tasks and stage outputs inside the project, and connect reusable conclusions to the appropriate MOC.
+1. Find a project in Home's Projects area. With the starter workspace, you can use one of the example projects first.
+2. Enter a concrete next action in **Add next step**, then add it. Noria writes the task to that project's Markdown note.
+3. Click the task to open its source. With the cursor on that line, run **Noria: Edit or create task at cursor** to set its schedule or completion state.
+4. Open Task Board or Task Timeline to see the scheduled task, then complete it when the work is done. Changes remain in the original note and update the task views.
+
+Maintain stage outputs in the project note and connect reusable conclusions to the appropriate MOC.
 
 ### 11.7 Use Habits And Trends
 
@@ -779,7 +796,7 @@ Write-back must locate the source Markdown, verify the fingerprint, modify only 
   "exportKind": "noria.snapshot",
   "exportVersion": 1,
   "exportedAt": "",
-  "noriaVersion": "0.4.5",
+  "noriaVersion": "0.4.6",
   "payload": {}
 }
 ```

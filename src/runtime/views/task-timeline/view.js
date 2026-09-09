@@ -8,6 +8,7 @@ let {
   timelineSettings,
   onTimelineManualScaleState,
   onTimelineFocusTodayReady,
+  onTimelineMarkModeChange,
   isTimelineRuntimeCurrent
 } = (typeof input !== "undefined" && input) || {};
 
@@ -16,6 +17,7 @@ const TASK_TIMELINE_EVENT_MODEL_PATH = ".obsidian/plugins/noria/views/task-timel
 const TASK_TIMELINE_TASK_ADAPTER_PATH = ".obsidian/plugins/noria/views/task-timeline/task-adapter.js";
 const TASK_TIMELINE_TASK_EDIT_PATH = ".obsidian/plugins/noria/views/task-timeline/task-edit.js";
 const TASK_TIMELINE_ANNOTATION_PROVIDER_PATH = ".obsidian/plugins/noria/views/task-timeline/annotation-provider.js";
+const TASK_TIMELINE_ANNOTATION_EDITOR_PATH = ".obsidian/plugins/noria/views/task-timeline/annotation-editor.js";
 const TASK_TIMELINE_POMODORO_PROVIDER_PATH = ".obsidian/plugins/noria/views/task-timeline/pomodoro-provider.js";
 const TASK_TIMELINE_TRACE_PROVIDER_PATH = ".obsidian/plugins/noria/views/task-timeline/trace-provider.js";
 const TASK_TIMELINE_ENGINE_CONTRACT_PATH = ".obsidian/plugins/noria/views/task-timeline/engine-contract.js";
@@ -29,7 +31,6 @@ const TASK_TIMELINE_NATIVE_BACKEND_PATH = ".obsidian/plugins/noria/views/task-ti
 const TASK_TIMELINE_NATIVE_CSS_PATH = ".obsidian/plugins/noria/views/task-timeline/native.css";
 const TASK_TIMELINE_SHELL_STYLE_ID = "noria-task-timeline-shell-style";
 const TASK_TIMELINE_NATIVE_STYLE_ID = "noria-task-timeline-native-style";
-const TASK_TIMELINE_ANNOTATION_COLORS = ["#f6c77a", "#8ab4f8", "#86efac", "#c4b5fd", "#fb923c", "#94a3b8"];
 
 const taskTimelineBridge = noriaBridge && typeof noriaBridge === "object" ? noriaBridge : {};
 const taskTimelinePages = pages == null ? "" : String(pages);
@@ -171,6 +172,7 @@ async function taskTimelineEnsureRuntime(options = {}) {
     ["task-adapter", TASK_TIMELINE_TASK_ADAPTER_PATH],
     ["task-edit", TASK_TIMELINE_TASK_EDIT_PATH],
     ["annotation-provider", TASK_TIMELINE_ANNOTATION_PROVIDER_PATH],
+    ["annotation-editor", TASK_TIMELINE_ANNOTATION_EDITOR_PATH],
     options.pomodoroLayerActive ? ["pomodoro-provider", TASK_TIMELINE_POMODORO_PROVIDER_PATH] : null,
     ["trace-provider", TASK_TIMELINE_TRACE_PROVIDER_PATH]
   ].filter(Boolean);
@@ -204,6 +206,7 @@ async function taskTimelineEnsureRuntime(options = {}) {
     adapter: taskTimelineRequireModule("taskAdapter", "tasksToTimelineEvents"),
     taskEdit: taskTimelineRequireModule("taskEdit", "buildDraggedTaskLine"),
     annotationProvider: taskTimelineRequireModule("annotationProvider", "annotationsToTimelineEvents"),
+    annotationEditor: taskTimelineRequireModule("annotationEditor", "openEditor"),
     pomodoroProvider: options.pomodoroLayerActive
       ? taskTimelineRequireModule("pomodoroProvider", "pomodoroStateToTimelineEvents")
       : null,
@@ -534,60 +537,23 @@ function taskTimelineNormalizeRange(startValue, endValue) {
   return { start, end };
 }
 
-async function taskTimelineSaveRange(range, color) {
-  const api = typeof taskTimelineBridge.timeline?.saveAnnotation === "function"
-    ? taskTimelineBridge.timeline
-    : globalThis.__noriaRuntimeBridge?.timeline;
-  if (!api?.saveAnnotation) return false;
-  const result = await api.saveAnnotation({
-    type: "span",
-    title: "Annotation",
-    start: range.start.toISOString(),
-    end: range.end.toISOString(),
-    color
-  });
-  taskTimelineBridge.refresh?.requestRefresh?.("timeline", "task-timeline-annotation-range", { reloadViews: true });
-  return result?.ok !== false;
+async function taskTimelineAnnotationProjects() {
+  const snapshot = await taskTimelineBridge.data.getSnapshot({ preset: "home", include: ["projects"] }, { ctx });
+  return taskTimelineRows(snapshot?.domains?.projects?.items)
+    .filter(project => project.stage !== "hidden" && project.root)
+    .map(project => ({ path: String(project.targetPath || project.root), name: String(project.name || project.root) }));
 }
 
-function taskTimelineOpenRangeMenu(intent, pointerEvent, timelineEl) {
-  if (!document?.body) return;
-  const range = taskTimelineNormalizeRange(intent?.startMs, intent?.endMs);
-  const menu = taskTimelineCreate(document.body, "div", {
-    cls: "noria-task-timeline-context-menu noria-task-timeline-range-menu",
-    attr: { role: "menu", "data-noria-timeline-range-action": "create" }
-  });
-  menu.style.left = `${Math.max(4, Number(pointerEvent?.clientX || 0))}px`;
-  menu.style.top = `${Math.max(4, Number(pointerEvent?.clientY || 0))}px`;
-  menu.style.zIndex = "9999";
-  taskTimelineCreate(menu, "div", {
-    cls: "noria-task-timeline-context-label",
-    text: `${range.start.toLocaleString()} - ${range.end.toLocaleString()}`
-  });
-  const colors = taskTimelineCreate(menu, "div", { cls: "noria-task-timeline-context-colors" });
-  TASK_TIMELINE_ANNOTATION_COLORS.forEach((color) => {
-    const button = taskTimelineCreate(colors, "button", {
-      cls: "noria-task-timeline-color-swatch",
-      attr: { type: "button", "aria-label": `Create mark ${color}` }
-    });
-    button.style.backgroundColor = color;
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      menu.remove();
-      void taskTimelineSaveRange(range, color).then((ok) => {
-        timelineEl?.setAttribute?.("data-noria-last-range-action-state", ok ? "ok" : "failed");
-      });
-    });
-  });
-  const close = () => menu.remove();
-  window.setTimeout(() => {
-    document.addEventListener("pointerdown", close, { once: true, capture: true });
-    document.addEventListener("keydown", close, { once: true, capture: true });
-  }, 0);
+function taskTimelineEditorAnchor(event) {
+  const rect = event?.target?.getBoundingClientRect?.() || {};
+  return { x: Number(event?.clientX) || rect.left || 8, y: Number(event?.clientY) || rect.bottom || 8 };
 }
 
 function taskTimelineTextMeasurer(timelineEl) {
   let context = null;
+  const ownerWindow = timelineEl?.ownerDocument?.defaultView || window;
+  const computed = ownerWindow.getComputedStyle(timelineEl);
+  const interfaceFont = computed.getPropertyValue?.("--font-interface")?.trim() || computed.fontFamily;
   try {
     const canvas = document.createElement("canvas");
     context = canvas.getContext?.("2d");
@@ -596,7 +562,7 @@ function taskTimelineTextMeasurer(timelineEl) {
     const label = String(value || "");
     const fontSizePx = Math.max(1, Number(typography.fontSizePx) || 11);
     const fontWeight = Math.max(100, Number(typography.fontWeight) || 600);
-    const fontFamily = String(typography.fontFamily || "Arial, Helvetica, sans-serif");
+    const fontFamily = String(typography.fontFamily || interfaceFont || "Arial, Helvetica, sans-serif");
     if (!context?.measureText) return label.length * fontSizePx * 0.64;
     try {
       context.font = `${fontWeight} ${fontSizePx}px ${fontFamily}`;
@@ -716,6 +682,7 @@ async function taskTimelineRender() {
   taskTimelineSetLoadDiagnostics(timelineEl, "loading", timing);
   let disposeDensity = () => {};
   let backendInstance = null;
+  let annotationPopup = null;
 
   try {
     const filterState = taskTimelineNormalizeFilter(timelineFilter);
@@ -820,6 +787,46 @@ async function taskTimelineRender() {
       return;
     }
 
+    let currentAnnotations = annotations;
+    const applySavedAnnotations = (result) => {
+      if (result?.ok !== true) return result;
+      currentAnnotations = taskTimelineRows(result.annotations);
+      const next = [
+        ...providerResult.events.filter(event => event.layer !== "annotation"),
+        ...runtime.annotationProvider.annotationsToTimelineEvents(currentAnnotations).events
+      ];
+      backendInstance?.clearAnnotationPreview();
+      backendInstance?.refresh({ events: runtime.eventModel.filterTimelineEvents(next, taskTimelineFilterQuery(filterState)), reason: "annotations-saved" });
+      timelineEl.setAttribute("data-noria-last-range-action-state", "ok");
+      return result;
+    };
+    const openAnnotationEditor = (annotation, event, eventId) => {
+      annotationPopup?.close("replace");
+      const previewId = eventId || "noria-annotation-draft";
+      backendInstance?.selectAnnotation(eventId || "");
+      annotationPopup = runtime.annotationEditor.openEditor({
+        document: timelineEl.ownerDocument,
+        annotation,
+        locale: settings.locale,
+        anchor: taskTimelineEditorAnchor(event),
+        returnFocus: event?.target,
+        loadProjects: taskTimelineAnnotationProjects,
+        colorForProject: path => currentAnnotations.find(item => item.projectPath === path)?.color,
+        keepOpenFor: target => target?.closest?.("[data-noria-annotation-handle]")?.getAttribute("data-noria-annotation-id") === previewId,
+        onPreview: draft => {
+          const next = runtime.annotationProvider.normalizeAnnotation({ ...draft, id: previewId }, 0);
+          backendInstance?.previewAnnotation(next);
+        },
+        onSave: async draft => applySavedAnnotations(await taskTimelineBridge.timeline.saveAnnotation(draft)),
+        onDelete: async id => applySavedAnnotations(await taskTimelineBridge.timeline.deleteAnnotation(id)),
+        onClose: () => {
+          backendInstance?.clearAnnotationPreview();
+          backendInstance?.setMarkMode(false);
+          annotationPopup = null;
+        }
+      });
+    };
+
     phase = taskTimelinePerfNow();
     backendInstance = await runtime.engine.mountTimelineBackend("native", {
       timelineEl,
@@ -832,11 +839,30 @@ async function taskTimelineRender() {
       settings,
       onRender: () => taskTimelineSetState(root, stage, "ready", "", counts),
       onManualScaleState: typeof onTimelineManualScaleState === "function" ? onTimelineManualScaleState : null,
+      onMarkModeChange: typeof onTimelineMarkModeChange === "function" ? onTimelineMarkModeChange : null,
       services: {
         openSource: taskTimelineOpenSource,
         commitDrag: (payload) => taskTimelineCommitDrag(runtime.taskEdit, payload)
       },
-      selectRange: (intent, pointerEvent) => taskTimelineOpenRangeMenu(intent, pointerEvent, timelineEl)
+      selectRange: (intent, event) => {
+        const range = taskTimelineNormalizeRange(intent.startMs, intent.endMs);
+        openAnnotationEditor({ type: "span", title: "", start: range.start.toISOString(), end: range.end.toISOString(), tags: [...filterState.includeTags] }, event);
+      },
+      editAnnotation: (event, pointerEvent) => {
+        if (event) openAnnotationEditor(event.payload?.annotation || event, pointerEvent, event.id);
+      },
+      previewAnnotationRange: intent => annotationPopup?.updateRange?.(intent),
+      showHiddenAnnotations: (units, event) => {
+        annotationPopup?.close("replace");
+        annotationPopup = runtime.annotationEditor.openList({
+          document: timelineEl.ownerDocument, locale: settings.locale, anchor: taskTimelineEditorAnchor(event), annotations: units,
+          onClose: () => { annotationPopup = null; },
+          onSelect: (id, pointerEvent) => {
+            const unit = units.find(item => item.id === id);
+            if (unit) openAnnotationEditor(unit.annotation, pointerEvent, id);
+          }
+        });
+      }
     });
     if (!taskTimelineRunIsCurrent()) {
       try { backendInstance.dispose(); } catch (_) {}
@@ -854,6 +880,7 @@ async function taskTimelineRender() {
     const cleanup = () => {
       if (disposed) return;
       disposed = true;
+      annotationPopup?.close("dispose");
       try { backendInstance.dispose(); } catch (_) {}
       try { disposeDensity(); } catch (_) {}
       if (typeof onTimelineFocusTodayReady === "function") onTimelineFocusTodayReady(null);

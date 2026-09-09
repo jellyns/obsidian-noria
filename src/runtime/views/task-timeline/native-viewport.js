@@ -9,6 +9,7 @@
     15 * MINUTE,
     30 * MINUTE,
     HOUR,
+    2 * HOUR,
     3 * HOUR,
     6 * HOUR,
     12 * HOUR,
@@ -154,12 +155,34 @@
     if (!viewport || viewport.widthPx <= 0) return [];
     const intervalMs = chooseTickInterval(viewport, options.minSpacingPx);
     const range = visibleRange(viewport);
-    const firstMs = Math.floor(range.startMs / intervalMs) * intervalMs;
+    if (intervalMs >= 30 * DAY) {
+      const monthStep = intervalMs >= 365 * DAY ? 12 : Math.round(intervalMs / (30 * DAY));
+      const start = new Date(range.startMs);
+      const cursor = new Date(start.getFullYear(), Math.floor(start.getMonth() / monthStep) * monthStep, 1);
+      const calendarTicks = [];
+      for (let count = 0; cursor.getTime() <= range.endMs && count < 2_000; count += 1) {
+        const timeMs = cursor.getTime();
+        if (timeMs >= range.startMs) calendarTicks.push({ timeMs, intervalMs, px: dateMsToPx(viewport, timeMs) });
+        cursor.setMonth(cursor.getMonth() + monthStep);
+      }
+      return calendarTicks;
+    }
+    const cursor = new Date(range.startMs);
+    if (intervalMs >= DAY) {
+      cursor.setHours(0, 0, 0, 0);
+      const dayIndex = Math.floor(Date.UTC(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()) / DAY);
+      cursor.setDate(cursor.getDate() - ((dayIndex % (intervalMs / DAY)) + intervalMs / DAY) % (intervalMs / DAY));
+    } else {
+      const minutes = cursor.getHours() * 60 + cursor.getMinutes();
+      cursor.setHours(0, Math.floor(minutes / (intervalMs / MINUTE)) * (intervalMs / MINUTE), 0, 0);
+    }
     const ticks = [];
     const limit = 2_000;
-    for (let timeMs = firstMs, count = 0; timeMs <= range.endMs && count < limit; timeMs += intervalMs, count += 1) {
-      if (timeMs < range.startMs) continue;
-      ticks.push({ timeMs, intervalMs, px: dateMsToPx(viewport, timeMs) });
+    for (let count = 0; cursor.getTime() <= range.endMs && count < limit; count += 1) {
+      const timeMs = cursor.getTime();
+      if (timeMs >= range.startMs) ticks.push({ timeMs, intervalMs, px: dateMsToPx(viewport, timeMs) });
+      if (intervalMs >= DAY) cursor.setDate(cursor.getDate() + intervalMs / DAY);
+      else cursor.setMinutes(cursor.getMinutes() + intervalMs / MINUTE);
     }
     return ticks;
   }
@@ -171,6 +194,25 @@
     return { leftPx, rightPx, widthPx: Math.max(0, rightPx - leftPx), startMs: range.startMs, endMs: range.endMs };
   }
 
+  function placeTickLabels(ticks, widthPx, measureText) {
+    const inset = 8;
+    const available = Math.max(0, widthPx - 2 * inset);
+    if (!available) return [];
+    const candidates = ticks.map((tick) => {
+      let measured = 0;
+      try { measured = measureText?.(tick.label, "date-tick", { fontSizePx: 11, fontWeight: 500 }); } catch (_) {}
+      const labelWidthPx = Math.min(available, Math.ceil(finite(measured, 0) || tick.label.length * 7) + 2);
+      const labelLeftPx = clamp(tick.px - labelWidthPx / 2, inset, widthPx - inset - labelWidthPx);
+      return { ...tick, labelLeftPx, labelWidthPx };
+    }).sort((a, b) => finite(b.priority, 0) - finite(a.priority, 0) || a.px - b.px);
+    const placed = [];
+    candidates.forEach((tick) => {
+      if (placed.every((other) => tick.labelLeftPx >= other.labelLeftPx + other.labelWidthPx + 12 ||
+        tick.labelLeftPx + tick.labelWidthPx + 12 <= other.labelLeftPx)) placed.push(tick);
+    });
+    return placed.sort((a, b) => a.px - b.px);
+  }
+
   root.nativeViewport = {
     createViewport,
     dateMsToPx,
@@ -180,6 +222,7 @@
     zoomAtPx,
     resizeViewport,
     buildTimeTicks,
+    placeTickLabels,
     syncOverviewWindow,
     normalizeZones
   };

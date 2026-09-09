@@ -209,15 +209,18 @@ test("English and Chinese public docs keep equivalent demo images in separate lo
     "task-board-week.png",
     "task-board-day.png",
     "task-board-quadrant.png",
-    "task-timeline.png",
+    "task-timeline-wide.png",
     "review-center.png"
   ];
 
   for (const [englishFile, chineseFile] of pairs) {
     const englishTargets = localMarkdownImages(englishFile);
     const chineseTargets = localMarkdownImages(chineseFile);
-    assert.deepEqual(englishTargets.map((target) => path.basename(target)), expected);
-    assert.deepEqual(chineseTargets.map((target) => path.basename(target)), expected);
+    const expectedImages = path.basename(englishFile) === "USER-GUIDE.md"
+      ? [...expected.slice(0, 6), "task-timeline-hours.png", ...expected.slice(6)]
+      : expected;
+    assert.deepEqual(englishTargets.map((target) => path.basename(target)), expectedImages);
+    assert.deepEqual(chineseTargets.map((target) => path.basename(target)), expectedImages);
     assert.ok(englishTargets.every((target) => target.replace(/\\/g, "/").includes("assets/en/")));
     assert.ok(chineseTargets.every((target) => target.replace(/\\/g, "/").includes("assets/zh-CN/")));
   }
@@ -286,7 +289,6 @@ test("manifest package versions and Obsidian compatibility table stay aligned", 
   assert.equal(lock.version, pkg.version);
   assert.equal(lock.packages?.[""]?.name, pkg.name);
   assert.equal(lock.packages?.[""]?.version, pkg.version);
-  assert.equal(manifest.version, "0.4.5");
   assert.equal(versions[manifest.version], manifest.minAppVersion);
   assert.match(pkg.scripts.version, /version-bump\.mjs/);
 });

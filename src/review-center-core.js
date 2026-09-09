@@ -1,5 +1,7 @@
 "use strict";
 
+const { scanAtxHeadings } = require("./runtime/views/dashboard/core/utils/diary-day-blocks.js");
+
 const REVIEW_MODES = new Set(["daily", "weekly", "monthly", "yearly"]);
 
 function isDateId(value) {
@@ -111,27 +113,19 @@ function fingerprintReviewSection(value) {
   return `review-v1-${hash.toString(16).padStart(8, "0")}`;
 }
 
-function parseHeading(line) {
-  const match = /^##[ \t]+(.+?)[ \t]*$/.exec(String(line || ""));
-  return match ? match[1] : "";
-}
-
 function findSection(markdown, heading) {
   const normalizedMarkdown = String(markdown || "").replace(/\r\n?/g, "\n");
   const lines = normalizedMarkdown.split("\n");
   const requestedHeading = String(heading || "").trim();
-  const startLine = lines.findIndex((line) => parseHeading(line) === requestedHeading);
+  const headings = scanAtxHeadings(normalizedMarkdown);
+  const startIndex = headings.findIndex((entry) => entry.level === 2 && entry.title === requestedHeading);
+  const startLine = startIndex < 0 ? -1 : headings[startIndex].line;
   if (startLine < 0) {
     return { normalizedMarkdown, lines, startLine: -1, endLine: -1 };
   }
 
-  let endLine = lines.length;
-  for (let index = startLine + 1; index < lines.length; index += 1) {
-    if (parseHeading(lines[index])) {
-      endLine = index;
-      break;
-    }
-  }
+  const next = headings.slice(startIndex + 1).find((entry) => entry.level <= 2);
+  const endLine = next ? next.line : lines.length;
   return { normalizedMarkdown, lines, startLine, endLine };
 }
 
@@ -182,7 +176,7 @@ function upsertReviewSection(markdown, heading, body) {
   if (nextBody) replacement.push("", ...nextBody.split("\n"));
   if (after.length && after[0] !== "") replacement.push("");
   const nextLines = [...before, ...replacement, ...after];
-  const nextMarkdown = nextLines.join("\n").replace(/\n*$/g, "\n");
+  const nextMarkdown = nextLines.join("\n").replace(/\n*$/, "\n");
 
   return {
     markdown: nextMarkdown,

@@ -1997,6 +1997,60 @@ test("formal task timeline keeps distinct recovery boundaries without retired bo
   assert.match(layout, /scheduleTimelineRecoveryTick\(400\)[\s\S]*scheduleTimelineColdBootRefresh\(1100\)[\s\S]*scheduleTimelineRecoveryTick\(2400\)[\s\S]*scheduleTimelineColdBootRefresh\(2600\)/);
 });
 
+test("open native timeline refreshes changed tasks and releases its event subscription on close", async () => {
+  const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
+  const start = main.indexOf("class NoriaTaskTimelineView");
+  const end = main.indexOf("function noriaElementIsVisibleEnough", start);
+  const listeners = new Set();
+  const app = { workspace: {
+    on(name, callback) {
+      const ref = { name, callback };
+      listeners.add(ref);
+      return ref;
+    },
+    offref(ref) { listeners.delete(ref); }
+  } };
+  const host = () => ({ isConnected: true, setAttribute() {}, removeAttribute() {}, querySelectorAll: () => [] });
+  const View = vm.runInNewContext(`${main.slice(start, end)}; NoriaTaskTimelineView`, {
+    console, setTimeout, clearTimeout,
+    NoriaPaneView: class {
+      constructor(_leaf, plugin) {
+        this.app = app;
+        this.plugin = plugin;
+        this.containerEl = { empty() {}, createDiv: host };
+      }
+      cleanupNoriaTaskTimeline() {}
+    }
+  });
+  const view = new View({}, { isModuleEnabled: () => true });
+  let completed = false;
+  const rendered = [];
+  view.mountTimelineRuntime = async () => { view.bucketHostEl = host(); };
+  view.runTimelineRuntimeBucket = async () => { rendered.push(completed); };
+  view.renderTimelineAppChrome = () => {};
+  const filter = { query: "launch", manualCenter: "2026-09-09T05:30:00Z", manualZoomIndex: 5 };
+  view._timelineFilterState = filter;
+  const notify = async () => {
+    for (const ref of listeners) if (ref.name === "noria:tasks-invalidated") ref.callback();
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  await view.onOpen();
+  completed = true;
+  await notify();
+  assert.deepEqual(rendered, [true]);
+  assert.equal(view._timelineFilterState, filter, "source changes must keep the user's viewport and filters");
+  await view.onClose();
+  assert.equal(listeners.size, 0);
+  completed = false;
+  await notify();
+  assert.deepEqual(rendered, [true]);
+  await view.onOpen();
+  await notify();
+  assert.deepEqual(rendered, [true, false]);
+  await view.onClose();
+});
+
 test("formal task timeline mount state is observable to startup recovery", () => {
   const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
   const classStart = main.indexOf("class NoriaTaskTimelineView");
