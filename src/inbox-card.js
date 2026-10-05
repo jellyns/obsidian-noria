@@ -31,13 +31,27 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
   const actors = tools.createDiv({ cls: "noria-inbox-actors", attr: { role: "group", "aria-label": t("处理者", "Assigned to") } });
   for (const actor of ["", "我", "SI"]) {
     const control = button(actors, actor ? actorName(actor) : t("全部", "All"), "noria-inbox-filter", () => {
-      actorFilter = actor; limit = 10; renderList();
+      actorFilter = actor; limit = 10; renderList(true);
     });
     control.dataset.actorFilter = actor;
   }
   const actionSelect = tools.createEl("select", { cls: "noria-inbox-action-filter", attr: { "aria-label": t("动作筛选", "Filter actions") } });
-  on(actionSelect, "change", () => { actionFilter = actionSelect.value; limit = 10; renderList(); });
+  on(actionSelect, "change", () => { actionFilter = actionSelect.value; limit = 10; renderList(true); });
   const list = host.createDiv({ cls: "noria-inbox-list" });
+  let position = { top: 0, anchors: [] }, restorePending = false;
+  function rememberPosition() {
+    if (!list.clientHeight || restorePending) return;
+    const top = list.getBoundingClientRect().top;
+    position = { top: list.scrollTop, anchors: [...rows].map(([path, { row }]) => ({ path, offset: row.getBoundingClientRect().top - top, bottom: row.getBoundingClientRect().bottom - top })).filter(row => row.bottom > 0) };
+  }
+  function restorePosition() {
+    if (!list.clientHeight) { restorePending = true; return; }
+    list.scrollTop = position.top;
+    const anchor = position.anchors.find(row => rows.has(row.path));
+    if (anchor) list.scrollTop += rows.get(anchor.path).row.getBoundingClientRect().top - list.getBoundingClientRect().top - anchor.offset;
+    restorePending = false; rememberPosition();
+  }
+  on(list, "scroll", rememberPosition);
   const form = host.createDiv({ cls: "noria-inbox-form" }); form.hidden = true;
   const notice = host.createDiv({ cls: "noria-inbox-receipt", attr: { role: "status", "aria-live": "polite" } }); notice.hidden = true;
   const layer = card.createDiv({ cls: "noria-inbox-layer", attr: { role: "dialog", "aria-label": t("安排处理", "Assign work"), "aria-modal": "true" } }); layer.hidden = true;
@@ -84,7 +98,9 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
       }
     }));
   }
-  function renderList() {
+  function renderList(resetPosition = false) {
+    rememberPosition();
+    if (resetPosition) position = { top: 0, anchors: [] };
     const focusedPath = doc.activeElement?.closest("[data-inbox-path]")?.dataset.inboxPath;
     list.empty(); rows.clear(); syncFilters();
     const matches = selectItems(items, actorFilter, actionFilter), visible = matches.slice(0, limit);
@@ -111,10 +127,12 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     }
     if (matches.length > limit) button(list, t(`再显示 ${Math.min(20, matches.length - limit)} 项`, "Show more"), "noria-inbox-more", () => { limit += 20; renderList(); });
     void fillPreviews(visible);
+    restorePosition();
     if (focusedPath) rows.get(focusedPath)?.title.focus({ preventScroll: true });
   }
   async function openSource(item, event) {
     try {
+      rememberPosition();
       const result = await plugin.openHomeSource(item.path, { event });
       if (result?.ok === false) throw Error(t("笔记已移动或不存在。", "The note was moved or is missing."));
     } catch (error) { new Notice(error.message); }
@@ -304,7 +322,7 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
       collect(); renderList();
     })])
   ];
-  const resize = new win.ResizeObserver(() => { if (active) paintWheel(); }); resize.observe(card); if (viewport) resize.observe(viewport);
+  const resize = new win.ResizeObserver(() => { if (restorePending) restorePosition(); if (active) paintWheel(); }); resize.observe(card); if (viewport) resize.observe(viewport);
   const observer = new win.MutationObserver(() => { if (!host.isConnected) cleanup(); });
   observer.observe(doc.body, { childList: true, subtree: true });
   function cleanup() {

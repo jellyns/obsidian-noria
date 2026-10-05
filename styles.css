@@ -12286,6 +12286,7 @@ button.noria-settings-tab {
 .noria-periodic-line-label::before{content:"";width:14px;height:2px;background:var(--color-purple);}
 .noria-periodic-plot{border-radius:var(--radius-s);touch-action:pan-y;}
 .noria-periodic-plot:focus-visible{outline:2px solid var(--background-modifier-border-focus);outline-offset:2px;}
+.noria-periodic-plot[role="button"]{cursor:pointer;}
 .noria-periodic-readout{padding:8px 0 12px;font-size:var(--font-ui-small);font-variant-numeric:tabular-nums;border-bottom:1px solid var(--background-modifier-border);}
 .noria-periodic-selected-date{color:var(--text-muted);margin-bottom:4px;}
 .noria-periodic-values{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;}
@@ -12359,7 +12360,11 @@ button.noria-settings-tab {
 .noria-property-stat button.noria-stat-plot{display:block;position:relative;width:100%;height:170px;min-width:0;padding:0 0 0 42px;background:transparent;border:0;box-shadow:none;touch-action:pan-y;}
 .noria-stat-ruler{position:absolute;left:0;top:0;width:38px;height:100%;font-size:var(--font-ui-smaller);font-variant-numeric:tabular-nums;color:var(--text-muted);pointer-events:none;}
 .noria-stat-ruler>span{position:absolute;right:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;transform:translateY(-50%);}
-.noria-stat-numeric-axis{margin-left:42px;gap:6px;}
+.noria-stat-numeric-axis{position:relative;margin-left:42px;min-height:1.5em;container:noria-stat-axis / inline-size;}
+.noria-stat-numeric-axis>span{position:absolute;white-space:nowrap;transform:translateX(-50%);}
+.noria-stat-numeric-axis>span[data-edge="start"]{transform:none;}
+.noria-stat-numeric-axis>span[data-edge="end"]{transform:translateX(-100%);}
+@container noria-stat-axis (max-width:240px){.noria-stat-numeric-axis>span[data-middle="true"]{display:none;}}
 .noria-property-stat button.noria-stat-plot:focus-visible{outline:2px solid var(--background-modifier-border-focus);outline-offset:2px;}
 .noria-stat-plot svg{width:100%;height:100%;display:block;}
 .noria-property-stat[data-stat-colored="true"] button.noria-stat-result{color:var(--noria-record-color);}
@@ -13070,6 +13075,7 @@ button.noria-settings-tab {
 .noria-inbox-card button.noria-inbox-filter { height:26px; min-width:24px; padding:2px 5px; border:0; box-shadow:none; background:transparent; color:var(--text-muted); font-size:12px; border-radius:5px; }
 .noria-inbox-card button.noria-inbox-filter[aria-pressed=true] { background:var(--background-primary); color:var(--text-normal); }
 .noria-inbox-card select.noria-inbox-action-filter { height:28px; max-width:70px; min-width:36px; padding:2px 14px 2px 4px; border:0; box-shadow:none; background-color:transparent; color:var(--text-muted); font-size:12px; }
+.noria-inbox-list { flex:1 1 auto; min-height:0; overflow-y:auto; }
 .noria-inbox-item { display:flex; align-items:center; gap:10px; padding:12px 2px; border-bottom:1px solid var(--background-modifier-border); min-width:0; }
 .noria-inbox-item:last-child { border-bottom:0; }
 .noria-inbox-card button.noria-inbox-title { display:block; flex:1 1 auto; min-width:0; height:auto; padding:2px 0; border:0; border-radius:4px; background:transparent; box-shadow:none; text-align:left; color:var(--text-normal); cursor:grab; white-space:normal; touch-action:pan-y; user-select:none; }

@@ -127,13 +127,18 @@ function renderChart(host,result,config,{text,number,compactNumber=number,viewSt
    const point=points[selected],px=x(selected);cursor.setAttribute('x1',px);cursor.setAttribute('x2',px);
    const hasValue=typeof point.value==='number';activePoint.setAttribute('visibility',hasValue?'visible':'hidden');
    if(hasValue){activePoint.setAttribute('cx',px);activePoint.setAttribute('cy',y(point.value));}
-   plot.setAttribute('aria-label',`${label(point)} · ${text('左右键选择日期，回车编辑或查看来源','Arrow keys select dates; Enter edits or shows sources')}`);
+   plot.setAttribute('aria-label',`${label(point)} · ${readOnly?text('左右键选择日期，回车查看来源','Arrow keys select dates; Enter shows sources'):text('左右键选择日期，回车编辑或查看来源','Arrow keys select dates; Enter edits or shows sources')}`);
  };
  select(selected);
  plot.onpointermove=e=>{const r=svg.getBoundingClientRect();if(r.width>0)select(Math.floor(((e.clientX-r.left)/r.width*600-15)/570*points.length));};
  plot.onpointerdown=plot.onpointermove;plot.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();select(e.key==='Home'?0:e.key==='End'?points.length-1:selected+(e.key==='ArrowLeft'?-1:1));}};
  const axis=host.createDiv({cls:'noria-stat-axis noria-stat-numeric-axis'}),acrossYears=points[0].date.slice(0,4)!==points.at(-1).date.slice(0,4);
- for(const i of [...new Set([0,Math.floor((points.length-1)/2),points.length-1])])axis.createSpan({text:acrossYears?points[i].date.slice(2):points[i].date.slice(5),attr:{title:points[i].date}});
+ for(const i of [...new Set([0,Math.floor((points.length-1)/2),points.length-1])]){
+   const tick=axis.createSpan({text:acrossYears?points[i].date.slice(2):points[i].date.slice(5),attr:{title:points[i].date}});tick.style.left=`${x(i)/600*100}%`;
+   if(i>0&&i<points.length-1)tick.dataset.middle='true';
+   // Keep dense endpoint labels inside the chart, anchored to the same date positions.
+   if(points.length>3&&(i===0||i===points.length-1))tick.dataset.edge=i===0?'start':'end';
+ }
  if(Number.isFinite(config.referenceValue))host.createSpan({cls:'noria-card-secondary noria-stat-reference-caption',text:text('参考值：','Reference: ')+numeric(config.referenceValue)});
  if(domain.expanded)host.createDiv({cls:'noria-card-secondary noria-stat-scale-notice',text:text('已扩展刻度以完整显示数据与参考值。','Scale expanded to include all data and the reference value.')});
 }

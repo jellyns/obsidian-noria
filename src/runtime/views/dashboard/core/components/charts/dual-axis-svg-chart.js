@@ -47,7 +47,7 @@
       barName = "Bar",
       lineName = "Line",
       statOptions = {}, bare = false, lineMax, lineUnit = "",
-      tickLabels = labels, formatValue = String, onInspect, selectedIndex = 0, keyboardLabel = title
+      tickLabels = labels, formatValue = String, onInspect, onActivate, selectedIndex = 0, keyboardLabel = title
     } = config || {};
 
     const pal = root.components?.charts?.chartPalette;
@@ -224,7 +224,7 @@
       const marker=document.createElementNS(svg.namespaceURI,'circle');
       for(const [key,value] of Object.entries({r:4,fill:chartColor('lineStroke'),stroke:'var(--background-primary)','stroke-width':1.5,'pointer-events':'none'}))marker.setAttribute(key,String(value));
       svg.appendChild(marker);
-      const plot=card.createDiv({cls:'noria-periodic-plot',attr:{tabindex:'0',role:'group','aria-label':keyboardLabel}});
+      const plot=card.createDiv({cls:'noria-periodic-plot',attr:{tabindex:'0',role:typeof onActivate==='function'?'button':'group','aria-label':keyboardLabel}});
       let active=-1;
       const select=index=>{
         const next=Math.max(0,Math.min(n-1,index));if(next===active)return;active=next;
@@ -235,7 +235,8 @@
       plot.appendChild(svg);
       plot.onpointermove=event=>{const rect=svg.getBoundingClientRect();if(rect.width)select(Math.floor(((event.clientX-rect.left)*chartW/rect.width-padL)/plotW*n));};
       plot.onpointerdown=plot.onpointermove;
-      plot.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();select(event.key==='Home'?0:event.key==='End'?n-1:active+(event.key==='ArrowLeft'?-1:1));};
+      if(typeof onActivate==='function')plot.onclick=event=>{if(event.detail>0)plot.onpointermove(event);onActivate(active);};
+      plot.onkeydown=event=>{if(typeof onActivate==='function'&&['Enter',' '].includes(event.key)){event.preventDefault();onActivate(active);return;}if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();select(event.key==='Home'?0:event.key==='End'?n-1:active+(event.key==='ArrowLeft'?-1:1));};
       select(selectedIndex);
     }else card.appendChild(svg);
     return card;

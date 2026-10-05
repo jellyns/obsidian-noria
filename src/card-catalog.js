@@ -150,7 +150,7 @@ class CardCatalog extends Modal {
       await this.plugin.runNoriaView(".obsidian/plugins/noria/views/dashboard/home",{workbench:true,noriaBridge:bridge,previewWidget:{...draft,props:{...draft.props,lazy:false}}},mount);
       if(serial!==this.generation)cleanup();
     }
-    status.setText(draft.source==='noria:statistics'?this.text('只读预览 · 尚未应用','Read-only preview · Not yet applied'):this.text('预览 · 尚未应用','Preview · Not yet applied'));
+    status.setText(['noria:statistics','noria:periodic-statistics'].includes(draft.source)?this.text('只读预览 · 尚未应用','Read-only preview · Not yet applied'):this.text('预览 · 尚未应用','Preview · Not yet applied'));
     }catch(error){
       if(serial!==this.generation)return;
       this.previewBlocked=true;body.empty();status.setText(this.text('无法预览','Preview unavailable'));

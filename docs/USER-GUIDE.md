@@ -646,7 +646,7 @@ Tasks with `#tl/` tags and time fields can enter Task Timeline. Event templates 
 - `#habit` tasks are excluded from ordinary task lists by default.
 - `Projects.md` uses groups and wikilinks for project entrances.
 - `Countdowns.md` stores important dates in a Markdown table.
-- `Inbox workflow.md` is a generated reference snapshot; `Inbox queue.base` provides editable queue views. The card uses the current workflow configuration in settings.
+- `Inbox workflow.md` explains the workflow; `Inbox queue.base` provides an editable file and property view. Both the card and Base use the note’s `inbox-work` assignment.
 - Unmodified default queue and guide files update automatically. Custom or untracked content stays intact, and deleted files are not recreated. To adopt a new version or restore the previous one, open Companion files in the advanced Inbox workflow settings. Restoring keeps your choice instead of automatically replacing it again. If the file was edited after updating, it stays intact and backup details remain available.
 
 ### 10.5 Diary And Review
@@ -702,19 +702,14 @@ Noria does not require every module to be used every day.
 
 ### 11.3 Process Inbox
 
-The default workflow uses three configurable stages:
+Capture first, then read and organize when useful. No processing stage is required. Select a title to open its source note; an existing tab is reused. Returning to Inbox keeps the filters and reading position. Long lists scroll inside the card without increasing its height.
 
-- **Triage** (`triage`): decide what the item should become or whether it should stay.
-- **Processing** (`processing`): refine, split, or merge it.
-- **Ready** (`ready`): the destination and next action are clear.
+- Hold an item to reveal the side actions, then drag and release to assign it. You can also select its existing marker or right-click. Your shortcuts are Read, Organize and Distill; SI offers Organize and Distill. Both support custom actions.
+- Filter by Me / SI and action in the header. The optional text property `inbox-work` stores the current assignment and is shared with `Inbox queue.base`. Editing it in the Base updates the card automatically.
+- Put detailed requests in the source note and keep results in the actual materials. Assigning SI records the work; it does not start an external assistant.
+- Once the destination is clear, use Move out of Inbox to choose an existing folder. Moving preserves the body and clears temporary `inbox-*` properties. The action receipt provides Undo.
 
-Home shows Triage, Processing, and Ready by default. Review due and Needs evidence are optional groups, not stages. Use this handling order:
-
-```text
-delete -> merge -> split/refine -> file/archive -> defer
-```
-
-Completion is not a fourth status. Successful deletion, merging, moving, or archiving removes the item from Inbox. `defer` keeps the item in Triage; it does not create a separate default stage. Add `inbox-review` only when a real review date exists. Remove temporary `inbox-*` fields when content leaves Inbox.
+Consolidated handoff entries after moving and automatic triggers are not connected yet. Retain links and requirements for unfinished work; moving a source does not mean you have read it or accepted its conclusions.
 
 ### 11.4 Use Task Board
 

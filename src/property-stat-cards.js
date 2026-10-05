@@ -185,7 +185,7 @@ class PropertyStatCards{
     }else opened=await this.plugin.openHomeSource(row.path);
     if(!opened?.ok)throw Error(this.text('无法打开来源，请检查笔记后重试。','Could not open the source. Check the note and try again.'));
   }
-  openTrendSources(kind,point){
+  openTrendSources(kind,point,{preview=false,title=point?.key}={}){
     if(!point?.sources)return;
     const s=point.sources;
     const groups=kind==='tasks'?[
@@ -196,7 +196,7 @@ class PropertyStatCards{
       {label:this.text(`日记字符 ${point.words}`,`Diary characters ${point.words}`),rows:s.diary.map(row=>({...row,fieldName:this.text(`${row.value} 字符`,`${row.value} characters`)}))}
     ];
     const rows=groups.flatMap(group=>group.rows);
-    this.openRows(rows,{recorded:rows.length,sourceGroups:groups,summary:kind==='tasks'?this.text(`活动总量 ${point.planned}`,`Total activity ${point.planned}`):this.text('按创建日期统计笔记，按日记日期统计字符。','Notes use their creation date; characters use the diary date.')},point.key);
+    this.openRows(rows,{recorded:rows.length,sourceGroups:groups,summary:kind==='tasks'?this.text(`活动总量 ${point.planned}`,`Total activity ${point.planned}`):this.text('按创建日期统计笔记，按日记日期统计字符。','Notes use their creation date; characters use the diary date.')},title,false,{preview});
   }
   openRows(rows,result,title="",excluded=false,{preview=false}={}){
     const modal=new Modal(this.app),label=title||this.text("参与统计的记录","Source records");const untrack=this.plugin.cards.trackModal(modal);modal.setTitle(label);

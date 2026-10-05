@@ -11,6 +11,6 @@ function series(snapshot,metric){
  return rows.map(row=>({key:row.key,start:row.start||row.key,
    bar:metric==='notes'?Number(row.words||0):Number(row.planned||0),
    line:metric==='notes'?Number(row.notes||0):row.planned>0?Number(row.done||0)/row.planned*100:null,
-   done:Number(row.done||0)}));
+   done:Number(row.done||0),source:row}));
 }
 module.exports={granularity,series};

@@ -27,5 +27,9 @@ test('shared data service aggregates cross-month task counts before computing co
  assert.equal(daily[0].line,100);assert.equal(daily[1].line,0);assert.equal(daily[2].line,null);
  assert.equal(weekly[0].bar,11);assert.ok(Math.abs(weekly[0].line-200/11)<1e-9);assert.equal(weekly[1].line,null);
  assert.equal(monthly[0].bar,10);assert.equal(monthly[0].line,10);assert.equal(monthly[1].line,100);
+ assert.equal(weekly[0].source.sources.done.length,2);assert.equal(weekly[0].source.sources.open.length,9);
+ assert.deepEqual(Array.from(monthly[0].source.sources.done,row=>row.date),['2026-09-28']);
+ assert.deepEqual(Array.from(monthly[1].source.sources.done,row=>row.date),['2026-10-01']);
+ assert.equal(weekly[1].source.sources.done.length+weekly[1].source.sources.open.length,0);
  assert.equal(weekly.reduce((sum,r)=>sum+r.bar,0),daily.reduce((sum,r)=>sum+r.bar,0));
 });
