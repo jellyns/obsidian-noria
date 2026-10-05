@@ -27,29 +27,15 @@
   }
 
   function seriesStats(arr) {
-    const nums = (arr || []).map((x) => Number(x || 0));
+    const nums = (arr || []).filter(x => x != null && Number.isFinite(Number(x))).map(Number);
     const total = nums.reduce((a, b) => a + b, 0);
     const peak = Math.max(0, ...nums);
     const avg = nums.length ? (total / nums.length) : 0;
     return { total, peak, avg };
   }
 
-  function smoothPath(points) {
-    if (!points.length) return "";
-    if (points.length < 3) return points.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
-    let d = `M ${points[0][0]} ${points[0][1]}`;
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i - 1] || points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[i + 2] || p2;
-      const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
-      const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
-      const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
-      const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
-      d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`;
-    }
-    return d;
+  function countLinePath(points) {
+    let previous=false;return points.map(p=>{if(!p){previous=false;return "";}const command=previous?"L":"M";previous=true;return `${command} ${p[0]} ${p[1]}`;}).join(" ");
   }
 
   function renderDualAxisSvg(parent, config) {
@@ -60,19 +46,20 @@
       labels = [],
       barName = "Bar",
       lineName = "Line",
-      statOptions = {}
+      statOptions = {}, bare = false, lineMax, lineUnit = "",
+      tickLabels = labels, formatValue = String, onInspect, selectedIndex = 0, keyboardLabel = title
     } = config || {};
 
     const pal = root.components?.charts?.chartPalette;
     const chartColor = (k) =>
-      typeof pal?.chartColor === "function"
+      bare ? ({lineStroke:"var(--color-purple)",lineMarkerFill:"var(--color-purple)",lineMarkerStroke:"var(--background-primary)",barFill:"var(--color-blue)",barStroke:"var(--color-blue)",tickLeft:"var(--text-muted)",tickRight:"var(--text-muted)",gridStroke:"var(--background-modifier-border)",gridOpacity:".5",axisLeft:"var(--background-modifier-border)",axisRight:"var(--background-modifier-border)"}[k] || "var(--text-muted)") : typeof pal?.chartColor === "function"
         ? pal.chartColor(k)
-        : pal?.FALLBACK?.[k] ?? "";
+        : pal?.FALLBACK?.[k] ?? ({lineStroke:"var(--color-purple)",lineMarkerFill:"var(--color-purple)",lineMarkerStroke:"var(--background-primary)",barFill:"var(--color-blue)",barStroke:"var(--color-blue)",gridLine:"var(--background-modifier-border)"}[k] || "var(--text-muted)");
 
     const chipsRenderer = root.components?.cards?.metricChips?.renderMetricChips;
-    const card = makeCard(parent, title);
-    const head = card.createDiv();
-    head.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;";
+    const card = bare ? parent : makeCard(parent, title);
+    const head = bare ? null : card.createDiv();
+    if(head)head.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;";
 
     const barStats = seriesStats(barSeries);
     const lineStats = seriesStats(lineSeries);
@@ -86,28 +73,34 @@
       { text: chipText(barName, barStats, !!statOptions.barHideTotal), tone: "cyan" },
       { text: chipText(lineName, lineStats, !!statOptions.lineHideTotal), tone: "purple" }
     ];
-    if (typeof chipsRenderer === "function") chipsRenderer(head, chips);
+    if (!bare && typeof chipsRenderer === "function") chipsRenderer(head, chips);
 
-    const n = Math.max(1, barSeries.length);
-    const chartW = 900;
-    const chartH = 280;
-    const padL = 58;
-    const padR = 56;
+    const n = Math.max(1, barSeries.length, lineSeries.length);
+    const chartW = bare ? Math.max(240,parent.clientWidth || 600) : 900;
+    const chartH = bare ? (chartW < 420 ? 210 : 240) : 280;
+    const padL = bare ? 44 : 58;
+    const padR = bare ? 44 : 56;
     const padT = 16;
     const padB = 36;
     const plotW = chartW - padL - padR;
     const plotH = chartH - padT - padB;
-    const xAt = (i) => n <= 1 ? (padL + plotW / 2) : padL + (i / (n - 1)) * plotW;
-    const maxLine = Math.max(1, ...lineSeries.map((x) => Number(x || 0)));
-    const maxBar = Math.max(1, ...barSeries.map((x) => Number(x || 0)));
+    const xAt = (i) => bare ? padL + (i + .5) / n * plotW : n <= 1 ? (padL + plotW / 2) : padL + (i / (n - 1)) * plotW;
+    const scaleMax = value => {
+      if(!bare)return value;
+      const power=10**Math.floor(Math.log10(value)),fraction=value/power;
+      return (fraction<=1?1:fraction<=2?2:fraction<=4?4:fraction<=6?6:10)*power;
+    };
+    const maxLine = scaleMax(Math.max(1, Number(lineMax) || 0, ...lineSeries.map((x) => Number(x || 0))));
+    const maxBar = scaleMax(Math.max(1, ...barSeries.map((x) => Number(x || 0))));
     const yLeft = (v) => padT + plotH - (Number(v || 0) / maxLine) * plotH;
     const yRight = (v) => padT + plotH - (Number(v || 0) / maxBar) * plotH;
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", `0 0 ${chartW} ${chartH}`);
     svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "280");
-    svg.style.cssText = "display:block;width:100%;height:280px;background:transparent;border-radius:0;border:none;";
+    svg.setAttribute("role","img");svg.setAttribute("aria-label",`${title}: ${barName} / ${lineName}`);
+    svg.setAttribute("height", String(chartH));
+    svg.style.cssText = `display:block;width:100%;height:${chartH}px;background:transparent;border-radius:0;border:none;`;
 
     [0, 0.25, 0.5, 0.75, 1].forEach((r) => {
       const y = padT + plotH - r * plotH;
@@ -118,7 +111,7 @@
       g.setAttribute("y2", y);
       g.setAttribute("stroke", chartColor("gridStroke"));
       g.setAttribute("stroke-opacity", chartColor("gridOpacity"));
-      g.setAttribute("stroke-dasharray", "4 6");
+      if(!bare)g.setAttribute("stroke-dasharray", "4 6");
       svg.appendChild(g);
     });
 
@@ -138,7 +131,7 @@
     rightAxis.setAttribute("stroke", chartColor("axisRight"));
     svg.appendChild(rightAxis);
 
-    [0, Math.ceil(maxLine / 2), maxLine].forEach((val) => {
+    [...new Set([0, Math.ceil(maxLine / 2), maxLine])].forEach((val) => {
       const y = yLeft(val);
       const tx = document.createElementNS("http://www.w3.org/2000/svg", "text");
       tx.setAttribute("x", padL - 8);
@@ -146,10 +139,10 @@
       tx.setAttribute("text-anchor", "end");
       tx.setAttribute("fill", chartColor("tickLeft"));
       tx.setAttribute("font-size", "11");
-      tx.textContent = String(val);
+      tx.textContent = formatValue(val) + lineUnit;
       svg.appendChild(tx);
     });
-    [0, Math.ceil(maxBar / 2), maxBar].forEach((val) => {
+    [...new Set([0, Math.ceil(maxBar / 2), maxBar])].forEach((val) => {
       const y = yRight(val);
       const tx = document.createElementNS("http://www.w3.org/2000/svg", "text");
       tx.setAttribute("x", padL + plotW + 8);
@@ -157,7 +150,7 @@
       tx.setAttribute("text-anchor", "start");
       tx.setAttribute("fill", chartColor("tickRight"));
       tx.setAttribute("font-size", "11");
-      tx.textContent = String(val);
+      tx.textContent = formatValue(val);
       svg.appendChild(tx);
     });
 
@@ -169,7 +162,7 @@
     defs.appendChild(glow);
     svg.appendChild(defs);
 
-    const barW = Math.max(4, Math.floor((plotW / n) * 0.58));
+    const barW = Math.min(28, Math.max(.5,(plotW / n) * .58));
     barSeries.forEach((v, i) => {
       const x = xAt(i) - barW / 2;
       const y = yRight(v);
@@ -177,27 +170,29 @@
       bar.setAttribute("x", x);
       bar.setAttribute("y", y);
       bar.setAttribute("width", barW);
-      bar.setAttribute("height", Math.max(1, padT + plotH - y));
+      bar.setAttribute("height", Math.max(0, padT + plotH - y));
       bar.setAttribute("rx", "4");
       bar.setAttribute("fill", chartColor("barFill"));
       bar.setAttribute("stroke", chartColor("barStroke"));
       bar.setAttribute("stroke-width", ".5");
-      bar.setAttribute("title", `${labels[i] || i + 1} ${barName} ${v || 0}`);
+      const tip = document.createElementNS(svg.namespaceURI,"title");tip.textContent=`${labels[i] || i + 1} ${barName} ${formatValue(v || 0)}`;bar.appendChild(tip);
       svg.appendChild(bar);
     });
 
-    const points = lineSeries.map((v, i) => [xAt(i), yLeft(v)]);
+    const points = lineSeries.map((v, i) => v == null ? null : [xAt(i), yLeft(v)]);
     const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    line.setAttribute("d", smoothPath(points));
+    line.setAttribute("d", countLinePath(points));
     line.setAttribute("fill", "none");
     line.setAttribute("stroke", chartColor("lineStroke"));
     line.setAttribute("stroke-width", "2.8");
     line.setAttribute("stroke-linecap", "round");
     line.setAttribute("stroke-linejoin", "round");
-    line.setAttribute("filter", `url(#${glowId})`);
+    if(!bare)line.setAttribute("filter", `url(#${glowId})`);
     svg.appendChild(line);
 
     lineSeries.forEach((v, i) => {
+      if(v == null)return;
+      if(bare&&n>14&&i>0&&i<n-1&&lineSeries[i-1]!=null&&lineSeries[i+1]!=null)return;
       const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       c.setAttribute("cx", xAt(i));
       c.setAttribute("cy", yLeft(v));
@@ -205,11 +200,12 @@
       c.setAttribute("fill", chartColor("lineMarkerFill"));
       c.setAttribute("stroke", chartColor("lineMarkerStroke"));
       c.setAttribute("stroke-width", "1.2");
-      c.setAttribute("title", `${labels[i] || i + 1} ${lineName} ${v || 0}`);
+      const tip = document.createElementNS(svg.namespaceURI,"title");tip.textContent=`${labels[i] || i + 1} ${lineName} ${formatValue(v)}${lineUnit}`;c.appendChild(tip);
       svg.appendChild(c);
     });
 
-    const tickIdx = Array.from(new Set([0, Math.floor((n - 1) / 3), Math.floor(((n - 1) * 2) / 3), n - 1])).filter((i) => i >= 0 && i < n);
+    const tickCount=bare?Math.max(2,Math.min(6,Math.floor(plotW/70))):4;
+    const tickIdx = Array.from(new Set(Array.from({length:tickCount},(_,i)=>Math.round((n-1)*i/(tickCount-1)))));
     tickIdx.forEach((i) => {
       const tx = document.createElementNS("http://www.w3.org/2000/svg", "text");
       tx.setAttribute("x", xAt(i));
@@ -217,14 +213,35 @@
       tx.setAttribute("text-anchor", "middle");
       tx.setAttribute("fill", chartColor("tickX"));
       tx.setAttribute("font-size", "10.5");
-      tx.textContent = labels[i] || String(i + 1);
+      tx.textContent = tickLabels[i] || String(i + 1);
       svg.appendChild(tx);
     });
 
-    card.appendChild(svg);
+    if(bare&&typeof onInspect==='function'){
+      const cursor=document.createElementNS(svg.namespaceURI,'line');
+      for(const [key,value] of Object.entries({y1:padT,y2:padT+plotH,stroke:'var(--text-faint)','stroke-width':1,'pointer-events':'none'}))cursor.setAttribute(key,String(value));
+      svg.appendChild(cursor);
+      const marker=document.createElementNS(svg.namespaceURI,'circle');
+      for(const [key,value] of Object.entries({r:4,fill:chartColor('lineStroke'),stroke:'var(--background-primary)','stroke-width':1.5,'pointer-events':'none'}))marker.setAttribute(key,String(value));
+      svg.appendChild(marker);
+      const plot=card.createDiv({cls:'noria-periodic-plot',attr:{tabindex:'0',role:'group','aria-label':keyboardLabel}});
+      let active=-1;
+      const select=index=>{
+        const next=Math.max(0,Math.min(n-1,index));if(next===active)return;active=next;
+        cursor.setAttribute('x1',xAt(active));cursor.setAttribute('x2',xAt(active));
+        marker.setAttribute('visibility',lineSeries[active]==null?'hidden':'visible');marker.setAttribute('cx',xAt(active));marker.setAttribute('cy',yLeft(lineSeries[active]));
+        plot.setAttribute('data-index',String(active));onInspect(active);
+      };
+      plot.appendChild(svg);
+      plot.onpointermove=event=>{const rect=svg.getBoundingClientRect();if(rect.width)select(Math.floor(((event.clientX-rect.left)*chartW/rect.width-padL)/plotW*n));};
+      plot.onpointerdown=plot.onpointermove;
+      plot.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();select(event.key==='Home'?0:event.key==='End'?n-1:active+(event.key==='ArrowLeft'?-1:1));};
+      select(selectedIndex);
+    }else card.appendChild(svg);
     return card;
   }
 
+  if(typeof module !== "undefined" && module.exports)module.exports={renderDualAxisSvg};
   root.components.charts.dualAxisSvgChart = {
     renderDualAxisSvg
   };

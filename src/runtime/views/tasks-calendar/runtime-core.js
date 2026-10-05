@@ -533,7 +533,11 @@ function clearFreshTaskInvalidationEvent() {
 	} catch (_) {}
 }
 
+var tcTaskSourceRevision = 0;
+var tcTaskSourceRequest = 0;
 async function refreshTasksFromFreshSource(reason) {
+	var revision = tcTaskSourceRevision;
+	var request = ++tcTaskSourceRequest;
 	var raw = [];
 	try {
 		raw = await collectFreshTasksForCalendar(pages);
@@ -548,6 +552,11 @@ async function refreshTasksFromFreshSource(reason) {
 	} catch (e1) {
 		try { console.warn("[noria tasksCalendar] refresh getMeta failed:", reason || "", e1); } catch (_) {}
 		next = [];
+	}
+	// A read started before a local write must not replace its committed preview.
+	if (request !== tcTaskSourceRequest || revision !== tcTaskSourceRevision || plannerChromeInteractionActive || editModeActive) {
+		tcRefreshDeferredByInteraction = true;
+		return -1;
 	}
 	tasks = next;
 	return next.length;
@@ -594,11 +603,12 @@ function bindFreshTaskInvalidationEvent() {
 			try { app.workspace.offref(globalThis[key]); } catch (_) {}
 		}
 		tcFreshTaskInvalidationRef = app.workspace.on("noria:tasks-invalidated", function (payload) {
-			Promise.resolve(refreshTasksFromFreshSource("vault-event:" + String((payload && payload.reason) || "change"))).then(function (n) {
-				if (tcRuntimeDisposed) return;
-				if (n <= 0) return;
-				try { rerenderCalendarViewNow(); } catch (_) {}
-			}).catch(function () {});
+			if (tcRuntimeDisposed) return;
+			if (plannerChromeInteractionActive || editModeActive) {
+				tcRefreshDeferredByInteraction = true;
+				return;
+			}
+			scheduleTasksCalendarSoftRefresh(180);
 		});
 		globalThis[key] = tcFreshTaskInvalidationRef;
 	} catch (_) {}
@@ -656,6 +666,8 @@ function setTaskStoreView(mode, anchorDate) {
 		if (rootNode && rootNode.setAttribute) {
 			rootNode.setAttribute("data-noria-current-view", taskStore.view.mode);
 			rootNode.setAttribute("data-noria-current-anchor", taskStore.view.anchorDate);
+			var itemHost = rootNode.closest(".noria-tasks-host");
+			if (itemHost) { itemHost.setAttribute("data-noria-calendar-view", taskStore.view.mode); }
 		}
 	} catch (_) {}
 }
@@ -2207,6 +2219,8 @@ function getTaskTimeSlot(obj, cls, currentDate) {
 	var endMin = "";
 	var slotType = "none";
 	var defaultDuration = 45;
+	// A reminder carries its original dates; it is not a new booking today.
+	if (cls === "overdue") { return {slotType, startMin, endMin}; }
 	if (!currentDate) { return {slotType, startMin, endMin}; };
 	var day = moment(currentDate, "YYYY-MM-DD", true);
 	if (!day.isValid()) { return {slotType, startMin, endMin}; };
@@ -2862,12 +2876,14 @@ function showBriefNotice(message, ms) {
 	showDebugNotice(message);
 };
 
-function triggerTaskFreshRefresh() {
+async function triggerTaskFreshRefresh() {
 	if (plannerChromeInteractionActive || editModeActive) {
 		tcRefreshDeferredByInteraction = true;
 		return;
 	}
-	try { Promise.resolve(refreshTasksFromFreshSource("tasks-calendar-write")).catch(function () {}); } catch (_) {}
+	try {
+		if (await refreshTasksFromFreshSource("tasks-calendar-write") < 0 || tcRuntimeDisposed) return;
+	} catch (_) { return; }
 	try {
 		var g = rootNode && rootNode.querySelector ? (rootNode.querySelector(":scope > .grid") || rootNode.querySelector(".grid")) : null;
 		if (g) { hydrateGridTaskCells(g); }
@@ -3043,30 +3059,20 @@ function findTaskRowForSaveMeta(meta) {
 	}
 	return null;
 }
-function patchGlobalTasksTemporalFromSave(meta, newStartMoment, newEndMoment, savedLine) {
+function patchGlobalTasksFromSavedLine(meta, savedLine) {
+	tcTaskSourceRevision++;
 	var row = findTaskRowForSaveMeta(meta);
 	if (!row) { return; }
-	var mS = moment(newStartMoment);
-	var mE = moment(newEndMoment);
-	if (!mS.isValid() || !mE.isValid()) { return; }
-	row.start = mS.format("YYYY-MM-DD");
-	row.startTime = mS.format("HH:mm");
-	row.due = mE.format("YYYY-MM-DD");
-	row.dueTime = mE.format("HH:mm");
-	normalizeTaskTemporal(row, "start", "startTime");
-	normalizeTaskTemporal(row, "due", "dueTime");
 	if (savedLine) {
 		row.rawText = String(savedLine || "");
-		var savedStart = parseDateTimeValue(getInlineFieldValue(row.rawText, "start"));
-		var savedDue = parseDateTimeValue(getInlineFieldValue(row.rawText, "due"));
-		if (savedStart.date) {
-			row.start = savedStart.date;
-			row.startTime = savedStart.time || "";
-		}
-		if (savedDue.date) {
-			row.due = savedDue.date;
-			row.dueTime = savedDue.time || "";
-		}
+		row.rawLine = row.rawText;
+		var savedStart = readTaskCalendarDate(row.rawText, "start");
+		var savedDue = readTaskCalendarDate(row.rawText, "due");
+		// The committed line is authoritative, including fields removed by Undo.
+		row.start = savedStart.date || "";
+		row.startTime = savedStart.time || "";
+		row.due = savedDue.date || "";
+		row.dueTime = savedDue.time || "";
 		row.status = getTaskStatusFromText(row.rawText, row.status || "");
 		row.completed = row.status === "done";
 		row.checked = row.status === "done" || row.status === "cancelled";
@@ -3104,14 +3110,11 @@ function patchGlobalTasksTemporalFromSave(meta, newStartMoment, newEndMoment, sa
 function patchGlobalSyncInlineScheduledFromRawText(row) {
 	if (!row) return;
 	var txt = String(row.rawText || "");
-	var m = txt.match(/\[scheduled::\s*([^\]]+)\]/i);
-	if (m && m[1]) {
-		var parsed = parseDateTimeValue(m[1]);
+	var parsed = readTaskCalendarDate(txt,"scheduled");
+	if (parsed.date) {
 		if (parsed.date) {
 			row.scheduled = parsed.date;
-			if (parsed.time) {
-				row.scheduledTime = parsed.time;
-			}
+			row.scheduledTime = parsed.time || "";
 			normalizeTaskTemporal(row, "scheduled", "scheduledTime");
 			return;
 		}
@@ -3597,6 +3600,9 @@ async function saveTaskDateTimeRelocateBetweenDailyNotes(meta, newStartMoment, n
 			throw new Error("task line not found: " + sourceNorm + " @" + lineIndex);
 		}
 		line = lines[idx];
+		if (Number.isFinite(options.calendarDayShift)) {
+			line = shiftTaskCalendarDates(line, options.calendarDayShift);
+		} else {
 		line = stripInlineField(line, "start");
 		line = stripInlineField(line, "due");
 		line = stripInlineField(line, "scheduled");
@@ -3610,6 +3616,7 @@ async function saveTaskDateTimeRelocateBetweenDailyNotes(meta, newStartMoment, n
 		line = line.replace(/\s{2,}/g, " ").trimEnd();
 		line = upsertInlineField(line, "start", formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
 		line = upsertInlineField(line, "due", formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString));
+		}
 		return content;
 	});
 	var adapter = await ensureTimelineIoAdapterLoaded();
@@ -3645,7 +3652,7 @@ async function saveTaskDateTimeRelocateBetweenDailyNotes(meta, newStartMoment, n
 		}
 		throw error;
 	}
-	patchGlobalTasksTemporalFromSave(meta, newStartMoment, newEndMoment, line);
+	patchGlobalTasksFromSavedLine(meta, line);
 	patchGlobalTaskPathAfterRelocate(meta, targetNorm);
 	var elOut = meta.taskEl;
 	if (elOut) {
@@ -3655,6 +3662,9 @@ async function saveTaskDateTimeRelocateBetweenDailyNotes(meta, newStartMoment, n
 		elOut.setAttribute("data-start-time", savedStartParts.time || "");
 		elOut.setAttribute("data-due-date", moment(newEndMoment).format("YYYY-MM-DD"));
 		elOut.setAttribute("data-due-time", savedDueParts.time || "");
+		if (Number.isFinite(options.calendarDayShift) || options.calendarResize) {
+			["start","due"].forEach(function(key) { var part=readTaskCalendarDate(line,key);elOut.setAttribute("data-"+key+"-date",part.date||"");elOut.setAttribute("data-"+key+"-time",part.time||""); });
+		}
 		updateTaskElPathsAfterDailyRelocate(elOut, targetNorm);
 		try {
 			var cell = elOut.closest(".cell[data-date]");
@@ -3700,7 +3710,7 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 	var oldDueNeedle = oldDueDate ? "[due:: "+oldDueDate+(oldDueTime ? " "+oldDueTime : "")+"]" : "";
 	var sourceWasTask = meta.sourceWasTask !== false;
 	var idx = -1;
-	var line = "";
+	var line = "", beforeLine = "";
 	await processTaskMarkdownFile(filePath, function (content) {
 		var lines = content.split(/\r?\n/);
 		idx = sourceWasTask
@@ -3709,12 +3719,17 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 		if (idx < 0) {
 			throw new Error((sourceWasTask ? "task line not found: " : "source line not found: ")+filePath+" @"+lineIndex);
 		}
-		line = lines[idx];
+		line = lines[idx];beforeLine=line;
 		if (!sourceWasTask) {
 			var conversionStatus = options && options.taskAdvanced ? options.taskAdvanced.status : "todo";
 			line = buildTaskLineFromMarkdownConversion(line, conversionStatus);
 		}
 		// Keep only one pair of temporal fields on each save.
+		if (Number.isFinite(options.calendarDayShift)) {
+			line = shiftTaskCalendarDates(line, options.calendarDayShift);
+		} else if (options.calendarResize) {
+			line=resizeTaskCalendarDate(line,options.calendarResize.key,options.calendarResize.date);
+		} else {
 		line = stripInlineField(line, "start");
 		line = stripInlineField(line, "due");
 		line = stripTaskTemplateOnlyFields(line);
@@ -3727,13 +3742,14 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 		line = line.replace(/\s{2,}/g, " ").trimEnd();
 		line = upsertInlineField(line, "start", formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
 		line = upsertInlineField(line, "due", formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString));
+		}
 		if (options && options.taskAdvanced && typeof options.taskAdvanced === "object") {
 			line = applyTaskEditorMetadataToLine(line, options.taskAdvanced);
 		}
 		lines[idx] = line;
 		return lines.join("\n");
 	});
-	patchGlobalTasksTemporalFromSave(meta, newStartMoment, newEndMoment, line);
+	patchGlobalTasksFromSavedLine(meta, line);
 	var elOut = meta.taskEl;
 	if (elOut) {
 		var savedStartParts = parseDateTimeValue(formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
@@ -3742,6 +3758,9 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 		elOut.setAttribute("data-start-time", savedStartParts.time || "");
 		elOut.setAttribute("data-due-date", moment(newEndMoment).format("YYYY-MM-DD"));
 		elOut.setAttribute("data-due-time", savedDueParts.time || "");
+		if (Number.isFinite(options.calendarDayShift) || options.calendarResize) {
+			["start","due"].forEach(function(key) { var part=readTaskCalendarDate(line,key);elOut.setAttribute("data-"+key+"-date",part.date||"");elOut.setAttribute("data-"+key+"-time",part.time||""); });
+		}
 		try {
 			var cell = elOut.closest(".cell[data-date]");
 			var d = cell ? cell.getAttribute("data-date") : "";
@@ -3759,6 +3778,7 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 		showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.savedLine", { file: filePath.split("/").pop(), line: idx + 1 }));
 	}
 	if (!options.suppressRefresh) { triggerTaskFreshRefresh(); }
+	return {path:filePath,index:idx,before:beforeLine,after:line};
 };
 
 function isPlannerChromeActive(targetRoot, views) {
@@ -3866,6 +3886,72 @@ function getCellFromPoint(x, y) {
 	return el.closest(".tasksCalendar[view='week']:is(.planner-chrome, .planner-chrome) .cell, .tasksCalendar[view='day']:is(.planner-chrome, .planner-chrome) .cell");
 };
 
+var calendarDragCancel = null;
+var calendarUndoClose = null;
+
+function calendarEdgeScroll(doc, x, y) {
+	var win=doc.defaultView, node=doc.elementFromPoint(x,y);
+	for (;node && node!==doc.body;node=node.parentElement) {
+		if (node.scrollHeight<=node.clientHeight+1 || !/auto|scroll/.test(win.getComputedStyle(node).overflowY)) continue;
+		var rect=node.getBoundingClientRect(),top=Math.max(0,rect.top),bottom=Math.min(win.innerHeight,rect.bottom);
+		var step=y<top+36?-Math.ceil(10*Math.max(0,(top+36-y)/36)):y>bottom-36?Math.ceil(10*Math.max(0,(y-bottom+36)/36)):0;
+		if (!step) continue;
+		var before=node.scrollTop;node.scrollTop+=Math.max(-12,Math.min(12,step));
+		if (node.scrollTop!==before) return true;
+	}
+	return false;
+}
+
+function createCalendarDragFeedback(taskEl, onScroll) {
+	var doc=taskEl.ownerDocument,win=doc.defaultView,hint=doc.createElement("div"),raf=null,point=null,closed=false;
+	hint.className="noria-calendar-drag-hint";hint.hidden=true;doc.body.appendChild(hint);
+	var tick=function(){raf=null;if(closed)return;if(!taskEl.isConnected){if(calendarDragCancel)calendarDragCancel();return;}
+		if(point&&rootNode.contains(doc.elementFromPoint(point.x,point.y))&&calendarEdgeScroll(doc,point.x,point.y))onScroll(point);
+		if(raf===null)raf=win.requestAnimationFrame(tick);
+	};
+	return {
+		update:function(x,y,label){if(closed)return;point={x,y};hint.hidden=false;hint.textContent=label;
+			var rect=hint.getBoundingClientRect();hint.style.left=Math.max(8,Math.min(x+18,win.innerWidth-rect.width-8))+"px";
+			hint.style.top=Math.max(8,y-rect.height-24)+"px";if(raf===null)raf=win.requestAnimationFrame(tick);},
+		close:function(){closed=true;if(raf!==null)win.cancelAnimationFrame(raf);hint.remove();}
+	};
+}
+
+async function restoreCalendarDragLine(receipt) {
+	await processTaskMarkdownFile(receipt.path,function(raw){
+		var lines=raw.split(/\r?\n/),index=receipt.index;
+		if(lines[index]!==receipt.after){var hits=lines.map((line,i)=>line===receipt.after?i:-1).filter(i=>i>=0);if(hits.length!==1)throw Error(tasksCalendarRuntimeLocale()==="zh-CN"?"任务已再次修改，未覆盖新内容。":"The task changed again; newer edits were kept.");index=hits[0];}
+		lines[index]=receipt.before;return lines.join(raw.includes("\r\n")?"\r\n":"\n");
+	});
+	var signature = receipt.after.replace(/^\s*-\s*\[[^\]]*\]\s*/, "");
+	patchGlobalTasksFromSavedLine({filePath: receipt.path, rawSig: encodeURIComponent(signature), rawText: signature}, receipt.before);
+	// A quick undo may precede (or receive no) vault change notification.
+	// Invalidate both shared sources before a refresh can reapply the saved dates.
+	if (noriaBridge && noriaBridge.taskSnapshots) noriaBridge.taskSnapshots.invalidate("tasks");
+	if (noriaBridge && noriaBridge.data) await noriaBridge.data.invalidate("calendar-undo:" + receipt.path, "tasks");
+	// Repaint this view from the restored model; later reads now use fresh sources.
+	var grid = rootNode && (rootNode.querySelector(":scope > .grid") || rootNode.querySelector(".grid"));
+	if (grid) hydrateGridTaskCells(grid);
+	scheduleTasksCalendarSoftRefresh(180);
+}
+
+function showCalendarDragUndo(receipt) {
+	if(calendarUndoClose)calendarUndoClose();if(!receipt || tcRuntimeDisposed || !rootNode.isConnected)return;
+	var doc=rootNode.ownerDocument,bar=doc.createElement("div"),button=doc.createElement("button"),zh=tasksCalendarRuntimeLocale()==="zh-CN";
+	bar.className="noria-calendar-drag-undo";bar.setAttribute("role","status");bar.appendChild(doc.createTextNode(zh?"已调整时间":"Rescheduled"));
+	button.textContent=tcRuntimeT("runtime.tasksCalendar.common.undo");button.type="button";bar.appendChild(button);doc.body.appendChild(bar);
+	var r=rootNode.getBoundingClientRect();bar.style.left=Math.max(8,Math.min(r.left+r.width/2-90,doc.defaultView.innerWidth-200))+"px";bar.style.bottom="24px";
+	var timer;var close=function(){clearTimeout(timer);bar.remove();if(calendarUndoClose===close)calendarUndoClose=null;};calendarUndoClose=close;
+	var expire=function(){if(bar.contains(doc.activeElement)||bar.matches(":hover")){timer=setTimeout(expire,1000);return;}close();};timer=setTimeout(expire,12000);
+	button.onclick=async function(){clearTimeout(timer);button.disabled=true;try{await restoreCalendarDragLine(receipt);close();}catch(error){bar.firstChild.textContent=error.message;button.disabled=false;timer=setTimeout(expire,12000);}};
+}
+
+function resizeTaskCalendarDate(line, key, date) {
+	var symbol=key==="start"?"🛫":"📅",pattern=new RegExp("(\\["+key+"::\\s*|"+symbol+"\\s*)(\\d{4}-\\d{2}-\\d{2})","g"),found=false;
+	var next=line.replace(pattern,function(all,prefix){found=true;return prefix+date;});
+	if(!found)throw Error("The task has no "+key+" date to resize");return next;
+}
+
 function getMonthGridCellFromPoint(clientX, clientY) {
 	if (!rootNode || rootNode.getAttribute("view") !== "month") { return null; }
 	var doc = rootNode.ownerDocument || document;
@@ -3875,8 +3961,31 @@ function getMonthGridCellFromPoint(clientX, clientY) {
 	} catch (_) { return null; }
 	if (!el || !rootNode.contains(el)) { return null; }
 	var cell = el.closest(".cell[data-date]");
-	if (!cell || !rootNode.contains(cell)) { return null; }
-	return cell;
+	if (cell && rootNode.contains(cell)) { return cell; }
+	// Continuous bars live above the cells. Resolve the grabbed column using
+	// viewport coordinates, including after the containing week has scrolled.
+	var wrapper = el.closest(".wrapper");
+	if (!wrapper || !el.closest(".tc-month-span-overlay-item")) { return null; }
+	var bounds = wrapper.getBoundingClientRect();
+	if (clientY < bounds.top || clientY >= bounds.bottom) { return null; }
+	return Array.from(wrapper.querySelectorAll(".cell[data-date]")).find(function (candidate) {
+		var rect = candidate.getBoundingClientRect();
+		return clientX >= rect.left && clientX < rect.right;
+	}) || null;
+}
+
+function shiftTaskCalendarDates(line, deltaDays) {
+	return line.replace(/(\[(?:start|due|scheduled)::\s*|(?:📅|🛫|⏳)\s*)(\d{4}-\d{2}-\d{2})/g, function(all, prefix, date) {
+		var value=moment(date,"YYYY-MM-DD",true);
+		if (!value.isValid()) throw new Error("Invalid task date: "+date);
+		return prefix+value.add(deltaDays,"days").format("YYYY-MM-DD");
+	});
+}
+
+function readTaskCalendarDate(line, key) {
+	var value=getInlineFieldValue(line,key),symbol={start:"🛫",due:"📅",scheduled:"⏳"}[key];
+	if (!value && symbol) value=(String(line).match(new RegExp(symbol+"\\s*(\\d{4}-\\d{2}-\\d{2})"))||[])[1]||"";
+	return parseDateTimeValue(value);
 }
 
 function buildTaskTemporalMomentsFromEl(taskEl, fallbackDateStr) {
@@ -3908,7 +4017,10 @@ function buildTaskTemporalMomentsFromEl(taskEl, fallbackDateStr) {
 	if (!endM.isValid()) { endM = moment(dD + " " + (dT || "18:00"), "YYYY-MM-DD HH:mm", true); }
 	if (!endM.isValid()) { endM = moment(startM).add(60, "minutes"); }
 	if (!endM.isAfter(startM)) { endM = moment(startM).add(60, "minutes"); }
-	return { startM: startM, endM: endM };
+	var raw = decodeURIComponent(taskEl.getAttribute("data-tc-sig") || "");
+	return { startM: startM, endM: endM,
+		hasStart: !!readTaskCalendarDate(raw, "start").date,
+		hasDue: !!readTaskCalendarDate(raw, "due").date };
 }
 
 function clearMonthDropTargetHighlight() {
@@ -3920,6 +4032,20 @@ function clearMonthDropTargetHighlight() {
 	} catch (_) {}
 }
 
+function calendarMonthDrop(temporal, targetDate, srcDate, edge) {
+	var start=temporal.startM.clone(),end=temporal.endM.clone();
+	if(edge){
+		var value=edge==="start"?start:end;
+		value.add(moment(targetDate,"YYYY-MM-DD",true).diff(moment(value.format("YYYY-MM-DD"),"YYYY-MM-DD",true),"days"),"days");
+		if (edge === "due" && temporal.hasStart === false) start = end.clone();
+		if (edge === "start" && temporal.hasDue === false) end = start.clone();
+		if(end.isBefore(start))return null;
+		return {start,end,options:{calendarResize:{key:edge,date:targetDate}}};
+	}
+	var delta=moment(targetDate,"YYYY-MM-DD",true).diff(moment(srcDate,"YYYY-MM-DD",true),"days");
+	return {start:start.add(delta,"days"),end:end.add(delta,"days"),options:{monthDailyRelocate:true,calendarDayShift:delta}};
+}
+
 function onMonthTaskPointerDown(ev) {
 	var taskEl = ev.currentTarget;
 	if (ev.button !== 0) { return; }
@@ -3928,7 +4054,7 @@ function onMonthTaskPointerDown(ev) {
 	if (plannerChromeInteractionActive) { return; }
 	/* 与 onTaskPointerDown 对齐：点在 status-circle 上勿启动月表拖改期，避免 pointerdown 抢占 click/完成切换 */
 	if (typeof ev.target.closest === "function" && ev.target.closest(".noria-status-circle,[data-noria-status-circle='1'],.tc-compact-checkbox,[data-tc-compact-checkbox='1']")) { return; }
-	var srcCell = taskEl.closest(".cell[data-date]");
+	var srcCell = taskEl.closest(".cell[data-date]") || getMonthGridCellFromPoint(ev.clientX, ev.clientY);
 	if (!srcCell) { return; }
 	var srcDate = srcCell.getAttribute("data-date");
 	if (!srcDate) { return; }
@@ -3939,13 +4065,19 @@ function onMonthTaskPointerDown(ev) {
 	var ox = ev.clientX;
 	var oy = ev.clientY;
 	var moved = false;
+	var handle=ev.target.closest(".tc-month-date-handle"),edge=handle?handle.getAttribute("data-edge"):"";
+	var pointer={clientX:ox,clientY:oy,preventDefault:function(){}};
+	var feedback=createCalendarDragFeedback(taskEl,function(){onMove(pointer);});
 	var lastDropCell = null;
+	plannerChromeInteractionActive = true;
 	taskEl.classList.add("dragging");
 	try { taskEl.setPointerCapture(ev.pointerId); } catch (_) {}
 	var onMove = function (e) {
 		e.preventDefault();
+		pointer={clientX:e.clientX,clientY:e.clientY,preventDefault:function(){}};
 		if (Math.hypot(e.clientX - ox, e.clientY - oy) > 5) { moved = true; }
 		var nc = getMonthGridCellFromPoint(e.clientX, e.clientY);
+		if(moved){var drop=nc?calendarMonthDrop(temporal,nc.getAttribute("data-date"),srcDate,edge):null;feedback.update(e.clientX,e.clientY,drop?drop.start.format("MM-DD")+" → "+drop.end.format("MM-DD"):tasksCalendarRuntimeLocale()==="zh-CN"?"无效落点，松开取消":"Invalid drop; release to cancel");}
 		if (nc !== lastDropCell) {
 			clearMonthDropTargetHighlight();
 			lastDropCell = nc;
@@ -3953,6 +4085,8 @@ function onMonthTaskPointerDown(ev) {
 		}
 	};
 	var finish = function (pev) {
+		feedback.close();calendarDragCancel=null;
+		document.removeEventListener("keydown", onKeyDown);
 		clearMonthDropTargetHighlight();
 		try {
 			if (pev && typeof pev.pointerId !== "undefined") {
@@ -3966,83 +4100,89 @@ function onMonthTaskPointerDown(ev) {
 		document.removeEventListener("pointerup", onUp);
 		document.removeEventListener("pointercancel", onCancel);
 		finish(e);
+		plannerChromeInteractionActive = false;
+		flushDeferredHydration(40);
+		flushDeferredTaskFreshRefresh(180);
 	};
-	var onUp = function (e) {
+	var onUp = async function (e) {
 		document.removeEventListener("pointermove", onMove);
 		document.removeEventListener("pointerup", onUp);
 		document.removeEventListener("pointercancel", onCancel);
-		var targetCell = getMonthGridCellFromPoint(e.clientX, e.clientY) || lastDropCell;
+		var targetCell = getMonthGridCellFromPoint(e.clientX, e.clientY);
 		var targetDate = targetCell ? targetCell.getAttribute("data-date") : "";
 		finish(e);
-		if (!moved || !targetDate || targetDate === srcDate) { return; }
-		var deltaDays = moment(targetDate, "YYYY-MM-DD", true).diff(moment(srcDate, "YYYY-MM-DD", true), "days");
-		if (!Number.isFinite(deltaDays) || deltaDays === 0) { return; }
-		var newStart = temporal.startM.clone().add(deltaDays, "days");
-		var newEnd = temporal.endM.clone().add(deltaDays, "days");
-	if (editModeActive) {
-		stageTaskMove(taskEl, newStart, newEnd);
-		showBriefNotice(tcRuntimeT("runtime.tasksCalendar.notice.rescheduleStaged"), 1200);
+		if (moved) {
+			// The browser's click follows pointer-up, before the save promise resolves.
 			taskEl.setAttribute("data-suppress-click", "true");
 			setTimeout(function () { taskEl.removeAttribute("data-suppress-click"); }, 250);
+		}
+		if (!moved || !targetDate || targetDate === srcDate) {
+			plannerChromeInteractionActive = false;
+			flushDeferredHydration(40);
+			flushDeferredTaskFreshRefresh(180);
 			return;
 		}
-		(async function () {
-			try {
-				await mdTaskAdapter.saveDateTime(taskEl, newStart, newEnd, {
-					suppressRefresh: true,
-					silentNotice: true,
-					monthDailyRelocate: true
-				});
-				var destYmd = moment(newStart).format("YYYY-MM-DD");
-				var dragRevision = ++tcMonthCommitRevision;
-				/* 勿在写盘后立刻 refreshTasksFromFallbackSource：metadata 未跟上时会整表覆盖 tasks，冲掉刚 patch 的 path/dailyNote，源日格仍匹配旧桶 */
-				afterTaskDateTimeEditorSave(taskEl);
-				try {
-					tcHydrateMonthCellsForDates([srcDate, destYmd], { revision: dragRevision });
-				} catch (_h0) {}
-				try {
-					triggerTaskFreshRefresh();
-				} catch (_r1) {}
-				setTimeout(function () {
-					/* 此处不再 refreshTasksFromFallbackSource：短延迟内 ctx 常仍旧快照，会覆盖内存 patch；同步 hydrate 即可，全库对齐交给 scheduleTasksCalendarSoftRefresh */
-					try {
-						tcHydrateMonthCellsForDates([srcDate, destYmd], { revision: dragRevision });
-					} catch (_h1) {}
-					try {
-						if (rootNode && rootNode.getAttribute("view") === "month") {
-							var g = null;
-							try {
-								g = rootNode.querySelector(":scope > .grid");
-							} catch (_) {
-								g = null;
-							}
-							if (!g) {
-								g = rootNode.querySelector(".grid");
-							}
-							if (g) hydrateGridTaskCells(g);
-						}
-					} catch (_) {}
-				}, 280);
-				scheduleTasksCalendarSoftRefresh(620);
-				showBriefNotice(tcRuntimeT("runtime.tasksCalendar.notice.rescheduled"), 900);
-				taskEl.setAttribute("data-suppress-click", "true");
-				setTimeout(function () { taskEl.removeAttribute("data-suppress-click"); }, 250);
-			} catch (err) {
-				try { console.error("[tasksCalendar] month drag save failed", err); } catch (_) {}
-				showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.rescheduleFailed", { message: err && err.message ? err.message : err }));
-			}
-		})();
+		var drop=calendarMonthDrop(temporal,targetDate,srcDate,edge);
+		if(!drop){plannerChromeInteractionActive=false;flushDeferredHydration(40);flushDeferredTaskFreshRefresh(180);return;}
+		var newStart=drop.start,newEnd=drop.end;
+		if (editModeActive) {
+			plannerChromeInteractionActive = false;
+			stageTaskMove(taskEl, newStart, newEnd, drop.options);
+			showBriefNotice(tcRuntimeT("runtime.tasksCalendar.notice.rescheduleStaged"), 1200);
+			return;
+		}
+		try {
+			var receipt = await mdTaskAdapter.saveDateTime(taskEl, newStart, newEnd, {
+				...drop.options, suppressRefresh: true, silentNotice: true
+			});
+			showCalendarDragUndo(receipt);
+			if (!receipt) showBriefNotice(tcRuntimeT("runtime.tasksCalendar.notice.rescheduled"), 900);
+		} catch (err) {
+			console.error("[tasksCalendar] month drag save failed", err);
+			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.rescheduleFailed", { message: err && err.message ? err.message : err }));
+		} finally {
+			plannerChromeInteractionActive = false;
+			// Consume write notifications and deferred layout in one fresh-data render.
+			tcHydrationDeferredByInteraction = false;
+			tcDeferredHydrationGrid = null;
+			tcRefreshDeferredByInteraction = false;
+			scheduleTasksCalendarSoftRefresh(180);
+		}
 	};
+	var onKeyDown = e => { if(e.key === "Escape") {e.preventDefault();e.stopPropagation();onCancel(e);} };
+	calendarDragCancel=()=>onCancel({});
+	document.addEventListener("keydown", onKeyDown);
 	document.addEventListener("pointermove", onMove);
 	document.addEventListener("pointerup", onUp);
 	document.addEventListener("pointercancel", onCancel);
 }
 
+function syncMonthTaskDateHandles(taskEl, position) {
+	var raw = decodeURIComponent(taskEl.getAttribute("data-tc-sig") || "");
+	var doc = taskEl.ownerDocument;
+	taskEl.querySelectorAll(".tc-month-date-handle").forEach(el => el.remove());
+	["start", "due"].forEach(function (key) {
+		var visible = position === "single" || position === (key === "start" ? "start" : "end");
+		// Displayed dates can be inferred from scheduled dates; only resize real fields.
+		var resizable = !!(visible && readTaskCalendarDate(raw, key).date);
+		taskEl.classList.toggle("tc-month-resizable-" + key, resizable);
+		if (!resizable) return;
+		var handle = doc.createElement("span");
+		handle.className = "tc-month-date-handle";
+		handle.setAttribute("data-edge", key);
+		handle.setAttribute("aria-hidden", "true");
+		handle.title = tasksCalendarRuntimeLocale() === "zh-CN"
+			? (key === "start" ? "调整开始日期" : "调整截止日期")
+			: (key === "start" ? "Resize start date" : "Resize due date");
+		taskEl.appendChild(handle);
+	});
+}
+
 function setupMonthTaskDrag() {
 	if (!rootNode || rootNode.getAttribute("view") !== "month") { return; }
-	var sel = ".cell .cellContent [data-tc-cal-item='1'], .cell .cellContent .tc-cal-item";
+	var sel = ".cell .cellContent [data-tc-cal-item='1'], .cell .cellContent .tc-cal-item, .tc-month-span-overlay-item";
 	rootNode.querySelectorAll(sel).forEach(function (taskEl) {
-		if (!taskEl.closest(".cell") || !taskEl.closest(".cellContent")) { return; }
+		if (!taskEl.classList.contains("tc-month-span-overlay-item") && (!taskEl.closest(".cell") || !taskEl.closest(".cellContent"))) { return; }
 		if (taskEl.getAttribute("data-month-drag-bound") === "1") { return; }
 		taskEl.setAttribute("data-month-drag-bound", "1");
 		taskEl.style.touchAction = "none";
@@ -4279,7 +4419,7 @@ function getPendingEditCount() {
 	return pendingTaskChanges.size;
 };
 
-function stageTaskMove(taskEl, newStartMoment, newEndMoment) {
+function stageTaskMove(taskEl, newStartMoment, newEndMoment, saveOptions) {
 	var key = getTaskIdentityKey(taskEl);
 	if (!key) { return; }
 	var prev = pendingTaskChanges.get(key) || {};
@@ -4288,7 +4428,8 @@ function stageTaskMove(taskEl, newStartMoment, newEndMoment) {
 		taskEl,
 		type: prev.type === "delete" ? "delete" : "update",
 		newStart: moment(newStartMoment).format("YYYY-MM-DD HH:mm"),
-		newEnd: moment(newEndMoment).format("YYYY-MM-DD HH:mm")
+		newEnd: moment(newEndMoment).format("YYYY-MM-DD HH:mm"),
+		saveOptions: saveOptions || {}
 	});
 	taskEl.classList.add("pending-edit");
 };
@@ -4380,7 +4521,7 @@ async function applyPendingPatches(changes) {
 			var ns = moment(updateOps[j].newStart, "YYYY-MM-DD HH:mm", true);
 			var ne = moment(updateOps[j].newEnd, "YYYY-MM-DD HH:mm", true);
 			if (!ns.isValid() || !ne.isValid() || !ne.isAfter(ns)) { continue; }
-			await mdTaskAdapter.saveDateTime(updateOps[j].taskEl, ns, ne, { suppressRefresh: true, silentNotice: true });
+			await mdTaskAdapter.saveDateTime(updateOps[j].taskEl, ns, ne, { ...updateOps[j].saveOptions, suppressRefresh: true, silentNotice: true });
 			okUpdate++;
 		} catch (err2) {
 			console.error("[tasksCalendar] update pending failed:", err2);
@@ -4407,8 +4548,13 @@ function bindWeekCellInlineActions() {
 
 function onTaskPointerDown(ev) {
 	var taskEl = ev.currentTarget;
+	if (plannerChromeInteractionActive) { return; }
 	if (ev.button !== 0) { return; }
 	if (!isTimelineCalendarView() || !rootNode.classList.contains("planner-chrome")) { return; }
+	// Dismiss only this task's readout before the drag preview takes over.
+	taskEl.ownerDocument.querySelectorAll(".tooltip").forEach(function (tooltip) {
+		if (tooltip.textContent === taskEl.getAttribute("aria-label")) { tooltip.remove(); }
+	});
 	if (
 		taskEl.getAttribute("data-slot") == "waiting" ||
 		taskEl.getAttribute("data-lane") == "waiting" ||
@@ -4436,7 +4582,7 @@ function onTaskPointerDown(ev) {
 	if (typeof ev.target.closest === "function" && ev.target.closest("a.internal-link")) { return; }
 	ev.preventDefault();
 	ev.stopPropagation();
-	/* 仅左上角/左下角小把手拉伸，避免短条整段被误判为 resize、与拖拽冲突 */
+	/* 上下窄边缘用于拉伸，中央内容区域用于移动。 */
 	var mode = "move";
 	var handle = ev.target.closest(".resize-handle");
 	if (handle && handle.classList.contains("top")) { mode = "resize-start"; }
@@ -4454,10 +4600,21 @@ function onTaskPointerDown(ev) {
 	var endMoment = dueTime ? moment(dueDate+" "+dueTime, "YYYY-MM-DD HH:mm", true) : moment(startMoment).add(60, "minutes");
 	if (!startMoment.isValid()) { startMoment = moment(srcDate+" 09:00", "YYYY-MM-DD HH:mm", true); }
 	if (!endMoment.isValid() || !endMoment.isAfter(startMoment)) { endMoment = moment(startMoment).add(60, "minutes"); }
-	var durationMins = Math.max(30, endMoment.diff(startMoment, "minutes"));
+	var durationMins = endMoment.diff(startMoment, "minutes");
+	var initialLane = tcEnsureTimeLaneHost(srcCell), initialRect = initialLane.getBoundingClientRect();
+	var grabOffset = dayStart + ((ev.clientY - initialRect.top) / initialRect.height) * (dayEnd-dayStart) - (startMoment.hours()*60+startMoment.minutes());
+	var original = { parent: taskEl.parentElement, top: taskEl.style.top, height: taskEl.style.height, attrs: {} };
+	["data-slot","data-start-min","data-end-min","data-compact"].forEach(name=>original.attrs[name]=taskEl.getAttribute(name));
+	var restorePosition = function () {
+		if (taskEl.parentElement !== original.parent) original.parent.appendChild(taskEl);
+		taskEl.style.top=original.top; taskEl.style.height=original.height;
+		Object.keys(original.attrs).forEach(name=>original.attrs[name]==null?taskEl.removeAttribute(name):taskEl.setAttribute(name,original.attrs[name]));
+		if (cachedTimeNode) cachedTimeNode.innerHTML=original.timeHtml;
+	};
 	var cachedTimeNode = taskEl.querySelector(".time");
 	var cachedStartLine = cachedTimeNode ? cachedTimeNode.querySelector(".tline.start") : null;
 	var cachedEndLine = cachedTimeNode ? cachedTimeNode.querySelector(".tline.end") : null;
+	original.timeHtml = cachedTimeNode ? cachedTimeNode.innerHTML : "";
 	var pointerState = {
 		taskEl, mode, srcCell, srcDate, currentCell: srcCell,
 		startMoment, endMoment, durationMins,
@@ -4480,6 +4637,7 @@ function onTaskPointerDown(ev) {
 		lastLaneContent: null,
 		lastLaneRect: null
 	};
+	var feedback=createCalendarDragFeedback(taskEl,function(){if(pointerState.moved)flushPlannerChromeDragMove();});
 	plannerChromeInteractionActive = true;
 	taskEl.classList.add("dragging");
 	try { taskEl.setPointerCapture(ev.pointerId); } catch (_) {}
@@ -4488,18 +4646,18 @@ function onTaskPointerDown(ev) {
 		pointerState.moveRaf = null;
 		var clientX = pointerState.lastPX;
 		var clientY = pointerState.lastPY;
-		var targetCell = getCellFromPoint(clientX, clientY) || pointerState.currentCell || pointerState.lastTargetCell;
-		if (!targetCell) { return; }
+		var targetCell = getCellFromPoint(clientX, clientY);
+		if (!targetCell) { feedback.update(clientX,clientY,tasksCalendarRuntimeLocale()==="zh-CN"?"松开取消":"Release to cancel");return; }
 		var laneContent = pointerState.lastTargetCell === targetCell
 			? pointerState.lastLaneContent
 			: tcEnsureTimeLaneHost(targetCell);
 		if (!laneContent) { return; }
-		var cRect = (pointerState.lastLaneContent === laneContent && pointerState.lastLaneRect)
-			? pointerState.lastLaneRect
-			: laneContent.getBoundingClientRect();
+		var cRect = laneContent.getBoundingClientRect();
 		var y = Math.max(0, Math.min(clientY - cRect.top, cRect.height));
 		var snap = pointerState.shiftSnap ? 5 : 15;
-		var minute = roundMinutesToStep(pointerState.dayStart + (y / cRect.height) * (pointerState.dayEnd - pointerState.dayStart), snap);
+		var rawMinute = pointerState.dayStart + (y / cRect.height) * (pointerState.dayEnd - pointerState.dayStart);
+		var minute = roundMinutesToStep(rawMinute - (pointerState.mode === "move" ? grabOffset : 0), snap);
+		minute = Math.max(pointerState.dayStart, Math.min(minute, pointerState.dayEnd - 1));
 		var targetDate = targetCell.getAttribute("data-date") || pointerState.srcDate;
 		var newStart = moment(pointerState.startMoment);
 		var newEnd = moment(pointerState.endMoment);
@@ -4508,11 +4666,12 @@ function onTaskPointerDown(ev) {
 			newEnd = moment(newStart).add(pointerState.durationMins, "minutes");
 		} else if (pointerState.mode == "resize-start") {
 			newStart = toDayMoment(targetDate, minute);
-			if (!newStart.isBefore(newEnd)) { newStart = moment(newEnd).subtract(30, "minutes"); }
+			if (!newStart.isBefore(newEnd)) { newStart = moment(newEnd).subtract(snap, "minutes"); }
 		} else if (pointerState.mode == "resize-end") {
 			newEnd = toDayMoment(targetDate, minute);
-			if (!newEnd.isAfter(newStart)) { newEnd = moment(newStart).add(30, "minutes"); }
+			if (!newEnd.isAfter(newStart)) { newEnd = moment(newStart).add(snap, "minutes"); }
 		}
+		feedback.update(clientX,clientY,newStart.format("MM-DD HH:mm")+" → "+newEnd.format(newStart.format("YYYY-MM-DD")===newEnd.format("YYYY-MM-DD")?"HH:mm":"MM-DD HH:mm"));
 		pointerState.previewStart = newStart;
 		pointerState.previewEnd = newEnd;
 		pointerState.currentCell = targetCell;
@@ -4525,7 +4684,8 @@ function onTaskPointerDown(ev) {
 			pointerState.moved = true;
 		}
 		var localStart = Math.max(pointerState.dayStart, Math.min(newStart.hours()*60 + newStart.minutes(), pointerState.dayEnd-1));
-		var localEnd = Math.max(localStart + 30, Math.min(newEnd.hours()*60 + newEnd.minutes(), pointerState.dayEnd));
+		var endMinute = newEnd.format("YYYY-MM-DD") > targetDate ? pointerState.dayEnd : newEnd.hours()*60 + newEnd.minutes();
+		var localEnd = Math.max(localStart + 1, Math.min(endMinute, pointerState.dayEnd));
 		pointerState.previewLocalStart = localStart;
 		pointerState.previewLocalEnd = localEnd;
 		var spanDrag = Math.max(1, pointerState.dayEnd - pointerState.dayStart);
@@ -4561,6 +4721,8 @@ function onTaskPointerDown(ev) {
 
 	var onMove = (e) => {
 		e.preventDefault();
+		if (!pointerState.moved && Math.hypot(e.clientX-pointerState.ox,e.clientY-pointerState.oy)<=6) return;
+		pointerState.moved=true;
 		pointerState.shiftSnap = !!e.shiftKey;
 		pointerState.lastPX = e.clientX;
 		pointerState.lastPY = e.clientY;
@@ -4570,20 +4732,24 @@ function onTaskPointerDown(ev) {
 	};
 
 	var onUp = async (e) => {
+		if (!getCellFromPoint(e.clientX,e.clientY)) { onCancel(e); return; }
+		pointerState.lastPX=e.clientX; pointerState.lastPY=e.clientY;
 		if (pointerState.moveRaf != null) {
 			cancelAnimationFrame(pointerState.moveRaf);
 			pointerState.moveRaf = null;
 			flushPlannerChromeDragMove();
 		}
+		feedback.close();calendarDragCancel=null;
+		document.removeEventListener("keydown", onKeyDown);
 		try { taskEl.releasePointerCapture(e.pointerId); } catch (_) {}
 		taskEl.classList.remove("dragging");
 		document.removeEventListener("pointermove", onMove);
 		document.removeEventListener("pointerup", onUp);
 		document.removeEventListener("pointercancel", onCancel);
-		plannerChromeInteractionActive = false;
 		/* 拖动后即将写盘时，勿先 hydrate/refresh：否则 40ms 内用旧任务模型重灌 DOM，出现「松手又回到原位」 */
 		var deferFlushUntilAfterSave = pointerState.moved && !editModeActive;
 		if (!deferFlushUntilAfterSave) {
+			plannerChromeInteractionActive = false;
 			flushDeferredHydration(40);
 			flushDeferredTaskFreshRefresh(180);
 		}
@@ -4606,9 +4772,12 @@ function onTaskPointerDown(ev) {
 			taskEl.setAttribute("data-suppress-click", "true");
 			setTimeout(() => taskEl.removeAttribute("data-suppress-click"), 250);
 		}
-		if (!pointerState.moved) {
+		if (!pointerState.moved || (+finalStart === pointerState.startTs && +finalEnd === pointerState.endTs)) {
+			plannerChromeInteractionActive = false;
+			flushDeferredHydration(40);
+			flushDeferredTaskFreshRefresh(180);
+			restorePosition();
 			schedulePlannerChromeOverlapLayout(affectedLanes);
-			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.noEffectiveDrag"));
 			return;
 		}
 		if (editModeActive) {
@@ -4619,22 +4788,22 @@ function onTaskPointerDown(ev) {
 			return;
 		}
 		try {
-			await mdTaskAdapter.saveDateTime(taskEl, finalStart, finalEnd, { suppressRefresh: true, silentNotice: true });
-			schedulePlannerChromeOverlapLayout(affectedLanes);
-			normalizePlannerChromeWeekTaskGeometry();
-			schedulePlannerChromeWeekLanesFinalize(true);
-			/* 略推迟 ctx 软刷新，与内存 patch + hydrate 错峰，减轻闪动 */
-			scheduleTasksCalendarSoftRefresh(720);
-			flushDeferredHydration(72);
-			flushDeferredTaskFreshRefresh(220);
-			showBriefNotice(tcRuntimeT("runtime.tasksCalendar.notice.timeBlockSaved"), 1000);
+			var receipt=await mdTaskAdapter.saveDateTime(taskEl, finalStart, finalEnd, { suppressRefresh: true, silentNotice: true });
+			showCalendarDragUndo(receipt);
+
 		} catch (err) {
+			restorePosition();
 			schedulePlannerChromeOverlapLayout(affectedLanes);
 			console.error("[tasksCalendar] save failed:", err);
 			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.taskSaveFailed", { message: err?.message || err }));
+		} finally {
+			plannerChromeInteractionActive = false;
+			// The fresh pass consumes deferred hydration too; never hydrate stale data first.
+			tcHydrationDeferredByInteraction = false;
+			tcDeferredHydrationGrid = null;
+			tcRefreshDeferredByInteraction = false;
 			schedulePlannerChromeWeekLanesFinalize(true);
-			flushDeferredHydration(72);
-			flushDeferredTaskFreshRefresh(220);
+			scheduleTasksCalendarSoftRefresh(180);
 		}
 	};
 
@@ -4642,13 +4811,15 @@ function onTaskPointerDown(ev) {
 		if (pointerState.moveRaf != null) {
 			cancelAnimationFrame(pointerState.moveRaf);
 			pointerState.moveRaf = null;
-			flushPlannerChromeDragMove();
 		}
+		feedback.close();calendarDragCancel=null;
+		document.removeEventListener("keydown", onKeyDown);
 		try { taskEl.releasePointerCapture(e.pointerId); } catch (_) {}
 		taskEl.classList.remove("dragging");
 		document.removeEventListener("pointermove", onMove);
 		document.removeEventListener("pointerup", onUp);
 		document.removeEventListener("pointercancel", onCancel);
+		restorePosition();
 		plannerChromeInteractionActive = false;
 		flushDeferredHydration(40);
 		flushDeferredTaskFreshRefresh(220);
@@ -4657,6 +4828,9 @@ function onTaskPointerDown(ev) {
 		schedulePlannerChromeOverlapLayout([srcLane, currentLane].filter(Boolean));
 	};
 
+	var onKeyDown = e => { if(e.key === "Escape") {e.preventDefault();e.stopPropagation();onCancel(e);} };
+	calendarDragCancel=()=>onCancel({});
+	document.addEventListener("keydown", onKeyDown);
 	document.addEventListener("pointermove", onMove);
 	document.addEventListener("pointerup", onUp);
 	document.addEventListener("pointercancel", onCancel);
@@ -5232,7 +5406,7 @@ function getMonthSpanMetrics(wrapperOrNull) {
 		var topBase = parsePx("--tc-month-cell-top-base", defaults.minTaskStartY);
 		var barH = parsePx("--tc-month-span-bar-height", defaults.barHeight);
 		var gap = parsePx("--tc-month-span-lane-gap", defaults.laneGap);
-		var stride = parsePx("--tc-month-span-lane-stride", defaults.laneStride);
+		var stride = Math.max(barH + gap, parsePx("--tc-month-span-lane-stride", 0));
 		var minY = parsePx("--tc-month-span-min-task-start-y", topBase);
 		if (!Number.isFinite(stride) || stride <= 0) {
 			stride = Math.max(12, barH + gap);
@@ -5586,6 +5760,9 @@ function applyMonthSpanOverlay(wrapper, model, metrics, oldOverlay) {
 	for (var i = 0; i < model.bars.length; i++) {
 		var seg = model.bars[i];
 		var bar = seg.sample.cloneNode(true);
+		// cloneNode copies binding markers, but not the event listeners.
+		bar.removeAttribute("data-month-drag-bound");
+		bar.removeAttribute("data-month-drag-click-bound");
 		bar.classList.add("tc-month-span-overlay-item");
 		bar.setAttribute("data-tc-month-row", "span");
 		try {
@@ -5635,6 +5812,7 @@ function applyMonthSpanOverlay(wrapper, model, metrics, oldOverlay) {
 				}
 			} catch (_) {}
 		} catch (_ovc) {}
+		syncMonthTaskDateHandles(bar, seg.pos);
 		for (var ni = 0; ni < seg.nodes.length; ni++) {
 			try {
 				var host = seg.nodes[ni] && seg.nodes[ni].closest ? seg.nodes[ni].closest(".cellContent") : null;
@@ -5732,6 +5910,86 @@ var tcMonthLayoutRoSuspendedUntil = 0;
 var tcMonthCommitRevision = 0;
 var tcMonthAppliedRevision = 0;
 
+// Keep one scroll position per week, including a visible task anchor when rows change.
+var tcMonthWeekScrollState = new Map(Array.isArray(input?.monthWeekScrollState) ? input.monthWeekScrollState : []);
+rootNode.__noriaCaptureMonthScrollState = function () {
+	if (rootNode.getAttribute("view") === "month") {
+		rootNode.querySelectorAll(".wrappers > .wrapper").forEach(captureMonthWeekScroll);
+	}
+	return Array.from(tcMonthWeekScrollState.entries());
+};
+function monthWeekScrollKey(wrapper) {
+	return String(wrapper.querySelector(".cell[data-date]")?.getAttribute("data-date") || "");
+}
+function monthScrollTaskKey(item) {
+	var date = item.closest(".cell[data-date]")?.getAttribute("data-date") || item.getAttribute("data-span-start-col") || "";
+	return getMonthTaskDomKeyShort(item) + "\u0001" + date;
+}
+function captureMonthWeekScroll(wrapper) {
+	if (!wrapper || !wrapper.isConnected) { return; }
+	var key = monthWeekScrollKey(wrapper);
+	if (!key) { return; }
+	var top = Math.max(0, wrapper.scrollTop || 0);
+	wrapper._noriaMonthScrollTop = top;
+	var bounds = wrapper.getBoundingClientRect();
+	var headerHeight = wrapper.querySelector(".tc-month-date-header")?.offsetHeight || 24;
+	var anchors = [];
+	wrapper.querySelectorAll(".tc-cal-item").forEach(function (item) {
+		var rect = item.getBoundingClientRect();
+		if (rect.height > 0 && rect.bottom > bounds.top + headerHeight && rect.top < bounds.bottom) {
+			anchors.push({ key: monthScrollTaskKey(item), offset: rect.top - bounds.top - headerHeight });
+		}
+	});
+	anchors.sort(function (a, b) { return Math.abs(a.offset) - Math.abs(b.offset); });
+	tcMonthWeekScrollState.set(key, { top: top, anchors: anchors.slice(0, 4) });
+	if (tcMonthWeekScrollState.size > 60) { tcMonthWeekScrollState.delete(tcMonthWeekScrollState.keys().next().value); }
+}
+function prepareMonthWeekScroll(grid) {
+	grid.querySelectorAll(".wrappers > .wrapper").forEach(function (wrapper) {
+		wrapper.querySelectorAll(".cell[data-date]").forEach(function (cell) {
+			var name = cell.querySelector(".cellName");
+			if (!name || name.parentElement?.classList.contains("tc-month-date-header")) { return; }
+			var header = getTasksCalendarDocument().createElement("div");
+			header.className = "tc-month-date-header";
+			cell.insertBefore(header, cell.firstChild);
+			header.appendChild(name);
+		});
+		if (!wrapper._noriaMonthScrollBound) {
+			wrapper._noriaMonthScrollBound = true;
+			wrapper.tabIndex = 0;
+			var dates = wrapper.querySelectorAll(".cell[data-date]");
+			wrapper.setAttribute("aria-label", monthWeekScrollKey(wrapper) + " – " + (dates[dates.length - 1]?.getAttribute("data-date") || ""));
+			wrapper.addEventListener("scroll", function () { captureMonthWeekScroll(wrapper); }, { passive: true });
+		}
+	});
+}
+function restoreMonthWeekScroll(grid) {
+	grid.querySelectorAll(".wrappers > .wrapper").forEach(function (wrapper) {
+		// Native scroll events can arrive after a mutation/resize commit. Do not undo
+		// a wheel, keyboard or scrollbar move while its event is still queued.
+		if (Number.isFinite(wrapper._noriaMonthScrollTop) && Math.abs(wrapper.scrollTop - wrapper._noriaMonthScrollTop) > 1) {
+			captureMonthWeekScroll(wrapper);
+			return;
+		}
+		var state = tcMonthWeekScrollState.get(monthWeekScrollKey(wrapper));
+		if (!state) { return; }
+		var nextTop = state.top;
+		if (state.top > 0 && state.anchors.length) {
+			var items = new Map();
+			wrapper.querySelectorAll(".tc-cal-item").forEach(function (item) { items.set(monthScrollTaskKey(item), item); });
+			for (var anchor of state.anchors) {
+				var item = items.get(anchor.key);
+				if (!item) { continue; }
+				var headerHeight = wrapper.querySelector(".tc-month-date-header")?.offsetHeight || 24;
+				nextTop = wrapper.scrollTop + item.getBoundingClientRect().top - wrapper.getBoundingClientRect().top - headerHeight - anchor.offset;
+				break;
+			}
+		}
+		wrapper.scrollTop = Math.max(0, Math.min(wrapper.scrollHeight - wrapper.clientHeight, nextTop));
+		wrapper._noriaMonthScrollTop = wrapper.scrollTop;
+	});
+}
+
 function bindMonthLayoutResizeObserver(gridEl) {
 	if (!gridEl || typeof ResizeObserver === "undefined") { return; }
 	if (!tcMonthLayoutRo) {
@@ -5767,6 +6025,7 @@ function bindMonthLayoutResizeObserver(gridEl) {
 
 function commitMonthLayout(gridEl, reasonOrMeta) {
 	if (!rootNode || rootNode.getAttribute("view") !== "month") { return; }
+	if (deferHydrationIfInteracting(gridEl)) { return; }
 	var meta = (reasonOrMeta && typeof reasonOrMeta === "object") ? reasonOrMeta : { reason: reasonOrMeta };
 	var reason = String(meta.reason || "");
 	var revision = Number(meta.revision || 0);
@@ -5784,10 +6043,12 @@ function commitMonthLayout(gridEl, reasonOrMeta) {
 	}
 	if (!g) { return; }
 	tcMonthLayoutRoSuspendedUntil = Date.now() + 140;
+	try { prepareMonthWeekScroll(g); } catch (_) {}
 	try { scheduleMonthTaskDragBind(); } catch (_) {}
 	try { syncMonthSpanOverlay(g); } catch (_) {}
 	try { clearMonthRelocatedFallbacks(g); } catch (_) {}
 	try { normalizeMonthTaskRows(g); } catch (_) {}
+	try { restoreMonthWeekScroll(g); } catch (_) {}
 	try { bindMonthLayoutResizeObserver(g); } catch (_) {}
 	try {
 		if (reason) { rootNode.setAttribute("data-tc-month-commit-reason", String(reason)); }
@@ -6331,6 +6592,7 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 		el.setAttribute("data-tc-cal-item", "1");
 		el.setAttribute("data-tc-kind", typeCls);
 		normalizeMonthTaskRowDom(el, obj, typeCls);
+		syncMonthTaskDateHandles(el, "single");
 		return el;
 	}
 	if (monthView && spanMultiDay && monthRole !== "none" && monthRole !== "single") {
@@ -6699,7 +6961,7 @@ function normalizeMonthTaskRowDom(rootEl, taskObj, typeCls) {
 					try { oldCircle.remove(); } catch (_) {}
 				});
 			} catch (_) {}
-			try { slot.appendChild(circle); } catch (_) {}
+			try { if (circle.parentNode !== slot) { slot.appendChild(circle); } } catch (_) {}
 			try {
 				Array.prototype.slice.call(titleSlot.querySelectorAll(".noria-status-circle[data-noria-status-circle='1'], .tc-compact-checkbox[data-tc-compact-checkbox='1']")).forEach(function (titleCircle) {
 					if (!titleCircle) { return; }
@@ -7445,6 +7707,8 @@ function hydrateGridTaskCells(gridEl) {
 		}
 	} catch (_) {}
 	if (plannerChrome) {
+		// Resolve widths in this frame, before fresh full-width nodes can be painted.
+		try { normalizePlannerChromeWeekTaskGeometry(); applyPlannerChromeOverlapLayout(); } catch (_) {}
 		try { schedulePlannerChromeWeekLanesFinalize(true); } catch (_) {}
 		try { schedulePlannerChromeWeekLanesFinalizePost(true); } catch (_) {}
 		try { schedulePlannerChromeOverlapLayout(); } catch (_) {}
@@ -7488,6 +7752,7 @@ function bindTasksCalendarCellContentObserver() {
 				var isWk = (rootNode.getAttribute("view") == "week" || rootNode.getAttribute("view") == "day");
 				var plannerChrome = isWk && isPlannerChromeActive(rootNode, ["week", "day"]);
 				var seen = Object.create(null);
+				var rehydrated = false;
 				for (var mi = 0; mi < muts.length; mi++) {
 					var mu = muts[mi];
 					var tgt = mu.target;
@@ -7585,6 +7850,7 @@ function bindTasksCalendarCellContentObserver() {
 					box.setAttribute("data-tc-mo-ts", String(Date.now()));
 					try {
 						renderTasksIntoHost(box, dkey, plannerChrome);
+						rehydrated = true;
 					} catch (re) {
 						console.error("[noria tasksCalendar] MutationObserver rehydrate failed", dkey, re);
 					}
@@ -7592,7 +7858,9 @@ function bindTasksCalendarCellContentObserver() {
 				if (rootNode.getAttribute("view") === "month") {
 					commitMonthLayout(g, "monthMutationObserver");
 				}
-				if (plannerChrome) {
+				// Layout rebuilds waiting hosts and time labels, which this observer
+				// also sees. Only an actual repair needs another layout pass.
+				if (plannerChrome && rehydrated) {
 					try { schedulePlannerChromeWeekLanesFinalize(true); } catch (_) {}
 					try { schedulePlannerChromeWeekLanesFinalizePost(true); } catch (_) {}
 					try { schedulePlannerChromeOverlapLayout(); } catch (_) {}
@@ -7917,12 +8185,19 @@ function formatDurationCompact(totalMin) {
 function openTaskDateTimeEditor(taskEl, opts) {
 	if (!app) return;
 	opts = opts || {};
-	var createMode = !taskEl;
+	var workbench = opts.workbench || null;
+	var createMode = !taskEl || !!workbench?.create;
 	if (!createMode && !taskEl) return;
 	if (document.querySelector(".tc-planner-te-overlay")) { return; }
 	var sourceWasTask = true;
 	if (!createMode && taskEl && (taskEl.getAttribute("data-noria-source-was-task") === "0" || taskEl.getAttribute("data-noria-source-was-task") === "false")) {
 		sourceWasTask = false;
+	}
+	if (!createMode && sourceWasTask && !workbench) {
+		var editMeta=collectTaskMeta(taskEl);
+		Promise.resolve(bridge.tasks.openDetails({path:editMeta.filePath,line:editMeta.lineIndex,rawText:decodeURIComponent(editMeta.rawSig||"")||editMeta.rawText},
+			{anchor:opts.returnFocusEl||taskEl,presentation:"modal"})).catch(function(error){showDebugNotice(error.message);});
+		return;
 	}
 	var returnFocusEl = opts && opts.returnFocusEl != null ? opts.returnFocusEl : taskEl;
 	var srcCell = taskEl && taskEl.closest ? taskEl.closest(".cell[data-date]") : null;
@@ -7956,10 +8231,17 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	} catch (_) { rawSigLine = ""; }
 	var splitMain = splitTaskTitleAndTagsFromRaw(rawSigLine, taskTitle);
 	taskTitle = splitMain.title || taskTitle;
+	if (workbench) taskTitle = workbench.model.title;
 	var taskTags = createMode ? "" : (splitMain.tags || "");
 	var taskRowState = (!createMode && taskEl) ? tcTaskRowFromCalItemEl(taskEl) : null;
 	var taskPriority = createMode ? "normal" : getPriorityFromText(rawSigLine, taskRowState ? taskRowState.priority : (taskEl ? taskEl.getAttribute("data-priority") : "normal"));
 	var taskAdvanced = extractTaskEditorMetadata(rawSigLine, taskRowState, createMode);
+	if (workbench) {
+		taskAdvanced.status=workbench.model.status;taskTags=workbench.model.tags;taskPriority=normalizePriorityValue(workbench.model.priority);
+		taskAdvanced.scheduledDate=workbench.model.scheduled;taskAdvanced.createdDate=workbench.model.created;
+		taskAdvanced.doneDate=workbench.model.completion;taskAdvanced.cancelledDate=workbench.model.cancelled;
+		taskAdvanced.repeat=workbench.model.repeat;taskAdvanced.id=workbench.model.id;taskAdvanced.dependsOnIds=normalizeTaskIdList(workbench.model.dependsOn);
+	}
 	var currentMetaForDeps = createMode ? { filePath: "", lineIndex: "", rawText: "" } : collectTaskMeta(taskEl);
 	var allDependencyRefs = listTaskDependencyRefs(currentMetaForDeps);
 	var refsById = Object.create(null);
@@ -7995,6 +8277,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	panel.setAttribute("role", "dialog");
 	panel.setAttribute("aria-modal", "true");
 	panel.setAttribute("aria-labelledby", "tc-planner-te-heading");
+	if (workbench && workbench.presentation !== "modal") { overlay.classList.add("tc-planner-te-overlay--workbench"); panel.classList.add("tc-planner-te-panel--workbench"); }
 
 	var head = document.createElement("div");
 	head.className = "tc-planner-te-head";
@@ -8009,49 +8292,31 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	btnClose.type = "button";
 	btnClose.className = "tc-planner-te-close";
 	btnClose.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.common.close"));
-	btnClose.innerHTML = "×";
+	bridge.setTaskEditorIcon(btnClose,"x",tcRuntimeT("runtime.tasksCalendar.common.close"));
 	head.appendChild(headMain);
 	head.appendChild(btnClose);
 
 	var metaGrid = document.createElement("div");
 	metaGrid.className = "tc-planner-te-grid tc-planner-te-grid--meta";
-	var inTitle = document.createElement("input");
-	inTitle.type = "text";
+	var inTitle = document.createElement("textarea");
+	inTitle.rows = 1;
 	inTitle.className = "tc-planner-te-input";
 	inTitle.placeholder = tcRuntimeT("runtime.tasksCalendar.editor.titlePlaceholder");
 	inTitle.value = taskTitle;
 	var inTags = document.createElement("input");
 	inTags.type = "text";
 	inTags.className = "tc-planner-te-input";
-	inTags.placeholder = "#tag1 #tag2";
+	inTags.placeholder = tcRuntimeT("runtime.tasksCalendar.editor.addTags");
 	inTags.value = taskTags;
 	metaGrid.appendChild(wrapField(tcRuntimeT("runtime.tasksCalendar.editor.task"), inTitle, "tc-planner-te-title"));
 	metaGrid.appendChild(wrapField(tcRuntimeT("runtime.tasksCalendar.editor.tags"), inTags, "tc-planner-te-tags"));
-	var priorityBar = document.createElement("div");
-	priorityBar.className = "tc-planner-te-priority";
-	var priorityButtons = [];
-	[
-		{ value: "highest", label: "🔺", title: tcRuntimeT("runtime.tasksCalendar.priority.highest") },
-		{ value: "high", label: "⏫", title: tcRuntimeT("runtime.tasksCalendar.priority.high") },
-		{ value: "medium", label: "🔼", title: tcRuntimeT("runtime.tasksCalendar.priority.medium") },
-		{ value: "normal", label: "•", title: tcRuntimeT("runtime.tasksCalendar.priority.normal") },
-		{ value: "low", label: "🔽", title: tcRuntimeT("runtime.tasksCalendar.priority.low") },
-		{ value: "lowest", label: "⏬", title: tcRuntimeT("runtime.tasksCalendar.priority.lowest") }
-	].forEach(function (opt) {
-		var b = document.createElement("button");
-		b.type = "button";
-		b.className = "tc-planner-te-priority-btn";
-		b.textContent = opt.label;
-		b.setAttribute("title", opt.title);
-		b.setAttribute("aria-label", opt.title);
-		b.addEventListener("click", function () {
-			taskPriority = opt.value;
-			syncPriorityEditorState();
-		});
-		priorityButtons.push({ button: b, value: opt.value });
-		priorityBar.appendChild(b);
+	var priorityBar=document.createElement("select");
+	priorityBar.className="dropdown";
+	["highest","high","medium","normal","low","lowest"].forEach(function(value){
+		var option=document.createElement("option");option.value=value;option.textContent=tcRuntimeT("runtime.tasksCalendar.priority."+value);priorityBar.appendChild(option);
 	});
-	metaGrid.appendChild(wrapField(tcRuntimeT("runtime.tasksCalendar.editor.priority"), priorityBar, "", "tc-planner-te-field--priority"));
+	priorityBar.addEventListener("change",function(){taskPriority=priorityBar.value;});
+	var priorityField=wrapField(tcRuntimeT("runtime.tasksCalendar.editor.priority"),priorityBar,"tc-planner-te-priority","tc-planner-te-field--priority");
 
 	var grid = document.createElement("div");
 	grid.className = "tc-planner-te-grid tc-planner-te-grid--time-range";
@@ -8084,216 +8349,79 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	}
 	function openTaskTimePopover(parts, anchorWrap, labelText) {
 		if (!parts || !anchorWrap) return;
-		if (activeTimePopover && activeTimePopover.parts === parts) return;
+		if(activeTimePopover && activeTimePopover.parts===parts){closeTaskTimePopover();parts.timeButton.focus();return;}
 		closeTaskTimePopover();
-		var pop = document.createElement("div");
-		pop.className = "tc-planner-te-time-popover";
-		pop.setAttribute("role", "dialog");
-		pop.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.time.adjustFor", { label: labelText }));
-		var current = document.createElement("div");
-		current.className = "tc-planner-te-time-popover-current";
-		var body = document.createElement("div");
-		body.className = "tc-planner-te-time-popover-body";
-		var pickerPane = document.createElement("div");
-		pickerPane.className = "tc-planner-te-time-popover-picker";
-		var hourWheel = document.createElement("div");
-		hourWheel.className = "tc-planner-te-time-wheel";
-		hourWheel.setAttribute("role", "listbox");
-		hourWheel.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.time.hourFor", { label: labelText }));
-		var minuteWheel = document.createElement("div");
-		minuteWheel.className = "tc-planner-te-time-wheel";
-		minuteWheel.setAttribute("role", "listbox");
-		minuteWheel.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.time.minuteFor", { label: labelText }));
-		var hourButtons = [];
-		var minuteButtons = [];
-		function padTimePart(n) {
-			return String(Math.max(0, Math.min(99, parseInt(n, 10) || 0))).padStart(2, "0");
-		}
-		function getWheelSeed() {
-			var parsed = parseDateTimeValue(parts.readDateTimeString());
-			if (parsed.time) {
-				return { hour: parsed.time.slice(0, 2), minute: parsed.time.slice(3, 5), hasTime: true };
-			}
-			return { hour: "09", minute: "00", hasTime: false };
-		}
-		function applyWheelTime(hour, minute) {
-			if (!String(parts.dateInput.value || "").trim()) {
-				parts.dateInput.value = moment().format("YYYY-MM-DD");
-			}
-			parts.timeInput.value = padTimePart(hour) + ":" + padTimePart(minute);
-			keepDateTimeRangeValid(parts);
-			updateDurationLabel();
-			syncCurrentLabel();
-			syncWheelButtons();
-		}
-		function createWheelButton(value, type) {
-			var btn = document.createElement("button");
-			btn.type = "button";
-			btn.className = "tc-planner-te-time-wheel-btn";
-			btn.textContent = value;
-			btn.setAttribute("role", "option");
-			btn.setAttribute("aria-label", type === "hour"
-				? tcRuntimeT("runtime.tasksCalendar.time.hourValue", { value: value })
-				: tcRuntimeT("runtime.tasksCalendar.time.minuteValue", { value: value }));
-			btn.addEventListener("click", function () {
-				var seed = getWheelSeed();
-				if (type === "hour") {
-					applyWheelTime(value, seed.minute);
-				} else {
-					applyWheelTime(seed.hour, value);
-				}
+		var pop=document.createElement("div");pop.className="tc-planner-te-time-popover";
+		pop.setAttribute("role","dialog");pop.setAttribute("aria-label",tcRuntimeT("runtime.tasksCalendar.time.adjustFor",{label:labelText}));
+		pop.setAttribute("popover","manual");
+		function element(tag,cls,text){var el=document.createElement(tag);el.className=cls;if(text)el.textContent=text;return el;}
+		function button(cls,label,fn,icon){var b=element("button",cls,label);b.type="button";if(icon)bridge.setTaskEditorIcon(b,icon,label);b.addEventListener("click",fn);return b;}
+		var head=element("div","tc-planner-te-time-head");
+		head.appendChild(element("span","",tcRuntimeT("runtime.tasksCalendar.time.title",{label:labelText})));
+		var current=element("div","tc-planner-te-time-popover-current");head.appendChild(current);
+		head.appendChild(button("clickable-icon tc-planner-te-time-close",tcRuntimeT("runtime.tasksCalendar.common.close"),function(){closeTaskTimePopover();parts.timeButton.focus();},"x"));
+		var picker=element("div","tc-planner-te-time-popover-picker"),columns=[];
+		function seed(){return normalizeTimeStr(parts.timeInput.value)||"09:00";}
+		function setTime(value){parts.timeInput.value=value;parts.timeInput.dispatchEvent(new Event("input",{bubbles:true}));sync();}
+		[24,60].forEach(function(count,columnIndex){
+			var column=element("div","tc-planner-te-time-column");
+			var label=tcRuntimeT("runtime.tasksCalendar.time."+(columnIndex?"minutes":"hours"));
+			column.appendChild(element("div","tc-planner-te-time-caption",label));
+			var wheel=element("div","tc-planner-te-time-wheel"),buttons=[];
+			wheel.setAttribute("role","listbox");wheel.setAttribute("aria-label",label);
+			for(var i=0;i<count;i++)(function(value){
+				var b=button("tc-planner-te-time-wheel-btn",value,function(){var time=seed();setTime(columnIndex?time.slice(0,3)+value:value+time.slice(2));});
+				b.setAttribute("role","option");buttons.push(b);wheel.appendChild(b);
+			})(String(i).padStart(2,"0"));
+			wheel.addEventListener("keydown",function(e){
+				if(!["ArrowUp","ArrowDown","Home","End"].includes(e.key))return;
+				var at=buttons.indexOf(document.activeElement);if(at<0)return;e.preventDefault();e.stopPropagation();
+				var next=e.key==="Home"?0:e.key==="End"?count-1:Math.max(0,Math.min(count-1,at+(e.key==="ArrowDown"?1:-1)));
+				buttons[next].click();buttons[next].focus({preventScroll:true});scrollColumns();
 			});
-			return btn;
-		}
-		for (var hi = 0; hi < 24; hi++) {
-			var hb = createWheelButton(padTimePart(hi), "hour");
-			hourButtons.push(hb);
-			hourWheel.appendChild(hb);
-		}
-		for (var mi = 0; mi < 60; mi++) {
-			var mb = createWheelButton(padTimePart(mi), "minute");
-			minuteButtons.push(mb);
-			minuteWheel.appendChild(mb);
-		}
-		pickerPane.appendChild(hourWheel);
-		pickerPane.appendChild(minuteWheel);
-		var toolPane = document.createElement("div");
-		toolPane.className = "tc-planner-te-time-popover-tools";
-		var stepRow = document.createElement("div");
-		stepRow.className = "tc-planner-te-time-popover-steps";
-		var stepButtons = [];
-		[
-			{ value: 5, label: "5m" },
-			{ value: 15, label: "15m" },
-			{ value: 30, label: "30m" },
-			{ value: 60, label: "1h" }
-		].forEach(function (opt) {
-			var btn = document.createElement("button");
-			btn.type = "button";
-			btn.className = "tc-planner-te-time-step-btn";
-			btn.textContent = opt.label;
-			btn.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.time.step", { step: opt.label }));
-			btn.addEventListener("click", function () {
-				activeStepMin = opt.value;
-				syncStepButtons();
-			});
-			stepButtons.push({ button: btn, value: opt.value });
-			stepRow.appendChild(btn);
+			column.appendChild(wheel);picker.appendChild(column);columns.push({wheel:wheel,buttons:buttons});
 		});
-		var adjustRow = document.createElement("div");
-		adjustRow.className = "tc-planner-te-time-popover-adjust";
-		var minusBtn = document.createElement("button");
-		minusBtn.type = "button";
-		minusBtn.className = "tc-planner-te-time-adjust-btn";
-		minusBtn.textContent = "-";
-		minusBtn.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.time.decreaseStep", { label: labelText }));
-		var plusBtn = document.createElement("button");
-		plusBtn.type = "button";
-		plusBtn.className = "tc-planner-te-time-adjust-btn";
-		plusBtn.textContent = "+";
-		plusBtn.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.time.increaseStep", { label: labelText }));
-		adjustRow.appendChild(minusBtn);
-		adjustRow.appendChild(plusBtn);
-		var actionRow = document.createElement("div");
-		actionRow.className = "tc-planner-te-time-popover-actions";
-		var nowBtn = document.createElement("button");
-		nowBtn.type = "button";
-		nowBtn.className = "tc-planner-te-time-mini-btn";
-		nowBtn.textContent = tcRuntimeT("runtime.tasksCalendar.time.now");
-		var clearBtn = document.createElement("button");
-		clearBtn.type = "button";
-		clearBtn.className = "tc-planner-te-time-mini-btn";
-		clearBtn.textContent = tcRuntimeT("runtime.tasksCalendar.time.clear");
-		actionRow.appendChild(nowBtn);
-		actionRow.appendChild(clearBtn);
-		pop.appendChild(current);
-		toolPane.appendChild(stepRow);
-		toolPane.appendChild(adjustRow);
-		toolPane.appendChild(actionRow);
-		body.appendChild(pickerPane);
-		body.appendChild(toolPane);
-		pop.appendChild(body);
-		anchorWrap.appendChild(pop);
-		activeTimePopover = { el: pop, parts: parts, cleanup: null };
-		function syncCurrentLabel() {
-			var parsed = parseDateTimeValue(parts.readDateTimeString());
-			current.textContent = parsed.time ? parsed.time : tcRuntimeT("runtime.tasksCalendar.time.noTime");
-		}
-		function syncStepButtons() {
-			stepButtons.forEach(function (item) {
-				var active = item.value === activeStepMin;
-				item.button.classList.toggle("is-active", active);
-				item.button.setAttribute("aria-pressed", active ? "true" : "false");
-			});
-		}
-		function syncWheelButtons() {
-			var seed = getWheelSeed();
-			hourButtons.forEach(function (button) {
-				var active = seed.hasTime && button.textContent === seed.hour;
-				button.classList.toggle("is-active", active);
-				button.setAttribute("aria-selected", active ? "true" : "false");
-			});
-			minuteButtons.forEach(function (button) {
-				var active = seed.hasTime && button.textContent === seed.minute;
-				button.classList.toggle("is-active", active);
-				button.setAttribute("aria-selected", active ? "true" : "false");
-			});
-		}
-		function scrollWheelToCurrent() {
-			var seed = getWheelSeed();
-			var h = hourButtons[parseInt(seed.hour, 10) || 0];
-			var m = minuteButtons[parseInt(seed.minute, 10) || 0];
-			try { if (h) h.scrollIntoView({ block: "center" }); } catch (_) {}
-			try { if (m) m.scrollIntoView({ block: "center" }); } catch (_) {}
-		}
-		function adjust(direction) {
-			nudgeDateTimePart(parts, direction);
-			syncCurrentLabel();
-			syncWheelButtons();
-			scrollWheelToCurrent();
-		}
-		function syncPopoverFromInput() {
-			keepDateTimeRangeValid(parts);
-			updateDurationLabel();
-			syncCurrentLabel();
-			syncWheelButtons();
-		}
-		parts.dateInput.addEventListener("input", syncPopoverFromInput);
-		parts.timeInput.addEventListener("input", syncPopoverFromInput);
-		activeTimePopover.cleanup = function () {
-			parts.dateInput.removeEventListener("input", syncPopoverFromInput);
-			parts.timeInput.removeEventListener("input", syncPopoverFromInput);
-		};
-		minusBtn.addEventListener("click", function () { adjust(-1); });
-		plusBtn.addEventListener("click", function () { adjust(1); });
-		nowBtn.addEventListener("click", function () {
-			parts.setMoment(moment().seconds(0).milliseconds(0));
-			keepDateTimeRangeValid(parts);
-			updateDurationLabel();
-			syncCurrentLabel();
-			syncWheelButtons();
-			scrollWheelToCurrent();
+		var fine=element("div","tc-planner-te-time-fine"),steps=[];
+		function adjust(direction){parts.nudgeBy(direction*activeStepMin);sync();scrollColumns();}
+		var minus=button("tc-planner-te-time-adjust-btn","",function(){adjust(-1);},"minus");fine.appendChild(minus);
+		[5,15,30,60].forEach(function(step){
+			var label=tcRuntimeT("runtime.tasksCalendar.time."+(step===60?"hourStep":"minuteStep"),{value:step});
+			var b=button("tc-planner-te-time-step-btn",label,function(){activeStepMin=step;sync();});
+			steps.push({value:step,button:b});fine.appendChild(b);
 		});
-		clearBtn.addEventListener("click", function () {
-			parts.clearTime();
-			updateDurationLabel();
-			syncCurrentLabel();
-			syncWheelButtons();
-			parts.timeInput.focus();
-		});
-		pop.addEventListener("keydown", function (ev) {
-			if (ev.key === "Escape") {
-				ev.preventDefault();
-				ev.stopPropagation();
-				closeTaskTimePopover();
-				parts.timeInput.focus();
-			}
-		});
-		syncStepButtons();
-		syncCurrentLabel();
-		syncWheelButtons();
-		setTimeout(scrollWheelToCurrent, 0);
+		var plus=button("tc-planner-te-time-adjust-btn","",function(){adjust(1);},"plus");fine.appendChild(plus);
+		var actions=element("div","tc-planner-te-time-popover-actions");
+		actions.appendChild(button("tc-planner-te-time-mini-btn",tcRuntimeT("runtime.tasksCalendar.time.now"),function(){setTime(moment().format("HH:mm"));scrollColumns();}));
+		actions.appendChild(button("tc-planner-te-time-mini-btn",tcRuntimeT("runtime.tasksCalendar.time.clear"),function(){setTime("");}));
+		pop.append(head,picker,fine,actions);anchorWrap.appendChild(pop);
+		function position(){
+			if(!pop.isConnected)return;var anchor=anchorWrap.getBoundingClientRect(),r=pop.getBoundingClientRect(),pr=panel.getBoundingClientRect();
+			pop.style.left=Math.round(Math.max(Math.max(12,pr.left+12),Math.min(anchor.right-r.width,Math.min(innerWidth-12,pr.right-12)-r.width)))+"px";
+			pop.style.top=Math.round(anchor.bottom+7+r.height<=innerHeight-12?anchor.bottom+7:Math.max(12,anchor.top-r.height-7))+"px";
+		}
+		function sync(){
+			var time=normalizeTimeStr(parts.timeInput.value);current.textContent=time||tcRuntimeT("runtime.tasksCalendar.time.noTime");
+			columns.forEach(function(column,index){
+				var selected=Number((time||"09:00").slice(index?3:0,index?5:2));
+				column.buttons.forEach(function(b,i){var active=!!time&&i===selected;b.classList.toggle("is-active",active);b.setAttribute("aria-selected",String(active));b.tabIndex=i===selected?0:-1;});
+			});
+			steps.forEach(function(item){var active=item.value===activeStepMin;item.button.classList.toggle("is-active",active);item.button.setAttribute("aria-pressed",String(active));});
+			var step=steps.find(function(item){return item.value===activeStepMin;}).button.textContent;
+			[minus,plus].forEach(function(b,i){b.title=tcRuntimeT("runtime.tasksCalendar.time."+(i?"later":"earlier"),{step:step});b.setAttribute("aria-label",b.title);});
+		}
+		function scrollColumns(){columns.forEach(function(column){var b=column.wheel.querySelector('[tabindex="0"]');column.wheel.scrollTop=Math.max(0,b.offsetTop-column.wheel.offsetTop-column.wheel.clientHeight/2+b.offsetHeight/2);});}
+		function outside(e){if(!pop.contains(e.target)&&!anchorWrap.contains(e.target))closeTaskTimePopover();}
+		parts.timeInput.addEventListener("input",sync);document.addEventListener("pointerdown",outside,true);
+		window.addEventListener("resize",position);panel.addEventListener("scroll",position,{passive:true});
+		activeTimePopover={el:pop,parts:parts,cleanup:function(){
+			parts.timeButton.setAttribute("aria-expanded","false");parts.timeInput.removeEventListener("input",sync);
+			document.removeEventListener("pointerdown",outside,true);window.removeEventListener("resize",position);panel.removeEventListener("scroll",position);
+		}};
+		pop.addEventListener("keydown",function(e){if(e.key==="Escape"){e.preventDefault();e.stopPropagation();closeTaskTimePopover();parts.timeInput.focus();}});
+		parts.timeButton.setAttribute("aria-expanded","true");pop.showPopover();sync();position();
+		setTimeout(function(){if(pop.isConnected){scrollColumns();position();columns[0].wheel.querySelector('[tabindex="0"]').focus({preventScroll:true});}},0);
 	}
+
 	function buildSplitDateTimeField(labelText, idBase, seedValue, allowEmpty) {
 		var field = document.createElement("div");
 		field.className = "tc-planner-te-field tc-planner-te-field--split tc-planner-te-field--row";
@@ -8307,23 +8435,27 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		var dateInput = document.createElement("input");
 		dateInput.type = "date";
 		dateInput.id = idBase + "-date";
+		lb.htmlFor = dateInput.id;
 		dateInput.className = "tc-planner-te-input tc-planner-te-input--date";
 		var timeInput = document.createElement("input");
-		timeInput.type = "text";
+		timeInput.type = "time";
+		timeInput.step = "60";
 		timeInput.inputMode = "numeric";
 		timeInput.placeholder = "--:--";
 		timeInput.maxLength = 5;
 		timeInput.autocomplete = "off";
 		timeInput.spellcheck = false;
-		timeInput.pattern = "[0-9]{2}:[0-9]{2}";
+
 		timeInput.id = idBase + "-time";
+		timeInput.setAttribute("aria-label",tcRuntimeT("runtime.tasksCalendar.time.adjustFor",{label:labelText}));
 		timeInput.className = "tc-planner-te-input tc-planner-te-input--time";
 		var timeWrap = document.createElement("span");
 		timeWrap.className = "tc-planner-te-time-wrap";
 		var timeTrigger = document.createElement("button");
 		timeTrigger.type = "button";
 		timeTrigger.className = "tc-planner-te-time-trigger";
-		timeTrigger.textContent = "◷";
+		bridge.setTaskEditorIcon(timeTrigger,"clock",tcRuntimeT("runtime.tasksCalendar.time.adjustFor",{label:labelText}));
+		timeTrigger.classList.add("clickable-icon");timeTrigger.setAttribute("aria-haspopup","dialog");timeTrigger.setAttribute("aria-expanded","false");
 		timeTrigger.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.time.adjustFor", { label: labelText }));
 		timeTrigger.title = tcRuntimeT("runtime.tasksCalendar.time.adjustFor", { label: labelText });
 		function setDateTimeString(nextValue) {
@@ -8368,28 +8500,20 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		field.appendChild(row);
 		var api = null;
 		function nudgeBy(deltaMin) {
-			var base = readMomentValue();
-			if (!base.isValid()) {
-				var fallbackDate = String(dateInput.value || "").trim() || moment().format("YYYY-MM-DD");
-				base = moment(fallbackDate + " 09:00", "YYYY-MM-DD HH:mm", true);
-				if (!base.isValid()) base = moment().seconds(0).milliseconds(0);
-			}
-			setMomentValue(base.add(deltaMin, "minutes"));
-			updateDurationLabel();
+			var time=normalizeTimeStr(timeInput.value)||"09:00";
+			var minutes=Math.max(0,Math.min(1439,Number(time.slice(0,2))*60+Number(time.slice(3))+deltaMin));
+			timeInput.value=String(Math.floor(minutes/60)).padStart(2,"0")+":"+String(minutes%60).padStart(2,"0");
+			timeInput.dispatchEvent(new Event("input",{bubbles:true}));
 		}
 		function requestPopover() {
 			if (api) openTaskTimePopover(api, timeWrap, labelText);
 		}
-		timeInput.addEventListener("focus", requestPopover);
-		timeInput.addEventListener("click", requestPopover);
-		timeTrigger.addEventListener("click", function (ev) {
-			ev.preventDefault();
-			requestPopover();
-			timeInput.focus();
-		});
+		timeInput.addEventListener("click",closeTaskTimePopover);
+		timeInput.addEventListener("keydown",function(e){if((e.altKey&&e.key==="ArrowDown")||e.key==="F4"){e.preventDefault();requestPopover();}});
+		timeTrigger.addEventListener("click",function(e){e.preventDefault();requestPopover();});
 		function syncManualDateTimeInput() {
 			if (!api) return;
-			keepDateTimeRangeValid(api);
+			dateInput.classList.toggle("is-empty",!dateInput.value);timeInput.classList.toggle("is-empty",!timeInput.value);
 			updateDurationLabel();
 		}
 		dateInput.addEventListener("input", syncManualDateTimeInput);
@@ -8419,14 +8543,16 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		};
 		return api;
 	}
-	var startParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.start"), "tc-planner-te-start", sm, false);
-	var endParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.end"), "tc-planner-te-end", em, false);
+	var startParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.start"), "tc-planner-te-start", sm, true);
+	var endParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.end"), "tc-planner-te-end", em, true);
+	if (workbench) { startParts.clear(); endParts.clear(); startParts.setDateTimeString(workbench.model.start); endParts.setDateTimeString(workbench.model.due); }
 
 	var dateMetaGrid = document.createElement("div");
 	dateMetaGrid.className = "tc-planner-te-grid tc-planner-te-grid--dates";
 	var scheduledParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.scheduled"), "tc-planner-te-scheduled", taskAdvanced.scheduledDate, true);
+	if (workbench) scheduledParts.setDateTimeString(workbench.model.scheduled);
 	var createdParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.created"), "tc-planner-te-created", taskAdvanced.createdDate, true);
-	var doneParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.done"), "tc-planner-te-done", taskAdvanced.doneDate || completionSeedLocal, true);
+	var doneParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.done"), "tc-planner-te-done", workbench ? workbench.model.completion : (taskAdvanced.doneDate || completionSeedLocal), true);
 	var cancelledParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.cancelled"), "tc-planner-te-cancelled", taskAdvanced.cancelledDate, true);
 	dateMetaGrid.appendChild(scheduledParts.field);
 	dateMetaGrid.appendChild(createdParts.field);
@@ -8435,53 +8561,26 @@ function openTaskDateTimeEditor(taskEl, opts) {
 
 	var statusGrid = document.createElement("div");
 	statusGrid.className = "tc-planner-te-grid tc-planner-te-grid--status";
-	var statusBar = document.createElement("div");
-	statusBar.className = "tc-planner-te-status";
-	var statusButtons = [];
-	var rangeDurationValue = null;
-	var doneDurationValue = null;
-	var actualDurationItem = null;
-	TASKS_STATUS_OPTIONS.forEach(function (opt) {
-		var b = document.createElement("button");
-		b.type = "button";
-		b.className = "tc-planner-te-status-btn";
-		var statusLabel = tcRuntimeT(opt.labelKey);
-		var statusSyntax = statusLabel + " [" + opt.mark + "]";
-		b.textContent = statusLabel;
-		b.setAttribute("title", statusSyntax);
-		b.setAttribute("aria-label", statusSyntax);
-		b.addEventListener("click", function () {
-			taskAdvanced.status = opt.value;
-			syncStatusEditorState();
-		});
-		statusButtons.push({ button: b, value: opt.value });
-		statusBar.appendChild(b);
-	});
-	statusGrid.appendChild(wrapField(tcRuntimeT("runtime.tasksCalendar.fields.status"), statusBar, "", "tc-planner-te-field--status"));
-	function syncStatusEditorState() {
-		var status = normalizeTaskStatusValue(taskAdvanced.status);
-		statusButtons.forEach(function (item) {
-			var active = item.value === status;
-			item.button.classList.toggle("is-active", active);
-			item.button.setAttribute("aria-pressed", active ? "true" : "false");
-		});
-		doneParts.setDisabled(status !== "done");
-		cancelledParts.setDisabled(status !== "cancelled");
-		if (status === "done" && !doneParts.readDateTimeString()) doneParts.setDateTimeString(moment().format("YYYY-MM-DD HH:mm"));
-		if (status === "cancelled" && !cancelledParts.readDateTimeString()) cancelledParts.setDateTimeString(moment().format("YYYY-MM-DD HH:mm"));
-		if (status !== "done") doneParts.clear();
-		if (status !== "cancelled") cancelledParts.clear();
+	var statusBar=document.createElement("select");statusBar.className="dropdown";
+	var rangeDurationValue=null,doneDurationValue=null,actualDurationItem=null;
+	TASKS_STATUS_OPTIONS.forEach(function(opt){var option=document.createElement("option");option.value=opt.value;option.textContent=tcRuntimeT(opt.labelKey);statusBar.appendChild(option);});
+	if(workbench&&!TASKS_STATUS_OPTIONS.some(function(opt){return opt.value===taskAdvanced.status;})){
+		var customStatus=document.createElement("option");customStatus.value=taskAdvanced.status;customStatus.textContent="["+taskAdvanced.status+"]";statusBar.appendChild(customStatus);
+	}
+	statusBar.addEventListener("change",function(){taskAdvanced.status=statusBar.value;syncStatusEditorState(true);});
+	var statusField=wrapField(tcRuntimeT("runtime.tasksCalendar.fields.status"),statusBar,"tc-planner-te-status","tc-planner-te-field--status");
+	function syncStatusEditorState(changed){
+		var status=taskAdvanced.status;statusBar.value=status;
+		doneParts.setDisabled(status!=="done");cancelledParts.setDisabled(status!=="cancelled");
+		if(changed){
+			if(status==="done"&&!doneParts.readDateTimeString())doneParts.setDateTimeString(moment().format("YYYY-MM-DD"));
+			if(status==="cancelled"&&!cancelledParts.readDateTimeString())cancelledParts.setDateTimeString(moment().format("YYYY-MM-DD"));
+			if(status!=="done")doneParts.clear();if(status!=="cancelled")cancelledParts.clear();
+		}
 		updateDurationLabel();
 	}
-	function syncPriorityEditorState() {
-		priorityButtons.forEach(function (item) {
-			var active = item.value === normalizePriorityValue(taskPriority);
-			item.button.classList.toggle("is-active", active);
-			item.button.setAttribute("aria-pressed", active ? "true" : "false");
-		});
-	}
-	syncPriorityEditorState();
-	syncStatusEditorState();
+	function syncPriorityEditorState(){priorityBar.value=normalizePriorityValue(taskPriority);}
+	syncPriorityEditorState();syncStatusEditorState();
 
 	var durationSummaryRow = document.createElement("div");
 	durationSummaryRow.className = "tc-planner-te-duration-summary";
@@ -8549,26 +8648,10 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	grid.appendChild(startParts.field);
 	grid.appendChild(endParts.field);
 
-	function keepDateTimeRangeValid(parts) {
-		var ns = startParts.readMoment();
-		var ne = endParts.readMoment();
-		if (parts === startParts && ns.isValid() && ne.isValid() && !ne.isAfter(ns)) {
-			endParts.setMoment(ns.clone().add(Math.max(5, activeStepMin), "minutes"));
-		} else if (parts === endParts && ns.isValid() && ne.isValid() && !ne.isAfter(ns)) {
-			startParts.setMoment(ne.clone().subtract(Math.max(5, activeStepMin), "minutes"));
-		}
-	}
-	function nudgeDateTimePart(parts, direction) {
-		var delta = (parseInt(direction, 10) || 1) * activeStepMin;
-		if (!parts || typeof parts.nudgeBy !== "function") { return; }
-		parts.nudgeBy(delta);
-		keepDateTimeRangeValid(parts);
-		updateDurationLabel();
-	}
 
 	var repeatDepsBlock = document.createElement("details");
 	repeatDepsBlock.className = "tc-planner-te-block tc-planner-te-section tc-planner-te-section--repeat";
-	repeatDepsBlock.open = !!(taskAdvanced.repeat || selectedBeforeRefs.length || selectedAfterRefs.length);
+	repeatDepsBlock.open = false;
 	var advancedSummary = document.createElement("summary");
 	advancedSummary.className = "tc-planner-te-advanced-summary";
 	advancedSummary.textContent = tcRuntimeT("runtime.tasksCalendar.editor.advanced");
@@ -8750,6 +8833,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		box.appendChild(suggestions);
 		wrap.appendChild(box);
 		renderChips();
+		wrap.refreshSelection=renderChips;
 		return wrap;
 	}
 	var dependencyGrid = document.createElement("div");
@@ -8775,19 +8859,12 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	actionsSecondary.className = "tc-planner-te-actions tc-planner-te-actions--secondary";
 	var actionsPrimary = document.createElement("div");
 	actionsPrimary.className = "tc-planner-te-actions tc-planner-te-actions--primary";
-	function tcTaskEditorIcon(name) {
-		var map = {
-			"external-link": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
-			"trash-2": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
-			save: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>'
-		};
-		return map[name] || "";
-	}
+
 	function makeTaskEditorIconButton(kind, iconName, label) {
 		var button = document.createElement("button");
 		button.type = "button";
 		button.className = "tc-planner-te-btn tc-planner-te-btn--icon tc-planner-te-btn--" + kind;
-		button.innerHTML = tcTaskEditorIcon(iconName);
+		bridge.setTaskEditorIcon(button,iconName,label);
 		button.title = label;
 		button.setAttribute("aria-label", label);
 		return button;
@@ -8802,11 +8879,34 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	actionsRow.appendChild(actionsSecondary);
 	actionsRow.appendChild(actionsPrimary);
 
+	var workbenchSaving=false,workbenchSaved=false,workbenchInitialFields;
+	var editorDateParts={start:startParts,due:endParts,scheduled:scheduledParts,created:createdParts,completion:doneParts,cancelled:cancelledParts};
+	var originalBeforeRefs=selectedBeforeRefs.slice();
+	function readWorkbenchInputs(){
+		var value={title:inTitle.value.trim().replace(/[\r\n]+/g," "),tags:inTags.value.trim(),priority:taskPriority,repeat:repeatInput.value.trim(),status:taskAdvanced.status};
+		for(var key in editorDateParts)value[key]=editorDateParts[key].readDateTimeString();return value;
+	}
+	function readWorkbenchFields(){
+		var value=readWorkbenchInputs();value.dateInputs={};value.patch={};
+		for(var key in editorDateParts){var parts=editorDateParts[key];value.dateInputs[key]={date:parts.dateInput.value,time:parts.timeInput.value};}
+		if(workbenchInitialFields)for(var field in workbenchInitialFields)if(value[field]!==workbenchInitialFields[field])value.patch[field]=value[field];
+		value.before=selectedBeforeRefs.slice();value.after=selectedAfterRefs.slice();
+		var refKeys=function(refs){return refs.map(taskDependencyRefKey).sort().join("\n");};
+		if(refKeys(value.before)!==refKeys(originalBeforeRefs)||refKeys(value.after)!==refKeys(originalAfterRefs))value.dependencies={before:value.before,after:value.after,originalAfter:originalAfterRefs,knownIds:getKnownTaskIds()};
+		return value;
+	}
 	var close = function () {
+		if (workbenchSaving) return;
+		if(workbench&&!workbenchSaved&&Object.values(editorDateParts).some(function(parts){return parts.dateInput.validity.badInput||parts.timeInput.validity.badInput;})){
+			workbenchError.textContent=tcRuntimeT("runtime.tasksCalendar.notice.finishDateTime");return;
+		}
+		if (workbench && !workbenchSaved) workbench.onDraft(readWorkbenchFields());
 		closeTaskTimePopover();
+		window.removeEventListener("resize", positionWorkbench);
 		try { overlay.remove(); } catch (_) {}
 		try {
-			if (returnFocusEl && typeof returnFocusEl.focus === "function") {
+			if (workbench) workbench.restoreFocus();
+			else if (returnFocusEl && typeof returnFocusEl.focus === "function") {
 				returnFocusEl.focus({ preventScroll: true });
 			}
 		} catch (_) {}
@@ -8819,6 +8919,13 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	doneParts.timeInput.addEventListener("input", updateDurationLabel);
 	btnClose.onclick = close;
 	btnOpen.onclick = function () {
+		if(workbench) {
+			btnOpen.disabled=true;
+			Promise.resolve().then(()=>workbench.onOpenSource()).then(result=>{if(result?.ok)close();})
+				.catch(error=>{workbenchError.textContent=String(error?.message||error);})
+				.finally(()=>{btnOpen.disabled=false;});
+			return;
+		}
 		try {
 			if (createMode) {
 				showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.createBeforeOpen"));
@@ -8855,6 +8962,13 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		closeTaskTimePopover();
 	});
 	overlay.addEventListener("keydown", function (e) {
+		if (e.isComposing || e.keyCode === 229) return;
+		if (e.key === "Tab") {
+			var focusable = Array.from(panel.querySelectorAll("button,input,textarea,select,summary,[tabindex='0']")).filter(function(el){return !el.disabled && el.getClientRects().length;});
+			var index = focusable.indexOf(document.activeElement);
+			if (e.shiftKey && index <= 0) { e.preventDefault(); focusable[focusable.length-1]?.focus(); }
+			else if (!e.shiftKey && index === focusable.length-1) {e.preventDefault(); focusable[0]?.focus();}
+		}
 		if (e.key === "Escape") {
 			e.preventDefault();
 			if (activeTimePopover && activeTimePopover.el) {
@@ -8869,6 +8983,26 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		}
 	});
 	async function persistDateTime() {
+		if (workbench) {
+			if (workbenchSaving) return false;
+			var value = readWorkbenchFields();
+			if (!value.title) {inTitle.focus();return false;}
+			var dateFields = Object.values(editorDateParts);
+			var invalid=dateFields.find(function(p){return !p.dateInput.validity.valid||!p.timeInput.validity.valid||(p.timeInput.value&&!p.dateInput.value);});
+			if (invalid) {
+				workbenchError.textContent=tcRuntimeT("runtime.tasksCalendar.notice.dateBeforeTime");invalid.dateInput.focus();return false;
+			}
+			workbenchSaving=true; panel.setAttribute("aria-busy","true"); workbenchError.textContent="";
+			var controls=Array.from(panel.querySelectorAll("input,textarea,select,button")); var disabled=controls.map(function(el){return el.disabled;});
+			controls.forEach(function(el){el.disabled=true;});
+			try { await workbench.onSave(value);workbenchSaved=true;workbenchSaving=false;close();return true; }
+			catch(error) {
+				workbench.onDraft(value);
+				var message=/invalid-date|end-before/.test(error.message)?tcRuntimeT("workbench.taskInvalidDates"):/not-found|ambiguous|task-changed/.test(error.message)?tcRuntimeT("workbench.taskChanged"):error.message;
+				workbenchError.textContent=tcRuntimeT("runtime.tasksCalendar.notice.saveFailed",{message:message});return false;
+			}
+			finally {workbenchSaving=false;panel.removeAttribute("aria-busy");controls.forEach(function(el,i){el.disabled=disabled[i];});}
+		}
 		var ns = startParts.readMoment();
 		var ne = endParts.readMoment();
 		var startField = parseDateTimeValue(startParts.readDateTimeString());
@@ -9006,7 +9140,8 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		btnDelete.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.task.deleting"));
 		btnDelete.title = tcRuntimeT("runtime.tasksCalendar.task.deleting");
 		try {
-			await mdTaskAdapter.removeTask(taskEl, { suppressRefresh: true, silentNotice: true });
+			if(workbench){workbenchSaving=true;await workbench.onDelete();workbenchSaving=false;workbenchSaved=true;}
+			else await mdTaskAdapter.removeTask(taskEl, { suppressRefresh: true, silentNotice: true });
 			try { taskEl.remove(); } catch (_) {}
 			forceImmediateTimelineVisibility([
 				String(taskEl.getAttribute("data-start-date") || ""),
@@ -9015,6 +9150,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.task.deleted"));
 			close();
 		} catch (err) {
+			workbenchSaving=false;
 			console.error("[tasksCalendar] delete failed:", err);
 			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.deleteFailed", { message: err && err.message ? err.message : err }));
 		}
@@ -9025,20 +9161,78 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		btnDelete.title = tcRuntimeT("runtime.tasksCalendar.task.deleteWithWriteback");
 	};
 
-	var timeBlock = document.createElement("div");
-	timeBlock.className = "tc-planner-te-block";
-	timeBlock.appendChild(grid);
-	timeBlock.appendChild(dateMetaGrid);
-	timeBlock.appendChild(statusGrid);
-	timeBlock.appendChild(durationSummaryRow);
+	var titleField=inTitle.closest(".tc-planner-te-field"),tagsField=inTags.closest(".tc-planner-te-field");
+	titleField.classList.add("tc-planner-te-title-field");tagsField.classList.add("tc-planner-te-tags-field");
+	var properties=document.createElement("div");properties.className="tc-planner-te-properties";properties.append(statusField,priorityField);
+	var dateGroup=document.createElement("div");dateGroup.className="tc-planner-te-dates";dateGroup.append(startParts.field,scheduledParts.field,endParts.field);
+	var lifecycle=document.createElement("details");lifecycle.className="tc-planner-te-details";
+	var lifecycleSummary=document.createElement("summary");lifecycleSummary.textContent=tcRuntimeT("runtime.tasksCalendar.editor.dateDetails");
+	lifecycle.append(lifecycleSummary,dateMetaGrid,durationSummaryRow);
+	repeatDepsBlock.classList.add("tc-planner-te-details");
+	var advancedLabel=document.createElement("span");advancedLabel.textContent=tcRuntimeT("runtime.tasksCalendar.editor.advanced");
+	var advancedHint=document.createElement("span");advancedHint.className="tc-planner-te-summary-hint";advancedSummary.replaceChildren(advancedLabel,advancedHint);
+	function updateSummary(){advancedHint.textContent=[repeatInput.value.trim(),selectedBeforeRefs.length?tcRuntimeT("runtime.tasksCalendar.editor.prerequisiteCount",{count:selectedBeforeRefs.length}):"",selectedAfterRefs.length?tcRuntimeT("runtime.tasksCalendar.editor.followupCount",{count:selectedAfterRefs.length}):""].filter(Boolean).join(" · ");}
+	repeatDepsBlock.addEventListener("input",updateSummary);repeatDepsBlock.addEventListener("click",function(){queueMicrotask(updateSummary);});updateSummary();
+	btnOpen.classList.add("tc-planner-te-source");
+	var sourceLabel=document.createElement("span");sourceLabel.textContent=String(currentMetaForDeps.filePath||"").split("/").pop().replace(/\.md$/,"");btnOpen.appendChild(sourceLabel);
+	actionsSecondary.appendChild(btnOpen);
+	panel.append(head,titleField,properties,tagsField,dateGroup,repeatDepsBlock,lifecycle,actionsRow);
+	if(workbench?.destination){
+		var destination=workbench.destination;
+		var destinationField=document.createElement("div");destinationField.className="tc-planner-te-destination";
+		var destinationLabel=document.createElement("span");destinationLabel.className="tc-planner-te-label";destinationLabel.textContent=tcRuntimeT("workbench.adoptionDestination");
+		var destinationButton=document.createElement("button");destinationButton.type="button";destinationButton.className="noria-review-text-action";
+		var updateDestination=function(){destinationButton.textContent=destination.label();destinationButton.title=destination.detail();};
+		destinationButton.onclick=async function(){destinationButton.disabled=true;try{await destination.choose();updateDestination();}catch(error){workbenchError.textContent=String(error?.message||error);}finally{destinationButton.disabled=false;destinationButton.focus();}};
+		updateDestination();destinationField.append(destinationLabel,destinationButton);panel.insertBefore(destinationField,properties);
+		btnOpen.hidden=true;btnDelete.hidden=true;
+	}
+	if(workbench?.onOpenOrigin){
+		var originButton=makeTaskEditorIconButton("ghost","link",tcRuntimeT("workbench.adoptionOpenOrigin"));
+		originButton.classList.add("tc-planner-te-origin");actionsSecondary.appendChild(originButton);
+		originButton.onclick=function(){close();if(overlay.isConnected)return;Promise.resolve(workbench.onOpenOrigin()).catch(error=>showDebugNotice(error.message));};
+	}
+	function sizeTitle(){inTitle.style.height="auto";inTitle.style.height=Math.min(112,inTitle.scrollHeight)+"px";}
+	inTitle.addEventListener("input",sizeTitle);
 
-	panel.appendChild(head);
-	panel.appendChild(metaGrid);
-	panel.appendChild(timeBlock);
-	panel.appendChild(repeatDepsBlock);
-	panel.appendChild(actionsRow);
+	var workbenchError = document.createElement("div");
+	function positionWorkbench() {
+		if (!workbench || workbench.presentation==="modal") return;
+		var anchor=workbench.anchor, rect=anchor?.getBoundingClientRect?.();
+		var pane=anchor?.closest?.(".workspace-leaf-content")?.getBoundingClientRect();
+		var width=Math.min(520,window.innerWidth-24,pane&&pane.width>=320?pane.width-24:520);
+		panel.style.width=width+"px";
+		var height=panel.getBoundingClientRect().height;
+		var leftBound=pane&&pane.width>=320?Math.max(12,pane.left+12):12;
+		var rightBound=pane&&pane.width>=320?Math.min(window.innerWidth-12,pane.right-12):window.innerWidth-12;
+		var left=rect?Math.max(leftBound,Math.min(rect.left,rightBound-width)):(window.innerWidth-width)/2;
+		var top=rect?rect.bottom+8:Math.max(12,(window.innerHeight-height)/2);
+		if(top+height>window.innerHeight-12)top=Math.max(12,rect?rect.top-height-8:12);
+		top=Math.max(12,Math.min(top,window.innerHeight-height-12));
+		panel.style.left=left+"px";panel.style.top=top+"px";
+	}
+	if (workbench) {
+		overlay.dataset.sourcePath=taskEl.getAttribute("data-tc-path")||"";
+		overlay.dataset.sourceLine=taskEl.getAttribute("data-tc-line")||"";
+		workbenchError.className="tc-planner-te-error";workbenchError.setAttribute("role","status");panel.insertBefore(workbenchError,actionsRow);
+		var cancel=makeTaskEditorIconButton("ghost","undo-2",tcRuntimeT("workbench.discardTaskEdits"));cancel.classList.add("tc-planner-te-discard");
+		cancel.onclick=function(){workbenchSaved=true;workbench.onDiscard();close();};actionsPrimary.insertBefore(cancel,btnSave);
+		workbenchInitialFields=readWorkbenchInputs();
+		if(workbench.draft){
+			var draft=workbench.draft;inTitle.value=draft.title;if(draft.tags!=null)inTags.value=draft.tags;if(draft.priority)taskPriority=draft.priority;if(draft.repeat!=null)repeatInput.value=draft.repeat;
+			taskAdvanced.status=draft.status;
+			for(var key in editorDateParts)if(draft.dateInputs&&draft.dateInputs[key]){editorDateParts[key].dateInput.value=draft.dateInputs[key].date;editorDateParts[key].timeInput.value=draft.dateInputs[key].time;}
+			if(draft.before)selectedBeforeRefs.splice(0,selectedBeforeRefs.length,...draft.before);
+			if(draft.after)selectedAfterRefs.splice(0,selectedAfterRefs.length,...draft.after);
+			Array.from(dependencyGrid.children).forEach(function(picker){picker.refreshSelection();});
+			syncPriorityEditorState();syncStatusEditorState();updateSummary();
+		}
+		window.addEventListener("resize",positionWorkbench);
+	}
 	overlay.appendChild(panel);
 	document.body.appendChild(overlay);
+	positionWorkbench();sizeTitle();
+	for(var key in editorDateParts){var pair=editorDateParts[key];pair.dateInput.classList.toggle("is-empty",!pair.dateInput.value);pair.timeInput.classList.toggle("is-empty",!pair.timeInput.value);}
 	setTimeout(function () {
 		overlay.focus();
 		inTitle.focus();
@@ -9095,7 +9289,7 @@ function openTaskDateTimeEditorFromMarkdownLine(payload) {
 	desc.textContent = titleInfo.title;
 	inner.appendChild(desc);
 	synthetic.appendChild(inner);
-	openTaskDateTimeEditor(synthetic, { returnFocusEl: payload.returnFocusEl || null });
+	openTaskDateTimeEditor(synthetic, { returnFocusEl: payload.returnFocusEl || null, workbench:payload.workbench || null });
 	return true;
 }
 
@@ -10780,7 +10974,7 @@ function setButtonEvents() {
 				getMonth(tasks, selectedDate);
 			} else if (btn.classList.contains("dayView")) {
 				try { rootNode.classList.remove("todayFocus"); } catch (_) {}
-				selectedDate = moment().startOf("day");
+				selectedDate = moment(selectedDate || moment()).startOf("day");
 				getDay(tasks, selectedDate);
 			} else if (btn.classList.contains("listView")) {
 				try { rootNode.classList.remove("todayFocus"); } catch (_) {}
@@ -10789,7 +10983,6 @@ function setButtonEvents() {
 				getList(tasks, getEisenhowerFocusDate());
 			} else if (btn.classList.contains("weekView")) {
 				try { rootNode.classList.remove("todayFocus"); } catch (_) {}
-				selectedDate = taskCalendarConfiguredWeekStart(moment());
 				getWeek(tasks, selectedDate);
 			} else if (btn.classList.contains("statistic")) {
 				try {
@@ -11895,6 +12088,42 @@ function enforcePlannerChromeWeekGridLayout(options) {
 	});
 }
 
+function syncPlannerChromeWeekDayFocus() {
+	if (!isPlannerChromeTimelineView(rootNode, ["week"]) || !tcFeatureFlags.dayView) { return; }
+	rootNode.querySelectorAll(".grid > .cell[data-date]").forEach(function (cell) {
+		var button = cell.querySelector(".tc-week-day-focus");
+		if (!button) {
+			button = document.createElement("button");
+			button.type = "button";
+			button.className = "tc-week-day-focus clickable-icon";
+			var date = cell.getAttribute("data-date");
+			var label = tcRuntimeT("runtime.tasksCalendar.view.expandDay", { date: date });
+			bridge.setTaskEditorIcon(button, "expand", label);
+			button.title = label;
+			button.setAttribute("aria-label", label);
+			button.addEventListener("click", function (event) {
+				event.preventDefault();
+				event.stopPropagation();
+				rootNode.classList.remove("todayFocus");
+				getDay(tasks, date);
+				rootNode.querySelector(".weekView")?.focus({ preventScroll: true });
+			});
+			cell.appendChild(button);
+		}
+		cell.classList.add("tc-week-day-focusable");
+		var heading = cell.querySelector(".cellName");
+		if (heading) {
+			heading.setAttribute("data-day-number", String(Number(cell.getAttribute("data-date").slice(-2))));
+			heading.title = cell.getAttribute("data-date");
+		}
+		cell.classList.toggle("tc-week-day-compact", cell.getBoundingClientRect().width < 100);
+		var crowded = Array.from(cell.querySelectorAll(".timeLane > .tc-cal-item[data-overlap-cols]")).some(function (task) {
+			return Number(task.getAttribute("data-overlap-cols")) > 1 && task.getBoundingClientRect().width < 72;
+		});
+		cell.classList.toggle("tc-week-day-crowded", crowded);
+	});
+}
+
 function applyPlannerChromeOverlapLayout(targetLanes) {
 	if (!isPlannerChromeTimelineView(rootNode, ["week", "day"])) { return; }
 	var dayStartOv = getPlannerChromeTimelineStartMin();
@@ -11966,22 +12195,21 @@ function applyPlannerChromeOverlapLayout(targetLanes) {
 			if (group.length === 1) {
 				return;
 			}
-			group.sort((a, b) => a.start - b.start || a.end - b.end);
-			var active = [];
+			group.sort((a, b) => a.start - b.start || b.end - a.end);
 			var byColEnd = [];
+			var columns = [];
 			var maxCols = 0;
 			group.forEach((item) => {
-				for (var x = active.length - 1; x >= 0; x--) {
-					if (active[x].end <= item.start) { active.splice(x, 1); }
-				}
 				var col = 0;
 				while (col < byColEnd.length && byColEnd[col] > item.start) { col++; }
 				byColEnd[col] = item.end;
 				item.col = col;
-				active.push(item);
+				if (!columns[col]) { columns[col] = []; }
+				columns[col].push(item);
 				if (col + 1 > maxCols) { maxCols = col + 1; }
 			});
-			/* 并列：列宽均分，列间等距间隙（避免旧公式仅在 col>0 加半隙导致多列不齐） */
+			// Retain the collision columns, but let each task use adjacent columns
+			// that are unoccupied throughout its own displayed interval.
 			var gapPct = 1.15;
 			var n = Math.max(1, maxCols);
 			var usable = 100 - gapPct * (n - 1);
@@ -11992,11 +12220,16 @@ function applyPlannerChromeOverlapLayout(targetLanes) {
 					left = 0;
 					width = 100;
 				} else {
+					var span = 1;
+					for (var nextCol = item.col + 1; nextCol < n; nextCol++) {
+						if (columns[nextCol].some((other) => overlaps(item, other))) { break; }
+						span++;
+					}
 					left = item.col * (cellPct + gapPct);
-					width = cellPct;
+					width = span * cellPct + (span - 1) * gapPct;
 				}
 				item.el.style.setProperty("--ov-left", Math.max(0, left).toFixed(3) + "%");
-				item.el.style.setProperty("--ov-width", Math.max(6, width).toFixed(3) + "%");
+				item.el.style.setProperty("--ov-width", Math.max(0, width).toFixed(3) + "%");
 				item.el.setAttribute("data-overlap-cols", String(n));
 				item.el.setAttribute("data-overlap-col", String(item.col));
 			});
@@ -12017,6 +12250,18 @@ function tcGetWeekAdaptiveStableKey(taskEl) {
 	} catch (_) {}
 	return "";
 }
+function formatPlannerTaskAccessibleTime(taskEl, localTimeLabel) {
+	var startDate = taskEl.getAttribute("data-start-date") || "";
+	var endDate = taskEl.getAttribute("data-due-date") || "";
+	var startTime = taskEl.getAttribute("data-start-time") || "";
+	var endTime = taskEl.getAttribute("data-due-time") || "";
+	if (startDate && endDate && startDate !== endDate) {
+		return startDate + (startTime ? " " + startTime : "") + " → " + endDate + (endTime ? " " + endTime : "");
+	}
+	if (startTime && endTime) { return startTime + "–" + endTime; }
+	return localTimeLabel;
+}
+
 function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 	if (!isPlannerChromeTimelineView(rootNode, ["week", "day"])) { return; }
 	var labCfg = tcReadPlannerLabControls();
@@ -12141,6 +12386,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 		return Math.max(minReserve, Math.min(maxReserve, Math.round(textLen * charPx + padPx)));
 	}
 	var tcMeasureCanvas = null;
+	var plannerTimeTypography = { fontSize: 11, weight: 500, lineHeight: 14, gap: 1, bottom: 5, titleGap: 3 };
 	function measureWeekTaskTextPx(taskEl, sample, fallbackCharPx) {
 		var text = String(sample || "");
 		if (!text) { return 0; }
@@ -12151,9 +12397,9 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			var ctx = tcMeasureCanvas && tcMeasureCanvas.getContext ? tcMeasureCanvas.getContext("2d") : null;
 			if (ctx) {
 				var css = taskEl && typeof window !== "undefined" && window.getComputedStyle ? window.getComputedStyle(taskEl) : null;
-				var fontSize = css ? (css.fontSize || "11px") : "11px";
+				var fontSize = plannerTimeTypography.fontSize + "px";
 				var fontFamily = css ? (css.fontFamily || "sans-serif") : "sans-serif";
-				var fontWeight = css ? (css.fontWeight || "500") : "500";
+				var fontWeight = plannerTimeTypography.weight;
 				ctx.font = fontWeight + " " + fontSize + " " + fontFamily;
 				return Math.ceil(ctx.measureText(text).width || 0);
 			}
@@ -12190,11 +12436,10 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			} catch (_) {}
 		}
 		var bottomBand = Math.max(0, height - titleNeedH - 4);
-		var isOverlapped = overlapCols >= 2;
 		var canReadTitle = width >= minReadableTitleW && height >= (titleLinePx + 5);
-		var stackBandNeed = compact ? 18 : 20;
-		var cornerBandNeed = compact ? 11 : 12;
-		var startBandNeed = compact ? 9 : 10;
+		var cornerBandNeed = plannerTimeTypography.lineHeight + plannerTimeTypography.bottom + plannerTimeTypography.titleGap;
+		var stackBandNeed = cornerBandNeed + plannerTimeTypography.lineHeight + plannerTimeTypography.gap;
+		var startBandNeed = cornerBandNeed;
 		var decision = {
 			mode: "hidden",
 			placement: "hidden",
@@ -12202,37 +12447,27 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			timeBandPx: 0,
 			reason: "hidden"
 		};
-		if ((viewName !== "week" && viewName !== "day") || !hasStart || width < 34 || height < 18 || !canReadTitle) {
+		if ((viewName !== "week" && viewName !== "day") || !hasStart || width < 52 || height < 38 || !canReadTitle) {
 			return decision;
 		}
-		var dayWide = viewName === "day" && width >= 120;
-		var fullCornerFits = hasEnd && measuredFullNeed > 0 && measuredFullNeed <= Math.max(44, width - 12) && bottomBand >= cornerBandNeed;
-		var stackFits = hasEnd && measuredStackNeed > 0 && measuredStackNeed <= Math.max(38, width - 10) && bottomBand >= stackBandNeed;
-		var startFits = startTimeNeed > 0 && startTimeNeed <= Math.max(30, width - 10) && bottomBand >= startBandNeed;
-		var tallEnoughForStack = height >= (compact ? 38 : 42);
-		var tallEnoughForCorner = height >= (compact ? 28 : 30);
+		var textWidth = Math.max(0, width - 16);
+		var fullCornerFits = hasEnd && measuredFullNeed > 0 && measuredFullNeed <= textWidth && bottomBand >= cornerBandNeed;
+		var stackFits = hasEnd && measuredStackNeed > 0 && measuredStackNeed <= textWidth && bottomBand >= stackBandNeed;
+		var startFits = startTimeNeed > 0 && startTimeNeed <= textWidth && bottomBand >= startBandNeed;
 		if (hasEnd) {
-			if (isOverlapped && stackFits && tallEnoughForStack) {
-				decision.mode = "full-stacked";
-				decision.placement = "range-stack";
-				decision.cornerTimeOk = true;
-				decision.timeBandPx = 23;
-				decision.reason = "overlap-stack-fit";
-				return decision;
-			}
-			if ((dayWide || !isOverlapped) && fullCornerFits && tallEnoughForCorner) {
+			if (fullCornerFits) {
 				decision.mode = "full-stacked";
 				decision.placement = "range-corner";
 				decision.cornerTimeOk = true;
-				decision.timeBandPx = 16;
+				decision.timeBandPx = cornerBandNeed;
 				decision.reason = "range-corner-fit";
 				return decision;
 			}
-			if (stackFits && height >= 48) {
+			if (stackFits) {
 				decision.mode = "full-stacked";
 				decision.placement = "range-stack";
 				decision.cornerTimeOk = true;
-				decision.timeBandPx = 23;
+				decision.timeBandPx = stackBandNeed;
 				decision.reason = "range-stack-fallback";
 				return decision;
 			}
@@ -12241,7 +12476,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			decision.mode = "start-only";
 			decision.placement = "start-corner";
 			decision.cornerTimeOk = true;
-			decision.timeBandPx = 14;
+			decision.timeBandPx = startBandNeed;
 			decision.reason = "start-fit";
 		}
 		return decision;
@@ -12392,11 +12627,11 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			var fullTimeNeed = Math.round(Math.max(startLen, endLen || 0) * charPxTime + 12);
 			var startTimeNeed = Math.round(Math.max(4, startLen) * charPxTime + 10);
 			var measuredStartNeed = Math.round(measureWeekTaskTextPx(taskEl, timeTexts.start || "", compact ? 5.0 : 5.4) + 10);
-			var measuredFullNeed = Math.round(measureWeekTaskTextPx(taskEl, (timeTexts.start || "") + (timeTexts.end ? (" - " + timeTexts.end) : ""), compact ? 5.0 : 5.4) + 12);
+			var measuredFullNeed = measureWeekTaskTextPx(taskEl, (timeTexts.start || "") + (timeTexts.end ? (" – " + timeTexts.end) : ""), 6);
 			var measuredStackNeed = Math.round(Math.max(
 				measureWeekTaskTextPx(taskEl, timeTexts.start || "", compact ? 5.0 : 5.4),
 				measureWeekTaskTextPx(taskEl, timeTexts.end || "", compact ? 5.0 : 5.4)
-			) + 8);
+			));
 			startTimeNeed = Math.max(startTimeNeed, measuredStartNeed);
 			fullTimeNeed = Math.max(fullTimeNeed, measuredFullNeed);
 			var sameBandStartOk = false;
@@ -12688,7 +12923,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			if (hideTime) {
 				timeBandPx = 0;
 			} else if (timePlacement === "range-stack") {
-				timeBandPx = Math.max(timeBandPx || 0, 23);
+				timeBandPx = Math.max(timeBandPx || 0, 27);
 			} else if (timePlacement === "range-corner") {
 				timeBandPx = Math.max(timeBandPx || 0, 16);
 			} else if (timePlacement === "start-corner") {
@@ -12698,8 +12933,12 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			syncTimeTextByDensity(taskEl, mode);
 			if (fullText || fullTimeLabel) {
 				var accessText = fullText || "";
-				if (fullTimeLabel) { accessText = accessText ? (accessText + " · " + fullTimeLabel) : fullTimeLabel; }
-				setAttrIfChanged(taskEl, "title", accessText);
+				var accessibleTime = formatPlannerTaskAccessibleTime(taskEl, fullTimeLabel);
+				if (accessibleTime) { accessText = accessText ? (accessText + "\n" + accessibleTime) : accessibleTime; }
+				if (taskEl._noriaTooltipText !== accessText) {
+					bridge.setTaskCalendarTooltip(taskEl, accessText);
+					taskEl._noriaTooltipText = accessText;
+				}
 				setAttrIfChanged(taskEl, "aria-label", accessText);
 			}
 			var reserve = estimateTimeReserveByText(taskEl, mode, compact);
@@ -12714,21 +12953,24 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 						timeElForCorner.style.setProperty("display", "inline-flex", "important");
 						timeElForCorner.style.setProperty("position", "absolute", "important");
 						timeElForCorner.style.setProperty("right", "8px", "important");
-						timeElForCorner.style.setProperty("bottom", "2px", "important");
+						timeElForCorner.style.setProperty("bottom", plannerTimeTypography.bottom + "px", "important");
 						timeElForCorner.style.setProperty("flex-direction", timePlacement === "range-stack" ? "column" : "row", "important");
 						timeElForCorner.style.setProperty("width", "auto", "important");
 						timeElForCorner.style.setProperty("min-width", "0", "important");
+						timeElForCorner.style.setProperty("min-height", "0", "important");
+						timeElForCorner.style.setProperty("height", "auto", "important");
+						timeElForCorner.style.setProperty("padding", "0", "important");
 						timeElForCorner.style.setProperty("max-width", "calc(100% - 16px)", "important");
 						timeElForCorner.style.setProperty("justify-content", "flex-end", "important");
 						timeElForCorner.style.setProperty("align-items", timePlacement === "range-stack" ? "flex-end" : "center", "important");
-						timeElForCorner.style.setProperty("gap", timePlacement === "range-stack" ? "1px" : (mode === "full-stacked" ? "4px" : "0"), "important");
-						timeElForCorner.style.setProperty("font-size", timePlacement === "range-stack" ? "9.5px" : (mode === "full-stacked" ? "10px" : "9.5px"), "important");
-						timeElForCorner.style.setProperty("font-weight", "600", "important");
-						timeElForCorner.style.setProperty("line-height", "1.05", "important");
+						timeElForCorner.style.setProperty("gap", timePlacement === "range-stack" ? plannerTimeTypography.gap + "px" : "0", "important");
+						timeElForCorner.style.setProperty("font-size", plannerTimeTypography.fontSize + "px", "important");
+						timeElForCorner.style.setProperty("font-weight", String(plannerTimeTypography.weight), "important");
+						timeElForCorner.style.setProperty("line-height", plannerTimeTypography.lineHeight + "px", "important");
 						timeElForCorner.style.setProperty("font-variant-numeric", "tabular-nums", "important");
 						timeElForCorner.style.setProperty("text-align", "right", "important");
 						timeElForCorner.style.setProperty("pointer-events", "none", "important");
-						timeElForCorner.style.setProperty("opacity", "0.72", "important");
+						timeElForCorner.style.setProperty("opacity", "1", "important");
 					} else {
 						timeElForCorner.style.setProperty("display", "none", "important");
 						timeElForCorner.style.removeProperty("position");
@@ -12770,6 +13012,8 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 				if (inner && inner.style) {
 					if (cornerTimeOk && (mode === "full-stacked" || mode === "start-only")) {
 						inner.style.setProperty("position", "static", "important");
+						inner.style.setProperty("padding-bottom", timeBandPx + "px", "important");
+						inner.style.setProperty("align-content", "start", "important");
 						inner.style.setProperty("grid-template-columns", "minmax(0, 1fr)", "important");
 						inner.style.removeProperty("grid-template-rows");
 						inner.style.removeProperty("row-gap");
@@ -12778,6 +13022,8 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 						inner.style.setProperty("grid-template-columns", "minmax(0, 1fr) 0px", "important");
 						inner.style.setProperty("column-gap", "0", "important");
 						inner.style.removeProperty("position");
+						inner.style.removeProperty("padding-bottom");
+						inner.style.removeProperty("align-content");
 						inner.style.removeProperty("grid-template-rows");
 						inner.style.removeProperty("row-gap");
 					}
@@ -12801,6 +13047,8 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 				}
 				if (inner && inner.style) {
 					inner.style.removeProperty("position");
+						inner.style.removeProperty("padding-bottom");
+						inner.style.removeProperty("align-content");
 					inner.style.removeProperty("grid-template-columns");
 					inner.style.removeProperty("column-gap");
 					inner.style.removeProperty("grid-template-rows");
@@ -12864,7 +13112,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 var weekLanesFinalizeRaf = null;
 function runPlannerChromeWeekLanesFinalize(forceRun) {
 	if (!isPlannerChromeTimelineView(rootNode, ["week", "day"])) { return; }
-	if (plannerChromeInteractionActive && !forceRun) { return; }
+	if (plannerChromeInteractionActive) { return; }
 	var nowTs = Date.now();
 	var stamp = "";
 	try {
@@ -12887,6 +13135,7 @@ function runPlannerChromeWeekLanesFinalize(forceRun) {
 	try { applyPlannerChromeTimelineAxis(); } catch (_) {}
 	try { normalizePlannerChromeWeekTaskGeometry(); } catch (_) {}
 	try { applyPlannerChromeOverlapLayout(); } catch (_) {}
+	try { syncPlannerChromeWeekDayFocus(); } catch (_) {}
 	try { syncPlannerChromeWeekTimeBadgeVisibility(); } catch (_) {}
 	try { refreshPlannerChromeNowNeedle(); } catch (_) {}
 	try { setupPlannerChromeDragAndResize(); } catch (_) {}
@@ -13586,11 +13835,11 @@ function buildPlannerChromeWaitingItemFromEntry(ent, currentDate, doc) {
 				applyTaskDependencyStateToEl(item, task);
 				tcEnsureStatusCircle(item, task, typ);
 				normalizePlannerChromeWaitingItem(item);
-				if (ent.preAxis === true) {
+				if (ent.preAxis === true || typ === "overdue") {
 					var originalTime = normalizeTimeStr(getTimeForClass(task, typ));
 					var originalDate = coerceTemporalToYmd(task && task.due) || coerceTemporalToYmd(task && task.start) || "";
 					var originalWhen = [originalDate, originalTime].filter(Boolean).join(" ");
-					item.setAttribute("data-noria-before-visible-axis", "true");
+					if (ent.preAxis === true) item.setAttribute("data-noria-before-visible-axis", "true");
 					if (originalWhen) {
 						var waitingTitle = getPlannerChromeWaitingTaskText(item);
 						var waitingDetail = waitingTitle ? (waitingTitle + " · " + originalWhen) : originalWhen;
@@ -14429,7 +14678,7 @@ function syncPlannerChromeDayBucketChrome() {
 function schedulePlannerChromeWeekLanesFinalize(forceRun) {
 	if (!isPlannerChromeTimelineView(rootNode, ["week", "day"])) { return; }
 	if (forceRun) { weekLanesFinalizeForcePending = true; }
-	if (plannerChromeInteractionActive && !forceRun) { return; }
+	if (plannerChromeInteractionActive) { return; }
 	if (weekLanesFinalizeRaf !== null) { return; }
 	weekLanesFinalizeRaf = requestAnimationFrame(function () {
 		weekLanesFinalizeRaf = null;
@@ -14469,6 +14718,7 @@ function schedulePlannerChromeOverlapLayout(targetLanes) {
 		} else {
 			applyPlannerChromeOverlapLayout(Array.from(overlapRelayoutLaneSet));
 		}
+		syncPlannerChromeWeekDayFocus();
 		overlapRelayoutAll = false;
 		overlapRelayoutLaneSet.clear();
 	});
@@ -14569,6 +14819,8 @@ function setStatisticValues(dueCounter, doneCounter, overdueCounter, startCounte
 function cleanupTasksCalendarRuntime() {
 	if (tcRuntimeDisposed) { return; }
 	tcRuntimeDisposed = true;
+	if(calendarDragCancel)calendarDragCancel();
+	if(calendarUndoClose)calendarUndoClose();
 	tcStartupRecoverStopped = true;
 	clearStartupTaskRecoveryTimers();
 	clearFreshTaskInvalidationEvent();
@@ -14677,6 +14929,7 @@ function cleanupTasksCalendarRuntime() {
 }
 
 function removeExistingView() {
+	try { rootNode.querySelectorAll(".wrappers > .wrapper").forEach(captureMonthWeekScroll); } catch (_) {}
 	try {
 		if (tcVisibleIo) { tcVisibleIo.disconnect(); }
 		tcVisibleIo = null;
@@ -14916,6 +15169,7 @@ function getMonth(tasks, month) {
 	gridContent += "<div class='wrappers' data-month='"+monthName+"'>"+wrappers+"</div>";
 	var monthGrid = mountHtmlContainer("grid", gridContent);
 	unwrapGridSpanChildren(monthGrid);
+	prepareMonthWeekScroll(monthGrid);
 	scheduleGridHydration(monthGrid);
 	scheduleMonthCompactTimeSync();
 	setTimeout(function () { try { scheduleMonthCompactTimeSync(); } catch (_) {} }, 240);

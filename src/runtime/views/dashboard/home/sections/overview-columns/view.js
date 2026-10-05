@@ -183,7 +183,7 @@
         || new Notice(homeOverviewT("runtime.home.notice.missingPath", { path: p }), 4500);
       return false;
     }
-    await app.workspace.getLeaf(false).openFile(f);
+    await bridge.runtime.openHomeSource(p);
     return true;
   }
 
@@ -292,7 +292,7 @@
   function addToolbarPlusBtn(parent, tooltip, run, opts = {}) {
     const b = parent.createEl("button");
     b.type = "button";
-    b.textContent = "+";
+    paintIcon(b, "plus");
     b.setAttribute("aria-label", tooltip);
     b.setAttribute("title", tooltip);
     b.addClass("dashboard-guide-icon-btn");
@@ -301,9 +301,10 @@
   }
 
   function attachLinkedResizer(cards, options) {
+    if(input?.widgetInstanceId && bridge.runtime?.attachHomeCardResize)return;
     const targets = Array.isArray(cards) ? cards.filter(Boolean) : [];
     if (targets.length === 0) return;
-    const key = String(options?.storageKey || "");
+    const key = String(options?.storageKey || "") + (String(input?.widgetInstanceId||"").startsWith("card-")?":"+input.widgetInstanceId:"");
     const minH = Number(options?.minHeight || 220);
     const maxH = Number(options?.maxHeight || 980);
     const onResize = typeof options?.onResize === "function" ? options.onResize : null;
@@ -486,13 +487,18 @@
     if (colOpts.panelIds) card.setAttr("data-noria-overview-panel-id", String(colOpts.panelIds));
     if (colOpts.panelGroup) card.setAttr("data-noria-overview-panel-group", String(colOpts.panelGroup));
     if (colOpts.accent) card.style.setProperty("--dash-workbench-accent", String(colOpts.accent));
-    card.style.minHeight = cardMinLocal || "min(42vh,380px)";
+    card.style.minHeight = input?.widgetInstanceId ? "0" : cardMinLocal || "min(42vh,380px)";
 
     const headRow = card.createDiv();
     headRow.addClass("dashboard-workbench-panel__head");
     headRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px;flex-shrink:0;min-height:28px;";
     const titleEl = headRow.createDiv({ text: title });
     titleEl.addClass("dashboard-workbench-panel__title");
+    const titleIcon = document.createElement("span");
+    titleIcon.className = "dashboard-card-heading-icon";
+    titleIcon.setAttribute("aria-hidden", "true");
+    paintIcon(titleIcon, ({ tasks: "list-checks", inbox: "inbox", countdown: "calendar-clock" })[colOpts.panel] || "layout-dashboard");
+    titleEl.prepend(titleIcon);
     titleEl.style.cssText = "font-weight:760;font-size:0.96em;color:var(--dash-heading-text,var(--text-normal));letter-spacing:0.01em;";
     if (renderToolbar) {
       const tool = headRow.createDiv();
@@ -568,7 +574,7 @@
     if (panelId === "tasks") {
       payload.actionsHost = actionsHost;
       payload.periodHost = actionsHost;
-    } else if (panelId === "countdown") {
+    } else if (panelId === "countdown" || panelId === "inbox") {
       payload.actionsHost = actionsHost;
     }
     return runWorkbenchView(title, meta.path, payload, mount);

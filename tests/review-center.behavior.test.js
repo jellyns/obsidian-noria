@@ -4,13 +4,76 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { sourcePath } = require("./source-paths.cjs");
 const vm = require("node:vm");
+const D = require("../src/review-document.js");
 const { fingerprintReviewSection } = require("../src/review-center-core.js");
 
 const pluginRoot = path.resolve(__dirname, "..");
 
+test("review refresh keeps the mounted review instead of rebuilding Home", async () => {
+  const Plugin = loadPluginClass(), plugin = new Plugin();
+  let homeReloads = 0, reviewRefreshes = 0;
+  const mounted = { __noriaReviewRenderer: { refreshReviewSupport: async () => { reviewRefreshes++; } } };
+  const leaf = { view: { hostEl: { querySelectorAll: () => [mounted] }, reload: async () => { homeReloads++; } } };
+  plugin.app = { workspace: { getLeavesOfType: () => [leaf] } };
+  await plugin.reloadOpenNoriaViews("review");
+  assert.equal(reviewRefreshes, 1);
+  assert.equal(homeReloads, 0);
+  await plugin.reloadOpenNoriaViews("home");
+  assert.equal(homeReloads, 1);
+});
+
+test("task writeback refreshes the mounted Home workbench as well as Task Board",async()=>{
+  const Plugin=loadPluginClass(),plugin=new Plugin(),refreshed=[];
+  plugin.app={workspace:{getLeavesOfType:type=>[{view:{reload:async()=>refreshed.push(type)}}]}};
+  await plugin.reloadOpenNoriaViews("tasks");
+  assert.deepEqual(refreshed.sort(),["noria-dashboard-home","noria-tasks-calendar"]);
+});
+
+test("task writeback uses the mounted workbench task refresh",async()=>{
+  const Plugin=loadPluginClass(),plugin=new Plugin(),refreshed=[];
+  plugin.app={workspace:{getLeavesOfType:type=>[{view:{workbench:type==="noria-dashboard-home"?{refreshTasks:async()=>refreshed.push("home tasks")}:null,reload:async()=>refreshed.push(type)}}]}};
+  await plugin.reloadOpenNoriaViews("tasks");
+  assert.deepEqual(refreshed,["home tasks","noria-tasks-calendar"]);
+});
+
+test("reference choices reuse Calendar paths and keep missing lower reviews available", async () => {
+  const Plugin = loadPluginClass(), plugin = new Plugin();
+  plugin.settings = plugin.normalizeSettings({});
+  plugin.app = { vault: { getAbstractFileByPath: () => null } };
+  plugin.createDataService = async () => ({ resolveRange: request => {
+    assert.equal(request.anchor, "2026-09-13");
+    return { dates: ["2026-09-07", "2026-09-08", "2026-09-14"] };
+  } });
+  plugin.resolveCalendarNoteSpecAsync = async (mode, date) => ({ path: `Custom/${mode}/${date}.md` });
+  const selection = { mode:"monthly", anchorDate:"2026-09-13" };
+  const choices = await plugin.getReviewReferenceChoices(selection, "weekly");
+  assert.equal(choices.length, 2);
+  assert.deepEqual(Array.from(choices, c => c.exists), [false, false]);
+  assert.equal(choices[0].targetPath, "Custom/weekly/2026-09-07.md");
+  assert.deepEqual(selection, { mode:"monthly", anchorDate:"2026-09-13" });
+});
+
 function pluginPath(...parts) {
   return sourcePath(path.join(...parts).replace(/\\/g, "/"));
 }
+
+test("new period templates keep review optional and bind it on first use", () => {
+  const Plugin = loadPluginClass(), plugin = new Plugin();
+  plugin.settings = plugin.normalizeSettings({});
+  for (const locale of ["zh", "en"]) {
+    plugin.getNoriaLocale = () => locale;
+    for (const mode of ["daily", "weekly", "monthly", "yearly"]) {
+      const seed = plugin.getManagedNoteSeed(mode + "Template");
+      const binding = D.readReviewDocument(seed);
+      assert.equal(binding.kind, "absent");
+      assert.equal(D.hasReviewContent(binding.markdown), false);
+      assert.doesNotMatch(binding.markdown, /GDD|Highlight:|Deviation:|Blocker:|亮点：|偏差：|阻塞：/);
+      const written = D.writeReviewDocument(seed, binding, "## Review\n\nOne thing to remember.");
+      assert.equal(D.readReviewDocument(written).markdown, "## Review\n\nOne thing to remember.");
+      assert.ok(written.startsWith(seed), "adding the optional review preserves the original date content");
+    }
+  }
+});
 
 function loadGlobalScript(relativePath, globalPath) {
   const code = fs.readFileSync(pluginPath(relativePath), "utf8");
@@ -34,6 +97,46 @@ function loadReviewCenter() {
     (ctx) => ctx.dashboardCore.utils.reviewCenter
   );
 }
+
+test("daily final fields preserve Markdown indentation, hard breaks and fenced headings", () => {
+  const U = loadDiaryBlocks();
+  const body = "    code  \n\nparagraph  \nnext\n\n```md\n### Gratitude\nexample  \n```";
+  const prefix = "## Plan\n\nkeep this  \nnext\n\n";
+  const suffix = "# Other notes\n\nkeep this too  \n\n";
+  const original = `${prefix}## Review\n\n### Summary\n\n${body}\n\n### GDD\n\n- Highlight: first  \n  continuation\n- Deviation: none\n- Blocker: none\n\n### Gratitude\n\n    grateful  \n\n### Free writing\n\nthought  \n\n### Summary of a separate project\n\n    custom  \n\n${suffix}`;
+  assert.equal(U.parseSummary(original), body);
+  assert.equal(U.parseGratitude(original), "    grateful  ");
+  assert.equal(U.parseThought(original), "thought  ");
+  assert.equal(U.parseGdd(original).hi, "first  \n  continuation");
+  const binding = D.readReviewDocument(original, ["Review"]);
+  const result = D.writeReviewDocument(original, binding, binding.markdown);
+  assert.ok(result.startsWith(prefix));
+  assert.ok(result.endsWith(suffix));
+  assert.ok(result.includes(body));
+  assert.ok(result.includes("### Summary of a separate project\n\n    custom  "));
+});
+
+test("legacy GDD first-line indentation remains readable in both languages", () => {
+  const U = loadDiaryBlocks();
+  for (const labels of [["亮点：", "偏差：", "阻塞："], ["Highlight: ", "Deviation: ", "Blocker: "]]) {
+    const body = "### GDD\n\n- " + labels[0] + "    code  \n- " + labels[1] + "\tindented\n- " + labels[2] + "first  \n  continuation";
+    assert.deepEqual(JSON.parse(JSON.stringify(U.parseGdd(body))), {hi:"    code  ", dev:"\tindented", blk:"first  \n  continuation"});
+  }
+});
+
+test("legacy parenthetical thought heading is replaced once while custom headings survive", () => {
+  const U = loadDiaryBlocks();
+  const original = "## 复盘\n\n### 感想（自由写）\n\n原来的感想\n\n### 感想素材\n\n不能删除的素材\n";
+  const payload = { summary: "", gdd: { hi: "", dev: "", blk: "" }, gratitude: "", thought: "更新后的感想  " };
+  const binding = D.readReviewDocument(original, ["复盘"]);
+  const normalized = D.normalizeReviewPayload(payload, "复盘", binding.markdown);
+  const result = D.writeReviewDocument(original, binding, normalized.body);
+  assert.equal(U.parseThought(result), payload.thought);
+  assert.doesNotMatch(result, /原来的感想/);
+  assert.equal((result.match(/^### 感想（自由写）$/gm) || []).length, 1);
+  assert.match(result, /### 感想素材\n\n不能删除的素材/);
+  assert.equal(D.writeReviewDocument(result, D.readReviewDocument(result), normalized.body), result);
+});
 
 function loadPluginClass(options = {}) {
   const code = fs.readFileSync(pluginPath("main.js"), "utf8");
@@ -65,6 +168,7 @@ function loadPluginClass(options = {}) {
         };
       }
       if (id === "child_process") return {};
+      if (id === "crypto") return require("node:crypto");
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -141,7 +245,6 @@ function makeAiPlugin(options = {}) {
     evidence: {},
     artifact: { exists: options.artifactExists === true }
   });
-  plugin.validateDailyReviewMarkdown = () => true;
   return plugin;
 }
 
@@ -160,142 +263,11 @@ test("daily and review note paths derive from the configured diary root", () => 
   assert.equal(review.isReviewNotePath("Noria/Diary/2026/2026-05-01-review.md"), true);
 });
 
-test("final review writeback updates target recap sections and preserves unrelated user notes", () => {
-  const diary = loadDiaryBlocks();
-  const input = [
-    "## 待办",
-    "",
-    "- [ ] keep task",
-    "",
-    "## 复盘",
-    "",
-    "### 内容变化分析",
-    "",
-    "AI detail should disappear from final archive.",
-    "",
-    "### 其他记录",
-    "",
-    "这是一条用户手写记录，应该保留。",
-    "",
-    "### 感想",
-    "",
-    "old thought",
-    "",
-    "## 其他",
-    "",
-    "keep me"
-  ].join("\n");
 
-  const next = diary.upsertFinalReviewSections(input, {
-    summary: "今天完成了复盘中心的第一版。",
-    gdd: { hi: "独立入口清晰", dev: "证据还需扩展", blk: "Claudian 自动化待实测" },
-    gratitude: "感谢今天的稳定专注。",
-    thought: "明天继续做周复盘。"
-  });
 
-  assert.doesNotMatch(next, /^### 日态$/m);
-  assert.match(next, /^### 总结$/m);
-  assert.match(next, /^### GDD$/m);
-  assert.match(next, /^### 今日感恩$/m);
-  assert.match(next, /^### 感想（自由写）$/m);
-  assert.doesNotMatch(next, /内容变化分析/);
-  assert.doesNotMatch(next, /AI detail/);
-  assert.match(next, /这是一条用户手写记录，应该保留。/);
-  assert.match(next, /感谢今天的稳定专注。/);
-  assert.match(next, /## 其他\s+keep me/);
-});
 
-test("final review editor replaces and clears managed fields instead of merging old text", () => {
-  const diary = loadDiaryBlocks();
-  const input = [
-    "## Review",
-    "",
-    "### Summary",
-    "",
-    "old summary",
-    "",
-    "### GDD",
-    "",
-    "- Highlight: old highlight",
-    "- Deviation: old deviation",
-    "- Blocker: old blocker",
-    "",
-    "### Gratitude",
-    "",
-    "old gratitude",
-    "",
-    "### Free writing",
-    "",
-    "old thought",
-    "",
-    "### Other notes",
-    "",
-    "keep this handwritten note"
-  ].join("\n");
 
-  const next = diary.replaceFinalReviewSections(input, {
-    summary: "new summary",
-    gdd: { hi: "", dev: "new deviation", blk: "" },
-    gratitude: "",
-    thought: "new thought"
-  });
 
-  assert.equal(diary.parseSummary(next), "new summary");
-  assert.deepEqual({ ...diary.parseGdd(next) }, { hi: "", dev: "new deviation", blk: "" });
-  assert.equal(diary.parseGratitude(next), "");
-  assert.equal(diary.parseThought(next), "new thought");
-  assert.doesNotMatch(next, /old summary|old highlight|old deviation|old blocker|old gratitude|old thought/);
-  assert.match(next, /keep this handwritten note/);
-});
-
-test("final review writeback preserves an English diary structure", () => {
-  const diary = loadDiaryBlocks();
-  const input = [
-    "## Tasks",
-    "",
-    "- [ ] keep task",
-    "",
-    "## Review",
-    "",
-    "### Content change analysis",
-    "",
-    "Generated detail should disappear from the final archive.",
-    "",
-    "### Other notes",
-    "",
-    "Keep this handwritten note.",
-    "",
-    "### Free writing",
-    "",
-    "old thought",
-    "",
-    "## Other",
-    "",
-    "keep me"
-  ].join("\n");
-
-  const next = diary.upsertFinalReviewSections(input, {
-    summary: "Completed the first review-center pass.",
-    gdd: { hi: "Clear entry point", dev: "Needs more evidence", blk: "Automation is pending" },
-    gratitude: "Grateful for sustained focus.",
-    thought: "Continue with the weekly review tomorrow."
-  });
-
-  assert.match(next, /^## Review$/m);
-  assert.match(next, /^### Summary$/m);
-  assert.match(next, /^### GDD$/m);
-  assert.match(next, /^- Highlight: Clear entry point$/m);
-  assert.match(next, /^- Deviation: Needs more evidence$/m);
-  assert.match(next, /^- Blocker: Automation is pending$/m);
-  assert.match(next, /^### Gratitude$/m);
-  assert.match(next, /^### Free writing$/m);
-  assert.doesNotMatch(next, /^## 复盘$/m);
-  assert.doesNotMatch(next, /^### (?:总结|今日感恩|感想)/m);
-  assert.doesNotMatch(next, /Content change analysis/);
-  assert.match(next, /Keep this handwritten note\./);
-  assert.match(next, /## Other\s+keep me/);
-  assert.equal(diary.parseSummary(next), "Completed the first review-center pass.");
-});
 
 test("today-task writeback reuses English task headings", () => {
   const diary = loadDiaryBlocks();
@@ -315,7 +287,8 @@ test("review child sections remain readable and replaceable at end of file", () 
   const input = "## Review\n\n### Free writing\n\nold thought";
 
   assert.equal(diary.parseThought(input), "old thought");
-  const next = diary.upsertThoughtSection(input, "new thought");
+  const binding = D.readReviewDocument(input, ["Review"]);
+  const next = D.writeReviewDocument(input, binding, D.normalizeReviewPayload({ thought: "new thought" }, "Review", binding.markdown).body);
   assert.equal((next.match(/^### Free writing$/gm) || []).length, 1);
   assert.equal(diary.parseThought(next), "new thought");
   assert.doesNotMatch(next, /old thought/);
@@ -331,7 +304,8 @@ test("English diary creation paths use localized structural headings", () => {
   assert.match(periodicRecap, /\? "复盘" : "Review"/);
   assert.match(periodicRecap, /## \$\{reviewHeading\}/);
   assert.match(periodicRecap, /runtime\.periodic\.dailyRecap\.stepState/);
-  assert.match(periodicRecap, /runtime\.periodic\.dailyRecap\.gddHighlight/);
+  assert.match(periodicRecap, /bridge\.openReviewCenter/);
+  assert.doesNotMatch(periodicRecap, /U\.upsertGdd|U\.upsertThoughtSection/);
   assert.doesNotMatch(periodicRecap, /const taHi = mk\("亮点"\)/);
 });
 
@@ -349,21 +323,7 @@ test("legacy daily recap mutates the latest diary text and tolerates a concurren
   assert.doesNotMatch(body, /let t = await app\.vault\.read\(f\);\s*t = mutator\(t\);\s*await app\.vault\.modify\(f, t\);/s);
 });
 
-test("review center source removes duplicate evidence metrics and final daily state controls", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const evidenceStart = main.indexOf("renderEvidenceSection(body, model)");
-  const finalStart = main.indexOf("renderFinalSection(body, model)");
-  assert.notEqual(evidenceStart, -1);
-  assert.notEqual(finalStart, -1);
-  const evidenceBody = main.slice(evidenceStart, finalStart);
-  const finalBody = main.slice(finalStart, main.indexOf("\n  async render", finalStart));
 
-  assert.doesNotMatch(evidenceBody, /noria-review-metric-grid/);
-  assert.doesNotMatch(evidenceBody, /review\.metric\.doneTasks/);
-  assert.doesNotMatch(finalBody, /noria-review-state-box/);
-  assert.doesNotMatch(finalBody, /review\.final\.weather/);
-  assert.doesNotMatch(finalBody, /state:\s*state/);
-});
 
 test("home guide panels mounts one review disclosure after the MOC strip", () => {
   const guide = fs.readFileSync(pluginPath("views/dashboard/home/sections/guide-panels/view.js"), "utf8");
@@ -424,18 +384,7 @@ test("review renderer opens final-first and keeps evidence and analysis lazy", (
   assert.match(renderer, /this\.plugin\.getReviewAnalysisArtifact/);
 });
 
-test("review final pane does not repeat the period already shown by the shared shell", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const start = main.indexOf("  renderFinalFirst(body = this.bodyEl)");
-  const end = main.indexOf("\n  createFinalField(", start);
-  assert.ok(start > 0);
-  assert.ok(end > start);
-  const finalPane = main.slice(start, end);
 
-  assert.match(finalPane, /review\.final\.editorTitle/);
-  assert.doesNotMatch(finalPane, /noria-review-final-context/);
-  assert.doesNotMatch(finalPane, /this\.selection\.anchorDate\s*:\s*this\.selection\.period/);
-});
 
 test("review renderer debounces recovery drafts and flushes them before target changes", () => {
   const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
@@ -456,8 +405,8 @@ test("review support reuses one full-evidence load and artifact events never rer
   const start = main.indexOf("class NoriaReviewCenterRenderer");
   const end = main.indexOf("class NoriaSettingTab", start);
   const renderer = main.slice(start, end);
-  const watchStart = renderer.indexOf("watchReviewAnalysisArtifact(");
-  const watchEnd = renderer.indexOf("\n  getReviewDraftSections(", watchStart);
+  const watchStart = renderer.indexOf("\n  watchReviewAnalysisArtifact(");
+  const watchEnd = renderer.length;
   const watcher = renderer.slice(watchStart, watchEnd);
 
   assert.match(renderer, /this\._supportEvidenceCache\s*=/);
@@ -469,41 +418,11 @@ test("review support reuses one full-evidence load and artifact events never rer
   assert.doesNotMatch(watcher, /this\.render\(\)/);
 });
 
-test("daily personal record stays compact when empty and opens when saved content exists", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const start = main.indexOf("renderDailyFinalEditor(parent)");
-  const end = main.indexOf("\n  renderPeriodFinalEditor(parent)", start);
-  const editor = main.slice(start, end);
 
-  assert.match(editor, /const hasPersonal\s*=\s*!!\(payload\.gratitude\.trim\(\)\s*\|\|\s*payload\.thought\.trim\(\)\)/);
-  assert.match(editor, /personal\.open\s*=\s*hasPersonal/);
-});
 
-test("daily gratitude and free-writing editors use the same field height", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
-  const start = main.indexOf("renderDailyFinalEditor(parent)");
-  const end = main.indexOf("\n  renderPeriodFinalEditor(parent)", start);
-  const editor = main.slice(start, end);
 
-  assert.match(editor, /review\.final\.gratitude[\s\S]{0,160}payload\.gratitude,\s*4/);
-  assert.match(editor, /review\.final\.thought[\s\S]{0,160}payload\.thought,\s*4/);
-  assert.match(styles, /\.noria-review-final-personal-body\s+\.noria-review-textarea\s*\{[\s\S]*?min-height:\s*86px/);
-});
 
-test("period analysis adoption replaces only the local final after inline confirmation", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const start = main.indexOf("renderAnalysisSupport(parent, artifact)");
-  const end = main.indexOf("\n  renderDaily(body, model)", start);
-  const support = main.slice(start, end);
 
-  assert.match(support, /normalizePeriodReviewArtifactForWriteback\(artifact\.text\)/);
-  assert.match(support, /this\.state\.support\.confirmAdoption/);
-  assert.match(support, /this\.state\.final\.payload\.body\s*=\s*periodDraft/);
-  assert.match(support, /this\.markFinalDirty\("adopted"\)/);
-  assert.doesNotMatch(support, /window\.confirm/);
-  assert.doesNotMatch(support, /saveReviewFinal\(/);
-});
 
 test("Home owns the only review product entry and reuses one collapsible renderer", () => {
   const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
@@ -651,7 +570,7 @@ test("dirty final edits update shell and action affordances in place without reb
   const dirtyEnd = renderer.indexOf("async refreshReviewSupport", dirtyStart);
   const dirty = renderer.slice(dirtyStart, dirtyEnd);
   const fieldStart = renderer.indexOf("createFinalField(parent");
-  const fieldEnd = renderer.indexOf("renderDailyFinalEditor", fieldStart);
+  const fieldEnd = renderer.indexOf("\n  renderPreservedRecoveryDrafts(", fieldStart);
   const field = renderer.slice(fieldStart, fieldEnd);
 
   assert.match(renderer, /syncFinalSaveUi\(\)/);
@@ -659,7 +578,6 @@ test("dirty final edits update shell and action affordances in place without reb
   assert.doesNotMatch(dirty, /renderFinalFirst|\.render\(/);
   assert.doesNotMatch(field, /renderFinalFirst|\.render\(/);
   assert.match(renderer, /this\.shellSaveStateEl/);
-  assert.match(renderer, /this\.finalDiscardButton/);
   assert.match(renderer, /this\.finalSaveButton/);
 });
 
@@ -756,51 +674,9 @@ test("home review frame and idle gates recover when host callbacks are dropped d
   assert.ok(idleBlock.indexOf("setTimeout(finish, 1000)") < idleBlock.indexOf("idle(finish"));
 });
 
-test("daily state heatmap opens selectors for mood energy and focus but not weather", () => {
-  const view = fs.readFileSync(pluginPath("views/dashboard/home/sections/trends-and-stats/blocks/daily-state/view.js"), "utf8");
-
-  assert.match(view, /openStatePicker/);
-  assert.match(view, /saveDailyStateForDate/);
-  assert.match(view, /renderDotOrEmoji\(idx,\s*2,[\s\S]*"mood"/);
-  assert.match(view, /renderMetricCell\(idx,\s*4,[\s\S]*"energy"/);
-  assert.match(view, /renderMetricCell\(idx,\s*5,[\s\S]*"focus"/);
-  const weatherCall = view.match(/renderDotOrEmoji\(idx,\s*3,[^\n]+/)?.[0] || "";
-  assert.ok(weatherCall);
-  assert.doesNotMatch(weatherCall, /,\s*"weather"/);
-  assert.match(view, /dashboard-daily-state-cell--empty/);
-  assert.match(view, /dashboard-daily-state-picker-button/);
-  assert.match(view, /dashboard-daily-state-picker-button--energy/);
-  assert.match(view, /saveStatePatch\(date,\s*kind,\s*op\.value,\s*\{\s*refresh:\s*false\s*\}\)/);
-  assert.match(view, /captureScrollPosition\(\)/);
-  assert.match(view, /restoreScrollPosition\(scrollSnapshot\)/);
-  assert.match(view, /data-noria-action-source/);
-  assert.match(view, /source:\s*"home-daily-state-cell"/);
-  assert.match(view, /data-noria-action-kind/);
-  assert.match(view, /action:\s*"open-daily-state-picker"/);
-  assert.match(view, /source:\s*"home-daily-state-picker"/);
-  assert.match(view, /action:\s*"save-daily-state"/);
-  assert.match(view, /data-noria-daily-state-date/);
-  assert.match(view, /data-noria-daily-state-field/);
-  assert.match(view, /data-noria-daily-state-value/);
-  assert.match(view, /data-noria-last-daily-state-action-state/);
-  assert.match(view, /data-noria-last-daily-state-action-error/);
-  assert.doesNotMatch(view, /buttonClass:\s*"dashboard-recap-pill"/);
-  assert.doesNotMatch(view, /buttonClass:\s*"dashboard-recap-energy-cell"/);
-  assert.match(view, /dashboard-recap-energy-icon/);
-  assert.match(view, /🪫/);
-  assert.match(view, /🔋/);
-  assert.match(view, /🟢/);
-  assert.match(view, /🟡/);
-  assert.match(view, /🟠/);
-  assert.match(view, /🔴/);
-  assert.match(view, /document\.body\.appendChild\(menu\)[\s\S]*getBoundingClientRect/);
-  const styles = fs.readFileSync(pluginPath("views/dashboard/home/sections/bootstrap-style/view.js"), "utf8");
-  const pickerButtonRule = styles.match(/button\.dashboard-daily-state-picker-button\s*\{[\s\S]*?\n\s*\}/)?.[0] || "";
-  assert.ok(pickerButtonRule, "daily-state picker button style should exist");
-  assert.match(pickerButtonRule, /border:\s*0/);
-  assert.match(pickerButtonRule, /box-shadow:\s*none/);
-  assert.match(styles, /button\.dashboard-daily-state-picker-button\[data-noria-action-state="pending"\]/);
-  assert.match(styles, /button\.dashboard-daily-state-picker-button\[data-noria-action-state="failed"\]/);
+test("daily records and statistics share property sources and open source notes in new tabs",()=>{
+ const view=fs.readFileSync(pluginPath("src/property-stat-cards.js"),"utf8"),controls=fs.readFileSync(pluginPath("src/daily-state-controls.js"),"utf8");
+ assert.match(view,/openLinkText\(row.path,"",true\)/);assert.match(controls,/plugin.records.render/);
 });
 
 test("daily state writeback stores metadata in frontmatter and removes visible inline fields", () => {
@@ -1137,50 +1013,12 @@ test("daily review keeps an unavailable Git evidence shape without shell executi
   });
 });
 
-test("daily review excerpts read source files in parallel while preserving order", async () => {
-  const Plugin = loadPluginClass();
-  const plugin = new Plugin();
-  const started = [];
-  const gates = new Map();
-  const defer = () => {
-    let resolve;
-    const promise = new Promise((res) => {
-      resolve = res;
-    });
-    return { promise, resolve };
-  };
-  const flushMicrotasks = async (count = 4) => {
-    for (let i = 0; i < count; i += 1) await Promise.resolve();
-  };
-  ["06_Diary/2026/2026-05-04.md", "01_Projects/A.md", "01_Projects/B.md", "01_Projects/C.md"].forEach((pathText) => {
-    gates.set(pathText, defer());
-  });
-
-  plugin.loadTextFromVault = async (pathText) => {
-    started.push(String(pathText || ""));
-    return gates.get(pathText).promise;
-  };
-
-  const pending = plugin.collectReviewExcerpts(
-    "06_Diary/2026/2026-05-04.md",
-    {
-      committed: { files: [{ kind: "modified", path: "01_Projects/A.md" }, { kind: "deleted", path: "01_Projects/Deleted.md" }] },
-      working: { files: [{ kind: "modified", path: "01_Projects/B.md" }, { kind: "added", path: "01_Projects/C.md" }] }
-    },
-    { sanitizeReviewExcerptText: (text) => `clean:${text}` }
-  );
-  await flushMicrotasks();
-
-  assert.equal(started.join("|"), "06_Diary/2026/2026-05-04.md|01_Projects/A.md|01_Projects/B.md|01_Projects/C.md");
-
-  gates.get("01_Projects/C.md").resolve("C text");
-  gates.get("01_Projects/A.md").resolve("A text");
-  gates.get("06_Diary/2026/2026-05-04.md").resolve("Diary text");
-  gates.get("01_Projects/B.md").resolve("B text");
-  const result = await pending;
-
-  assert.equal(result.map((item) => item.path).join("|"), "06_Diary/2026/2026-05-04.md|01_Projects/A.md|01_Projects/B.md|01_Projects/C.md");
-  assert.equal(result.map((item) => item.text).join("|"), "clean:Diary text|clean:A text|clean:B text|clean:C text");
+test("daily review material keeps complete author records without automatic Git-source reads",async()=>{
+  const Plugin=loadPluginClass(),plugin=new Plugin(),reads=[];
+  const text="## Notes\n\n"+"A meaningful sentence. ".repeat(300);
+  plugin.loadTextFromVault=async path=>{reads.push(path);return text;};
+  const result=await plugin.collectReviewExcerpts("Diary/day.md",{committed:{files:[{path:"Projects/A.md"}]}},{});
+  assert.deepEqual(reads,["Diary/day.md"]);assert.equal(result[0].text,text.trim());
 });
 
 test("review prompt is a JSON evidence skill and review-note path instruction", () => {
@@ -1235,55 +1073,23 @@ test("embedded noria-review skill carries multi-project evidence and low-burden 
   assert.match(skill, /progress\.md/);
   assert.match(skill, /实际产物\/测试/);
   assert.match(skill, /对话不能单独证明完成/);
-  assert.match(skill, /今日判断/);
-  assert.match(skill, /项目复盘/);
-  assert.match(skill, /明日聚焦/);
-  assert.match(skill, /偏差与阻塞/);
-  assert.match(skill, /证据索引/);
-  assert.match(skill, /全局只保留一个.*主线/);
-  assert.match(skill, /不要为每个项目分别生成下一步/);
-  assert.match(skill, /MOC 反思（稀疏触发）/);
-  assert.match(skill, /稳定主题\/owner 入口反复难找/);
-  assert.match(skill, /证据不足则省略/);
-  assert.match(skill, /不得生成 MOC 覆盖率、治理任务或待办队列/);
-  assert.match(sourceMain, /MOC 反思（稀疏触发）/);
-  assert.match(sourceMain, /不得生成 MOC 覆盖率、治理任务或待办队列/);
+  assert.match(skill,/具体项目、经历或主题/);
+  assert.match(skill,/alreadyRead/);
+  assert.match(skill,/不要求其他使用者具有这些工具或文件/);
+  assert.match(skill,/材料少就写短/);
+  assert.match(skill,/下级复盘/);
+  assert.match(skill,/参考记录/);
+  assert.doesNotMatch(skill,/600[–-]900|每个项目不超过 150/);
   assert.doesNotMatch(skill, /evidence_context/);
 });
 
-test("codex fallback prompt still asks for decision-focused summaries", () => {
-  const review = loadReviewCenter();
-  const prompt = review.buildDailyReviewPrompt({
-    date: "2026-05-01",
-    artifactPath: "06_Diary/2026/2026-05-01-review.md",
-    evidenceHash: "abc123",
-    evidenceMarkdown: "## 证据\n\n- done: 修复时间轴"
-  });
-
-  assert.match(prompt, /关键任务/);
-  assert.match(prompt, /日常时间线任务/);
-  assert.match(prompt, /知识库或项目材料变化/);
-  assert.match(prompt, /今天真正推进了什么/);
-  assert.match(prompt, /偏离了什么/);
-  assert.match(prompt, /明天最小下一步/);
-  assert.match(prompt, /#habit、喝水、锻炼/);
-  assert.match(prompt, /证据复读机/);
-  assert.match(prompt, /600[–-]900 字/);
-  assert.match(prompt, /同一个统计数字全文最多出现一次/);
-  assert.match(prompt, /整体上、总的来说、可以看出、值得注意的是/);
-  assert.match(prompt, /项目复盘/);
-  assert.match(prompt, /任务三件套/);
-  assert.match(prompt, /每个项目不超过 150 字/);
-  assert.match(prompt, /全局只保留一个/);
-  assert.match(prompt, /不要为每个项目分别生成下一步/);
-  assert.match(prompt, /明天最重要的一件事/);
-  assert.match(prompt, /无明确阻塞/);
-  assert.match(prompt, /不超过 5 行/);
-  assert.match(prompt, /忽略.*\.codex.*\.obsidian/);
-  assert.match(prompt, /渲染出来的仪表盘|习惯矩阵|状态控件/);
-  assert.match(prompt, /不要把文件路径清单当作复盘正文/);
-  assert.match(prompt, /AI 建议自然融合进最终总结正文/);
-  assert.doesNotMatch(prompt, /3-5 条/);
+test("review artifacts recognize unheaded openings and arbitrary meaningful sections",()=>{
+  const review=loadReviewCenter();
+  const body="这一周重新找回了散步的时间。\n\n## 城市里的停留\n\n原本的绕路成为值得保留的观察。";
+  const parsed=review.parseReviewArtifact("---\nperiod: 2026-W38\n---\n"+body);
+  assert.equal(review.hasGeneratedReviewContent(parsed),true);
+  assert.equal(review.buildArtifactPreviewMarkdown(parsed),body+"\n");
+  assert.equal(review.hasGeneratedReviewContent(review.parseReviewArtifact("## 城市里的停留\n\n## 参考记录\n")),false);
 });
 
 test("daily context markdown suppresses dependency and toolchain noise but keeps human notes", () => {
@@ -1510,27 +1316,7 @@ test("daily review final archive omits duplicated daily state controls", () => {
   assert.doesNotMatch(main, /state:\s*state/);
 });
 
-test("daily review final archive keeps the low-noise actionbar without state strip layout", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
-  assert.match(main, /noria-review-actionbar/);
-  assert.match(main, /noria-review-actionbar-primary/);
-  assert.match(main, /noria-review-final-primary/);
-  assert.match(main, /noria-review-write-target/);
-  assert.match(main, /data-noria-review-write-target/);
-  assert.match(main, /openReviewSourceFile\(targetPath/);
-  assert.match(main, /model\.diaryPath/);
-  assert.match(main, /model\.periodNotePath/);
-  assert.match(main, /noria-review-status-pill/);
-  assert.match(styles, /width:\s*min\(1280px,\s*100%\)/);
-  assert.match(styles, /grid-template-columns:\s*minmax\(260px,\s*\.72fr\)\s+minmax\(0,\s*1fr\)\s+minmax\(400px,\s*\.86fr\)/);
-  assert.match(styles, /\.noria-review-workbench\s*\{[\s\S]*align-items:\s*stretch/);
-  assert.match(styles, /\.noria-review-workbench-main\s*\{[\s\S]*height:\s*100%/);
-  assert.match(styles, /\.noria-review-section--evidence\s*\{[\s\S]*flex:\s*1/);
-  assert.match(styles, /\.noria-review-write-target\s*\{[\s\S]*box-shadow:\s*none/);
-  assert.doesNotMatch(main, /noria-review-state-strip/);
-});
 
 test("embedded daily review final actionbar does not crush writeback copy into vertical text", () => {
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
@@ -1542,196 +1328,19 @@ test("embedded daily review final actionbar does not crush writeback copy into v
   assert.match(styles, /\.noria-review-workbench-final\s+\.noria-review-actionbar-buttons\s*\{[\s\S]*justify-content:\s*flex-start/);
 });
 
-test("daily review final archive separates draft adoption from save state", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
-  assert.match(main, /"review\.final\.adoptionTitle"/);
-  assert.match(main, /"review\.final\.useDraftFields"/);
-  assert.match(main, /"review\.final\.dirty"/);
-  assert.match(main, /"review\.final\.adopted"/);
-  assert.match(main, /noria-review-adoption/);
-  assert.match(main, /data-noria-review-adoption-ready/);
-  assert.match(main, /data-noria-review-draft-part/);
-  assert.match(main, /data-noria-review-save-state/);
-  assert.match(main, /data-noria-review-final-state/);
-  assert.match(main, /const setSaveState = \(state,\s*text\) =>/);
-  assert.match(main, /const markDirty = \(\) => setSaveState\("dirty"/);
-  assert.match(main, /const markAdopted = \(\) => setSaveState\("adopted"/);
-  assert.match(main, /\[summary,\s*gddHi,\s*gddDev,\s*gddBlk,\s*gratitude,\s*thought\]\.forEach/);
-  assert.match(main, /field\.addEventListener\("input",\s*markDirty\)/);
-  assert.match(main, /summary\.value = draftSummary/);
-  assert.match(main, /gddHi\.value = draftGdd\.hi \|\| ""/);
-  assert.match(main, /const allDraftBtn = this\.createAction\(adoptionActions,\s*this\.plugin\.t\("review\.final\.useDraftFields"\)/);
-  assert.match(styles, /\.noria-review-adoption\s*\{/);
-  assert.match(styles, /\.noria-review-adoption-chip\[data-noria-review-draft-ready="false"\]\s*\{/);
-  assert.match(styles, /\.noria-review-adoption\s+\.noria-review-btn\[data-noria-action-rank="secondary"\]\s*\{[\s\S]*border-color:\s*transparent/);
-  assert.match(styles, /\.noria-review-save-status\.is-dirty\b/);
-  assert.match(styles, /\.noria-review-save-status\.is-adopted\b/);
-});
 
-test("daily review final archive previews draft-to-final differences without promoting the draft", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
-  assert.match(main, /getReviewDraftDiffRows\(model,\s*draftSummary,\s*draftGdd\)/);
-  assert.match(main, /renderReviewDraftDiffPreview\(adoption,\s*diffRows\)/);
-  assert.match(main, /data-noria-review-diff-preview/);
-  assert.match(main, /data-noria-review-diff-field/);
-  assert.match(main, /data-noria-review-diff-state/);
-  assert.match(main, /review\.final\.diffTitle/);
-  assert.match(main, /review\.final\.diffChanged/);
-  assert.match(main, /review\.final\.diffFill/);
-  assert.match(main, /review\.final\.diffSame/);
-  assert.match(main, /review\.final\.diffNoDraft/);
-  assert.match(styles, /\.noria-review-diff-preview\s*\{/);
-  assert.match(styles, /\.noria-review-diff-row\s*\{/);
-  assert.match(styles, /\.noria-review-diff-row\[data-noria-review-diff-state="replace"\]\s+\.noria-review-diff-state\s*\{/);
-  assert.match(styles, /\.noria-review-host--home-focus\s+\.noria-review-diff-preview\s*\{/);
-});
 
-test("daily review workbench exposes evidence draft final stages and quiet secondary actions", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
-  const dailyStart = main.indexOf("renderDaily(body, model)");
-  const evidenceCall = main.indexOf("renderEvidenceSection(evidenceCol, model)", dailyStart);
-  const draftCall = main.indexOf("renderLlmSection(draftCol, model)", dailyStart);
-  const finalCall = main.indexOf("renderFinalSection(finalCol, model)", dailyStart);
 
-  assert.ok(dailyStart > 0, "renderDaily should exist");
-  assert.ok(evidenceCall > dailyStart, "evidence stage should be rendered explicitly");
-  assert.ok(draftCall > evidenceCall, "draft stage should come after evidence");
-  assert.ok(finalCall > draftCall, "final stage should come after draft setup");
-  assert.match(main, /noria-review-workbench--daily/);
-  assert.match(main, /data-noria-review-workbench",\s*"daily"/);
-  assert.match(main, /noria-review-workbench-evidence/);
-  assert.match(main, /noria-review-workbench-draft/);
-  assert.match(main, /noria-review-workbench-final/);
-  assert.match(main, /data-noria-review-stage",\s*"evidence"/);
-  assert.match(main, /data-noria-review-stage",\s*"draft"/);
-  assert.match(main, /data-noria-review-stage",\s*"final"/);
-  assert.match(main, /data-noria-review-stage",\s*"writeback"/);
-  assert.match(main, /renderEvidenceExcerptGroups\(lists,\s*excerptGroups\)/);
-  assert.match(main, /noria-review-excerpt-groups/);
-  assert.match(main, /data-noria-review-excerpt-heading/);
-  assert.match(main, /review\.excerpts\.title/);
-  assert.match(main, /data-noria-action-rank/);
-  assert.match(styles, /grid-template-columns:\s*minmax\(260px,\s*\.72fr\)\s+minmax\(0,\s*1fr\)\s+minmax\(400px,\s*\.86fr\)/);
-  assert.match(styles, /\.noria-review-workbench-evidence\b/);
-  assert.match(styles, /\.noria-review-workbench-draft\b/);
-  assert.match(styles, /\.noria-review-workbench-final\b/);
-  assert.match(styles, /\.noria-review-excerpt-list\b/);
-  assert.match(styles, /\.noria-review-excerpt-block\b/);
-  assert.match(styles, /\.noria-review-host--home-focus\s+\.noria-review-excerpt-list\s*\{[\s\S]*background:\s*transparent/);
-  assert.match(styles, /\.noria-review-btn\[data-noria-action-rank="secondary"\]\s*\{[\s\S]*box-shadow:\s*none/);
-});
 
-test("daily review shell removes the standalone title and keeps controls in the shared first row", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
-  assert.doesNotMatch(main, /noria-review-host--standalone/);
-  assert.match(main, /noria-review-shell-header/);
-  assert.match(main, /noria-review-shell-controls/);
-  assert.match(main, /renderReviewShellHeader\(root\)/);
-  assert.doesNotMatch(main, /noria-review-kicker/);
-  assert.doesNotMatch(main, /text:\s*"Noria"/);
-  assert.doesNotMatch(styles, /\.noria-review-kicker\b/);
-  assert.doesNotMatch(main, /noria-review-date-context/);
-  assert.doesNotMatch(styles, /\.noria-review-date-context\b/);
-  assert.doesNotMatch(main, /noria-review-title-wrap/);
-  assert.doesNotMatch(main, /noria-review-title",\s*text:\s*this\.plugin\.t\("review\.title"\)/);
-  assert.match(main, /review\.home\.diary",\s*\{ date:\s*this\.selection\.anchorDate \}/);
-  assert.match(styles, /\.noria-review-shell-header\s*\{[\s\S]*grid-template-columns:\s*minmax\(220px,\s*1fr\)\s+auto/);
-  assert.match(main, /"review\.period\.shortDaily":\s*"Day"/);
-  assert.match(main, /"review\.period\.shortDaily":\s*(?:"日"|"\\u65E5")/);
-  assert.match(main, /review\.period\.shortWeekly/);
-  assert.match(main, /dashboard-heatmap-mode-button/);
-  const controls = styles.match(/\.noria-review-controls\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(controls, "review controls style should exist");
-  assert.doesNotMatch(controls, /border:\s*1px/);
-  assert.match(controls, /box-shadow:\s*none\s*;/);
-  const periods = styles.match(/\.noria-review-periods\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(periods, "review period group style should exist");
-  assert.match(periods, /background:\s*transparent\s*;/);
-  assert.match(periods, /border:\s*0/);
-  assert.match(periods, /box-shadow:\s*none/);
-  const periodButton = styles.match(/\.noria-review-period\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(periodButton, "review period button style should exist");
-  assert.match(periodButton, /border:\s*0/);
-  assert.match(periodButton, /border-color:\s*transparent/);
-  assert.match(periodButton, /background:\s*transparent/);
-  assert.match(periodButton, /background-image:\s*none/);
-  assert.match(periodButton, /box-shadow:\s*none/);
-  assert.match(periodButton, /height:\s*var\(--noria-panel-segment-height,\s*28px\)/);
-  assert.match(periodButton, /font-size:\s*var\(--noria-panel-segment-font-size,\s*13px\)/);
-  assert.match(periodButton, /font-weight:\s*(?:var\(--noria-panel-segment-weight,\s*)?650/);
-  const periodActiveButton = styles.match(/\.noria-review-period\.is-active\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(periodActiveButton, "review active period button style should exist");
-  assert.match(periodActiveButton, /font-weight:\s*(?:var\(--noria-panel-segment-active-weight,\s*)?720/);
-  assert.match(main, /this\.paintIcon\(refreshBtn,\s*"refresh-cw"/);
-});
 
-test("daily review AI analysis actions are explicit and low-noise", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
 
-  assert.match(main, /"review\.llm\.generate":\s*(?:"生成AI分析"|"\\u751F\\u6210AI\\u5206\\u6790")/);
-  assert.match(main, /"review\.llm\.refreshArtifact":\s*(?:"刷新AI分析"|"\\u5237\\u65B0AI\\u5206\\u6790")/);
-  assert.match(main, /"review\.llm\.openArtifact":\s*(?:"打开复盘笔记"|"\\u6253\\u5F00\\u590D\\u76D8\\u7B14\\u8BB0")/);
-  assert.doesNotMatch(main, /生成 \/ 刷新 LLM 分析/);
-  assert.doesNotMatch(main, /创建 \/ 打开复盘笔记/);
-  assert.doesNotMatch(main, /section\.createDiv\(\{\s*cls:\s*"noria-review-artifact-path"/);
-  assert.doesNotMatch(main, /section\.createDiv\(\{\s*cls:\s*"noria-review-empty",\s*text:\s*this\.plugin\.t\("review\.llm\.empty"\)/);
-  assert.match(main, /this\.createAction\(actions,\s*this\.plugin\.t\("review\.llm\.generate"\)/);
-  assert.match(main, /this\.createAction\(actions,\s*this\.plugin\.t\("review\.llm\.refreshArtifact"\)/);
-  assert.match(main, /renderReviewDraftSectionIndex\(section,\s*model\)/);
-  assert.match(main, /getReviewDraftSections\(model\)/);
-  assert.match(main, /data-noria-review-draft-section/);
-  assert.doesNotMatch(main, /review\.llm\.copySection/);
-  assert.doesNotMatch(main, /copyReviewText\(section\.text\)/);
-});
 
-test("home review focus AI rail uses a compact assistant toolbox", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
-  assert.match(main, /noria-review-assistant-panel/);
-  assert.match(main, /data-noria-review-has-artifact/);
-  assert.match(main, /noria-review-llm-primary/);
-  assert.match(main, /noria-review-llm-secondary/);
-  assert.match(main, /noria-review-draft-index/);
-  assert.match(styles, /\.noria-review-assistant-panel\s*\{[\s\S]*display:\s*grid/);
-  assert.match(styles, /\.noria-review-draft-index\s*\{[\s\S]*background:/);
-  assert.match(styles, /\.noria-review-draft-index-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(54px,\s*\.22fr\)\s+minmax\(0,\s*1fr\)\s+auto/);
-  assert.match(styles, /\.noria-review-draft-copy\s*\{[\s\S]*box-shadow:\s*none/);
-  assert.match(styles, /\.noria-review-host--home-focus\s+\.noria-review-workbench-draft\s+\.noria-review-assistant-panel\s*\{[\s\S]*display:\s*grid/);
-  assert.match(styles, /\.noria-review-host--home-focus\s+\.noria-review-workbench-draft\s+\.noria-review-llm-actions\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(styles, /\.noria-review-host--home-focus\s+\.noria-review-workbench-draft\s+\.noria-review-llm-primary\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1/);
-  assert.match(styles, /\.noria-review-host--home-focus\s+\.noria-review-workbench-draft\s+\.noria-review-section--llm\[data-noria-review-has-artifact="false"\]\s*\{[\s\S]*min-height:\s*0/);
-});
 
-test("home review focus exposes stage-level empty states for evidence draft and final target", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
-
-  assert.match(main, /renderReviewStageEmpty\(parent,\s*stage,\s*titleKey,\s*bodyKey/);
-  assert.match(main, /data-noria-review-stage-empty/);
-  assert.match(main, /data-noria-review-evidence-empty/);
-  assert.match(main, /review\.evidence\.emptyTitle/);
-  assert.match(main, /review\.evidence\.emptyBody/);
-  assert.match(main, /data-noria-review-draft-empty/);
-  assert.match(main, /review\.llm\.emptyTitle/);
-  assert.match(main, /review\.llm\.emptyBody/);
-  assert.match(main, /data-noria-review-final-target-ready/);
-  assert.match(main, /review\.final\.missingTargetTitle/);
-  assert.match(main, /review\.final\.missingTargetBody/);
-  assert.match(styles, /\.noria-review-stage-empty\s*\{/);
-  assert.match(styles, /\.noria-review-stage-empty-title\s*\{/);
-  assert.match(styles, /\.noria-review-stage-empty-body\s*\{/);
-  assert.match(styles, /\.noria-review-host--home-focus\s+\.noria-review-stage-empty\s*\{/);
-  assert.match(styles, /\.noria-review-section\[data-noria-review-evidence-empty="true"\]\s+\.noria-review-evidence-summary\s*\{/);
-});
 
 test("daily review settings expose prompt defaults without internal AI settings", () => {
   const main = fs.readFileSync(pluginPath("main.js"), "utf8");
@@ -1962,7 +1571,7 @@ test("daily review generation writes JSON evidence and a local prompt file witho
 
   assert.ok(generateBody, "expected generateDailyReview body");
   assert.match(generateBody[1], /writeReviewEvidenceFile\(model,\s*review\d*\)/);
-  assert.match(generateBody[1], /buildExternalDailyReviewPrompt\(model,\s*evidence\.path,\s*review\d*\)/);
+  assert.match(generateBody[1], /buildExternalDailyReviewPrompt\(model,\s*evidence\.readingPath,\s*review\d*\)/);
   assert.match(generateBody[1], /writeReviewPromptFile\(model,\s*prompt\)/);
   assert.doesNotMatch(generateBody[1], /ensureDailyReviewNoteExists/);
   assert.doesNotMatch(main, /async generateDailyReviewWithApi/);
@@ -1994,14 +1603,14 @@ test("daily review generation saves JSON evidence and its prompt without creatin
   assert.equal(result.mode, "prompt-file");
   assert.equal(calls.length, 0);
   assert.equal(result.promptPath, ".obsidian/plugins/noria/cache/stats/review/2026/2026-05-05.prompt.md");
-  assert.equal(plugin.__writes.length, 2);
+  assert.equal(plugin.__writes.length, 3);
   const evidenceWrite = plugin.__writes.find((item) => item.path.endsWith("2026-05-05.json"));
   const promptWrite = plugin.__writes.find((item) => item.path.endsWith("2026-05-05.prompt.md"));
   assert.ok(evidenceWrite);
   assert.ok(promptWrite);
   assert.match(promptWrite.text, /noria-review/);
   assert.match(promptWrite.text, /review_note: Noria\/Diary\/2026\/2026-05-05-review\.md/);
-  assert.match(promptWrite.text, /evidence_file: \.obsidian\/plugins\/noria\/cache\/stats\/review\/2026\/2026-05-05\.json/);
+  assert.match(promptWrite.text, /evidence_file: \.obsidian\/plugins\/noria\/cache\/stats\/review\/2026\/2026-05-05\.material\.json/);
   assert.doesNotMatch(promptWrite.text, /evidence_context/);
   assert.doesNotMatch(promptWrite.text, /evidence_hash/);
   assert.doesNotMatch(promptWrite.text, /\.obsidian\/plugins\/noria\/cache\/review-context\/2026-05-05\.md/);
@@ -2045,31 +1654,11 @@ test("daily review context writes upsert hidden cache files that are outside the
   assert.match(body[1], /File already exists|already exists/i);
 });
 
-test("daily review final writeback uses managed daily template for missing diary notes", () => {
-  const src = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const body = src.match(/async saveDailyReviewFinal\(dateInput,\s*payload\)\s*\{([\s\S]*?)\r?\n\s*\}\r?\n\s*syncRuntimeBridgeConfig/);
 
-  assert.ok(body, "expected saveDailyReviewFinal body");
-  assert.match(body[1], /await this\.getTodayDiarySeedText\(\)/);
-  assert.doesNotMatch(body[1], /current \|\| this\.createDailyDiarySeed\(\)/);
-});
 
-test("legacy review writebacks transform the latest target text", () => {
-  const src = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const dailyStart = src.indexOf("async saveDailyReviewFinal");
-  const periodStart = src.indexOf("async writePeriodReviewToNote", dailyStart);
-  const syncStart = src.indexOf("syncRuntimeBridgeConfig", periodStart);
-  assert.ok(dailyStart >= 0 && periodStart > dailyStart && syncStart > periodStart);
 
-  const daily = src.slice(dailyStart, src.indexOf("normalizePeriodReviewArtifactForWriteback", dailyStart));
-  const period = src.slice(periodStart, syncStart);
-  assert.match(daily, /processTextAtVaultPath/);
-  assert.doesNotMatch(daily, /writeTextToVault/);
-  assert.match(period, /processTextAtVaultPath/);
-  assert.doesNotMatch(period, /writeTextToVault/);
-});
 
-test("review final model loads only the daily target and keeps bilingual final fields", async () => {
+test("review final model loads only the daily target and keeps the source Markdown", async () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
   plugin.settings = plugin.normalizeSettings({ managedPaths: { diaryRoot: "06_Diary" } });
@@ -2094,15 +1683,10 @@ test("review final model loads only the daily target and keeps bilingual final f
 
   const model = await plugin.loadReviewFinal({ mode: "daily", anchorDate: "2026-07-14" });
 
-  assert.deepEqual({ ...model.savedPayload, gdd: { ...model.savedPayload.gdd } }, {
-    summary: "Completed the final-first loader.",
-    gdd: { hi: "Clear final", dev: "No recovery yet", blk: "None" },
-    gratitude: "Grateful for a quiet workflow.",
-    thought: "Continue tomorrow."
-  });
+  assert.deepEqual({ ...model.savedPayload }, { format: "markdown", body: "## Review\n\n### Summary\n\nCompleted the final-first loader." });
   assert.equal(model.sectionHeading, "Review");
   assert.equal(model.targetKey, "daily:2026-07-14");
-  assert.match(model.baseFingerprint, /^review-v1-/);
+  assert.match(model.baseFingerprint, /^review-doc-v1-/);
   assert.deepEqual(reads, ["06_Diary/2026/2026-07-14.md"]);
 });
 
@@ -2175,11 +1759,12 @@ test("daily final replacement protects parent sections and fenced examples", () 
   const prefix = "# Journal\n\n```md\n## Review\n### Summary\nexample\n```\n\n";
   const tail = "# Private notes\n\n### Summary\nkeep this  \nexactly\n";
   const original = `${prefix}## Review\n\n### Summary\nold summary\n\n### My notes\n~~~md\n### Summary\nkeep code\n~~~\n\n${tail}`;
-  const updated = diary.replaceFinalReviewSections(original, { summary: "new summary" });
+  const binding = D.readReviewDocument(original, ["Review"]);
+  const updated = D.writeReviewDocument(original, binding, binding.markdown.replace("old summary", "new summary"));
   assert.ok(updated.startsWith(prefix));
   assert.ok(updated.endsWith(tail));
   assert.ok(updated.includes("### My notes\n~~~md\n### Summary\nkeep code\n~~~"));
-  assert.ok(updated.includes("### Summary\n\nnew summary"));
+  assert.ok(updated.includes("### Summary\nnew summary"));
   assert.ok(!updated.includes("old summary"));
 });
 
@@ -2189,8 +1774,8 @@ test("diary utility loads in the Obsidian renderer without replacing its ambient
   context.globalThis = context;
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(pluginPath("views/dashboard/core/utils/diary-day-blocks.js"), "utf8"), context);
-  const result = context.dashboardCore.utils.diaryDayBlocks.replaceFinalReviewSections("## Review\n\nold", { summary: "new" });
-  assert.match(result, /### Summary\n\nnew/);
+  const result = context.dashboardCore.utils.diaryDayBlocks.appendTodayTaskLine("## Tasks\n\n### Today tasks\n", "new");
+  assert.match(result, /### Today tasks\n- \[ \] new/);
   assert.equal(context.module.exports, ambientExports);
 });
 
@@ -2236,7 +1821,7 @@ test("period final load and save preserve frontmatter and unrelated sections", a
 
   const model = await plugin.loadReviewFinal({ mode: "weekly", anchorDate: "2026-07-14" });
   assert.equal(model.sectionHeading, "Weekly review");
-  assert.deepEqual({ ...model.savedPayload }, { body: "old review" });
+  assert.deepEqual({ ...model.savedPayload }, { format: "markdown", body: "## Weekly review\n\nold review" });
 
   const result = await plugin.saveReviewFinal(model, { body: "new review\n\n- next" });
   assert.equal(result.ok, true);
@@ -2366,7 +1951,7 @@ test("review final save refuses an externally changed base fingerprint", async (
   assert.equal(writes, 0);
 });
 
-test("review recovery store serializes mutations and replaces one target entry", async () => {
+test("review recovery store serializes mutations and replaces one editor draft", async () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
   plugin.manifest = { id: "noria-dev" };
@@ -2413,9 +1998,9 @@ test("review recovery store serializes mutations and replaces one target entry",
   const recoveryPath = ".config/plugins/noria-dev/cache/review/recovery-drafts.json";
   assert.equal(plugin.getReviewRecoveryDraftPath(), recoveryPath);
   const store = JSON.parse(files.get(recoveryPath));
-  assert.equal(store.version, 1);
-  assert.equal(store.entries["daily:2026-07-14"].payload.summary, "latest");
-  assert.equal(store.entries["daily:2026-07-15"].payload.summary, "other day");
+  assert.equal(store.version, 2);
+  assert.equal(store.entries["daily:2026-07-14"][0].payload.summary, "latest");
+  assert.equal(store.entries["daily:2026-07-15"][0].payload.summary, "other day");
   assert.equal(writes.length, 3);
 });
 
@@ -2474,6 +2059,86 @@ test("review final ignores recovery entries for another path or stale Markdown",
   const stale = await plugin.loadReviewFinal({ mode: "monthly", anchorDate: "2026-07-14" });
   assert.equal(stale.source, "markdown");
   assert.equal(stale.recoveryDraft, null);
+  assert.equal(stale.preservedRecoveryDrafts[0].payload.body, "recovered final");
+});
+
+function makeRecoveryFixture() {
+  const Plugin = loadPluginClass();
+  const plugin = new Plugin();
+  const targetPath = "06_Diary/2026/2026-07.md";
+  const files = new Map([[targetPath, "## Monthly review\n\nsaved final\n"]]);
+  plugin.manifest = { id: "noria" };
+  plugin.settings = plugin.normalizeSettings({});
+  plugin.app = { plugins: { plugins: {} }, vault: {
+    configDir: ".obsidian",
+    getAbstractFileByPath: (name) => files.has(name) ? { path: name } : null,
+    adapter: {
+      exists: async (name) => files.has(name), mkdir: async () => {},
+      read: async (name) => { if (!files.has(name)) throw new Error("missing"); return files.get(name); },
+      write: async (name, text) => { files.set(name, String(text)); }
+    }
+  } };
+  plugin.resolveCalendarNoteSpecAsync = async () => ({ path: targetPath, exists: true, periodId: "2026-07" });
+  plugin.loadTextFromVault = async (name) => files.get(name) || "";
+  plugin.writeTextToVault = async (name, text) => { files.set(name, text); };
+  plugin.requestNoriaRefresh = () => {};
+  const selection = { mode: "monthly", anchorDate: "2026-07-14" };
+  const draft = (model, body, updatedAt = 10) => ({
+    schemaVersion: 1, targetKey: model.targetKey, targetPath, draftId: model.draftId,
+    baseFingerprint: model.baseFingerprint, payload: { body }, updatedAt
+  });
+  return { plugin, files, targetPath, selection, draft };
+}
+
+test("legacy or conflicting recovery survives a new draft and an unrelated save", async () => {
+  const { plugin, files, targetPath, selection, draft } = makeRecoveryFixture();
+  const key = "monthly:2026-07";
+  const old = { schemaVersion: 1, targetKey: key, targetPath, baseFingerprint: "review-v1-old", payload: { body: "old unsaved work" }, updatedAt: 1 };
+  files.set(plugin.getReviewRecoveryDraftPath(), JSON.stringify({ version: 1, entries: { [key]: old } }));
+  const model = await plugin.loadReviewFinal(selection);
+  assert.equal(model.recoveryDraft, null);
+  assert.equal(model.preservedRecoveryDrafts[0].payload.body, "old unsaved work");
+  await plugin.queueReviewRecoveryEntry(draft(model, "new work"));
+  assert.equal((await plugin.readReviewRecoveryStore()).entries[key].length, 2);
+  assert.equal((await plugin.saveReviewFinal(model, { body: "new work" })).ok, true);
+  const remaining = (await plugin.loadReviewFinal(selection)).preservedRecoveryDrafts;
+  assert.deepEqual(Array.from(remaining, (entry) => entry.payload.body), ["old unsaved work"]);
+});
+
+test("two review editors keep separate drafts and saving one preserves the other", async () => {
+  const { plugin, selection, draft } = makeRecoveryFixture();
+  const first = await plugin.loadReviewFinal(selection);
+  const second = await plugin.loadReviewFinal(selection);
+  assert.notEqual(first.draftId, second.draftId);
+  await plugin.queueReviewRecoveryEntry(draft(first, "first editor"));
+  await plugin.queueReviewRecoveryEntry(draft(second, "second editor"));
+  assert.equal((await plugin.saveReviewFinal(first, { body: "first editor" })).ok, true);
+  assert.equal((await plugin.saveReviewFinal(second, { body: "second editor" })).reason, "conflict");
+  const store = await plugin.readReviewRecoveryStore();
+  assert.deepEqual(Array.from(store.entries[first.targetKey], (entry) => entry.payload.body), ["second editor"]);
+});
+
+test("a recovery mutation refuses to overwrite unreadable recovery data", async () => {
+  const { plugin, files, selection, draft } = makeRecoveryFixture();
+  const model = await plugin.loadReviewFinal(selection);
+  const path = plugin.getReviewRecoveryDraftPath();
+  files.set(path, "{ damaged but still recoverable manually");
+  await assert.rejects(plugin.queueReviewRecoveryEntry(draft(model, "new input")));
+  assert.equal(files.get(path), "{ damaged but still recoverable manually");
+});
+
+test("saved snapshot cleanup keeps newer input from the same editor", async () => {
+  const { plugin, selection, draft } = makeRecoveryFixture();
+  const model = await plugin.loadReviewFinal(selection);
+  await plugin.queueReviewRecoveryEntry(draft(model, "being saved", 10));
+  const originalWrite = plugin.writeTextToVault;
+  plugin.writeTextToVault = async (...args) => {
+    await plugin.queueReviewRecoveryEntry(draft(model, "typed later", 11));
+    return originalWrite(...args);
+  };
+  assert.equal((await plugin.saveReviewFinal(model, { body: "being saved" })).ok, true);
+  const store = await plugin.readReviewRecoveryStore();
+  assert.equal(store.entries[model.targetKey][0].payload.body, "typed later");
 });
 
 test("review final load prefers matching recovery and successful save clears it", async () => {
@@ -2503,15 +2168,15 @@ test("review final load prefers matching recovery and successful save clears it"
     schemaVersion: 1,
     targetKey: "daily:2026-07-14",
     targetPath: "06_Diary/2026/2026-07-14.md",
-    baseFingerprint: fingerprintReviewSection("### Summary\n\nSaved summary"),
-    payload: { summary: "Recovered summary", gdd: {}, gratitude: "", thought: "" },
+    baseFingerprint: D.readReviewDocument(current, ["Review"]).fingerprint,
+    payload: { format: "markdown", body: "## Review\n\nRecovered summary" },
     updatedAt: 10
   });
   plugin.clearReviewRecoveryEntry = async () => { cleared += 1; };
 
   const model = await plugin.loadReviewFinal({ mode: "daily", anchorDate: "2026-07-14" });
   assert.equal(model.source, "recovery");
-  assert.equal(model.recoveryDraft.payload.summary, "Recovered summary");
+  assert.equal(model.recoveryDraft.payload.body, "## Review\n\nRecovered summary");
 
   const result = await plugin.saveReviewFinal(model, { summary: "Saved now", gdd: {}, gratitude: "", thought: "" });
   assert.equal(result.ok, true);
@@ -2552,16 +2217,11 @@ test("review staged APIs keep summary cheap and load daily support only on reque
     selection,
     targetKey: "daily:2026-07-14",
     targetPath: "06_Diary/2026/2026-07-14.md",
-    savedPayload: {
-      summary: "Saved",
-      gdd: { hi: "Clear", dev: "", blk: "" },
-      gratitude: "",
-      thought: ""
-    }
+    savedPayload: { format: "markdown", body: "## Review\n\nSaved" }
   };
 
   const summary = await plugin.getReviewEvidenceSummary(selection, finalModel);
-  assert.deepEqual(Array.from(summary.facts, (fact) => fact.id), ["summary", "gdd"]);
+  assert.deepEqual(Array.from(summary.facts, (fact) => fact.id), ["review"]);
   assert.equal(fullEvidenceCalls, 0);
   assert.deepEqual(reads, []);
 
@@ -2638,7 +2298,7 @@ test("period evidence, final target, and analysis artifact share the calendar-re
   assert.equal(evidence.writeback.targetPath, "Custom/Periods/2026.md");
   assert.equal(evidence.artifactPath, "Custom/Periods/2026-review-week.md");
   assert.equal(artifact.path, evidence.artifactPath);
-  assert.deepEqual(reads, ["Custom/Periods/2026-review-week.md"]);
+  assert.deepEqual(reads, ["Custom/Periods/2026.md", "Custom/Periods/2026-review-week.md"]);
   assert.equal(preparedModel.artifactPath, evidence.artifactPath);
   assert.equal(preparedModel.periodNotePath, evidence.periodNotePath);
   assert.deepEqual(preparedModel.reviewEvidence.range, evidence.range);
@@ -2695,6 +2355,19 @@ test("home review summary coalesces repeated file reads and invalidates after re
   const refreshed = await plugin.getReviewCenterHomeSummary("2026-05-05");
   assert.equal(refreshed.status, "finalSaved");
   assert.equal(readCalls.length, 4);
+});
+
+test("home review status recognizes a renamed Markdown review without GDD fields", async () => {
+  const plugin = makeAiPlugin({ settings: { managedPaths: { diaryRoot: "06_Diary" } } });
+  plugin.ensureReviewCenterUtils = async () => ({ resolveDailyArtifactPath: () => "analysis.md" });
+  plugin.ensureDiaryDayBlocks = async () => ({
+    normalizeYmd: value => String(value), getDiaryPathForDate: () => "day.md",
+    parseSummary: () => "", parseGdd: () => ({})
+  });
+  plugin.loadTextFromVault = async path => path === "day.md"
+    ? "%% noria:review:start %%\n## A small memory\n\nA walk by the river.\n%% noria:review:end %%\n" : "";
+  const summary = await plugin.getReviewCenterHomeSummary("2026-09-13");
+  assert.equal(summary.status, "finalSaved");
 });
 
 test("home review summary invalidation prevents pending stale reads from repopulating cache", async () => {
@@ -2867,7 +2540,7 @@ test("daily review evidence and task collection share human-note noise filters",
   assert.match(main, /!p\.startsWith\("99_Attachment\/"\)/);
   assert.match(src, /async collectReviewExcerpts\(diaryPath,\s*git,\s*review\)/);
   assert.match(src, /collectReviewExcerpts\(diaryPath,\s*git,\s*review\)/);
-  assert.match(src, /review && typeof review\.sanitizeReviewExcerptText === "function"/);
+  assert.match(src, /text:readingBody\(text\)/);
 });
 
 test("daily review AI analysis uses markdown preview and ignores seed artifacts", () => {
@@ -2931,20 +2604,13 @@ test("daily review AI analysis uses markdown preview and ignores seed artifacts"
   assert.equal(review.hasGeneratedReviewContent(review.parseReviewArtifact(generated)), true);
   assert.doesNotMatch(review.buildArtifactPreviewMarkdown(generated), /^---/);
   assert.match(review.buildArtifactPreviewMarkdown(generated), /## 综合总结/);
-  assert.match(main, /noria-review-llm-preview/);
+
   assert.match(main, /MarkdownRenderer\.render/);
-  assert.match(main, /generated\) === true|\.generated === true/);
+  assert.match(fs.readFileSync(pluginPath("src/main.js"), "utf8"), /!artifact\?\.generated/);
   assert.doesNotMatch(main, /text \|\| this\.plugin\.t\("review\.empty"\)/);
   assert.doesNotMatch(main, /noria-review-llm-grid/);
   assert.doesNotMatch(main, /noria-review-llm-card/);
   assert.match(styles, /\.noria-review-llm-preview\b/);
   assert.doesNotMatch(styles, /\.noria-review-llm-grid\b/);
   assert.doesNotMatch(styles, /\.noria-review-llm-card\b/);
-});
-
-test("daily review save payload keeps recap fields and omits daily state", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
-
-  assert.match(main, /saveDailyReviewFinal\(model\.date,\s*\{\s*summary:\s*summary\.value,\s*gdd:\s*\{\s*hi:\s*gddHi\.value,\s*dev:\s*gddDev\.value,\s*blk:\s*gddBlk\.value\s*\},\s*gratitude:\s*gratitude\.value,\s*thought:\s*thought\.value\s*\}\)/s);
-  assert.doesNotMatch(main, /saveDailyReviewFinal\(model\.date,\s*\{\s*state,/s);
 });

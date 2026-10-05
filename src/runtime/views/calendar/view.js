@@ -596,13 +596,14 @@ injectStyle();
 empty(mount);
 
 const stateKey = "__noriaCalendarState";
-const state = globalThis[stateKey] && typeof globalThis[stateKey] === "object"
+const state = input?.calendarState || (globalThis[stateKey] && typeof globalThis[stateKey] === "object"
   ? globalThis[stateKey]
-  : { anchor: "", selectedDate: "", mode: "days" };
-globalThis[stateKey] = state;
+  : { anchor: "", selectedDate: "", mode: "days" });
+if (!input?.calendarState) globalThis[stateKey] = state;
 state.mode = ["days", "months", "years"].includes(String(state.mode || "")) ? state.mode : "days";
 
 const root = el(mount, "div", { cls: "noria-calendar-root" });
+root.dataset.selectionMode=input?.selectionMode||state.selectionMode||"daily";
 let currentModel = null;
 let renderSerial = 0;
 let resizeTimer = null;
@@ -623,6 +624,7 @@ function readHeight(node) {
 }
 
 function measureVisibleWeeks() {
+  if (input?.fixedWeeks) return clampInt(input.fixedWeeks, MIN_VISIBLE_WEEKS, MAX_VISIBLE_WEEKS);
   const viewContent = typeof mount?.closest === "function" ? mount.closest(".view-content") : null;
   const height = readHeight(mount) || readHeight(mount?.parentElement) || readHeight(viewContent);
   const fallback = clampInt(state.visibleWeeks || MAX_VISIBLE_WEEKS, MIN_VISIBLE_WEEKS, MAX_VISIBLE_WEEKS);
@@ -679,6 +681,7 @@ root.addEventListener("wheel", handleCalendarWheel, { passive: false });
 
 function handleCalendarKeydown(event) {
   if (event?.key !== "Escape") return;
+  if (input?.browseHeader && !root.contains(document.activeElement)) return;
   if (state.timeOpen) {
     state.timeOpen = false;
     event.preventDefault?.();
@@ -695,7 +698,8 @@ function handleCalendarKeydown(event) {
   if (state.mode !== "days") {
     state.mode = "days";
     event.preventDefault?.();
-    void render();
+    if (input?.browseHeader) void renderAndFocus(".noria-calendar-day.is-selected, .noria-calendar-month");
+    else void render();
   }
 }
 
@@ -733,6 +737,12 @@ function setMode(mode) {
   }
 }
 
+async function renderAndFocus(selector) {
+  await render();
+  const target = selector.split(",").map(part => root.querySelector?.(part.trim())).find(Boolean);
+  target?.focus?.({preventScroll: true});
+}
+
 function renderMonthPicker(picker) {
   const wrap = el(root, "div", { cls: "noria-calendar-picker noria-calendar-picker--months" });
   (picker?.months || []).forEach((month) => {
@@ -742,14 +752,16 @@ function renderMonthPicker(picker) {
       attr: { type: "button", title: month.path || "" }
     });
     addClass(button, "is-current", month.current);
-    addClass(button, "is-selected", month.selected);
+    addClass(button, "is-selected", String(month.date||month.anchor).slice(0,7)===String(state.selectedDate).slice(0,7));
     addClass(button, "has-note", month.exists);
     button.addEventListener("click", () => {
+      if((input?.selectionMode||state.selectionMode)==="monthly"){void openPeriod("monthly",month.date||`${month.anchor}-01`);return;}
       state.anchor = month.anchor || String(month.date || "").slice(0, 7);
-      state.selectedDate = month.date || dateFromMonth(state.anchor);
+      if (!input?.browseHeader) state.selectedDate = month.date || dateFromMonth(state.anchor);
       state.weekOffset = null;
       setMode("days");
-      void render();
+      if (input?.browseHeader) void renderAndFocus(".noria-calendar-day.is-selected, .noria-calendar-day:not(.is-outside)");
+      else void render();
     });
   });
 }
@@ -763,14 +775,16 @@ function renderYearPicker(picker, model) {
       attr: { type: "button", title: year.path || "" }
     });
     addClass(button, "is-current", year.current);
-    addClass(button, "is-selected", year.selected);
+    addClass(button, "is-selected", String(year.year)===String(state.selectedDate).slice(0,4));
     addClass(button, "has-note", year.exists);
     button.addEventListener("click", () => {
+      if((input?.selectionMode||state.selectionMode)==="yearly"){void openPeriod("yearly",`${year.year}-01-01`);return;}
       const monthPart = String(model?.anchor || state.anchor || "").slice(5, 7) || "01";
       state.anchor = `${year.year}-${monthPart}`;
       state.yearStart = yearStartFor(year.year);
       setMode("months");
-      void render();
+      if (input?.browseHeader) void renderAndFocus(".noria-calendar-month-cell.is-selected, .noria-calendar-month-cell");
+      else void render();
     });
   });
 }
@@ -976,10 +990,12 @@ async function render() {
   const monthButton = el(title, "button", {
     cls: "noria-calendar-month",
     text: model.monthTitle || String(model.monthLabel || model.anchor).split(/\s+/)[0],
-    attr: { type: "button", title: t("calendar.period.monthly") }
+    attr: { type: "button", title: t("runtime.calendar.chooseMonth"), "aria-label": t("runtime.calendar.chooseMonth") }
   });
   addClass(monthButton, "has-period-note", !!model.titlePeriods?.monthly?.exists);
-  monthButton.addEventListener("click", (event) => openPeriod("monthly", dateFromMonth(model.anchor), event));
+  monthButton.addEventListener("click", (event) => {
+    setMode("months"); state.weekOffset = null; void renderAndFocus(".noria-calendar-month-cell.is-selected, .noria-calendar-month-cell");
+  });
   monthButton.addEventListener("contextmenu", (event) => {
     event.preventDefault?.();
     event.stopPropagation?.();
@@ -990,10 +1006,12 @@ async function render() {
   const yearButton = el(title, "button", {
     cls: "noria-calendar-year",
     text: model.yearTitle || String(model.year || ""),
-    attr: { type: "button", title: t("calendar.period.yearly") }
+    attr: { type: "button", title: t("runtime.calendar.chooseYear"), "aria-label": t("runtime.calendar.chooseYear") }
   });
   addClass(yearButton, "has-period-note", !!model.titlePeriods?.yearly?.exists);
-  yearButton.addEventListener("click", (event) => openPeriod("yearly", `${model.year || String(model.anchor || "").slice(0, 4)}-01-01`, event));
+  yearButton.addEventListener("click", (event) => {
+    setMode("years"); state.yearStart = yearStartFor(model.year); void renderAndFocus(".noria-calendar-year-cell.is-selected, .noria-calendar-year-cell");
+  });
   yearButton.addEventListener("contextmenu", (event) => {
     event.preventDefault?.();
     event.stopPropagation?.();
@@ -1021,7 +1039,7 @@ async function render() {
   });
   const today = el(nav, "button", {
     cls: "noria-calendar-today",
-    text: t("runtime.calendar.today"),
+    text: (input?.selectionMode||state.selectionMode)?t("workbench.current."+(input?.selectionMode||state.selectionMode)):t("runtime.calendar.today"),
     attr: { type: "button" }
   });
   today.addEventListener("click", () => {
@@ -1030,7 +1048,10 @@ async function render() {
     state.selectedDate = model.today;
     state.weekOffset = null;
     state.taskDate = "";
-    void render();
+    if (input?.browseHeader) void renderAndFocus(".noria-calendar-nav button:first-child");
+    else void render();
+    if (typeof input?.onToday === "function") void input.onToday(model.today);
+    else if(state.selectionMode)void openPeriod(state.selectionMode,model.today);
   });
   const nextTitle = state.mode === "years"
     ? t("runtime.calendar.nextYears")
@@ -1046,7 +1067,8 @@ async function render() {
     } else {
       setAnchorMonth(model.anchor, 1, 0);
     }
-    void render();
+    if (input?.browseHeader) void renderAndFocus(".noria-calendar-nav button:last-child");
+    else void render();
   });
 
   if (state.mode === "months") {
@@ -1098,12 +1120,13 @@ async function render() {
     addClass(btn, "is-weekend-start", day.weekend && weekday === 6);
     addClass(btn, "is-weekend-end", day.weekend && weekday === 0);
     addClass(btn, "is-today", day.today);
-    addClass(btn, "is-selected", day.date === state.selectedDate);
+    const range=input?.selectedRange||state.selectedRange;
+    addClass(btn, "is-selected", (input?.selectionMode||state.selectionMode)==="weekly"&&range?day.date>=range.start&&day.date<=range.end:day.date === state.selectedDate);
     addClass(btn, "has-note", day.exists);
     addClass(btn, "has-open-task", !day.exists && Number(day.openTaskCount || 0) > 0);
     btn.addEventListener("click", (event) => {
       state.selectedDate = day.date;
-      void render().then(() => openPeriod("daily", day.date, event));
+      void render().then(() => openPeriod(input?.selectionMode||state.selectionMode||"daily", day.date, event));
     });
   });
   renderTaskPanel();
@@ -1116,7 +1139,12 @@ function scheduleResizeRender() {
   if (resizeTimer) window.clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
     resizeTimer = null;
-    void render();
+    const focused = input?.browseHeader && root.contains(document.activeElement) ? document.activeElement : null;
+    const label = focused?.getAttribute?.("title"), text = focused?.textContent;
+    void render().then(() => {
+      if (!focused || (document.activeElement !== document.body && !root.contains(document.activeElement))) return;
+      Array.from(root.querySelectorAll("button")).find(button => button.getAttribute("title") === label && button.textContent === text)?.focus({preventScroll: true});
+    });
   }, 80);
 }
 

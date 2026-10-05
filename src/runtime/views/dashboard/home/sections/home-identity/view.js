@@ -128,7 +128,9 @@
     try { parent.empty?.(); } catch (_) {}
     const ph = parent.createDiv();
     ph.addClass("dashboard-identity-avatar");
-    ph.textContent = displayName ? displayName.slice(0, 2) : "C";
+    const svg=globalThis.__noriaRuntimeBridge?.runtime?.getNoriaAvatar?.();
+    if(svg){ph.addClass("dashboard-identity-avatar--mark");const img=ph.createEl("img");img.src=`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;img.alt="Noria";img.style.cssText="width:100%;height:100%;object-fit:contain";}
+    else ph.textContent="Noria";
     if (reason) ph.setAttr("title", reason);
     return ph;
   }
@@ -565,9 +567,7 @@
   };
   const setWeatherState = (state, detail = "") => {
     setWeatherAttr("data-noria-weather-state", state);
-    if (detail) {
-      setWeatherAttr("data-noria-weather-error", detail);
-    }
+    setWeatherAttr("data-noria-weather-error", detail);
   };
   setWeatherState("loading");
   const todayIso = () => {
@@ -584,7 +584,7 @@
   if (!weatherEnabled) {
     clearHomeWeatherTimer();
     setWeatherState("disabled");
-    weatherLine.textContent = homeIdentityT("runtime.home.weather.disabled");
+    weatherHost.hidden = true;
   } else {
     clearHomeWeatherTimer();
     const weatherSeq = Number(globalThis.__noriaHomeWeatherHydrationSeq || 0) + 1;
@@ -605,11 +605,40 @@
           : homeIdentityT("runtime.home.weather.serviceMissing");
         return;
       }
-      const renderWeather = async () => {
+      let hasWeather = false, pendingWeather = null, retryAction;
+      const feedback = weatherHost.createDiv({cls:'noria-weather-feedback'});
+      feedback.hidden = true;
+      const feedbackText = feedback.createSpan({attr:{role:'status'}});
+      const retryButton = feedback.createEl('button', {text:homeIdentityT('runtime.home.weather.retry'), attr:{type:'button'}});
+      retryButton.onclick = async () => {
+        if (retryButton.disabled) return;
+        retryButton.disabled = true;
+        try {await retryAction?.();} finally {retryButton.disabled = false;}
+      };
+      const showIssue = (message, action) => {
+        feedback.hidden = false;
+        feedbackText.textContent = homeIdentityT(message);
+        retryAction = action;
+      };
+      const writeWeather = async (payload, date) => {
         if (!isCurrentWeatherRun()) return;
         try {
+          await service.readWriteDailyWeather(date, payload.mappedWeather, {skipIfExists:false, forceOverwrite:true, payload});
+          if (!isCurrentWeatherRun()) return;
+          setWeatherAttr('data-noria-weather-write-error', '');
+          feedback.hidden = true;
+        } catch (error) {
+          if (!isCurrentWeatherRun()) return;
+          setWeatherAttr('data-noria-weather-write-error', String(error?.message || error));
+          showIssue('runtime.home.weather.diaryWriteFailed', () => writeWeather(payload, date));
+        }
+      };
+      const updateWeather = async (force = false) => {
+        if (!isCurrentWeatherRun()) return;
+        const requestDate = todayIso();
+        try {
           const payload = typeof service.getWeatherForDate === "function"
-            ? await service.getWeatherForDate(runtimeWeather, { targetDate: todayIso() })
+            ? await service.getWeatherForDate(runtimeWeather, { targetDate: requestDate, force })
             : await service.getWeatherForHome(runtimeWeather);
           if (!isCurrentWeatherRun()) return;
           const city = String(payload?.city || homeIdentityT("runtime.home.weather.autoLocation"));
@@ -639,26 +668,40 @@
           setWeatherAttr("data-noria-weather-humidity", humidity);
           setWeatherAttr("data-noria-weather-ip", ip);
           setWeatherAttr("data-noria-weather-source", payload?.source || "");
-          weatherLine.textContent = lineText || homeIdentityT("runtime.home.weather.unavailableShort");
-          weatherLine.title = lineText || "";
+          weatherLine.empty();
+          const weatherButton=weatherLine.createEl("button",{cls:"noria-weather-summary",attr:{type:"button","aria-haspopup":"dialog","aria-label":lineText}});
+          const weatherIcon=weatherButton.createSpan({cls:"noria-weather-icon"});
+          const iconName=({"晴":"sun","暴晒":"sun","多云":"cloud-sun","阴":"cloud","雨":"cloud-rain","风":"wind","雪":"snowflake"})[mapped]||"cloud-sun";
+          const applyIcon=globalThis.dashboardCore?.utils?.applyLucideIcon;
+          if(applyIcon)applyIcon(weatherIcon,iconName,{size:22});else weatherIcon.setText(icon);
+          weatherButton.dataset.condition=iconName;
+          weatherButton.createSpan({cls:"noria-weather-temperature",text:currentTemp?`${currentTemp}°`:tempSingleText});
+          const caption=weatherButton.createSpan({cls:"noria-weather-caption"});caption.createSpan({text:city});
+          caption.createSpan({cls:"noria-weather-range",text:tempRangeText});
+          weatherButton.title=lineText;
+          weatherButton.onclick=()=>homeIdentityBridge.runtime?.openWeatherDetails?.(weatherButton,payload,renderWeather);
+          hasWeather = true;
+          feedback.hidden = true;
+          weatherLine.title = '';
 
           const autoWriteDaily = runtimeWeather.autoWriteDaily !== false;
           if (autoWriteDaily && typeof service.readWriteDailyWeather === "function") {
-            await service.readWriteDailyWeather(todayIso(), mapped, {
-              skipIfExists: false,
-              forceOverwrite: true,
-              payload
-            });
+            await writeWeather(payload, requestDate);
           }
           return true;
         } catch (e) {
           if (!isCurrentWeatherRun()) return;
           const reason = String(e?.message || e || homeIdentityT("runtime.home.weather.requestFailed"));
-          setWeatherState("failed", reason);
-          weatherLine.textContent = homeIdentityT("runtime.home.weather.unavailableShort");
+          setWeatherState(hasWeather ? "stale" : "failed", reason);
+          if (!hasWeather) weatherLine.textContent = homeIdentityT("runtime.home.weather.unavailableShort");
           weatherLine.title = reason;
+          showIssue(hasWeather ? 'runtime.home.weather.showingPrevious' : 'runtime.home.weather.requestFailed', () => renderWeather(true));
           return false;
         }
+      };
+      const renderWeather = (force = false) => {
+        if (!pendingWeather) pendingWeather = updateWeather(force).finally(() => {pendingWeather = null;});
+        return pendingWeather;
       };
 
       const initialWeatherReady = await renderWeather();

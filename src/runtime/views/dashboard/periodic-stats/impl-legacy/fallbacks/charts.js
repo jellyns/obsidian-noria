@@ -45,44 +45,7 @@
     };
 
     function renderDistCard(parent, title, defs, countMap) {
-      const card = makeCard(parent, title);
-      const total = Math.max(1, Object.values(countMap).reduce((a, b) => a + Number(b || 0), 0));
-      const palette = ["#6366f1", "#3b82f6", "#06b6d4", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#0ea5e9"];
-      const hasData = defs.some((d) => Number(countMap[d.key] || 0) > 0);
-      if (!hasData) {
-        card.createDiv({ text: chartT("runtime.chart.noRecords") }).style.cssText = "color:var(--text-muted);font-size:.88em;";
-        return;
-      }
-
-      const rail = card.createDiv();
-      rail.style.cssText = "position:relative;height:16px;border-radius:999px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.14);overflow:visible;margin-top:2px;";
-      const track = rail.createDiv();
-      track.style.cssText = "position:absolute;inset:0;border-radius:999px;overflow:hidden;";
-      let leftPct = 0;
-      defs.forEach((d, i) => {
-        const count = Number(countMap[d.key] || 0);
-        if (count <= 0) return;
-        const pct = Math.max(0, Math.min(100, (count / total) * 100));
-        const seg = track.createDiv();
-        seg.style.cssText = `position:absolute;left:${leftPct}%;width:${pct}%;top:0;bottom:0;background:linear-gradient(90deg, ${palette[i % palette.length]}cc, ${palette[i % palette.length]}99);`;
-        seg.title = `${d.emoji || "•"} ${d.key}: ${count} (${pct.toFixed(1)}%)`;
-        const marker = rail.createDiv({ text: d.emoji || "•" });
-        marker.style.cssText = `position:absolute;left:${leftPct + pct / 2}%;top:-13px;transform:translateX(-50%);font-size:.76em;line-height:1;pointer-events:none;`;
-        leftPct += pct;
-      });
-
-      const legend = card.createDiv();
-      legend.style.cssText = "display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:8px;";
-      defs.forEach((d, i) => {
-        const count = Number(countMap[d.key] || 0);
-        if (count <= 0) return;
-        const pct = count > 0 ? (count / total) * 100 : 0;
-        const row = legend.createDiv();
-        row.style.cssText = "display:flex;align-items:center;gap:6px;padding:2px 6px;border-radius:999px;background:color-mix(in srgb,var(--background-primary) 88%,rgba(59,130,246,.04));border:1px solid rgba(59,130,246,.12);";
-        const dot = row.createEl("span");
-        dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:999px;background:${palette[i % palette.length]};`;
-        row.createEl("span", { text: `${d.emoji || "•"} ${d.key} ${pct.toFixed(1)}%` }).style.cssText = "font-size:.78em;color:var(--text-muted);";
-      });
+      return chartAdapter.renderDistribution(parent, {title,defs,countMap,emptyText:chartT("runtime.chart.noRecords")});
     }
 
     function renderSimpleSeries(parent, title, series, maxValue, unit, statOptions = null) {

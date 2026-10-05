@@ -237,10 +237,10 @@ function createHomePerformanceRecorder() {
 
 const homePerf = createHomePerformanceRecorder();
 
-async function loadTextResult(path) {
+async function loadTextResult(path, {fresh=false} = {}) {
   const normalized = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
   const perf = opts?.noriaBridge?.performance || globalThis.__noriaRuntimeBridge?.performance || {};
-  const cacheEnabled = perf.viewSourceCache !== false;
+  const cacheEnabled = !fresh && perf.viewSourceCache !== false;
   const cacheKey = `${homeRuntimeBuildId}:${normalized}`;
   const cache = (() => {
     if (!cacheEnabled) return null;
@@ -1307,6 +1307,14 @@ function createHomeWidgetCleanupRegistry(target) {
 }
 
 const homeWidgetCleanup = createHomeWidgetCleanupRegistry(hostContainer);
+// Task writes update their cards without replacing the surrounding workbench.
+const taskRefreshers = new Set();
+const refreshHomeTasks = () => Promise.all([...taskRefreshers].map(refresh => refresh()));
+hostContainer.__noriaHomeTaskRefresh = refreshHomeTasks;
+homeWidgetCleanup.add(() => {
+  taskRefreshers.clear();
+  if (hostContainer.__noriaHomeTaskRefresh === refreshHomeTasks) delete hostContainer.__noriaHomeTaskRefresh;
+});
 
 const coreFiles = [
   ".obsidian/plugins/noria/views/dashboard/core/theme/dashboard-theme.js",
@@ -1401,8 +1409,9 @@ async function renderSection(path, mount, options = {}) {
         ...opts,
         ...options,
         mount: attachDomHelpers(mount),
-        registerCleanup: homeWidgetCleanup.add
+        registerCleanup: options.registerCleanup || homeWidgetCleanup.add
       });
+      options.onRendered?.();
     } catch (e) {
       const msg = mount?.createDiv?.();
       const text = homeRuntimeT("runtime.home.facade.sectionFailed", {
@@ -1670,7 +1679,7 @@ function normalizeWidgetList(rawWidgets, options = {}) {
       return {
         ...copyWidgetExtensionFields(widget),
         id,
-        type: ["builtin", "markdown", "view", "action", "stat", "base", "list"].includes(String(widget.type || "builtin")) ? String(widget.type || "builtin") : "builtin",
+        type: ["builtin", "markdown", "view", "action", "stat", "base", "list", "extension"].includes(String(widget.type || "builtin")) ? String(widget.type || "builtin") : "builtin",
         schemaVersion: Number.isFinite(rawSchemaVersion) ? Math.max(HOME_WIDGET_SCHEMA_VERSION, rawSchemaVersion) : HOME_WIDGET_SCHEMA_VERSION,
         enabled: widget.enabled !== false,
         order: Number.isFinite(Number(widget.order)) ? Number(widget.order) : idx * 10,
@@ -1681,7 +1690,7 @@ function normalizeWidgetList(rawWidgets, options = {}) {
         props: widget.props && typeof widget.props === "object" && !Array.isArray(widget.props) ? { ...widget.props } : {}
       };
     })
-    .filter((widget) => widget.type !== "builtin" || !!HOME_WIDGET_REGISTRY[widget.id]);
+    .filter((widget) => widget.type !== "builtin" || !!HOME_WIDGET_REGISTRY[widget.builtinId || widget.id]);
   return widgets.sort((a, b) => a.order - b.order);
 }
 
@@ -1770,7 +1779,6 @@ function applyHomeWidgetLayout(widget, el) {
   el.setAttribute?.("data-noria-widget-span", String(span));
   try {
     el.style?.setProperty?.("--noria-home-widget-span", String(span));
-    el.style.gridColumn = `span ${span}`;
   } catch (_) {}
 }
 
@@ -1828,180 +1836,58 @@ function applyHomeWidgetShellActionIcon(button, iconId, fallback) {
   button.textContent = fallback;
 }
 
-function createHomeWidgetShellActionButton(actions, widget, action, label, iconId, fallback, onActivate) {
-  const button = actions.createEl("button", {
-    cls: "dashboard-home-widget-shell-action",
-    attr: {
-      type: "button",
-      "aria-label": label,
-      title: label,
-      "data-noria-widget-id": String(widget?.id || ""),
-      "data-noria-widget-shell-action": action
-    }
-  });
-  applyHomeWidgetShellActionIcon(button, iconId, fallback);
-  button.addEventListener("click", async (event) => {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    if (button.disabled) return;
-    button.disabled = true;
-    button.setAttr?.("data-noria-action-state", "pending");
-    button.setAttribute?.("data-noria-action-state", "pending");
-    try {
-      const result = await onActivate();
-      if (result?.ok === false) throw new Error(String(result.error || "action-failed"));
-      button.setAttr?.("data-noria-action-state", "done");
-      button.setAttribute?.("data-noria-action-state", "done");
-    } catch (_) {
-      button.disabled = false;
-      button.setAttr?.("data-noria-action-state", "failed");
-      button.setAttribute?.("data-noria-action-state", "failed");
-    }
-  });
-  return button;
-}
-
-function createHomeWidgetEditActionButton(actions, widget, action, label, iconId, fallback, onActivate, disabled = false) {
-  const button = createHomeWidgetShellActionButton(
-    actions,
-    widget,
-    action,
-    label,
-    iconId,
-    fallback,
-    onActivate
-  );
-  button.setAttr?.("data-noria-widget-edit-action", action);
-  button.setAttribute?.("data-noria-widget-edit-action", action);
-  button.disabled = disabled === true;
-  return button;
-}
-
-function createHomeWidgetSizeSelect(actions, widget) {
-  const label = homeRuntimeT("runtime.home.layoutEdit.size");
-  const select = actions.createEl("select", {
-    cls: "dashboard-home-widget-edit-size",
-    attr: {
-      "aria-label": label,
-      title: label,
-      "data-noria-widget-id": String(widget?.id || ""),
-      "data-noria-widget-edit-action": "size",
-      "data-noria-widget-edit-size": String(widget?.size || "medium")
-    }
-  });
-  [
-    ["small", "runtime.home.layoutEdit.sizeSmall"],
-    ["medium", "runtime.home.layoutEdit.sizeMedium"],
-    ["wide", "runtime.home.layoutEdit.sizeWide"],
-    ["full", "runtime.home.layoutEdit.sizeFull"]
-  ].forEach(([value, key]) => {
-    const option = select.createEl("option", { text: homeRuntimeT(key), attr: { value } });
-    option.selected = String(widget?.size || "medium") === value;
-  });
-  select.value = String(widget?.size || "medium");
-  select.addEventListener?.("change", async (event) => {
-    event?.stopPropagation?.();
-    if (select.disabled) return;
-    select.disabled = true;
-    const value = String(select.value || "medium");
-    select.setAttr?.("data-noria-widget-edit-size", value);
-    select.setAttribute?.("data-noria-widget-edit-size", value);
-    try {
-      const result = await homeBridge.runtime?.editHomeWidget({ widgetId: widget.id, action: "size", value });
-      if (result?.ok === false) throw new Error(String(result.error || "action-failed"));
-    } catch (_) {
-      select.disabled = false;
-    }
-  });
-  return select;
-}
-
-function createHomeWidgetShellActions(widget, shell, visibleTitle, editContext = {}) {
-  const runtime = homeBridge.runtime || {};
-  const canConfigure = typeof runtime.openHomeWidgetSettings === "function";
-  const canCollapse = typeof runtime.setHomeWidgetCollapsed === "function";
-  const canEdit = homeEditMode && typeof runtime.editHomeWidget === "function";
-  if (!canConfigure && !canCollapse && !canEdit) return null;
-  const host = shell?.content?.parentElement || null;
-  const overlay = !String(visibleTitle || "").trim();
-  const actionsParent = overlay ? host : shell?.titleActions;
-  const actions = actionsParent?.createDiv?.({ cls: "dashboard-home-widget-shell-actions" });
+function createHomeWidgetShellActions(widget, shell, visibleTitle) {
+  if (typeof homeBridge.runtime?.openHomeWidgetMenu !== "function") return null;
+  const host = shell?.content?.parentElement;
+  const overlay = !String(visibleTitle || "").trim()
+    || (host?.classList?.contains("dashboard-home-widget-shell-native") && widget?.collapsed !== true);
+  const actions = (overlay ? host : shell?.titleActions)?.createDiv?.({ cls: "dashboard-home-widget-shell-actions" });
   if (!actions) return null;
   if (overlay) actions.addClass?.("dashboard-home-widget-shell-actions--overlay");
-  actions.setAttr?.("data-noria-widget-shell-actions", String(widget?.id || ""));
-  actions.setAttribute?.("data-noria-widget-shell-actions", String(widget?.id || ""));
-  if (canEdit) {
-    const index = Number(editContext.index);
-    const total = Number(editContext.total);
-    createHomeWidgetEditActionButton(
-      actions,
-      widget,
-      "move-up",
-      homeRuntimeT("runtime.home.layoutEdit.moveUp"),
-      "arrow-up",
-      "^",
-      () => homeBridge.runtime?.editHomeWidget({ widgetId: widget.id, action: "move", value: "up" }),
-      Number.isFinite(index) && index <= 0
-    );
-    createHomeWidgetEditActionButton(
-      actions,
-      widget,
-      "move-down",
-      homeRuntimeT("runtime.home.layoutEdit.moveDown"),
-      "arrow-down",
-      "v",
-      () => homeBridge.runtime?.editHomeWidget({ widgetId: widget.id, action: "move", value: "down" }),
-      Number.isFinite(index) && Number.isFinite(total) && index >= total - 1
-    );
-    createHomeWidgetSizeSelect(actions, widget);
-    const enabled = widget?.enabled !== false;
-    createHomeWidgetEditActionButton(
-      actions,
-      widget,
-      enabled ? "hide" : "show",
-      homeRuntimeT(enabled ? "runtime.home.layoutEdit.hide" : "runtime.home.layoutEdit.show"),
-      enabled ? "eye-off" : "eye",
-      enabled ? "-" : "+",
-      () => homeBridge.runtime?.editHomeWidget({ widgetId: widget.id, action: "enabled", value: !enabled })
-    );
-  }
-  if (canConfigure) {
-    createHomeWidgetShellActionButton(
-      actions,
-      widget,
-      "configure",
-      homeRuntimeT("runtime.home.facade.configure"),
-      "settings-2",
-      "...",
-      () => homeBridge.runtime?.openHomeWidgetSettings(widget.id)
-    );
-  }
-  if (canCollapse && widget?.enabled !== false) {
-    const collapsed = widget?.collapsed === true;
-    createHomeWidgetShellActionButton(
-      actions,
-      widget,
-      collapsed ? "expand" : "collapse",
-      homeRuntimeT(collapsed ? "runtime.home.facade.expand" : "runtime.home.facade.collapse"),
-      collapsed ? "chevron-down" : "chevron-up",
-      collapsed ? "v" : "^",
-      () => homeBridge.runtime?.setHomeWidgetCollapsed(widget.id, !collapsed)
-    );
+  actions.setAttr("data-noria-widget-shell-actions", String(widget.id));
+  const label = homeRuntimeT("workbench.cardLayout");
+  const button = actions.createEl("button", {
+    cls: "clickable-icon dashboard-home-widget-shell-action",
+    attr: { type: "button", "aria-label": label, title: label,
+      "aria-haspopup": "menu", "aria-expanded": "false",
+      "data-noria-widget-id": String(widget.id), "data-noria-widget-shell-action": "menu" }
+  });
+  applyHomeWidgetShellActionIcon(button, "ellipsis", "…");
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.getAttribute("aria-expanded") === "true") return;
+    const visibleIds = [...root.children].filter((node) => !node.hidden).flatMap((node) =>
+      node.classList.contains("dashboard-hero-strip") ? ["identity", "metrics"] : [node.dataset.noriaWidgetId]
+    ).filter(Boolean);
+    homeBridge.runtime.openHomeWidgetMenu(widget.id, button, visibleIds);
+  });
+  if (overlay) {
+    const place=()=>{
+      const target=host.querySelector(".noria-card-heading,.dashboard-guide-card__tools,.dashboard-workbench-panel__tools,.dashboard-home-trends-habit-history__tools,.dashboard-home-today-action-row,.dashboard-moc-strip__toolbar,.dashboard-panel-title,.dashboard-home-trends-range-controls");
+      if(target && !target.contains(actions)) {actions.removeClass?.("dashboard-home-widget-shell-actions--overlay");target.appendChild(actions);}
+    };
+    const observer=new MutationObserver(place);observer.observe(host,{childList:true,subtree:true});homeWidgetCleanup.add(()=>observer.disconnect());place();
   }
   return actions;
 }
 
-function createWidgetShell(widget, title, editContext = {}, entry = {}) {
+function createWidgetShell(widget, title, entry = {}) {
   const visibleTitle = widget?.collapsed === true ? getHomeWidgetCollapsedTitle(widget, title) : title;
   const nativeShell = entry?.shell === "native";
   const shell = nativeShell
     ? (() => {
         const host = root.createDiv({ cls: "dashboard-home-widget-shell dashboard-home-widget-shell-native" });
         const titleActions = host.createDiv({ cls: "dashboard-home-widget-native-title-actions" });
+        if(widget?.collapsed===true)titleActions.createSpan({cls:"dashboard-guide-card__title",text:visibleTitle});
         const content = host.createDiv({ cls: "dashboard-home-widget-native-content" });
         return { content, titleActions };
       })()
-    : createCallout(root, "info", visibleTitle || "");
+    : widget.type==="extension"?(()=>{
+      const host=root.createDiv({cls:"dashboard-home-widget-shell dashboard-guide-card noria-custom-card"});
+      const head=host.createDiv({cls:"dashboard-guide-card__head"});head.createDiv({cls:"dashboard-guide-card__title",text:visibleTitle});
+      const titleActions=head.createDiv({cls:"dashboard-guide-card__tools"}),content=host.createDiv({cls:"noria-custom-card-body"});return {titleActions,content};
+    })():createCallout(root, "info", visibleTitle || "");
   const host = shell.content?.parentElement;
   host?.addClass?.("dashboard-home-widget-shell");
   if (nativeShell) host?.setAttribute?.("data-noria-widget-shell", "native");
@@ -2016,7 +1902,8 @@ function createWidgetShell(widget, title, editContext = {}, entry = {}) {
     }
   }
   applyHomeWidgetCollapsedState(widget, shell);
-  createHomeWidgetShellActions(widget, shell, visibleTitle, editContext);
+  createHomeWidgetShellActions(widget, shell, visibleTitle);
+  if(!["identity","metrics","today-actions","trends-range"].includes(widget.builtinId||widget.id)&&typeof homeBridge.runtime?.attachHomeCardResize==="function")homeWidgetCleanup.add(homeBridge.runtime.attachHomeCardResize(host,widget.id));
   return shell;
 }
 
@@ -2053,6 +1940,11 @@ function renderHomeLayoutEditBar() {
 
 function createHomeLayoutEditToggle(parent, extraClass = "") {
   if (homeEditMode || typeof homeBridge.runtime?.setHomeEditMode !== "function") return null;
+  if(typeof homeBridge.runtime?.openCardCatalog==="function") {
+    const add=parent.createEl("button",{cls:"clickable-icon noria-card-add",attr:{type:"button","aria-label":homeRuntimeT("runtime.home.facade.addWidget")}});
+    applyHomeWidgetShellActionIcon(add,"plus","+");add.title=homeBridge.locale==="zh"?"添加卡片":"Add a card";add.setAttribute("aria-label",add.title);
+    add.onclick=()=>homeBridge.runtime.openCardCatalog();
+  }
   const label = homeRuntimeT("runtime.home.layoutEdit.open");
   const edit = parent.createEl("button", { cls: "dashboard-home-layout-edit-toggle" });
   String(extraClass || "")
@@ -2083,6 +1975,7 @@ function createHomeLayoutEditToggle(parent, extraClass = "") {
 }
 
 function renderHomeLayoutRecoveryEntry() {
+  if (opts.workbench) return null;
   if (homeEditMode || typeof homeBridge.runtime?.setHomeEditMode !== "function") return null;
   const configuredWidgets = Array.isArray(homeBridge.homeSettings?.widgets)
     ? homeBridge.homeSettings.widgets
@@ -2143,7 +2036,7 @@ function normalizeHomeMarkdownHeading(value) {
     .trim();
 }
 
-function getHomeDailySectionSource(widget) {
+async function getHomeDailySectionSource(widget) {
   const props = widget?.props && typeof widget.props === "object" && !Array.isArray(widget.props) ? widget.props : {};
   if (homeActionText(props.sourceMode).toLowerCase() !== "daily-section") return null;
   const heading = normalizeHomeMarkdownHeading(props.heading);
@@ -2152,7 +2045,8 @@ function getHomeDailySectionSource(widget) {
   if (!heading || !date || !diaryRoot) return null;
   return {
     heading,
-    path: `${diaryRoot}/${date.slice(0, 4)}/${date}.md`,
+    date,
+    path: props.diaryRoot?`${diaryRoot}/${date.slice(0, 4)}/${date}.md`:(await homeBridge.calendar.resolveNote({period:'daily',date})).path,
     label: resolveWidgetTitle(widget) || heading,
     description: "",
     newLeaf: false,
@@ -2165,24 +2059,7 @@ function getHomeDailySectionSource(widget) {
 function extractHomeMarkdownH2Section(markdown, heading) {
   const target = normalizeHomeMarkdownHeading(heading).toLowerCase();
   if (!target) return { found: false, text: "", line: 0 };
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  let start = -1;
-  let end = lines.length;
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(/^##(?!#)\s+(.+?)\s*$/);
-    if (!match) continue;
-    if (start >= 0) {
-      end = index;
-      break;
-    }
-    if (normalizeHomeMarkdownHeading(match[1]).toLowerCase() === target) start = index;
-  }
-  if (start < 0) return { found: false, text: "", line: 0 };
-  return {
-    found: true,
-    text: lines.slice(start + 1, end).join("\n").trim(),
-    line: start + 1
-  };
+  return homeBridge.runtime.extractH2Section(String(markdown||''),target);
 }
 
 function normalizeHomeMarkdownSourceDomId(value) {
@@ -2208,6 +2085,7 @@ async function renderMarkdownContent(markdown, body, sourcePath) {
   try {
     const windowRef = (typeof window !== "undefined") ? window : {};
     const obsidianApi =
+      ctx.markdown ||
       globalThis?.obsidian ||
       windowRef.obsidian ||
       ((typeof windowRef.require === "function") ? windowRef.require("obsidian") : null);
@@ -2294,7 +2172,7 @@ function createHomeMarkdownSingleState(widget, body, options = {}) {
 
 async function renderMarkdownWidget(widget, mount) {
   const props = widget?.props && typeof widget.props === "object" && !Array.isArray(widget.props) ? widget.props : {};
-  const dailySectionSource = getHomeDailySectionSource(widget);
+  const dailySectionSource = await getHomeDailySectionSource(widget);
   const dailySectionMode = homeActionText(props.sourceMode).toLowerCase() === "daily-section";
   const sources = dailySectionSource ? [dailySectionSource] : normalizeHomeMarkdownSources(widget);
   const body = mount.createDiv();
@@ -2319,7 +2197,33 @@ async function renderMarkdownWidget(widget, mount) {
       return { state: "empty", hidden: !homeEditMode };
     }
     body.setAttribute?.("data-noria-markdown-source-path", dailySectionSource.path);
-    const loaded = await loadTextResult(dailySectionSource.path);
+    const loaded = await loadTextResult(dailySectionSource.path, {fresh:true});
+    let missing = loaded.error?.code === "ENOENT";
+    if (!loaded.ok && !missing && typeof app.vault.adapter.exists === "function") {
+      try { missing = !(await app.vault.adapter.exists(dailySectionSource.path)); } catch (_) {}
+    }
+    if (!loaded.ok && !missing) {
+      const row = createHomeMarkdownSingleState(widget, body, {
+        state: "failed", text: markdownSourceLoadFailedText(loaded), source: dailySectionSource, action: "open"
+      });
+      row.setAttribute?.("role", "alert");
+      const retry = row.createEl("button", {cls:"dashboard-home-markdown-single-state-action",text:homeRuntimeT("runtime.home.markdown.retry")});
+      retry.type="button";retry.setAttribute?.("data-noria-markdown-source-action","retry");
+      retry.addEventListener?.("click", async event => {
+        event?.preventDefault?.();event?.stopPropagation?.();
+        if(retry.disabled || body.isConnected===false)return;
+        retry.disabled=true;
+        try {
+          mount.empty();
+          const result=await renderMarkdownWidget(widget,mount);
+          applyHomeWidgetRenderResult({content:mount},result);
+        } catch(error) {
+          mount.empty();mount.appendChild(body);
+          row.setAttribute?.("aria-label",String(error?.message||error));
+        } finally {retry.disabled=false;}
+      });
+      return {state:"failed",hidden:false,sourcePath:dailySectionSource.path};
+    }
     const section = loaded.ok
       ? extractHomeMarkdownH2Section(loaded.text, dailySectionSource.heading)
       : { found: false, text: "", line: 0 };
@@ -2339,6 +2243,9 @@ async function renderMarkdownWidget(widget, mount) {
     content.addClass("markdown-preview-view");
     content.addClass("markdown-rendered");
     const rendered = await renderMarkdownContent(section.text, content, dailySectionSource.path);
+    if(dailySectionSource.heading==='建议'&&typeof homeBridge.runtime?.renderSuggestionReplies==='function'){
+      homeWidgetCleanup.add(await homeBridge.runtime.renderSuggestionReplies(body,{...dailySectionSource,markdown:section.text}));
+    }
     body.setAttribute?.("data-noria-markdown-source-state", rendered.state);
     return { ...rendered, hidden: false, sourcePath: dailySectionSource.path, heading: dailySectionSource.heading };
   }
@@ -2899,7 +2806,7 @@ function normalizeHomeEntryItems(widget) {
 }
 
 function getHomeQuickCaptureText(action) {
-  return homeActionText(action?.text || action?.value || action?.content || action?.line);
+  return String(action?.text || action?.value || action?.content || action?.line || "");
 }
 
 function getHomeQuickCaptureTarget(action) {
@@ -3231,9 +3138,10 @@ async function renderTodayActionStrip(widget, mount) {
   };
   const runCapture = async () => {
     if (!canCapture() || captureButton.disabled) return;
-    const text = homeActionText(captureInput.value);
+    const text = String(captureInput.value || "");
     const spec = getCaptureModeSpec();
     captureButton.disabled = true;
+    captureInput.readOnly = true;
     setHomeActionButtonState(captureButton, "pending");
     try {
       await runHomeAction({
@@ -3254,14 +3162,16 @@ async function renderTodayActionStrip(widget, mount) {
         console.warn("Noria Home today capture failed", e);
       } catch (_) {}
     } finally {
+      captureInput.readOnly = false;
+      captureInput.rows = Math.min(6,Math.max(1,captureInput.value.split("\n").length));
       updateCaptureState();
     }
   };
-  captureInput.addEventListener?.("input", updateCaptureState);
+  captureInput.addEventListener?.("input",()=>{captureInput.rows=Math.min(6,Math.max(1,captureInput.value.split("\n").length));updateCaptureState();});
   captureInput.addEventListener?.("keydown", async (event) => {
     const isEnter = String(event?.key || "").toLowerCase() === "enter";
     const isSubmitChord = isEnter && (event?.ctrlKey || event?.metaKey);
-    const isPlainSubmit = isEnter && !event?.shiftKey && !event?.altKey && !event?.ctrlKey && !event?.metaKey;
+    const isPlainSubmit = captureMode === "task" && isEnter && !event?.shiftKey && !event?.altKey && !event?.ctrlKey && !event?.metaKey;
     if (!event?.isComposing && (isSubmitChord || isPlainSubmit)) {
       event?.preventDefault?.();
       await runCapture();
@@ -3380,12 +3290,39 @@ async function renderEntryWidget(widget, mount) {
 }
 
 async function renderBuiltinWidget(widget, mount, shell = {}) {
-  const entry = HOME_WIDGET_REGISTRY[widget.id];
+  const entry = HOME_WIDGET_REGISTRY[widget.builtinId || widget.id];
   if (!entry) return;
-  const viewInput = { ...opts, ...(entry.props || {}), ...(widget.props || {}) };
+  const viewInput = { ...opts, ...(entry.props || {}), ...(widget.props || {}), widgetInstanceId:widget.id };
   if (shell.titleActions) viewInput.titleActionsHost = attachDomHelpers(shell.titleActions);
-  if (widget.id === "trends" && shell.titleActions) viewInput.controlsHost = attachDomHelpers(shell.titleActions);
-  if (widget.id === "today-actions") return renderTodayActionStrip(widget, mount);
+  if ((widget.builtinId || widget.id) === "trends" && shell.titleActions) viewInput.controlsHost = attachDomHelpers(shell.titleActions);
+  if ((widget.builtinId || widget.id) === "today-actions") return renderTodayActionStrip(widget, mount);
+  const taskWidgets = ["metrics", "today-tasks-card", "projects-card", "task-trend-card", "workload-heatmap-card", "tag-distribution-card"];
+  if (opts.workbench && taskWidgets.includes(widget.builtinId || widget.id)) {
+    let cleanup = createHomeWidgetCleanupRegistry(mount), disposed = false, running = null, again = false;
+    const refresh = () => {
+      if (disposed || mount.isConnected === false) return;
+      if (running) {again = true; return running;}
+      running = (async () => {
+        do {
+          again = false;
+          cleanup.cleanup(); cleanup = createHomeWidgetCleanupRegistry(mount);
+          mount.empty(); shell.titleActions?.empty?.();
+          await renderSection(entry.path, mount, {...viewInput, registerCleanup:cleanup.add});
+        } while (again && !disposed);
+      })().finally(() => {running = null;});
+      return running;
+    };
+    if ((widget.builtinId || widget.id) === "metrics" && widget.props?.statsRange?.mode === "homeCurrent") {
+      const stop = homeBridge.runtime?.subscribeStatisticRange?.(homeBridge.statisticsPageId || "home", next => {
+        viewInput.statsRange = { ...next.range };
+        void refresh();
+      });
+      if (stop) homeWidgetCleanup.add(stop);
+    }
+    viewInput.registerCleanup = fn => cleanup.add(fn);
+    viewInput.onRendered = () => {if (!disposed) taskRefreshers.add(refresh);};
+    homeWidgetCleanup.add(() => {disposed = true; taskRefreshers.delete(refresh); cleanup.cleanup();});
+  }
   const shouldLazy = (entry.lazy && widget.props?.lazy !== false) || widget.props?.lazy === true;
   if (shouldLazy) await renderLazySection(entry.path, mount, viewInput);
   else await renderSection(entry.path, mount, viewInput);
@@ -3393,6 +3330,16 @@ async function renderBuiltinWidget(widget, mount, shell = {}) {
 
 async function renderWidget(widget, mount, shell = {}) {
   return homePerf.measure("widget", `${widget.type}:${widget.id || widget.source || ""}`, async () => {
+        if (widget.type === "extension") {
+          let dispose=null,generation=0,stopped=false;
+          const refresh=async()=>{const serial=++generation;dispose?.();dispose=null;mount.empty();
+            const cleanup=await homeBridge.runtime.renderExtensionCard(widget,mount);
+            if(stopped||serial!==generation)cleanup();else dispose=cleanup;
+          };
+          const unsubscribe=homeBridge.runtime.subscribeCards(()=>{void refresh();});
+          homeWidgetCleanup.add(()=>{stopped=true;++generation;dispose?.();unsubscribe();});
+          await refresh();return;
+        }
         if (widget.type === "markdown") return renderMarkdownWidget(widget, mount);
         if (widget.type === "view") return renderCustomViewWidget(widget, mount);
         if (widget.type === "action") return renderActionWidget(widget, mount);
@@ -3415,9 +3362,11 @@ function applyHomeWidgetRenderResult(shell, result = {}) {
 }
 
 async function renderConfiguredWidgets() {
-  if (homeEditMode) renderHomeLayoutEditBar();
+  homeWidgetCleanup.add(()=>{for(const node of root.querySelectorAll("[data-noria-card-live]"))node.__noriaCardCleanup?.();});
+  if (homeEditMode && !opts.workbench) renderHomeLayoutEditBar();
   else renderHomeLayoutRecoveryEntry();
-  const widgets = normalizeWidgetList(homeBridge.homeSettings?.widgets, { includeDisabled: homeEditMode });
+  const widgets = normalizeWidgetList(homeBridge.homeSettings?.widgets, { includeDisabled: homeEditMode })
+    .filter(widget => !opts.workbench || !["review-focus","today-actions"].includes(widget.builtinId || widget.id));
   const consumed = new Set();
   const identity = widgets.find((w) => w.id === "identity" && w.type === "builtin");
   const metrics = widgets.find((w) => w.id === "metrics" && w.type === "builtin");
@@ -3443,30 +3392,42 @@ async function renderConfiguredWidgets() {
       heroWelcome.addClass("dashboard-hero-strip__welcome");
       const heroMetrics = heroInner.createDiv();
       heroMetrics.addClass("dashboard-hero-strip__metrics");
+      const metricsTitle = metrics.title || homeRuntimeT("runtime.home.layoutEdit.widget.metrics");
+      const metricsContent = heroMetrics.createDiv({cls:"dashboard-hero-metrics-content"});
+      const metricsActions = createHomeWidgetShellActions(metrics, {content:metricsContent}, "");
+      const metricsMenu = metricsActions?.querySelector("button");
+      metricsMenu?.setAttribute("aria-label", `${metricsTitle} · ${homeRuntimeT("workbench.cardLayout")}`);
+      metricsMenu?.setAttribute("title", metricsMenu.getAttribute("aria-label"));
+
       consumed.add(identity.id);
       consumed.add(metrics.id);
       widgetJobs.push(Promise.all([
         renderWidget(identity, attachDomHelpers(heroWelcome)),
-        renderWidget(metrics, attachDomHelpers(heroMetrics))
+        renderWidget(metrics, attachDomHelpers(metricsContent))
       ]));
       continue;
     }
     if (consumed.has(widget.id)) continue;
-    const entry = HOME_WIDGET_REGISTRY[widget.id] || {};
+    const entry = HOME_WIDGET_REGISTRY[widget.builtinId || widget.id] || {};
     const title = homeEditMode ? resolveWidgetEditTitle(widget, entry) : resolveWidgetTitle(widget, entry);
-    const shell = createWidgetShell(widget, title, { index, total: widgets.length }, entry);
+    const shell = createWidgetShell(widget, title, entry);
     if (widget.enabled === false) continue;
     if (widget.collapsed === true) continue;
     widgetJobs.push((async () => {
-      const result = await renderWidget(widget, attachDomHelpers(shell.content), shell);
-      applyHomeWidgetRenderResult(shell, result || {});
+      try {
+        const result = await renderWidget(widget, attachDomHelpers(shell.content), shell);
+        applyHomeWidgetRenderResult(shell, result || {});
+      } catch(error) {
+        shell.content.createDiv({cls:"noria-card-error",text:String(error?.message||error)});
+      }
     })());
   }
   await Promise.all(widgetJobs);
 }
 
 try {
-  await renderConfiguredWidgets();
+  if(opts.previewWidget)await renderWidget(opts.previewWidget,attachDomHelpers(root));
+  else await renderConfiguredWidgets();
   homePerf.finish("ok");
 } catch (e) {
   homePerf.finish("error");

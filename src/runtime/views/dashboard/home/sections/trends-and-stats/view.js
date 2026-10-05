@@ -224,7 +224,7 @@ const naturalRange = (mode) => {
   return { start: formatDate(start), end: formatDate(end) };
 };
 function readRangeState() {
-  const settingsRange = noriaTrendsBridge?.homeSettings?.trendsRange;
+  const settingsRange = input?.statsRange && input.statsRange.mode !== "homeCurrent" ? input.statsRange : noriaTrendsBridge?.homeSettings?.trendsRange;
   if (settingsRange && typeof settingsRange === "object" && !Array.isArray(settingsRange)) {
     const mode = ["last30", "week", "month", "year", "custom"].includes(settingsRange.mode) ? settingsRange.mode : "last30";
     const base = mode === "custom" && parseDate(settingsRange.start) && parseDate(settingsRange.end)
@@ -268,33 +268,16 @@ function readRangeState() {
     return { mode: "last30", ...naturalRange("last30"), yearGranularity: "week" };
   }
 }
-function saveRangeState(next) {
-  try {
-    if (noriaTrendsBridge?.homeSettings && typeof noriaTrendsBridge.homeSettings === "object") {
-      noriaTrendsBridge.homeSettings.trendsRange = { ...next };
-    }
-  } catch (_) {}
-  try {
-    if (typeof noriaTrendsBridge?.saveHomeTrendsRange === "function") {
-      const saved = noriaTrendsBridge.saveHomeTrendsRange(next);
-      if (saved && typeof saved.then === "function") {
-        saved.then((result) => {
-          const range = result?.range || result;
-          if (range && typeof range === "object" && !Array.isArray(range) && noriaTrendsBridge?.homeSettings) {
-            noriaTrendsBridge.homeSettings.trendsRange = { ...range };
-          }
-        }).catch((e) => {
-          try { noriaTrendsBridge?.runtime?.notice?.("runtime.home.action.failed", { label: trendsT("runtime.home.facade.trends", {}, "Trends"), message: String(e?.message || e) }); } catch (_) {}
-          try { console.warn("Noria Home trends range save failed", e); } catch (_) {}
-        });
-      }
-      return saved;
-    }
-  } catch (e) {
-    try { console.warn("Noria Home trends range save failed", e); } catch (_) {}
+async function saveRangeState(next) {
+  if (typeof noriaTrendsBridge?.saveHomeTrendsRange === "function") {
+    const saved = await noriaTrendsBridge.saveHomeTrendsRange(next);
+    const range = saved?.range || saved;
+    if (range && noriaTrendsBridge.homeSettings) noriaTrendsBridge.homeSettings.trendsRange = { ...range };
+    return range;
   }
-  try { localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify(next)); } catch (_) {}
-  return null;
+  localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify(next));
+  if (noriaTrendsBridge.homeSettings) noriaTrendsBridge.homeSettings.trendsRange = { ...next };
+  return next;
 }
 
 function readSavedCustomRange(fallback) {
@@ -320,24 +303,11 @@ function readSavedCustomRange(fallback) {
 }
 
 function getHomeTrendsRangeBus() {
-  const key = "__noriaHomeTrendsRangeBus";
-  const current = globalThis[key];
-  if (current && typeof current.emit === "function" && typeof current.on === "function") return current;
-  const listeners = new Set();
-  const bus = {
-    emit(rangeContext) {
-      listeners.forEach((listener) => {
-        try { listener(rangeContext); } catch (_) {}
-      });
-    },
-    on(listener) {
-      if (typeof listener !== "function") return () => {};
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    }
+  const pageId = noriaTrendsBridge.statisticsPageId || "home";
+  return {
+    emit: range => noriaTrendsBridge.runtime?.emitStatisticRange?.(pageId, range),
+    on: callback => noriaTrendsBridge.runtime?.subscribeStatisticRange?.(pageId, callback) || (() => {})
   };
-  globalThis[key] = bus;
-  return bus;
 }
 
 function clearElement(el) {
@@ -351,7 +321,7 @@ function clearElement(el) {
 function rangeContextFromState(state) {
   return {
     range: { mode: state.mode, start: state.start, end: state.end },
-    granularity: state.mode === "year" ? state.yearGranularity : "day"
+    granularity: ["day", "week", "month"].includes(input?.statsGranularity) ? input.statsGranularity : state.mode === "year" ? state.yearGranularity : "day"
   };
 }
 
@@ -417,12 +387,29 @@ function createStatsRangeController(parent, onChange) {
   const controls = controlsParent.createDiv();
   controls.className = "dashboard-home-trends-range-controls";
   controls.style.cssText = "display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap;margin:0 0 0 auto;min-width:0;";
-  const commit = (next) => {
-    state = next;
-    saveRangeState(state);
-    renderControls();
-    if (typeof onChange === "function") {
-      onChange(rangeContextFromState(state));
+  let saving = false;
+  const errorEl = controlsParent.createDiv({cls:"noria-card-error",attr:{role:"alert"}});
+  errorEl.hidden = true;
+  const commit = async (next) => {
+    if (saving) return;
+    if (!parseDate(next.start) || !parseDate(next.end) || next.start > next.end) {
+      errorEl.textContent = trendsT("runtime.home.trends.invalidRange", {}, "Start date must not be after end date.");
+      errorEl.hidden = false;
+      return;
+    }
+    saving = true; errorEl.hidden = true;
+    controls.querySelectorAll("button,input").forEach(el => el.disabled = true);
+    try {
+      await saveRangeState(next);
+      state = next;
+      renderControls();
+      if (typeof onChange === "function") await onChange(rangeContextFromState(state));
+    } catch (error) {
+      errorEl.textContent = trendsT("runtime.home.trends.saveFailed", {message:String(error?.message || error)}, "Could not save. Retry: {message}");
+      errorEl.hidden = false;
+    } finally {
+      saving = false;
+      controls.querySelectorAll("button,input").forEach(el => el.disabled = false);
     }
   };
   const makeButton = (label, active, onClick) => {
@@ -473,13 +460,10 @@ function createStatsRangeController(parent, onChange) {
       }
     });
     inputEl.addEventListener("change", () => {
-      const next = { ...state, mode: "custom", [key]: inputEl.value };
-      state = next;
-      saveRangeState(next);
+      const dateInputs = [...controls.querySelectorAll('input[type="date"]')];
+      const next = { ...state, mode: "custom", start: dateInputs[0]?.value || state.start, end: dateInputs[1]?.value || state.end };
       setLabel();
-      if (parseDate(next.start) && parseDate(next.end) && typeof onChange === "function") {
-        onChange(rangeContextFromState(next));
-      }
+      void commit(next);
     });
     setLabel();
     return field;
@@ -517,6 +501,7 @@ function createStatsRangeController(parent, onChange) {
   renderControls();
   return {
     controls,
+    setRangeContext: context => {state={...state,...context.range,yearGranularity:context.granularity};renderControls();},
     getRangeContext: () => rangeContextFromState(state)
   };
 }
@@ -603,8 +588,9 @@ function createHabitHistoryShell(mount) {
   titleWrap.className = "dashboard-home-trends-habit-history__title-wrap";
   titleWrap.style.cssText = "display:flex;align-items:center;gap:7px;min-width:0;";
   const dot = titleWrap.createSpan();
-  dot.className = "dashboard-home-trends-habit-history__dot";
-  dot.style.cssText = "width:6px;height:6px;border-radius:999px;background:color-mix(in srgb,var(--interactive-accent) 70%,rgba(16,185,129,.45));flex:0 0 auto;";
+  dot.className = "dashboard-card-heading-icon";
+  dot.setAttribute("aria-hidden", "true");
+  globalThis.dashboardCore?.utils?.applyLucideIcon?.(dot, "circle-check");
   const title = titleWrap.createDiv({ text: trendsT("runtime.home.overview.habitsTitle", {}, "Habit check-ins") });
   title.className = "dashboard-home-trends-habit-history__title";
   title.style.cssText = "font-weight:740;font-size:.96em;line-height:1.2;color:var(--text-normal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
@@ -684,6 +670,7 @@ async function renderBlockIntoSlot(name, slot, rangeContext, statsSnapshot, toke
   stage.style.cssText = hadContent
     ? "position:absolute;inset:0;width:100%;min-width:0;height:100%;visibility:hidden;pointer-events:none;"
     : "width:100%;min-width:0;height:100%;";
+  try {
   await runBlock(name, stage, rangeContext, statsSnapshot, blockCleanup);
   if (token !== renderToken || trendsDisposed) {
     blockCleanup.cleanup();
@@ -699,6 +686,14 @@ async function renderBlockIntoSlot(name, slot, rangeContext, statsSnapshot, toke
     slot.appendChild(stage);
   }
   slot.__noriaTrendsBlockCleanup = blockCleanup.cleanup;
+  } catch (error) {
+    blockCleanup.cleanup();
+    try { stage.remove(); } catch (_) {}
+    throw error;
+  } finally {
+    // Hold the old geometry only while replacing content, never as a saved height.
+    if (token === renderToken) slot.style.minHeight = "1px";
+  }
 }
 
 if (renderMode === "range") {
@@ -707,6 +702,8 @@ if (renderMode === "range") {
     getHomeTrendsRangeBus().emit(nextRangeContext);
   });
   root.setAttribute?.("data-noria-trends-range-mode", String(controller.getRangeContext()?.range?.mode || "last30"));
+  const unsubscribe = getHomeTrendsRangeBus().on(context => controller.setRangeContext(context));
+  if (typeof input?.registerCleanup === "function") input.registerCleanup(unsubscribe);
   return;
 }
 
@@ -730,9 +727,11 @@ const renderTrendsContent = async (rangeContext) => {
 if (renderMode === "block") {
   root.setAttribute?.("data-noria-trends-block", selectedBlockId);
   await renderTrendsContent(rangeContextFromState(readRangeState()));
-  const unsubscribe = getHomeTrendsRangeBus().on((nextRangeContext) => {
+  const followsPage = !input?.statsRange || input.statsRange.mode === "homeCurrent";
+  const unsubscribe = followsPage ? getHomeTrendsRangeBus().on((nextRangeContext) => {
+    if (noriaTrendsBridge.homeSettings) noriaTrendsBridge.homeSettings.trendsRange = { ...nextRangeContext.range };
     void preserveScrollAnchor(root, () => renderTrendsContent(nextRangeContext));
-  });
+  }) : () => {};
   if (typeof input?.registerCleanup === "function") input.registerCleanup(unsubscribe);
 } else {
   const controller = createStatsRangeController(controlsHost || root, (nextRangeContext) => {

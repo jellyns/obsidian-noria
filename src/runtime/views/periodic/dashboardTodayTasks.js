@@ -504,6 +504,7 @@ tabLeft.addClass("dashboard-segment-tabs");
 if (periodHost) tabLeft.style.padding = "0";
 let currentPeriod = "day";
 const addBtn = (actionsHost || shell).createEl("button", { text: "+" });
+  globalThis.dashboardCore?.utils?.applyLucideIcon?.(addBtn, "plus");
 addBtn.type = "button";
 addBtn.addClass("dashboard-guide-icon-btn");
 addBtn.addClass("dashboard-guide-toolbar-plus");
@@ -686,8 +687,6 @@ const renderForPeriod = (periodKey) => {
   summaryRow.addClass("dashboard-period-task-summary");
   const summaryMain = summaryRow.createDiv();
   summaryMain.addClass("dashboard-period-task-summary-main");
-  const summaryLabel = summaryMain.createDiv({ text: periodicTasksT("runtime.periodic.todayTasks.groupOpen") });
-  summaryLabel.addClass("dashboard-period-task-summary-label");
   const summaryMeta = summaryMain.createDiv({
     text: periodicTasksT("runtime.periodic.todayTasks.openSummary", {
       open: openTasks.length,
@@ -696,11 +695,6 @@ const renderForPeriod = (periodKey) => {
     })
   });
   summaryMeta.addClass("dashboard-period-task-summary-meta");
-  const summaryCount = summaryRow.createDiv({ text: String(openTasks.length) });
-  summaryCount.addClass("dashboard-inline-count");
-  summaryCount.addClass("dashboard-period-task-count");
-  summaryCount.addClass("dashboard-period-task-summary-count");
-  summaryCount.setAttr("title", periodicTasksT("runtime.periodic.todayTasks.countTitle"));
 
   const groupedOpenTasks = openTasks.reduce((acc, task) => {
     const kind = taskRhythmKind(task);

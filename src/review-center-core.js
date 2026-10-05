@@ -25,7 +25,7 @@ function isoWeekId(dateId) {
   const date = new Date(`${dateId}T00:00:00Z`);
   const weekday = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - weekday);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const yearStart = new Date(`${String(date.getUTCFullYear()).padStart(4, "0")}-01-01T00:00:00Z`);
   const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
   return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
@@ -34,21 +34,22 @@ function normalizeReviewSelection(input = {}, options = {}) {
   const source = input && typeof input === "object" ? input : {};
   const mode = REVIEW_MODES.has(source.mode) ? source.mode : "daily";
   const fallbackDate = isDateId(options.today) ? options.today : localDateId();
+  if (source.anchorDate && !isDateId(source.anchorDate)) {
+    throw new RangeError(`Invalid review date: ${source.anchorDate}`);
+  }
   const anchorDate = isDateId(source.anchorDate) ? source.anchorDate : fallbackDate;
   let period = anchorDate;
 
   if (mode === "weekly") {
-    period = /^\d{4}-W\d{2}$/.test(String(source.period || ""))
-      ? String(source.period)
-      : isoWeekId(anchorDate);
+    period = isoWeekId(anchorDate);
   } else if (mode === "monthly") {
-    period = /^\d{4}-\d{2}$/.test(String(source.period || ""))
-      ? String(source.period)
-      : anchorDate.slice(0, 7);
+    period = anchorDate.slice(0, 7);
   } else if (mode === "yearly") {
-    period = /^\d{4}$/.test(String(source.period || ""))
-      ? String(source.period)
-      : anchorDate.slice(0, 4);
+    period = anchorDate.slice(0, 4);
+  }
+  const requestedPeriod = String(source.period || "").trim();
+  if (REVIEW_MODES.has(source.mode) && requestedPeriod && requestedPeriod !== period) {
+    throw new RangeError(`Review period ${requestedPeriod} does not match ${anchorDate} (${period})`);
   }
 
   const rawGeneration = Number(source.generation);
@@ -96,8 +97,7 @@ function createReviewGenerationGate(initialGeneration = 0) {
 function normalizeSectionBody(value) {
   const lines = String(value || "")
     .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/[ \t]+$/g, ""));
+    .split("\n");
   while (lines.length && lines[0] === "") lines.shift();
   while (lines.length && lines[lines.length - 1] === "") lines.pop();
   return lines.join("\n");
@@ -110,23 +110,24 @@ function fingerprintReviewSection(value) {
     hash ^= normalized.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  return `review-v1-${hash.toString(16).padStart(8, "0")}`;
+  return `review-v2-${hash.toString(16).padStart(8, "0")}`;
 }
 
 function findSection(markdown, heading) {
-  const normalizedMarkdown = String(markdown || "").replace(/\r\n?/g, "\n");
+  const rawMarkdown = String(markdown || "");
+  const normalizedMarkdown = rawMarkdown.replace(/\r\n?/g, "\n");
   const lines = normalizedMarkdown.split("\n");
   const requestedHeading = String(heading || "").trim();
-  const headings = scanAtxHeadings(normalizedMarkdown);
+  const headings = scanAtxHeadings(rawMarkdown);
   const startIndex = headings.findIndex((entry) => entry.level === 2 && entry.title === requestedHeading);
   const startLine = startIndex < 0 ? -1 : headings[startIndex].line;
   if (startLine < 0) {
-    return { normalizedMarkdown, lines, startLine: -1, endLine: -1 };
+    return { rawMarkdown, lines, startLine: -1, endLine: -1 };
   }
 
   const next = headings.slice(startIndex + 1).find((entry) => entry.level <= 2);
   const endLine = next ? next.line : lines.length;
-  return { normalizedMarkdown, lines, startLine, endLine };
+  return { rawMarkdown, lines, startLine, endLine, start: headings[startIndex].start, end: next ? next.start : rawMarkdown.length };
 }
 
 function extractReviewSection(markdown, heading) {
@@ -155,12 +156,13 @@ function upsertReviewSection(markdown, heading, body) {
   const requestedHeading = String(heading || "").trim();
   const nextBody = normalizeSectionBody(body);
   const section = findSection(markdown, requestedHeading);
+  const eol = /\r\n|\r|\n/.exec(section.rawMarkdown)?.[0] || "\n";
 
   if (section.startLine < 0) {
-    const base = section.normalizedMarkdown.replace(/\n+$/g, "");
+    const base = section.rawMarkdown;
     const block = [`## ${requestedHeading}`, "", nextBody].filter((line, index) => index < 2 || line !== "").join("\n");
     return {
-      markdown: `${base}${base ? "\n\n" : ""}${block}\n`,
+      markdown: `${base}${base ? (base.endsWith(eol + eol) ? "" : base.endsWith(eol) ? eol : eol + eol) : ""}${block.replace(/\n/g, eol)}${eol}`,
       previousBody: "",
       existed: false,
       heading: requestedHeading
@@ -170,13 +172,11 @@ function upsertReviewSection(markdown, heading, body) {
   const previousBody = normalizeSectionBody(
     section.lines.slice(section.startLine + 1, section.endLine).join("\n")
   );
-  const before = section.lines.slice(0, section.startLine);
-  const after = section.lines.slice(section.endLine);
+  const before = section.rawMarkdown.slice(0, section.start);
+  const after = section.rawMarkdown.slice(section.end);
   const replacement = [`## ${requestedHeading}`];
   if (nextBody) replacement.push("", ...nextBody.split("\n"));
-  if (after.length && after[0] !== "") replacement.push("");
-  const nextLines = [...before, ...replacement, ...after];
-  const nextMarkdown = nextLines.join("\n").replace(/\n*$/, "\n");
+  const nextMarkdown = `${before}${replacement.join(eol)}${eol}${after ? eol + after : ""}`;
 
   return {
     markdown: nextMarkdown,
@@ -209,9 +209,21 @@ function normalizeRecoveryEntry(value, expectedTargetKey = "") {
     targetKey,
     targetPath,
     baseFingerprint,
-    payload: { ...value.payload },
-    updatedAt
+    payload: JSON.parse(JSON.stringify(value.payload)),
+    updatedAt,
+    ...(value.draftId ? { draftId: String(value.draftId) } : {})
   };
+}
+
+function recoveryEntryMatches(entry, expected) {
+  if (!entry || !expected?.draftId || entry.draftId !== expected.draftId) return false;
+  return (!expected.targetPath || entry.targetPath === expected.targetPath)
+    && (!expected.baseFingerprint || entry.baseFingerprint === expected.baseFingerprint)
+    && (!expected.payload || JSON.stringify(entry.payload) === JSON.stringify(expected.payload));
+}
+
+function createReviewDraftId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 module.exports = {
@@ -221,5 +233,7 @@ module.exports = {
   fingerprintReviewSection,
   extractReviewSection,
   upsertReviewSection,
-  normalizeRecoveryEntry
+  normalizeRecoveryEntry,
+  recoveryEntryMatches,
+  createReviewDraftId
 };

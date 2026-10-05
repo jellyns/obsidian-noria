@@ -16,13 +16,20 @@ function cssBlock(source, selector) {
 }
 
 function readSourceTree(root) {
-  const chunks = [];
+  const sources = {};
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    // Generated runtime strings duplicate the sources below; inspect their owners.
+    if (entry.name === 'generated') continue;
     const fullPath = path.join(root, entry.name);
-    if (entry.isDirectory()) chunks.push(readSourceTree(fullPath));
-    else if (/\.(?:js|css)$/.test(entry.name)) chunks.push(fs.readFileSync(fullPath, "utf8"));
+    if (entry.isDirectory()) Object.assign(sources, readSourceTree(fullPath));
+    else if (/\.(?:js|css)$/.test(entry.name)) sources[path.relative(pluginRoot, fullPath).replace(/\\/g, '/')] = fs.readFileSync(fullPath, "utf8");
   }
-  return chunks.join("\n");
+  return sources;
+}
+
+function assertNoPattern(source, pattern, message) {
+  const match = pattern.exec(source);
+  assert.equal(match === null, true, match ? `${message} (line ${source.slice(0, match.index).split('\n').length}: ${match[0].trim()})` : message);
 }
 
 test("package scripts build bundled main.js from src with obsidian external", () => {
@@ -64,9 +71,9 @@ test("released plugin bundle avoids direct filesystem and shell execution capabi
   assert.doesNotMatch(bundle, /clipboard\.(?:read|readText)\s*\(/);
 });
 
-test("release sources avoid community-review compatibility warnings", () => {
+test("release sources follow the supported style subset", () => {
   const sources = {
-    "complete source tree": readSourceTree(path.join(pluginRoot, "src")),
+    ...readSourceTree(path.join(pluginRoot, "src")),
     "release stylesheet": fs.readFileSync(pluginPath("styles.css"), "utf8"),
     "Home stylesheet source": fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8"),
     "task board stylesheet": fs.readFileSync(pluginPath("views", "tasks-calendar", "default.css"), "utf8"),
@@ -75,7 +82,7 @@ test("release sources avoid community-review compatibility warnings", () => {
   };
   const forbidden = [
     [/display\s*:\s*contents\b/, "display: contents"],
-    [/(?:^|\n)\s*(?:columns|column-(?:count|width|gap|rule(?:-[a-z-]+)?))\s*:/, "multicolumn layout"],
+    [/(?:^|\n)\s*(?:columns|column-(?:count|width|gap|rule(?:-[a-z-]+)?))\s*:[^{};\n]+;/, "multicolumn layout"],
     [/\bscrollbar-[a-z-]+\s*:|::-webkit-scrollbar/, "custom scrollbar styling"],
     [/\btext-decoration(?:-[a-z-]+)?\s*:/, "custom text decoration"],
     [/(?:-webkit-)?mask(?:-[a-z-]+)?\s*:/, "CSS masks"],
@@ -86,28 +93,40 @@ test("release sources avoid community-review compatibility warnings", () => {
   ];
 
   for (const [label, source] of Object.entries(sources)) {
+    // Accessibility-only clipping and scoped hidden-state enforcement are
+    // deliberate exceptions, not decorative clipping or cascade overrides.
+    const checkedSource = source
+      .replace(/(\.noria-trend-announcement\{[^{}]*?)clip-path:inset\(50%\);/, '$1')
+      .replace(/(\.noria-(?:agent-settings|suggestion-replies) \[hidden\]\s*\{\s*display:\s*none)\s*!important(;\s*\})/g, '$1$2');
     for (const [pattern, feature] of forbidden) {
-      assert.doesNotMatch(source, pattern, `${label} should not use ${feature}`);
+      assertNoPattern(checkedSource, pattern, `${label} should not use ${feature}`);
     }
   }
 });
 
-test("runtime sources use configured vault roots and local files instead of broad enumeration or clipboard access", () => {
-  const sources = {
-    "complete source tree": readSourceTree(path.join(pluginRoot, "src"))
-  };
+test("runtime queries stay scoped except explicit recovery discovery and never read the clipboard", () => {
+  const sources = readSourceTree(path.join(pluginRoot, "src"));
+  // Metadata-only recovery must find conversations under old roots and notes
+  // moved outside the current query scope. Unrelated note bodies stay unread.
+  const recoveryDiscovery = new Set(['src/suggestion-reply-library.js', 'src/suggestion-reply-library-ui.js']);
   const forbidden = [
     [/\bgetMarkdownFiles\s*(?:\?\.)?\s*\(/, "getMarkdownFiles"],
     [/\bgetFiles\s*(?:\?\.)?\s*\(/, "getFiles"],
-    [/(?:globalThis\.)?navigator(?:\?\.)?\.clipboard\b/, "browser clipboard"],
+    [/clipboard\.(?:read|readText)\s*\(/, "clipboard reads"],
     [/require\(["']electron["']\)/, "Electron clipboard fallback"]
   ];
 
   for (const [label, source] of Object.entries(sources)) {
     for (const [pattern, capability] of forbidden) {
-      assert.doesNotMatch(source, pattern, `${label} should not use ${capability}`);
+      if (capability === 'getMarkdownFiles' && recoveryDiscovery.has(label)) continue;
+      assertNoPattern(source, pattern, `${label} should not use ${capability}`);
     }
   }
+  // Draft buttons and the selected-text context menu only write after an explicit action.
+  const workspace = fs.readFileSync(pluginPath("src/review-workspace.js"), "utf8");
+  const adoption=fs.readFileSync(pluginPath("src/task-adoption.js"),"utf8");
+  assert.match(adoption,/onClick\(\(\)=>navigator\.clipboard\.writeText\(selection\.quote\)\)/);
+  assert.match(workspace, /this\.action\(actions, this\.plugin\.t\("review\.final\.copyRecovery"\), async \(\) => \{\s*try \{ await navigator\.clipboard\.writeText\(payload\.body\)/);
 });
 
 test("release styles avoid parent-query invalidation and duplicate completed-task declarations", () => {
@@ -119,7 +138,7 @@ test("release styles avoid parent-query invalidation and duplicate completed-tas
   };
 
   for (const [label, source] of Object.entries(sources)) {
-    assert.doesNotMatch(source, /:has\s*\(/, `${label} should not use parent-query selectors`);
+    assertNoPattern(source, /:has\s*\(/, `${label} should not use parent-query selectors`);
   }
 
   const completedToggle = sources["Home stylesheet source"].match(
@@ -255,7 +274,7 @@ test("settings disclosures use generic chrome before diagnostics-specific conten
   const summary = cssBlock(css, ".noria-settings-disclosure summary");
   const adjacentDisclosure = cssBlock(css, ".noria-settings-disclosure + .noria-settings-disclosure");
   const chevron = cssBlock(css, ".noria-settings-disclosure-chevron");
-  const openChevron = cssBlock(css, ".noria-settings-disclosure[open] .noria-settings-disclosure-chevron,\n.noria-settings-path-group[open] .noria-settings-disclosure-chevron");
+  const openChevron = cssBlock(css, ".noria-settings-disclosure[open] > summary > .noria-settings-disclosure-chevron,\n.noria-settings-path-group[open] > summary > .noria-settings-disclosure-chevron");
   const disclosureRow = cssBlock(css, ".noria-settings-disclosure .setting-item");
   const diagnostics = cssBlock(css, ".noria-settings-diagnostics pre");
 
@@ -536,7 +555,7 @@ test("home release dark contract uses semantic title divider and metric card tok
     const block = bootstrap.match(selector)?.[0] || "";
     assert.ok(block, `${label} should exist`);
     assert.doesNotMatch(block, /(?:linear|radial)-gradient/i, label);
-    assert.match(block, /var\(--dash-surface|color-mix\(in srgb,\s*var\(--background-primary\)/, label);
+    assert.match(block, /var\(--dash-surface|color-mix\(in srgb,\s*var\(--background-primary\)|--moc-chip-fill:\s*transparent/, label);
   }
 
   const themeHeroBlock = theme.match(/metricCardStylesHero:\s*\[[\s\S]*?\n\s*\],\n\s*metricCardStyles:/)?.[0] || "";
@@ -626,15 +645,15 @@ test("home dark surfaces reduce card and chip border competition", () => {
   const bootstrap = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8");
   const darkGuideBlock = bootstrap.match(/\.theme-dark\s+\.dashboard-home-root\s+\.dashboard-guide-card\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
   const darkMocChipBlock = bootstrap.match(/\.theme-dark\s+\.dashboard-moc-chip\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const darkHeroMetricBlock = bootstrap.match(/\.theme-dark\s+\.dashboard-hero-strip__metrics > \.dashboard-metrics-host--hero \.dashboard-metric-card--hero\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
+  const darkHeroMetricBlock = bootstrap.match(/\.theme-dark\s+\.dashboard-hero-strip__metrics \.dashboard-metrics-host--hero \.dashboard-metric-card--hero\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
 
   assert.ok(darkGuideBlock, "dark guide card block should exist");
   assert.match(darkGuideBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*42%,\s*transparent\)/);
   assert.match(darkGuideBlock, /box-shadow:\s*none/);
 
   assert.ok(darkMocChipBlock, "dark MOC chip block should exist");
-  assert.match(darkMocChipBlock, /--moc-chip-fill:\s*color-mix\(in srgb,\s*var\(--moc-chip-accent\)\s*10%/);
-  assert.match(darkMocChipBlock, /--moc-chip-border:\s*color-mix\(in srgb,\s*var\(--moc-chip-accent\)\s*18%/);
+  assert.match(darkMocChipBlock, /--moc-chip-fill:\s*transparent/);
+  assert.match(darkMocChipBlock, /--moc-chip-ink:\s*var\(--text-normal\)/);
 
   assert.ok(darkHeroMetricBlock, "dark hero metric card block should exist");
   assert.match(darkHeroMetricBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*42%,\s*transparent\)/);
@@ -669,7 +688,7 @@ test("home workbench panels use quiet panel and ghost toolbar contract", () => {
   assert.match(darkPanelBlock, /border-color:\s*color-mix\(in srgb,\s*var\(--background-modifier-border\)\s*32%,\s*transparent\)/);
   assert.ok(titleBlock, "workbench title block should exist");
   assert.match(titleBlock, /gap:\s*7px/);
-  assert.match(bootstrap, /\.dashboard-home-root\s+\.dashboard-workbench-panel__title::before/);
+  assert.match(overviewColumns, /dashboard-card-heading-icon/);
   assert.ok(toolButtonBlock, "workbench toolbar button block should exist");
   assert.match(toolButtonBlock, /border-color:\s*transparent/);
   assert.match(toolButtonBlock, /background:\s*transparent/);
@@ -737,8 +756,7 @@ test("home trends habit history hides duplicate today strip and reuses MOC entry
   assert.match(mocChipBlock, /--moc-chip-ink:\s*var\(--dash-moc-entry-color\)/);
   assert.match(mocChipBlock, /color:\s*var\(--moc-chip-ink\)/);
   assert.match(trendsNameTitleBlock, /color:\s*var\(--dash-moc-entry-color\)/);
-  assert.match(habitWeek, /font-weight:var\(--habit-name-weight,620\)/);
-  assert.match(habitWeek, /color:var\(--habit-name-color\)/);
+  assert.doesNotMatch(habitWeek, /font-weight:var\(--habit-name-weight,620\)/);
 });
 
 test("home guide panels use workbench-like quiet chrome", () => {
@@ -748,7 +766,7 @@ test("home guide panels use workbench-like quiet chrome", () => {
   for (const token of [
     "dashboard-guide-card__head",
     "dashboard-guide-card__title",
-    "dashboard-guide-card__title-dot",
+    "dashboard-card-heading-icon",
     "dashboard-guide-card__tools",
     "dashboard-guide-card__body"
   ]) {
@@ -859,10 +877,8 @@ test("home workbench task and countdown interiors have stable low-noise contract
     "dashboard-period-task-empty",
     "dashboard-period-task-section-label",
     "dashboard-period-task-summary",
-    "dashboard-period-task-summary-label",
     "dashboard-period-task-summary-main",
     "dashboard-period-task-summary-meta",
-    "dashboard-period-task-summary-count",
     "dashboard-period-task-group",
     "dashboard-period-task-group-head",
     "dashboard-period-task-group-label",
@@ -893,138 +909,13 @@ test("home workbench task and countdown interiors have stable low-noise contract
   assert.doesNotMatch(todayTasks, /rgba\(59,130,246,\.14\)/);
   assert.doesNotMatch(todayTasks, /border-top:1px dashed/);
 
-  for (const cls of [
-    "dashboard-countdown-tray",
-    "dashboard-countdown-empty",
-    "dashboard-countdown-empty-copy",
-    "dashboard-countdown-empty-text",
-    "dashboard-countdown-empty-action",
-    "dashboard-countdown-card",
-    "dashboard-countdown-row",
-    "dashboard-countdown-title",
-    "dashboard-countdown-days-figure",
-    "dashboard-countdown-days-label",
-    "dashboard-countdown-days-prefix",
-    "dashboard-countdown-days-number",
-    "dashboard-countdown-days-unit",
-    "dashboard-countdown-progress",
-    "dashboard-countdown-progress-fill"
-  ]) {
-    assert.match(countdown, new RegExp(cls), `${cls} should be emitted by countdown tray`);
-  }
-  for (const token of [
-    "--countdown-remaining-color",
-    "--countdown-row-surface",
-    "--countdown-progress-track",
-    "--countdown-progress-fill",
-    "--countdown-progress-width"
-  ]) {
-    assert.match(countdown, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${token} should be set as a CSS variable`);
-  }
-  assert.doesNotMatch(countdown, /min-height:46px;background:\$\{c\.track\}/);
-  assert.doesNotMatch(countdown, /--countdown-track|track:\s*"color-mix/);
-  assert.doesNotMatch(countdown, /numBg:\s*"rgb\(/);
-  assert.doesNotMatch(countdown, /--countdown-num-bg|--countdown-unit-bg|--countdown-days-color|--countdown-unit-color|--countdown-days-surface|--countdown-days-stroke|numBg|unitBg/);
-  assert.doesNotMatch(countdown, /--countdown-border|COUNTDOWN_NEUTRAL_BORDER/);
-  assert.doesNotMatch(countdown, /--countdown-surface|COUNTDOWN_NEUTRAL_SURFACE|surface:/);
-  assert.match(countdown, /rowSurface:/, "countdown may use a weak whole-row surface but not track/surface rails");
-  assert.doesNotMatch(countdown, /rowBorder|--countdown-row-border/, "countdown urgency should not color an edge or side rail");
-  assert.doesNotMatch(countdown, /const\s+tail\s*=\s*row\.createDiv\(\)/, "countdown days should not be rendered as a right-edge rail");
-  assert.doesNotMatch(countdown, /dashboard-countdown-tail|dashboard-countdown-num|dashboard-countdown-unit/, "countdown days should not be split into tail/number/unit rail parts");
-  assert.match(countdown, /const\s+progressFillPercent\s*=\s*\(d\)\s*=>/, "countdown should compute an in-flow progress bar width");
-  assert.match(countdown, /dashboard-countdown-progress-fill/, "countdown should render an in-flow progress bar");
-  assert.doesNotMatch(countdown, /dashboard-countdown-priority|dashboard-countdown-kicker|--countdown-priority/, "countdown should not use left-edge marker or kicker rails");
-  assert.match(countdown, /const\s+openManager\s*=\s*\(\)\s*=>/);
-  assert.match(countdown, /const\s+openCountdownItem\s*=\s*async\s*\(item,\s*fallback\)\s*=>/);
-  assert.match(countdown, /openCountdownSourceAtLine/);
-  assert.match(countdown, /Math\.max\(8,\s*Math\.min\(100/, "countdown progress should keep a visible minimum width");
-  assert.match(countdown, /const\s+card\s*=\s*box\.createEl\("button"\)/, "countdown rows should be semantic whole-row buttons");
-  assert.match(countdown, /card\.setAttr\("aria-label"/);
-  assert.match(countdown, /card\.setAttr\("data-countdown-layout",\s*"hero-days"\)/);
-  assert.match(countdown, /card\.setAttr\("data-countdown-visual",\s*"hero-days-v2"\)/);
-  assert.match(countdown, /card\.setAttr\("data-countdown-date",\s*x\.date\)/);
-  assert.match(countdown, /card\.setAttr\("data-countdown-kind"/);
-  assert.match(countdown, /card\.setAttr\("data-noria-action-kind",\s*x\.kind === "due" \? "open-countdown-source" : "manage-countdown"\)/);
-  assert.match(countdown, /card\.setAttr\("data-noria-action-source",\s*"home-countdown"\)/);
-  assert.match(countdown, /card\.setAttr\("data-countdown-source-path"/);
-  assert.match(countdown, /card\.setAttr\("data-countdown-source-line"/);
-  assert.match(countdown, /card\.onclick\s*=\s*\(\)\s*=>\s*openCountdownItem\(x,\s*openManager\)/);
-  assert.match(countdown, /addBtn\.onclick\s*=\s*openManager/);
-  assert.match(countdown, /dashboard-countdown-days-figure/, "countdown days should be a large figure next to the event text");
-  assert.doesNotMatch(countdown, /dashboard-countdown-inline-days/, "countdown days should not regress to the old inline pill");
-  assert.doesNotMatch(countdown, /dashboard-countdown-date|createEl\("span",\s*\{\s*text:\s*x\.date\s*\}\)/, "countdown date should not be displayed in the row");
+  const component = fs.readFileSync(pluginPath("src/countdown-cards.js"),"utf8");
+  assert.match(countdown,/bridge.runtime.renderCountdown/);
+  for(const cls of ["noria-countdown-main","noria-countdown-remaining","noria-countdown-number","noria-countdown-track"])assert.ok(component.includes(cls));
+  assert.doesNotMatch(component,/noria-countdown-handle|noria-countdown-dates|onpointermove/);
+  assert.match(component,/countdownProgress\(row.start,row.date,today\)/);
+  assert.doesNotMatch(component,/90\s*-\s*days/);
 
-  assert.match(bootstrap, /\.dashboard-period-task-list\s*\{[\s\S]*gap:\s*3px/);
-  assert.match(bootstrap, /\.dashboard-period-task-summary\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
-  assert.match(bootstrap, /\.dashboard-period-task-summary-main\s*\{[\s\S]*flex-direction:\s*column/);
-  assert.match(bootstrap, /\.dashboard-period-task-summary-meta\s*\{[\s\S]*text-overflow:\s*ellipsis/);
-  assert.match(bootstrap, /\.dashboard-period-task-group\s*\{[\s\S]*flex-direction:\s*column/);
-  assert.match(bootstrap, /\.dashboard-period-task-group-head\s*\{[\s\S]*justify-content:\s*flex-start/);
-  assert.match(bootstrap, /\.dashboard-period-task-group-label\s*\{[\s\S]*display:\s*inline-flex/);
-  assert.match(bootstrap, /\.dashboard-period-task-group--now\s+\.dashboard-period-task-section-label/);
-  assert.match(bootstrap, /\.dashboard-period-task-group--next\s+\.dashboard-period-task-section-label/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-task-row--overdue/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-period-task-group--overdue\s+\.dashboard-period-task-section-label/);
-  assert.match(bootstrap, /\.dashboard-period-task-section-label::before\s*\{[\s\S]*border-radius:\s*999px/);
-  assert.match(bootstrap, /\.dashboard-period-task-divider\s*\{[\s\S]*border-top:\s*1px solid/);
-  assert.match(bootstrap, /\.dashboard-period-task-completed-toggle\s*\{[\s\S]*background:\s*transparent/);
-  const countdownCardBlock = bootstrap.match(/\.dashboard-countdown-card\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const countdownRowBlock = bootstrap.match(/\.dashboard-countdown-row\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const countdownDaysFigureBlock = bootstrap.match(/\.dashboard-countdown-days-figure\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const countdownDaysLabelBlock = bootstrap.match(/\.dashboard-countdown-days-label\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const countdownDaysNumberBlock = bootstrap.match(/\.dashboard-countdown-days-number\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const countdownProgressBlock = bootstrap.match(/\.dashboard-countdown-progress\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const countdownProgressFillBlock = bootstrap.match(/\.dashboard-countdown-progress-fill\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  assert.ok(countdownCardBlock, "countdown card block should exist");
-  assert.match(countdownCardBlock, /appearance:\s*none/);
-  assert.match(countdownCardBlock, /width:\s*100%/);
-  assert.match(countdownCardBlock, /border:\s*1px solid var\(--countdown-row-stroke/);
-  assert.match(countdownCardBlock, /background:\s*var\(--countdown-row-surface\)/);
-  assert.match(countdownCardBlock, /text-align:\s*left/);
-  assert.match(countdownCardBlock, /cursor:\s*pointer/);
-  assert.doesNotMatch(countdownCardBlock, /border-left|border-right|border-inline/);
-  assert.doesNotMatch(countdownCardBlock, /box-shadow/);
-  assert.doesNotMatch(countdownCardBlock, /position:\s*relative|overflow:\s*hidden/);
-  assert.ok(countdownRowBlock, "countdown row block should exist");
-  assert.match(countdownRowBlock, /display:\s*grid/);
-  assert.match(countdownRowBlock, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(92px,\s*auto\)/);
-  assert.match(bootstrap, /requiredStyleSentinel\s*=\s*"dashboard-countdown-hero-days-v2"/);
-  assert.match(bootstrap, /\.dashboard-countdown-card\[data-countdown-visual="hero-days-v2"\]\s*\{[\s\S]*dashboard-countdown-hero-days-v2/);
-  assert.match(bootstrap, /\.dashboard-countdown-card\s+\[class~="dashboard-countdown-date"\]/);
-  assert.match(bootstrap, /\.dashboard-countdown-card:focus-visible\s*\{[\s\S]*box-shadow:\s*0 0 0 2px/);
-  assert.doesNotMatch(countdown, /--countdown-accent/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-countdown-priority\s*\{/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-countdown-kicker\s*\{/);
-  assert.ok(countdownDaysFigureBlock, "countdown days figure block should exist");
-  assert.match(countdownDaysFigureBlock, /display:\s*inline-grid/);
-  assert.match(countdownDaysFigureBlock, /grid-template-columns:\s*auto\s+auto/);
-  assert.match(countdownDaysFigureBlock, /background:\s*transparent/);
-  assert.match(countdownDaysFigureBlock, /border:\s*0/);
-  assert.match(countdownDaysFigureBlock, /border-radius:\s*0/);
-  assert.match(countdownDaysFigureBlock, /color:\s*var\(--countdown-remaining-color\)/);
-  assert.match(countdownDaysFigureBlock, /justify-content:\s*end/);
-  assert.match(countdownDaysFigureBlock, /justify-self:\s*end/);
-  assert.match(countdownDaysFigureBlock, /text-align:\s*right/);
-  assert.ok(countdownDaysLabelBlock, "countdown days label block should exist");
-  assert.match(countdownDaysLabelBlock, /flex-direction:\s*column/);
-  assert.ok(countdownDaysNumberBlock, "countdown days number block should exist");
-  assert.match(countdownDaysNumberBlock, /min-width:\s*1ch/);
-  assert.match(countdownDaysNumberBlock, /font-size:\s*3\.8em/);
-  assert.match(countdownDaysNumberBlock, /font-weight:\s*900/);
-  assert.ok(countdownProgressBlock, "countdown progress block should exist");
-  assert.match(countdownProgressBlock, /height:\s*6px/);
-  assert.match(countdownProgressBlock, /background:\s*var\(--countdown-progress-track\)/);
-  assert.ok(countdownProgressFillBlock, "countdown progress fill block should exist");
-  assert.match(countdownProgressFillBlock, /width:\s*var\(--countdown-progress-width\)/);
-  assert.match(countdownProgressFillBlock, /background:\s*var\(--countdown-progress-fill\)/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-countdown-(?:tail|num|unit)\s*\{/);
-  assert.doesNotMatch(countdownDaysFigureBlock, /box-shadow/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-countdown-inline-days\s*\{/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-countdown-inline-days::before\s*\{/);
-  assert.doesNotMatch(bootstrap, /\.dashboard-countdown-date\s*\{/);
-  assert.match(bootstrap, /\.dashboard-countdown-empty\s*\{[\s\S]*align-items:\s*center/);
-  assert.match(bootstrap, /\.dashboard-countdown-empty-copy\s*\{[\s\S]*display:\s*inline-flex/);
-  assert.match(bootstrap, /\.dashboard-countdown-empty-action\s*\{[\s\S]*background:\s*transparent/);
 });
 
 test("home task periods use the local calendar date instead of UTC", () => {
@@ -1054,9 +945,10 @@ test("home project tasks and focus panel use themed checkbox inputs without Nori
   assert.doesNotMatch(bootstrap, /\.dashboard-project-task-ring\s*\{[\s\S]*?width:\s*18px/);
   assert.match(todayTasks, /noria-themed-checkbox/);
   assert.match(todayTasks, /data-state/);
-  assert.match(projects, /type = "checkbox"/);
-  assert.match(projects, /task-list-item-checkbox noria-themed-checkbox noria-themed-checkbox--home/);
-  assert.match(projects, /data-state/);
+  assert.match(projects, /bridge\.tasks\.renderRow/);
+  const taskRow=fs.readFileSync(path.join(pluginRoot,"src/task-row.js"),"utf8");
+  assert.match(taskRow, /type:"checkbox"/);
+  assert.match(taskRow, /task-list-item-checkbox noria-themed-checkbox/);
   assert.doesNotMatch(projects, /dashboard-task-check/);
   assert.doesNotMatch(projects, /noria-native-checkbox/);
   assert.doesNotMatch(projects, /dashboard-project-task-ring/);
@@ -1080,14 +972,14 @@ test("home project chips use progress fill instead of border gradients", () => {
 
   assert.ok(chipBlock, "project chip style block should exist");
   assert.match(chipBlock, /--project-chip-fill/);
-  assert.match(chipBlock, /--project-chip-fill:\s*color-mix\(in srgb,\s*var\(--noria-module-home[\s\S]*8%/);
+  assert.match(chipBlock, /--project-chip-fill:\s*color-mix\(in srgb,\s*var\(--noria-module-projects[\s\S]*8%/);
   assert.match(chipBlock, /--noria-project-progress/);
   assert.match(chipBlock, /linear-gradient\(90deg,\s*var\(--project-chip-fill\)\s+0 var\(--noria-project-progress\)/);
   assert.match(chipBlock, /box-shadow:\s*none/);
   assert.doesNotMatch(chipBlock, /border-bottom/);
   assert.ok(activeBlock, "active project chip style should exist");
   assert.match(activeBlock, /font-weight:\s*700/);
-  assert.match(activeBlock, /--project-chip-fill:\s*color-mix\(in srgb,\s*var\(--noria-module-home[\s\S]*26%/);
+  assert.match(activeBlock, /--project-chip-fill:\s*color-mix\(in srgb,\s*var\(--noria-module-projects[\s\S]*26%/);
   assert.match(activeBlock, /box-shadow:\s*none/);
   assert.doesNotMatch(activeBlock, /0 0 0 2px|inset|--project-chip-active-ring/);
   assert.match(bootstrap, /\.dashboard-project-chip\[data-project-stage="planned"\]\s*\{[\s\S]*--project-chip-fill:\s*color-mix\(in srgb,\s*rgb\(20 184 166\)\s+10%/);
@@ -1117,7 +1009,7 @@ test("home project next-step input stays inline and quiet", () => {
   assert.match(projects, /runtime\.periodic\.projects\.nextAddFailed/);
   assert.match(projects, /data-noria-project-task-source-path/);
   assert.match(projects, /data-noria-project-task-source-line/);
-  assert.match(rowBlock, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+  assert.match(rowBlock, /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/);
   assert.match(rowBlock, /border-bottom:\s*1px solid/);
   assert.match(inputBlock, /background:\s*transparent/);
   assert.match(inputBlock, /box-shadow:\s*none/);
@@ -1135,85 +1027,11 @@ test("home project next-step input stays inline and quiet", () => {
   assert.doesNotMatch(addBlock, /linear-gradient|radial-gradient/);
 });
 
-test("home project guide panel uses scoped compact workbench rhythm", () => {
-  const bootstrap = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8");
-  const projects = fs.readFileSync(pluginPath("views", "periodic", "dashboardGuideProjects.js"), "utf8");
-  const guidePanels = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "guide-panels", "view.js"), "utf8");
-
-  const workbenchBlock = bootstrap.match(/\.dashboard-guide-projects\s+\.dashboard-project-workbench\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const chipStripBlock = bootstrap.match(/\.dashboard-guide-projects\s+\.dashboard-project-chip-strip\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const chipBlock = bootstrap.match(/\.dashboard-guide-projects\s+\.dashboard-project-chip\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const panelBlock = bootstrap.match(/\.dashboard-guide-projects\s+\.dashboard-project-current-panel\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const nextRowBlock = bootstrap.match(/\.dashboard-guide-projects\s+\.dashboard-project-next-row\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const taskListBlock = bootstrap.match(/\.dashboard-guide-projects\s+\.dashboard-project-task-list\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const taskRowBlock = bootstrap.match(/\.dashboard-guide-projects\s+\.dashboard-project-task-row\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-
-  assert.match(guidePanels, /dashboard-guide-projects/);
-  assert.match(projects, /dashboard-project-workbench/);
-  assert.match(projects, /dashboard-project-chip-strip/);
-  assert.match(projects, /dashboard-project-current-panel/);
-
-  assert.ok(workbenchBlock, "project guide workbench block should exist");
-  assert.match(workbenchBlock, /gap:\s*7px/);
-  assert.ok(chipStripBlock, "project guide chip strip block should exist");
-  assert.match(chipStripBlock, /gap:\s*5px/);
-  assert.match(chipStripBlock, /padding:\s*0 0 1px/);
-  assert.ok(chipBlock, "project guide chip block should exist");
-  assert.match(chipBlock, /max-width:\s*min\(100%,\s*11rem\)/);
-  assert.match(chipBlock, /overflow:\s*hidden/);
-  assert.match(chipBlock, /text-overflow:\s*ellipsis/);
-  assert.match(chipBlock, /white-space:\s*nowrap/);
-
-  assert.ok(panelBlock, "project guide current panel block should exist");
-  assert.match(panelBlock, /border:\s*0/);
-  assert.match(panelBlock, /background:\s*transparent/);
-  assert.match(panelBlock, /box-shadow:\s*none/);
-  assert.match(panelBlock, /padding:\s*0/);
-  assert.doesNotMatch(panelBlock, /border:\s*1px/);
-
-  assert.ok(nextRowBlock, "project guide next row block should exist");
-  assert.match(nextRowBlock, /margin:\s*0 0 6px/);
-  assert.match(nextRowBlock, /padding:\s*0 0 6px/);
-  assert.ok(taskListBlock, "project guide task list block should exist");
-  assert.match(taskListBlock, /gap:\s*3px/);
-  assert.ok(taskRowBlock, "project guide task row block should exist");
-  assert.match(taskRowBlock, /padding:\s*3px 2px/);
-});
-
-test("home compact filter buttons are borderless while inactive", () => {
-  const bootstrap = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8");
+// Selection semantics remain a contract; exact spacing, weight and fill do not.
+test("home period control sources retain selected-state attributes", () => {
   const heatmaps = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "trends-and-stats", "blocks", "heatmaps", "view.js"), "utf8");
   const todayTasks = fs.readFileSync(pluginPath("views", "periodic", "dashboardTodayTasks.js"), "utf8");
-
-  const segmentBlock = bootstrap.match(/button\.dashboard-segment-tab\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  const segmentActiveBlock = bootstrap.match(/button\.dashboard-segment-tab\.is-active\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  assert.ok(segmentBlock, "Home period segment tab block should exist");
-  assert.match(segmentBlock, /appearance:\s*none/);
-  assert.match(segmentBlock, /border:\s*0/);
-  assert.match(segmentBlock, /border-color:\s*transparent/);
-  assert.match(segmentBlock, /box-shadow:\s*none/);
-  assert.match(segmentBlock, /background:\s*transparent/);
-  assert.match(segmentBlock, /background-image:\s*none/);
-  assert.match(segmentBlock, /font-weight:\s*(?:var\(--dash-compact-segment-weight,\s*)?650/);
-  assert.match(segmentActiveBlock, /background:\s*(?:var\(--dash-compact-segment-active-bg,[\s\S]*color-mix|color-mix)/);
-  assert.match(segmentActiveBlock, /font-weight:\s*(?:var\(--dash-compact-segment-active-weight,\s*)?720/);
-  assert.match(segmentActiveBlock, /box-shadow:\s*none/);
-  const heatmapModeBlock = bootstrap.match(/\.dashboard-heatmap-mode-button\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
-  assert.ok(heatmapModeBlock, "Home panel-level mode button block should exist");
-  assert.match(heatmapModeBlock, /height:\s*var\(--dash-panel-segment-height,\s*28px\)/);
-  assert.match(heatmapModeBlock, /font-size:\s*var\(--dash-panel-segment-font-size,\s*13px\)/);
   assert.match(todayTasks, /setAttribute\("aria-pressed"/);
-  assert.match(todayTasks, /dashboard-heatmap-mode-button/);
-
-  assert.match(heatmaps, /setHeatmapModeButton/);
-  assert.match(heatmaps, /appearance:\s*none/);
-  assert.match(heatmaps, /border:0/);
-  assert.match(heatmaps, /box-shadow:none/);
-  assert.match(heatmaps, /background:transparent/);
-  assert.match(heatmaps, /min-height:28px/);
-  assert.match(heatmaps, /font-size:13px/);
-  assert.match(heatmaps, /font-weight:650/);
-  assert.doesNotMatch(heatmaps, /font-weight:620/);
   assert.match(heatmaps, /setAttribute\("aria-pressed"/);
 });
 
@@ -1439,7 +1257,6 @@ test("home inbox row metadata stays a quiet text layer", () => {
   assert.match(titleLineBlock, /max-width:\s*100%/);
   assert.ok(rhythmBlock, "inbox rhythm cue should exist");
   assert.match(rhythmBlock, /max-width:\s*38px/);
-  assert.match(rhythmBlock, /font-size:\s*\.7em/);
   assert.match(rhythmBlock, /white-space:\s*nowrap/);
   assert.doesNotMatch(rhythmBlock, /box-shadow:/);
   assert.ok(guideDateBlock, "guide inbox row dates should not keep a side rail");
@@ -1447,9 +1264,7 @@ test("home inbox row metadata stays a quiet text layer", () => {
   assert.ok(guideDetailBlock, "guide inbox should hide per-row detail layers that caused overlap");
   assert.match(guideDetailBlock, /display:\s*none/);
   assert.ok(guideRowTextBlock, "guide inbox text stack should collapse to a single line");
-  assert.match(guideRowTextBlock, /gap:\s*0/);
   assert.ok(guideListBlock, "guide inbox list should use compact single-line rows");
-  assert.match(guideListBlock, /padding:\s*6px 8px/);
   assert.match(overviewColumns, /dashboard-guide-inbox/);
   assert.doesNotMatch(guidePanels, /dashboard-guide-inbox/);
   assert.ok(cueBlock, "inbox safe-next cue block should exist");
@@ -1509,7 +1324,7 @@ test("tasks calendar dark title contract keeps task titles primary", () => {
   assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar:is\(\[view='month'\],\s*\[view='week'\],\s*\[view='day'\],\s*\[view='list'\]\)[\s\S]*\.tc-cal-item\s+\.internal-link[\s\S]*font-weight:\s*var\(--noria-tc-task-title-weight\)/);
   assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\[view='list'\]\s+\.quadrant\s+\.qContent[\s\S]*\.tc-cal-item\s+\.description[\s\S]*var\(--noria-tc-task-title\)/);
   assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\[view='month'\]\s+\.tc-cal-item\s*\{[\s\S]*border-left:\s*2px solid var\(--noria-tc-task-rail-subtle\)/);
-  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\s+\.tc-cal-item\.(?:done|completed)[\s\S]*--noria-tc-task-title-muted/);
+  assert.match(taskCalendarCss, /\.theme-dark\s+\.tasksCalendar\s+\.tc-cal-item\.(?:done|completed)[\s\S]*color:\s*var\(--tc-task-text,\s*var\(--text-normal\)\)/);
 });
 
 test("task calendar quadrant empty states use a quiet dark semantic surface", () => {

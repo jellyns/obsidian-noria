@@ -199,6 +199,7 @@ function createHarness(options = {}) {
       return () => { calls.interactionCleanups += 1; };
     }
   };
+  if(options.exact){run("native-viewport.js");run("time-window.js");}
   run("native-backend.js");
   const engine = context.__noriaTaskTimelineEngineTestHooks;
   const timelineEl = new FakeNode(document, options.rect || { width: 320, height: 360 });
@@ -262,7 +263,7 @@ test("native backend is the sole renderer and consumes one already-filtered even
   assert.equal(harness.calls.overviewInputs[0].events.length, 2);
   assert.equal(harness.calls.interactionOptions.length, 1);
   assert.equal(harness.timelineEl.getAttribute("data-noria-timeline-backend"), "native");
-  assert.deepEqual(Object.keys(instance).sort(), ["centerOn", "clearAnnotationPreview", "dispose", "getDiagnostics", "host", "previewAnnotation", "refresh", "resize", "selectAnnotation", "setMarkMode"]);
+  assert.deepEqual(Object.keys(instance).sort(), ["centerOn", "clearAnnotationPreview", "dispose", "flushWindow", "getDiagnostics", "getFocus", "getFocusMagnification", "getWindow", "host", "previewAnnotation", "refresh", "resize", "selectAnnotation", "setFocusMagnification", "setMarkMode", "setWindow"]);
   assert.equal(instance.getDiagnostics().eventCount, 2);
   assert.equal(instance.getDiagnostics().renderCount, 1);
 
@@ -343,7 +344,7 @@ test("task timeline view measures native geometry from the timeline surface whil
   );
   assert.match(view, /measureText:\s*taskTimelineTextMeasurer\(timelineEl\)/);
   assert.match(view, /externalStateLayer:\s*true/);
-  assert.match(view, /onRender:\s*\(\)\s*=>\s*taskTimelineSetState\(root,\s*stage,\s*"ready"/);
+  assert.match(view, /onRender:\s*\(\)\s*=>\s*\{\s*taskTimelineSetState\(root,\s*stage,\s*"ready"/);
   assert.doesNotMatch(view, /taskTimelineSetLoadDiagnostics\(timelineEl,\s*"ready"[\s\S]{0,180}taskTimelineSetState\(root,\s*stage,\s*"ready"/);
 });
 
@@ -464,6 +465,34 @@ test("native interactions adapt task keys to source-open and existing task-edit 
   assert.equal(committed[0].dates.end.getTime(), previewEnd);
   assert.equal(committed[0].timelineEl, harness.timelineEl);
   instance.dispose();
+});
+
+test("exact windows survive backend resize and reload, while free zoom clears the preset",async()=>{
+  const w=require("../src/runtime/views/task-timeline/time-window.js"),selected=w.at(+new Date("2026-09-23T07:00:00"),{amount:18,unit:"hour"});
+  const h=createHarness({exact:true,settings:{timeWindow:selected}}),b=await h.engine.mountTimelineBackend("native",h.backendContext);h.flushFrame();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.getWindow())),selected);b.resize(900,400);h.flushFrame();
+  const v=h.calls.interactionOptions[0].getViewport(),actual=h.context?.noriaTaskTimeline?.nativeViewport?.visibleRange(v);
+  assert.equal(v.widthPx,900);assert.deepEqual(JSON.parse(JSON.stringify(b.getWindow())),selected);
+  h.calls.interactionOptions[0].updateViewport({...v,msPerPx:v.msPerPx*1.5});h.flushFrame();assert.equal(b.getWindow().scale,null);
+  const saved=JSON.parse(JSON.stringify(b.getWindow()));b.dispose();
+  const h2=createHarness({exact:true,settings:{timeWindow:saved}}),b2=await h2.engine.mountTimelineBackend("native",h2.backendContext);h2.flushFrame();assert.deepEqual(JSON.parse(JSON.stringify(b2.getWindow())),saved);b2.dispose();
+});
+
+test("focus magnification changes local spacing while retaining exact endpoints and saved preference",async()=>{
+  const w=require("../src/runtime/views/task-timeline/time-window.js"),focus=+new Date("2026-09-24T12:00:00"),selected=w.around(focus,{amount:1,unit:"month"}),states=[];
+  const h=createHarness({exact:true,settings:{timeWindow:selected,focusMagnification:false},context:{manualScaleDebounceMs:0,onManualScaleState:s=>states.push(s)}});
+  const b=await h.engine.mountTimelineBackend("native",h.backendContext);h.flushFrame();
+  assert.equal(b.getFocusMagnification(),false);assert.equal(b.getFocus(),focus);
+  const v=h.context.noriaTaskTimeline.nativeViewport,get=()=>h.calls.interactionOptions[0].getViewport();
+  const before=v.dateMsToPx(get(),focus+3600000)-v.dateMsToPx(get(),focus);
+  b.setFocusMagnification(true);h.flushFrame();const range=v.visibleRange(get());
+  assert.ok(v.dateMsToPx(get(),focus+3600000)-v.dateMsToPx(get(),focus)>before);
+  assert.ok(Math.abs(range.startMs-selected.startMs)<2&&Math.abs(range.endMs-selected.endMs)<2);
+  assert.equal(b.getFocus(),focus);assert.equal(states.at(-1).focusMagnification,true);
+  b.setFocusMagnification(false);b.flushWindow();assert.equal(states.at(-1).focusMagnification,false);
+  const saved=states.at(-1);b.dispose();
+  const next=createHarness({exact:true,settings:{timeWindow:saved.timeWindow,focusMagnification:saved.focusMagnification}}),reopened=await next.engine.mountTimelineBackend("native",next.backendContext);
+  next.flushFrame();assert.equal(reopened.getFocus(),focus);assert.equal(reopened.getFocusMagnification(),false);reopened.dispose();
 });
 
 test("native pan and zoom report backend-neutral manual scale state", async () => {

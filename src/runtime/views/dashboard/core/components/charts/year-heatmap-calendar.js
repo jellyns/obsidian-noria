@@ -47,9 +47,43 @@
   }
 
   function dayOfYear(d) {
-    const start = new Date(d.getFullYear(), 0, 1);
-    start.setHours(0, 0, 0, 0);
-    return Math.floor((d.getTime() - start.getTime()) / 86400000) + 1;
+    return Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 1)) / 86400000) + 1;
+  }
+
+  function weekdayLabels(weekStartDay, sparse = false) {
+    const days = ['日', '一', '二', '三', '四', '五', '六'], english = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return Array.from({ length: 7 }, (_, row) => {
+      const day = (weekStartDay + row) % 7;
+      return sparse && ![1, 3, 5].includes(day) ? '' : displayLabel('weekday', days[day], english[day]);
+    });
+  }
+
+  function wireKeyboardInspection(rootEl, cells, todayKey) {
+    const selected = Math.max(0, cells.findIndex(item => item.key === todayKey));
+    const hint = rootEl.createDiv({ cls: 'noria-heatmap-focus-hint', attr: { role: 'status', 'aria-live': 'polite' } });
+    hint.hidden = true;
+    cells.forEach(({ cell, key }, index) => {
+      cell.dataset.date = key;
+      cell.tabIndex = index === selected ? 0 : -1;
+      cell.onfocus = () => {
+        cells.forEach(item => { item.cell.tabIndex = item.cell === cell ? 0 : -1; });
+        hint.textContent = cell.title;
+        hint.hidden = false;
+        const rect = cell.getBoundingClientRect(), view = cell.ownerDocument.defaultView;
+        hint.style.left = `${Math.max(8, Math.min(rect.left, view.innerWidth - hint.offsetWidth - 8))}px`;
+        hint.style.top = `${rect.top > hint.offsetHeight + 12 ? rect.top - hint.offsetHeight - 6 : rect.bottom + 6}px`;
+      };
+      cell.onblur = () => { hint.hidden = true; };
+      cell.onkeydown = event => {
+        let next;
+        if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = cells.length - 1;
+        else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) next = index + ({ ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 })[event.key];
+        if (next == null) return;
+        event.preventDefault();
+        cells[Math.max(0, Math.min(cells.length - 1, next))].cell.focus();
+      };
+    });
   }
 
   function weekdayIndex(d, weekStartDay) {
@@ -131,7 +165,7 @@
 
   function readPalette(paletteKey, level) {
     const cp = root.components?.charts?.chartPalette;
-    if (typeof cp?.heatmapColor === "function") return cp.heatmapColor(paletteKey, level);
+    if (typeof cp?.heatmapColor === "function") return `var(--dash-heatmap-${paletteKey || 'work'}-level-${level},${cp.heatmapColor(paletteKey, level)})`;
     const cssName = `--dash-heatmap-${paletteKey || "work"}-level-${level}`;
     try {
       const v = getComputedStyle(document.documentElement).getPropertyValue(cssName).trim();
@@ -143,7 +177,8 @@
   function paletteValue(name, fallback) {
     const cp = root.components?.charts?.chartPalette;
     const fn = cp && cp[name];
-    if (typeof fn === "function") return fn();
+    const cssNames = { heatmapEmptyFill: '--dash-heatmap-empty-fill', heatmapEmptyBorder: '--dash-heatmap-empty-border', heatmapTodayBorder: '--dash-heatmap-today-border', heatmapHoverBorder: '--dash-heatmap-hover-border', heatmapLabelColor: '--dash-heatmap-label-color' };
+    if (cssNames[name]) return `var(${cssNames[name]},${typeof fn === 'function' ? fn() : fallback})`;
     return fallback;
   }
 
@@ -208,15 +243,7 @@
     body.style.cssText = "display:grid;align-items:start;min-width:0;";
     const weekdays = body.createDiv();
     weekdays.style.cssText = "display:grid;align-items:center;color:var(--text-muted);font-size:.58em;font-weight:600;opacity:.68;";
-    [
-      displayLabel("weekday", "一", "Mon"),
-      displayLabel("weekday", "二", "Tue"),
-      displayLabel("weekday", "三", "Wed"),
-      displayLabel("weekday", "四", "Thu"),
-      displayLabel("weekday", "五", "Fri"),
-      displayLabel("weekday", "六", "Sat"),
-      displayLabel("weekday", "日", "Sun")
-    ].forEach((label) => {
+    weekdayLabels(weekStartDay).forEach((label) => {
       weekdays.createDiv({ text: label }).style.cssText = "height:10px;line-height:10px;text-align:right;";
     });
 
@@ -312,6 +339,7 @@
       });
     };
 
+    wireKeyboardInspection(rootEl, monthCells, todayKey);
     applyLayout();
     try {
       if (typeof ResizeObserver !== "undefined") {
@@ -324,6 +352,7 @@
         });
         ro.observe(parent);
         ro.observe(rootEl);
+        rootEl.__noriaChartCleanup = () => ro.disconnect();
       }
     } catch (_) {}
 
@@ -380,7 +409,7 @@
 
     let yearEl = null;
     if (showYearLabel) {
-      yearEl = rootEl.createDiv({ text: String(year).slice(2) });
+      yearEl = rootEl.createDiv({ text: String(year) });
       yearEl.style.cssText =
         `grid-column:1;grid-row:1 / span 2;color:${labelColor};font-size:.68em;font-weight:700;line-height:1;writing-mode:vertical-rl;letter-spacing:.04em;padding-top:18px;opacity:.68;`;
     }
@@ -400,7 +429,7 @@
     body.style.cssText = "grid-row:2;display:grid;align-items:start;min-width:0;";
     const weekdays = body.createDiv();
     weekdays.style.cssText = "display:grid;align-items:center;color:var(--text-muted);font-size:.62em;font-weight:600;opacity:.68;";
-    ["", displayLabel("weekday", "一", "Mon"), "", displayLabel("weekday", "三", "Wed"), "", displayLabel("weekday", "五", "Fri"), ""].forEach((label) => {
+    weekdayLabels(weekStartDay, true).forEach((label) => {
       weekdays.createDiv({ text: label }).style.cssText = "height:11px;line-height:11px;text-align:right;";
     });
 
@@ -483,6 +512,7 @@
       });
     };
 
+    wireKeyboardInspection(rootEl, cells, todayKey);
     applyLayout();
     try {
       if (typeof ResizeObserver !== "undefined") {
@@ -495,6 +525,7 @@
         });
         ro.observe(parent);
         ro.observe(rootEl);
+        rootEl.__noriaChartCleanup = () => ro.disconnect();
       }
     } catch (_) {}
 
@@ -503,6 +534,6 @@
 
   root.components.charts.yearHeatmapCalendar = {
     renderYearHeatmapCalendar,
-    _test: { parseDateKey, dateKey, daysInYear, daysInMonth, dayOfYear, weekdayIndex, normalizeEntries, mapLevel, monthStartColumn, layoutSpec, separatedLayoutSpec, isoWeekNumber }
+    _test: { parseDateKey, dateKey, daysInYear, daysInMonth, dayOfYear, weekdayIndex, normalizeEntries, mapLevel, monthStartColumn, layoutSpec, separatedLayoutSpec, isoWeekNumber, weekdayLabels }
   };
 })();

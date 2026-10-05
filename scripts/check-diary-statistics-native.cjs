@@ -1,0 +1,50 @@
+const {execFileSync}=require('node:child_process'),fs=require('node:fs'),assert=require('node:assert/strict');
+const dir='F:/NoriaTest/_acceptance-diary-statistics-20261002';
+const evaluate=code=>{const raw=execFileSync('obsidian',['vault=NoriaTest','eval',`code=(async()=>JSON.stringify(await (async()=>{if(app.vault.getName()!=="NoriaTest")throw Error("NoriaTest only");${code}})()))()`],{encoding:'utf8',timeout:30000,windowsHide:true});if(!raw.includes('=> '))throw Error(raw.slice(-900));return JSON.parse(raw.slice(raw.indexOf('=> ')+3));};
+const setup='const s=globalThis.__noriaDiaryStatsTest,p=app.plugins.plugins.noria,w=s.leaf.view.workbench,m=[...p.cards.modals][0];';
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(code){for(let i=0;i<40;i++){if(evaluate(setup+code))return;await pause(120);}throw Error('Timeout: '+code);}
+(async()=>{let owned=false;const checks=[];const check=(name,code)=>{assert.ok(evaluate(setup+code),name);checks.push(name);};
+try{
+ evaluate(`const p=app.plugins.plugins.noria;if(p.cards.modals.size||globalThis.__noriaDiaryStatsTest)throw Error('An editor or test is open');const s={active:app.workspace.activeLeaf,layouts:structuredClone(p.settings.cardLayouts),home:JSON.stringify(p.settings.home),files:[],dark:document.body.classList.contains('theme-dark')};globalThis.__noriaDiaryStatsTest=s;s.win=require('@electron/remote').getCurrentWindow();s.throttle=s.win.webContents.getBackgroundThrottling();s.win.webContents.setBackgroundThrottling(false);s.win.show();s.win.focus();s.leaf=app.workspace.getLeaf('tab');await s.leaf.setViewState({type:'noria-dashboard-home',active:true});return true;`);owned=true;
+ await until('return !!w;');
+ evaluate(`${setup}for(const date of ['1901-01-11','1901-01-12','1901-01-18']){const path='Noria/Projects/_diary-stat-'+crypto.randomUUID()+'.md';await app.vault.create(path,['---','created: '+date,'tags: [noria-diary-stat-test]','---','## Diary period acceptance','- [x] Diary period acceptance [completion:: '+date+']',''].join(String.fromCharCode(10)));s.files.push(path);}await w.show('diary',{mode:'weekly',anchorDate:'1901-01-11'});p.cards.catalog({page:'diary',mode:'weekly',selection:w.diary.selection});return true;`);
+ evaluate(`${setup}const preview=m.preview.bind(m);m.preview=()=>s.preview=preview();m.statistics();return true;`);
+ check('six dashboard statistics are available in the diary catalog',`return ['metrics','note-trend-card','task-trend-card','habit-heatmap-card','workload-heatmap-card','daily-state-card'].every(id=>{const b=m.contentEl.querySelector('[data-stat-template="dashboard-'+id+'"]');return b&&!b.disabled;});`);
+ evaluate(`${setup}m.contentEl.querySelector('[data-stat-template="dashboard-metrics"]').click();await s.preview;return true;`);
+ check('default overview preview follows the selected historical week and remains read-only',`const view=m.previewHost.querySelector('.noria-diary-statistic');return m.draft.props.statsRange.mode==='homeCurrent'&&view?.dataset.rangeStart==='1901-01-07'&&view.dataset.rangeEnd==='1901-01-13'&&m.previewHost.inert&&m.contentEl.querySelector('[data-card-field="statsRange"]').selectedOptions[0].textContent==='跟随日记周期';`);
+ evaluate(`${setup}m.draft.props.overviewFields=['todayNotes','completedTasks','totalWords'];m.draft.size='full';s.follow=m.draft.id;await m.preview();await m.save();s.card=id=>s.leaf.view.containerEl.querySelector('[data-diary-card="'+id+'"]');s.values=id=>[...s.card(id)?.querySelectorAll('b')||[]].map(e=>e.textContent);return true;`);
+ await until(`return s.values(s.follow).includes('+2')&&s.values(s.follow).includes('2');`);
+ check('applying from the actual diary catalog produces two new notes and two completions',`s.currentCharacters=s.values(s.follow)[1];return s.card(s.follow).textContent.includes('区间新建笔记')&&s.card(s.follow).textContent.includes('当前字符量')&&s.card(s.follow).querySelector('.noria-diary-statistic').dataset.rangeEnd==='1901-01-13';`);
+ evaluate(`${setup}p.cards.catalog({page:'diary',mode:'weekly',selection:w.diary.selection},s.follow);return true;`);
+ evaluate(`${setup}const saved=structuredClone(m.draft);saved.id='card-'+crypto.randomUUID();saved.title='固定区间';saved.props.statsRange={mode:'custom',start:'1901-01-11',end:'1901-01-11'};s.fixed=saved.id;m.edit(saved);await m.preview();await m.save();return true;`);
+ await until(`return s.values(s.fixed).includes('+1');`);
+ evaluate(`${setup}await w.diary.select({mode:'weekly',anchorDate:'1901-01-18'});return true;`);
+ check('historical navigation updates the follow card while preserving independent dates and current totals',`return s.values(s.follow).includes('+1')&&s.values(s.follow).includes('1')&&s.values(s.follow)[1]===s.currentCharacters&&s.card(s.follow).querySelector('.noria-diary-statistic').dataset.rangeStart==='1901-01-14'&&s.card(s.fixed).querySelector('.noria-diary-statistic').dataset.rangeStart==='1901-01-11'&&s.card(s.fixed).querySelector('.noria-card-secondary').textContent.includes('1901');`);
+ evaluate(`${setup}p.cards.catalog({page:'diary',mode:'weekly',selection:w.diary.selection},s.fixed);return true;`);
+ check('reopening the card editor retains its independent period',`return m.draft.props.statsRange.mode==='custom'&&m.contentEl.querySelector('[data-card-field="statsRange.start"]').value==='1901-01-11';`);
+ evaluate(`${setup}m.close(true);await w.diary.select({mode:'weekly',anchorDate:'2026-09-28'});p.cards.catalog({page:'diary',mode:'weekly',selection:w.diary.selection});return true;`);
+ evaluate(`${setup}const preview=m.preview.bind(m);m.preview=()=>s.preview=preview();m.statistics();return true;`);
+ for(const id of ['note-trend-card','task-trend-card','habit-heatmap-card','workload-heatmap-card','daily-state-card']){
+  evaluate(`${setup}m.statistics();m.contentEl.querySelector('[data-stat-template="dashboard-${id}"]').click();await s.preview;return true;`);
+  check(`real diary preview renders ${id}`,`const host=m.previewHost.querySelector('.noria-diary-statistic');return host?.dataset.rangeStart==='2026-09-28'&&host.dataset.rangeEnd==='2026-10-04'&&host.textContent.length>0&&!m.previewHost.textContent.includes('组件尚未注册')&&!m.previewHost.textContent.includes('ReferenceError');`);
+ }
+ evaluate(`${setup}m.statistics();m.contentEl.querySelector('[data-stat-template="dashboard-task-trend-card"]').click();await s.preview;m.draft.size='full';s.trend=m.draft.id;await m.save();return true;`);
+ await until(`return !!s.card(s.trend)?.querySelector('.noria-diary-statistic svg');`);
+ check('the chart fills its diary card instead of one Home grid column',`const card=s.card(s.trend),plot=card.querySelector('.noria-diary-statistic svg');return plot.getBoundingClientRect().width>card.clientWidth*.75&&getComputedStyle(plot.closest('.dashboard-home-root')).display==='block'&&!card.querySelector('.noria-diary-statistic .dashboard-panel-title');`);
+ evaluate(`${setup}const layouts=p.settings.cardLayouts.periods;for(const mode of ['daily','monthly','yearly']){const widget=structuredClone(layouts.weekly.widgets.find(x=>x.id===s.trend));await p.cards.updateLayout(mode,layout=>{layout.widgets.push(widget);return layout;});}return true;`);
+ for(const [mode,date,start,end] of [['daily','2024-02-29','2024-02-29','2024-02-29'],['monthly','2024-02-29','2024-02-01','2024-02-29'],['yearly','2024-02-29','2024-01-01','2024-12-31']]){
+  evaluate(`${setup}await w.diary.select({mode:'${mode}',anchorDate:'${date}'});return true;`);
+  check(`${mode} uses its exact historical calendar boundaries`,`const host=s.card(s.trend)?.querySelector('.noria-diary-statistic');return host?.dataset.rangeStart==='${start}'&&host.dataset.rangeEnd==='${end}';`);
+ }
+ evaluate(`${setup}await w.diary.select({mode:'weekly',anchorDate:'2026-09-28'});document.body.classList.add('theme-light');document.body.classList.remove('theme-dark');s.card(s.trend).scrollIntoView({block:'center'});return true;`);await pause(200);
+ evaluate(`${setup}const r=s.card(s.trend).getBoundingClientRect();require('fs').writeFileSync('${dir}/diary-trend-light.png',(await s.win.webContents.capturePage({x:Math.max(0,Math.floor(r.x)),y:Math.max(0,Math.floor(r.y)),width:Math.ceil(Math.min(r.width,innerWidth-r.x)),height:Math.ceil(Math.min(r.height,innerHeight-r.y))})).toPNG());s.leaf.view.hostEl.style.width='390px';s.leaf.view.hostEl.style.maxWidth='100%';document.body.classList.remove('theme-light');document.body.classList.add('theme-dark');s.card(s.trend).scrollIntoView({block:'center'});return true;`);await pause(250);
+ check('narrow diary chart fits its card',`const host=s.card(s.trend);return host.scrollWidth<=host.clientWidth+1&&host.querySelector('.noria-diary-statistic svg').getBoundingClientRect().width>host.clientWidth*.7;`);
+ evaluate(`${setup}const r=s.card(s.trend).getBoundingClientRect();require('fs').writeFileSync('${dir}/diary-trend-narrow-dark.png',(await s.win.webContents.capturePage({x:Math.max(0,Math.floor(r.x)),y:Math.max(0,Math.floor(r.y)),width:Math.ceil(Math.min(r.width,innerWidth-r.x)),height:Math.ceil(Math.min(r.height,innerHeight-r.y))})).toPNG());return true;`);
+ check('diary range and layout operations do not modify Home settings',`return JSON.stringify(p.settings.home)===s.home;`);
+}finally{
+ fs.writeFileSync(dir+'/native-result.json',JSON.stringify({status:'incomplete',checks},null,2));
+ if(owned)evaluate(`${setup}for(const modal of [...p.cards.modals])modal.close(true);s.leaf.detach();p.settings.cardLayouts=s.layouts;await p.saveSettings();p.cards.emit();for(const path of s.files){const file=app.vault.getAbstractFileByPath(path);if(file)await app.vault.delete(file);}if(s.active?.parent)app.workspace.setActiveLeaf(s.active,{focus:true});document.body.classList.toggle('theme-dark',s.dark);document.body.classList.toggle('theme-light',!s.dark);s.win.webContents.setBackgroundThrottling(s.throttle);delete globalThis.__noriaDiaryStatsTest;return true;`);
+}
+ fs.writeFileSync(dir+'/native-result.json',JSON.stringify({status:'passed',checks},null,2));console.log(JSON.stringify({status:'passed',checks:checks.length,dir}));
+})().catch(e=>{console.error(e);process.exitCode=1;});

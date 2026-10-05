@@ -458,14 +458,14 @@ test("data service collects projects domain from registry and task facts", async
   assert.equal(projects.evidence.staleProjects[0].name, "Beta");
 });
 
-test("data service accepts English project registry section titles", async () => {
+test("data service accepts English registry headings and project links followed by descriptions", async () => {
   const data = loadDataService();
   const registryText = [
     "## Hidden projects",
     "- Hidden",
     "",
     "## Active projects",
-    "- Alpha",
+    "- [[Projects/Alpha/Alpha.md|Alpha]]: Existing project description.",
     "",
     "## Planned projects",
     "- Beta",
@@ -492,6 +492,9 @@ test("data service accepts English project registry section titles", async () =>
 
   const snapshot = await service.getSnapshot({ preset: "home", include: ["projects"] });
 
+  const alpha=snapshot.domains.projects.items.find(item=>item.name==="Alpha");
+  assert.equal(alpha?.targetPath,"Projects/Alpha/Alpha.md");
+  assert.equal(alpha?.root,"Projects/Alpha");
   assert.deepEqual(JSON.parse(JSON.stringify(snapshot.domains.projects.summary)), {
     activeCount: 1,
     plannedCount: 1,
@@ -645,6 +648,20 @@ test("data service keeps zero-hit active habits selectable with an empty heatmap
     ["2026-05-02", 0],
     ["2026-05-03", 0]
   ]);
+});
+
+test("date-note habit withdrawals override a completed legacy registry row and stale task cache",async()=>{
+  const data=loadDataService(),date="2026-09-14",path="06_Diary/2026/2026-09-14.md";
+  const registry="## Active habits\n- Read\n\n## Daily recurring task source\n- [x] Read #habit [due:: "+date+"]\n";
+  const raw="## Habit records\n- [ ] Read #habit [due:: "+date+"]\n";
+  const bridge={runtimeBuildId:"habit-withdrawal",paths:{diaryRoot:"06_Diary",habitRegistryPath:"Noria/Habits.md"},runtime:{
+    filesForManagedPath:()=>[{path}],pagesForManagedPath:()=>[],pagesForScope:()=>[],
+    tasksForScope:()=>[{path,text:"Read #habit [due:: "+date+"]",completed:true,line:1}]
+  }};
+  const service=data.createDataService({bridge,now:date,ctx:{readText:async p=>p===path?raw:registry}});
+  const snapshot=await service.getSnapshot({include:["habits"],range:{mode:"custom",start:date,end:date}});
+  assert.equal(snapshot.domains.habits.summary.checked,0);
+  assert.equal(snapshot.domains.habits.items[0].checked,0);
 });
 
 test("data service accepts English habit registry section titles", async () => {
@@ -937,6 +954,8 @@ test("data service resolves ranges and builds schema-versioned home and review s
   assert.ok(home.domains.notes.trend.series.length);
   assert.equal(home.domains.tasks.completion.completed, 3);
   assert.equal(home.domains.tasks.completion.undatedCompleted, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(home.domains.tasks.completion.dailySeries)),
+    Array.from({ length: 7 }, (_, i) => ({ date: `2026-05-0${i + 1}`, done: i >= 1 && i <= 3 ? 1 : 0 })));
   assert.equal(home.domains.dailyState.summary.validDays, 2);
   assert.equal(home.views.home.noteTrend, home.domains.notes.trend);
   assert.equal(home.views.home.taskTrend, home.domains.tasks.completion);
@@ -956,6 +975,25 @@ test("data service resolves ranges and builds schema-versioned home and review s
   assert.doesNotThrow(() => JSON.stringify(review));
   assert.equal(review.sourceCompleteness.tasks.available, true);
   assert.deepEqual(review.meta.resolvedRequest.include.includes("git"), true);
+});
+
+test("completion daily series stays complete beyond the evidence limit and across aggregation", async () => {
+  const data = loadDataService();
+  const tasks = Array.from({ length: 93 }, (_, line) => ({
+    text: `Done ${line} [completion:: 2026-05-02]`, completed: true, path: "01_Projects/A.md", line
+  }));
+  tasks.push({ text: "No date", completed: true, path: "01_Projects/B.md", line: 0 });
+  const service = data.createDataService({ app: {}, bridge: { runtime: { tasksForScope: () => tasks } } });
+  for (const granularity of ["day", "week", "month"]) {
+    const result = await service.getSnapshot({ preset: "home", range: { mode: "custom", start: "2026-05-01", end: "2026-05-07" }, granularity });
+    const completion = result.domains.tasks.completion;
+    assert.equal(completion.completedItems.length, 80);
+    assert.equal(completion.undatedCompleted, 1);
+    assert.equal(completion.dailySeries.length, 7);
+    assert.equal(completion.dailySeries.find(row => row.date === "2026-05-02").done, 93);
+    assert.equal(completion.dailySeries.reduce((sum, row) => sum + row.done, 0), completion.completed);
+    assert.equal(completion.series.reduce((sum, row) => sum + row.done, 0), 93);
+  }
 });
 
 test("data service resolves homeCurrent range from synced home settings before legacy localStorage", () => {
@@ -1482,4 +1520,16 @@ test("period review evidence exposes daily evidence source map and gaps", async 
   assert.equal(may6.tasksOpen, 1);
   assert.equal(projectSource.tasksOpen, 1);
   assert.equal(diarySource.tasksDone, 1);
+});
+
+
+test("daily state means use each recorded metric and weather does not inflate coverage",async()=>{
+  const data=loadDataService();
+  const rows=[{weather:"晴"},{mood:"稳定"},{energy:4},{focus:"基本专注"},{}].map((fields,index)=>({...fields,file:{path:`Diary/2026-05-0${index+1}.md`,name:`2026-05-0${index+1}`,tasks:[]}}));
+  const service=data.createDataService({bridge:{paths:{diaryRoot:"Diary"},runtime:{toArray:a=>a,pagesForManagedPath:()=>rows,pagesForScope:()=>[],tasksForScope:()=>[]}},ctx:{readText:async()=>""},app:{},now:"2026-05-05"});
+  const result=await service.getSnapshot({include:["dailyState"],range:{mode:"custom",start:"2026-05-01",end:"2026-05-05"}});
+  const state=result.domains.dailyState;
+  assert.equal(state.summary.validDays,3);assert.equal(state.summary.averageEnergy,4);assert.equal(state.summary.energyCount,1);
+  assert.equal(state.summary.averageFocus,3);assert.equal(state.distribution.mood["稳定"].pct,100);
+  assert.equal(state.series.find(row=>row.key==="2026-05-01").energy,null);
 });

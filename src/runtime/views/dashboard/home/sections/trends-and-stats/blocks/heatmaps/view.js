@@ -120,19 +120,29 @@ const inStatsRange = (date) => {
 const year = Number(String(statsRange?.end || statsRange?.start || "").slice(0, 4)) || new Date().getFullYear();
 const renderYearHeatmapCalendar =
   globalThis.dashboardCore?.components?.charts?.yearHeatmapCalendar?.renderYearHeatmapCalendar;
+const heatmapCleanups = new Map();
+input?.registerCleanup?.(() => { for (const charts of heatmapCleanups.values()) charts.forEach(chart => chart?.__noriaChartCleanup?.()); heatmapCleanups.clear(); });
 const renderNativeHeatmap = (host, map, paletteKey, entryOptions = {}) => {
   if (typeof renderYearHeatmapCalendar !== "function") {
     host.createDiv({ text: heatmapT("runtime.home.trends.heatmapMissing") }).style.cssText =
       "padding:8px;color:var(--text-muted);font-size:.86em;line-height:1.45;";
     return null;
   }
-  return renderYearHeatmapCalendar(host, {
-    year,
-    entries: toEntries(map, entryOptions),
-    weekStartDay: 1,
-    levels: 6,
-    paletteKey
-  });
+  heatmapCleanups.get(host)?.forEach(chart => chart?.__noriaChartCleanup?.());
+  const firstYear = Number(String(statsRange?.start || year).slice(0, 4)) || year;
+  const entries = toEntries(map, entryOptions), charts = [];
+  for (let chartYear = firstYear; chartYear <= year; chartYear++) {
+    charts.push(renderYearHeatmapCalendar(host, {
+      year: chartYear,
+      entries: entries.filter(entry => entry.date.startsWith(String(chartYear) + '-')),
+      weekStartDay: 1,
+      levels: 6,
+      showYearLabel: true,
+      paletteKey
+    }));
+  }
+  heatmapCleanups.set(host, charts);
+  return charts[0];
 };
 const noriaPagesForScope = (scopeId) => {
   try { return bridge.runtime?.pagesForScope?.(scopeId, ctx) || []; } catch (_) { return []; }
@@ -236,11 +246,8 @@ for (const p of diaryPages) {
   const ds = normDate(raw);
   if (!inStatsRange(ds)) continue;
   const tasks = p.file.tasks || [];
-  let doneCount = 0;
   for (const t of tasks) {
     if (!t.text) continue;
-    const isHabit = String(t.text).includes("#habit");
-    if (showWorkload && !isHabit && t.completed) doneCount++;
     if (showHabit && !sharedHabitDomain && sleepHabitName && /#tl\/sleep\b/i.test(String(t.text || ""))) {
       const txt = String(t.text || "");
       const rawStart = getInlineField(txt, "start") || dateTimeToText(t.start);
@@ -252,7 +259,6 @@ for (const p of diaryPages) {
     }
   }
   if (showWorkload) {
-    taskCountMap[ds] = (taskCountMap[ds] || 0) + doneCount;
     heatmapDiaryWordReads.push(async () => {
       try {
         const c = await ctx.io.load(p.file.path);
@@ -262,6 +268,11 @@ for (const p of diaryPages) {
   }
 }
 await runHeatmapDiaryReadQueue(heatmapDiaryWordReads);
+if (showWorkload) {
+  for (const row of statsSnapshot?.domains?.tasks?.completion?.dailySeries || []) {
+    if (inStatsRange(row.date)) taskCountMap[row.date] = row.done;
+  }
+}
 if (showHabit && sharedHabitDomain) {
   (Array.isArray(sharedHabitDomain?.heatmap?.series) ? sharedHabitDomain.heatmap.series : []).forEach((row) => {
     const date = normalizeFileDate(row?.date || row?.key);
@@ -280,18 +291,9 @@ if (showHabit && sharedHabitDomain) {
   });
 }
 const noteCountMap = {};
-const noteTrendRows = Array.isArray(statsSnapshot?.domains?.notes?.trend?.series)
-  ? statsSnapshot.domains.notes.trend.series
-  : (Array.isArray(statsSnapshot?.views?.home?.noteTrend?.series) ? statsSnapshot.views.home.noteTrend.series : []);
-if (showWorkload && noteTrendRows.length) {
-  noteTrendRows.forEach((row) => {
-    const ds = normalizeFileDate(row?.start || row?.date || row?.key);
-    const count = Number(row?.notes || row?.value || 0) || 0;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(ds) && inStatsRange(ds) && count > 0) {
-      noteCountMap[ds] = (noteCountMap[ds] || 0) + count;
-    }
-  });
-} else if (showWorkload) {
+// A trend snapshot may be aggregated by week or month. Annual heatmap cells
+// always use the original creation dates from the same cached note scope.
+if (showWorkload) {
   noriaPagesForScope("notes").forEach((p) => {
     const ds = normalizeFileDate(noteCreatedValue(p));
     if (/^\d{4}-\d{2}-\d{2}$/.test(ds) && inStatsRange(ds)) noteCountMap[ds] = (noteCountMap[ds] || 0) + 1;
@@ -315,24 +317,20 @@ allDates.forEach((d) => {
   if (s > 0) overviewMap[d] = Math.max(1, Math.round(s * 10));
 });
 const MODE_OVERVIEW = heatmapT("runtime.home.trends.overview");
+const MODE_ACTIVITY = heatmapT('runtime.home.trends.activityIntensity');
 const MODE_NEW_NOTES = heatmapT("runtime.home.trends.newNotes");
 const MODE_TASKS = heatmapT("runtime.home.trends.tasks");
 const MODE_WORDS = heatmapT("runtime.home.trends.words");
 const MODE_CHECKINS = heatmapT("runtime.home.trends.checkins");
 const maps = {
-  [MODE_OVERVIEW]: overviewMap,
+  [MODE_ACTIVITY]: overviewMap,
   [MODE_NEW_NOTES]: toScaledMap(noteCountMap, maxNote),
   [MODE_TASKS]: toScaledMap(taskCountMap, maxTask),
   [MODE_WORDS]: toScaledMap(wordCountMap, maxWord)
 };
-const totals = {
-  [MODE_NEW_NOTES]: Object.values(noteCountMap).reduce((a, b) => a + Number(b || 0), 0),
-  [MODE_TASKS]: Object.values(taskCountMap).reduce((a, b) => a + Number(b || 0), 0),
-  [MODE_WORDS]: Object.values(wordCountMap).reduce((a, b) => a + Number(b || 0), 0)
-};
 const workEntryOptions = {
-  [MODE_OVERVIEW]: {
-    tooltip: (date) => `${date} · ${MODE_OVERVIEW} · ${MODE_TASKS} ${taskCountMap[date] || 0} · ${MODE_NEW_NOTES} ${noteCountMap[date] || 0} · ${MODE_WORDS} ${wordCountMap[date] || 0}`,
+  [MODE_ACTIVITY]: {
+    tooltip: (date) => `${date} · ${MODE_ACTIVITY} · ${MODE_TASKS} ${taskCountMap[date] || 0} · ${MODE_NEW_NOTES} ${noteCountMap[date] || 0} · ${MODE_WORDS} ${wordCountMap[date] || 0}`,
     valueLabel: (date) => `${MODE_TASKS} ${taskCountMap[date] || 0} / ${MODE_NEW_NOTES} ${noteCountMap[date] || 0} / ${MODE_WORDS} ${wordCountMap[date] || 0}`
   },
   [MODE_NEW_NOTES]: {
@@ -378,7 +376,6 @@ const calcStreak = (m) => {
   }
   return s;
 };
-const sumMap = (m) => Object.values(m || {}).reduce((a, b) => a + Number(b || 0), 0);
 const monthLabel = (ym) => {
   const m = String(ym || "").match(/^(\d{4})-(\d{2})$/);
   return m ? heatmapT("runtime.home.trends.monthLabel", { month: Number(m[2]) }) : heatmapT("runtime.home.trends.none");
@@ -414,8 +411,9 @@ const activeDay = (m) => {
   return bestValue > 0 ? { main: best.slice(5), metric: String(Math.round(bestValue)), unit: "" } : { main: heatmapT("runtime.home.trends.none"), metric: "", unit: "" };
 };
 const longestStreak = (m) => {
-  const d = new Date(year, 0, 1);
-  const end = new Date(year, 11, 31);
+  const dates = Object.keys(m).sort();
+  const d = new Date((dates[0] || `${year}-01-01`) + 'T12:00:00');
+  const end = new Date((dates.at(-1) || `${year}-12-31`) + 'T12:00:00');
   let cur = 0;
   let max = 0;
   while (d <= end) {
@@ -429,7 +427,7 @@ const longestStreak = (m) => {
   }
   return max;
 };
-const renderBottomStats = (parent, m) => {
+const renderBottomStats = (parent, m, showPeakValues = true) => {
   parent.empty();
   parent.className = "dashboard-heatmap-bottom-stats";
   parent.style.cssText = "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:auto auto;gap:3px 8px;align-items:baseline;margin-top:7px;padding:6px 2px 0;min-width:0;";
@@ -447,6 +445,7 @@ const renderBottomStats = (parent, m) => {
     [heatmapT("runtime.home.trends.longestStreak"), `${longestStreak(m)} ${heatmapT("runtime.home.trends.dayUnit")}`],
     [heatmapT("runtime.home.trends.currentStreak"), `${calcStreak(m)} ${heatmapT("runtime.home.trends.dayUnit")}`]
   ];
+  if (!showPeakValues) items.slice(0, 2).forEach(([, value]) => { value.metric = ''; value.unit = ''; });
   items.forEach(([label], index) => {
     const labelEl = parent.createDiv({ text: label });
     labelEl.style.cssText = `grid-column:${index + 1};grid-row:1;text-align:center;font-size:.72em;font-weight:650;color:var(--text-muted);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;`;
@@ -495,16 +494,20 @@ const setHeatmapModeButton = (b, active) => {
 };
 if (showHabit) {
 const habitCard = wrap.createDiv();
-habitCard.style.cssText = `padding:8px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:start;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
+habitCard.addClass('noria-home-heatmap-card');
+habitCard.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:start;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
+if (input?.cardContent) Object.assign(habitCard.style, {padding:"0",border:"0",boxShadow:"none",background:"transparent"});
 const habitHead = habitCard.createDiv();
 habitHead.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;min-width:0;flex-wrap:wrap;";
 const habitHeadLeft = habitHead.createDiv();
-habitHeadLeft.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 100%;min-width:0;width:100%;";
 const habitTitle = habitHeadLeft.createDiv({ text: heatmapT("runtime.home.trends.habitHeatmap") });
 habitTitle.className = "dashboard-panel-title";
+if (input?.cardContent) habitTitle.remove();
+habitHeadLeft.addClass("noria-card-heading");
+habitHeadLeft.addClass('noria-home-heatmap-heading');
 habitTitle.style.cssText = "font-weight:800;font-size:1.02em;color:var(--dash-heading-text,var(--text-normal));letter-spacing:0.01em;line-height:1.25;white-space:nowrap;";
 const habitBar = habitHeadLeft.createDiv();
-habitBar.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;align-items:center;justify-content:flex-end;margin-left:auto;flex:1 1 260px;min-width:0;";
+habitBar.addClass('noria-home-heatmap-modes');
 const { host: habitChart } = createChartRow(habitCard);
 const habitBottomStats = habitCard.createDiv();
 const habitNames = Object.keys(byHabit).sort((a, b) => a.localeCompare(b, "zh-CN")),
@@ -534,33 +537,49 @@ drawHabit(MODE_OVERVIEW);
 
 if (showWorkload) {
 const workCard = wrap.createDiv();
-workCard.style.cssText = `padding:8px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:start;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
+workCard.addClass('noria-home-heatmap-card');
+workCard.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:start;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
+if (input?.cardContent) Object.assign(workCard.style, {padding:"0",border:"0",boxShadow:"none",background:"transparent"});
 const workHead = workCard.createDiv();
 workHead.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;min-width:0;flex-wrap:wrap;";
 const workHeadLeft = workHead.createDiv();
-workHeadLeft.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 100%;min-width:0;width:100%;";
 const workTitle = workHeadLeft.createDiv({ text: heatmapT("runtime.home.trends.workHeatmap") });
 workTitle.className = "dashboard-panel-title";
+if (input?.cardContent) workTitle.remove();
+workHeadLeft.addClass("noria-card-heading");
+workHeadLeft.addClass('noria-home-heatmap-heading');
 workTitle.style.cssText = "font-weight:800;font-size:1.02em;color:var(--dash-heading-text,var(--text-normal));letter-spacing:0.01em;line-height:1.25;white-space:nowrap;";
 const bar = workHeadLeft.createDiv();
-bar.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;align-items:center;justify-content:flex-end;margin-left:auto;flex:1 1 260px;min-width:0;";
+bar.addClass('noria-home-heatmap-modes');
 const { host: chart } = createChartRow(workCard);
 const workBottomStats = workCard.createDiv();
+const definition = workCard.createEl('details', { cls: 'noria-heatmap-definition' });
+definition.createEl('summary', { text: heatmapT('runtime.home.trends.metricDefinition') });
+const definitionText = definition.createDiv();
+const definitions = {
+  [MODE_ACTIVITY]: heatmapT('runtime.home.trends.activityDefinition'),
+  [MODE_NEW_NOTES]: heatmapT('runtime.home.trends.notesDefinition'),
+  [MODE_TASKS]: heatmapT('runtime.home.trends.completedDefinition'),
+  [MODE_WORDS]: heatmapT('runtime.home.trends.charactersDefinition')
+};
 const btnRefs = [];
-const workStatMap = (mode) => mode === MODE_OVERVIEW ? maps[mode] || {} : workEntryOptions[mode]?.rawMap || maps[mode] || {};
+const workStatMap = (mode) => mode === MODE_ACTIVITY ? maps[mode] || {} : workEntryOptions[mode]?.rawMap || maps[mode] || {};
 const draw = (mode) => {
   chart.empty();
   renderNativeHeatmap(chart, maps[mode] || {}, "work", workEntryOptions[mode] || {});
-  renderBottomStats(workBottomStats, workStatMap(mode));
+  renderBottomStats(workBottomStats, workStatMap(mode), mode !== MODE_ACTIVITY);
+  definitionText.textContent = definitions[mode];
+  const undated = Number(statsSnapshot?.domains?.tasks?.completion?.undatedCompleted || 0);
+  if (mode === MODE_TASKS && undated) definitionText.textContent += ' ' + heatmapT('runtime.home.trends.undatedDefinition', { count: undated });
   btnRefs.forEach((x) => setHeatmapModeButton(x.btn, x.mode === mode));
 };
-[MODE_OVERVIEW, MODE_NEW_NOTES, MODE_TASKS, MODE_WORDS].forEach((mode, i) => {
+[MODE_ACTIVITY, MODE_NEW_NOTES, MODE_TASKS, MODE_WORDS].forEach((mode, i) => {
   const b = bar.createEl("button", { text: mode });
   b.type = "button";
   b.onclick = () => draw(mode);
   btnRefs.push({ mode, btn: b });
   setHeatmapModeButton(b, i === 0);
 });
-draw(MODE_OVERVIEW);
+draw(MODE_ACTIVITY);
 }
 })();

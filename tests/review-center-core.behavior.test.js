@@ -167,13 +167,39 @@ test("an empty heading ends a review and an unclosed code fence hides later head
   assert.equal(extractReviewSection("```md\n## Weekly review\n\nexample\n", "Weekly review").exists, false);
 });
 
-test("review fingerprints normalize line endings and trailing whitespace only", () => {
+test("review fingerprints normalize line endings but preserve meaningful whitespace", () => {
   const first = fingerprintReviewSection("Summary  \r\n\r\n- next\t\r\n");
-  const equivalent = fingerprintReviewSection("Summary\n\n- next");
+  const equivalent = fingerprintReviewSection("Summary  \n\n- next\t");
   const edited = fingerprintReviewSection("Summary changed\n\n- next");
 
   assert.equal(first, equivalent);
+  assert.notEqual(first, fingerprintReviewSection("Summary\n\n- next"));
   assert.notEqual(first, edited);
+  assert.match(first, /^review-v2-/);
+});
+
+test("review Markdown round trips indentation, hard breaks and fenced examples", () => {
+  const body = "    indented code  \n\nparagraph  \nnext line\n\n```md\n## heading in code\nvalue\t\n```";
+  const prefix = "---\r\nkind: monthly\r\n---\r\n\r\n## Plan\r\n\r\nkeep  \r\n\r\n";
+  const suffix = "## Notes\r\n\r\nkeep this\t\r\n\r\n";
+  const original = `${prefix}## Monthly review\r\n\r\n${body.replace(/\n/g, "\r\n")}\r\n\r\n${suffix}`;
+  const extracted = extractReviewSection(original, "Monthly review");
+  assert.equal(extracted.body, body);
+  assert.equal(upsertReviewSection(original, "Monthly review", extracted.body).markdown, original);
+});
+
+test("review rejects invalid dates and periods that disagree with their selected date", () => {
+  for (const selection of [
+    { mode: "daily", anchorDate: "2026-02-30" },
+    { mode: "weekly", anchorDate: "2026-07-14", period: "2026-W99" },
+    { mode: "weekly", anchorDate: "2021-01-04", period: "2021-W53" },
+    { mode: "monthly", anchorDate: "2026-07-14", period: "2026-13" },
+    { mode: "monthly", anchorDate: "2026-07-14", period: "2026-08" },
+    { mode: "yearly", anchorDate: "2026-07-14", period: "2027" }
+  ]) assert.throws(() => normalizeReviewSelection(selection), RangeError);
+  assert.equal(normalizeReviewSelection({ mode: "weekly", anchorDate: "2021-01-03", period: "2020-W53" }).period, "2020-W53");
+  assert.equal(normalizeReviewSelection({ mode: "weekly", anchorDate: "2021-01-04", period: "2021-W01" }).period, "2021-W01");
+  assert.equal(normalizeReviewSelection({ mode: "monthly", anchorDate: "2024-02-29" }).period, "2024-02");
 });
 
 test("recovery entry validation rejects incompatible or incomplete entries", () => {

@@ -59,6 +59,7 @@ function loadPluginClass(options = {}) {
         };
       }
       if (id === "child_process") return {};
+      if (id === "crypto") return require("node:crypto");
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -516,7 +517,8 @@ test("disabled modules filter command and ribbon specs after reload", () => {
   assert.equal(plugin.getCoreCommandSpecs().some((spec) => spec.id === "open-review-center"), true);
   assert.equal(plugin.getEnabledCoreRibbonSpecs().some((spec) => spec.key === "noria:复盘中心"), false);
   const commandIds = plugin.getEnabledCoreCommandSpecs().map((spec) => spec.id);
-  assert.deepEqual(plain(commandIds), ["architecture-health-check"]);
+  // Recovery remains reachable even when its originating page is disabled.
+  assert.deepEqual(plain(commandIds), ["architecture-health-check", "open-reply-library"]);
   assert.deepEqual(plain(plugin.getEnabledCoreRibbonSpecs().map((spec) => spec.key)), []);
 
   const allOn = makePlugin();
@@ -620,9 +622,9 @@ test("review center command opens the Home workbench without a standalone ItemVi
   assert.match(coreCommands, /moduleKey:\s*"home"/);
   assert.match(coreCommands, /openReviewCenterInHome\(\)/);
   assert.doesNotMatch(coreCommands, /(?:noria-)?open-review-center-standalone|openReviewCenterStandalone/);
-  assert.match(reviewHomeOpen, /_pendingHomeReviewFocus/);
-  assert.match(reviewHomeOpen, /openDashboardHomeLeaf\(\)/);
-  assert.match(reviewHomeOpen, /__noriaOpenReviewFocusPanel/);
+  assert.match(reviewHomeOpen, /normalizeHomeReviewFocusRequest/);
+  assert.match(reviewHomeOpen, /openDashboardHomeLeaf\(false\)/);
+  assert.match(reviewHomeOpen, /workbench\?\.show\("diary", focusRequest.selection, "review"\)/);
   assert.doesNotMatch(reviewHomeOpen, /VIEW_TYPE_NORIA_REVIEW_CENTER/);
   assert.doesNotMatch(main, /async openReviewCenterStandalone\(|async openReviewCenterLeaf\(/);
   assert.doesNotMatch(main, /class NoriaReviewCenterView|VIEW_TYPE_NORIA_REVIEW_CENTER/);
@@ -721,6 +723,8 @@ test("shared task status writeback follows the unique task after concurrent edit
   assert.match(written, /- \[x\] Prepare report \[due:: 2026-05-06\]/);
   const bridge = plugin.buildRuntimeBridgeConfig();
   assert.equal(typeof bridge.tasks?.updateStatus, "function");
+  assert.equal(typeof bridge.diaryHabits?.load,"function");
+  assert.equal(typeof bridge.diaryHabits?.write,"function");
 });
 
 test("shared task status writeback rejects ambiguous duplicate-title fallbacks", async () => {
@@ -745,9 +749,34 @@ test("shared task status writeback rejects ambiguous duplicate-title fallbacks",
   assert.equal(plugin.__files.get(taskPath)?.text, original);
 });
 
+test("task checkbox writes skip Markdown examples and reject a stale checkbox state",async()=>{
+  const taskPath="01_Projects/Action.md",original="```md\n- [ ] Read\n```\n\n- Books\n    - [ ] Read\n";
+  const plugin=makePlugin({files:{[taskPath]:original}});plugin.settings=plugin.normalizeSettings({});
+  plugin.app.vault.process=async(file,transform)=>{file.text=transform(file.text);plugin.__files.set(file.path,file);};
+  const request={path:taskPath,rawText:"    - [ ] Read",done:true};
+  const result=await plugin.updateTaskCheckboxStatus(request);
+  assert.equal(result.ok,true);
+  assert.equal(plugin.__files.get(taskPath).text,original.replace("    - [ ] Read","    - [x] Read"));
+  const stale=await plugin.updateTaskCheckboxStatus({...request,done:false});
+  assert.equal(stale.ok,false);assert.equal(stale.reason,"task-changed");
+});
+
+test("diary task completion records the actual date and preserves block IDs, CRLF and hard breaks",async()=>{
+  const taskPath="01_Projects/Action.md",raw="## 行动\r\n- [ ] 完成照片整理 [due:: 2026-05-01] ^photo  \r\n附记\r\n";
+  const plugin=makePlugin({files:{[taskPath]:raw}});plugin.settings=plugin.normalizeSettings({});
+  plugin.getLocalYmd=()=>"2026-09-14";
+  plugin.app.vault.process=async(file,transform)=>{file.text=transform(file.text);plugin.__files.set(file.path,file);};
+  let result=await plugin.updateTaskCheckboxStatus({path:taskPath,text:"完成照片整理 [due:: 2026-05-01] ^photo",done:true,recordCompletion:true,captureWrite:true});
+  assert.equal(result.ok,true);
+  assert.equal(result.previousText,raw);
+  assert.equal(result.text,plugin.__files.get(taskPath).text);
+  assert.equal(plugin.__files.get(taskPath).text,raw.replace("[ ]","[x]").replace("[due:: 2026-05-01]","[due:: 2026-05-01] [completion:: 2026-09-14]"));
+  result=await plugin.updateTaskCheckboxStatus({path:taskPath,text:"完成照片整理 [due:: 2026-05-01] [completion:: 2026-09-14] ^photo",done:false,recordCompletion:true});
+  assert.equal(result.ok,true);assert.equal(plugin.__files.get(taskPath).text,raw);
+});
+
 test("periodic task views delegate checkbox writes to the runtime bridge", () => {
   const files = [
-    "habitCheckin.js",
     "dailyOtherToday.js",
     "focusPanel.js",
     "monthlyOtherTasks.js",
@@ -834,8 +863,8 @@ test("setup status reports missing seed notes and initialization creates only mi
   assert.ok(result.created.some((item) => item.key === "homeAvatar"));
   assert.ok(result.created.some((item) => item.key === "inboxQueue"));
   assert.ok(result.created.some((item) => item.key === "inboxWorkflow"));
-  assert.ok(result.created.filter((item) => item.key === "starterProject").length >= 2);
-  assert.ok(result.created.filter((item) => item.key === "starterInboxNote").length >= 2);
+  assert.equal(result.created.filter((item) => item.key === "starterProject").length, 1);
+  assert.equal(result.created.filter((item) => item.key === "starterInboxNote").length, 0);
   assert.ok(result.created.filter((item) => item.key === "starterMoc").length >= 2);
   assert.equal(plugin.__files.get("Z/Entry.md").text, "legacy entry");
   assert.equal(plugin.__files.has("Z/Dates.md"), true);
@@ -843,17 +872,15 @@ test("setup status reports missing seed notes and initialization creates only mi
   assert.equal(plugin.__files.has("Z/Inbox queue.base"), true);
   assert.match(plugin.__files.get("Z/Inbox queue.base").text, /views:\n\s+- type: table/);
   assert.equal(plugin.__files.has("Z/Tasks.md"), false);
-  assert.match(plugin.__files.get("Z/Habits.md").text, /#habit/);
-  assert.match(plugin.__files.get("Z/Habits.md").text, /#active/);
+  assert.doesNotMatch(plugin.__files.get("Z/Habits.md").text, /\[[ x]\]|completion::/);
   assert.match(plugin.__files.get("Z/Habits.md").text, /## Active habits/);
-  assert.match(plugin.__files.get("Z/Habits.md").text, /## Daily recurring task source/);
   assert.doesNotMatch(plugin.__files.get("Z/Habits.md").text, /打卡中的习惯|循环任务源/);
   assert.match(plugin.__files.get("Z/Projects.md").text, /## Active projects/);
   assert.match(plugin.__files.get("Z/Projects.md").text, /## Planned projects/);
   assert.doesNotMatch(plugin.__files.get("Z/Projects.md").text, /进行中的项目|计划中的项目/);
   assert.match(plugin.__files.get("Z/Projects.md").text, /\[\[Projects\//);
-  assert.ok([...plugin.__files.keys()].filter((p) => p.startsWith("Projects/") && p.endsWith(".md")).length >= 2);
-  assert.ok([...plugin.__files.keys()].filter((p) => p.startsWith("Inbox/") && p.endsWith(".md")).length >= 2);
+  assert.equal([...plugin.__files.keys()].filter((p) => p.startsWith("Projects/") && p.endsWith(".md")).length, 1);
+  assert.equal([...plugin.__files.keys()].filter((p) => p.startsWith("Inbox/") && p.endsWith(".md")).length, 0);
   assert.equal(plugin.__files.has(plugin.getDiaryPathForDate(new Date())), true);
   assert.deepEqual(JSON.parse(plugin.__files.get(".obsidian/daily-notes.json").text), {
     folder: "Diary",
@@ -1047,7 +1074,8 @@ test("setup repair refreshes recognizable old starter defaults without overwriti
   const result = await plugin.initializeMissingManagedNotes();
 
   assert.ok(plugin.__deleted.includes("Noria/Tasks.md"));
-  assert.match(plugin.__files.get("Noria/Habits.md").text, /#active/);
+  assert.match(plugin.__files.get("Noria/Habits.md").text, /早间整理 10 分钟 #habit/);
+  assert.equal(result.repaired.some(item=>item.key === "legacyHabitRegistry"),false);
   assert.match(plugin.__files.get("Noria/Workflow·MOC.md").text, /## /);
   assert.equal(plugin.__files.get("Noria/Projects.md").text, userProject);
   assert.ok(result.repaired.some((item) => item.key === "legacyTaskRegistry"));
@@ -1161,12 +1189,13 @@ test("settings IA moves ordinary settings out of Advanced", () => {
   assert.match(bodyOf(main, "renderOverviewTab"), /renderModuleSettings\(details,\s*\{\s*heading:\s*false\s*\}\)/);
   assert.match(bodyOf(main, "renderOverviewDataSourcesSection"), /renderManagedPathGroup/);
   assert.match(bodyOf(main, "renderHomeTab"), /settings\.weather\.enabled/);
-  assert.match(bodyOf(main, "renderHomeDefaultSettings"), /settings\.home\.guideReviewCenterExpanded/);
+  assert.match(bodyOf(main, "renderHomeDefaultSettings"), /workbench\.reviewPageSetting/);
+  assert.match(bodyOf(main, "renderHomeDefaultSettings"), /openReviewCenterInHome/);
   assert.match(bodyOf(main, "renderTasksTab"), /settings\.tasks\.includeTags/);
   assert.doesNotMatch(bodyOf(main, "renderTimelineTab"), /settings\.timeline\.pomodoroModule|settings\.features\.modules\.pomodoro/);
   assert.match(bodyOf(main, "renderModuleSettings"), /settings\.modules\.pomodoro/);
   assert.doesNotMatch(bodyOf(main, "renderCalendarTab"), /calendarEnabled|settings\.calendar\.enabled/);
-  assert.match(main, /async openCalendarLeaf\(\)\s*\{\s*if \(!this\.isModuleEnabled\("calendar"\)\)/);
+  assert.match(main, /async openCalendarLeaf\(selection\)\s*\{\s*if \(!this\.isModuleEnabled\("calendar"\)\)/);
   assert.match(bodyOf(main, "renderAppearanceTab"), /renderAppearancePresetSettings/);
   for (const tab of ["renderHomeTab", "renderTasksTab", "renderTimelineTab"]) {
     assert.doesNotMatch(bodyOf(main, tab), /renderManagedPathStatusSummary/, tab);
@@ -1404,4 +1433,28 @@ test("review workbench and timeline ItemView chrome use locale catalog strings",
   ]) {
     assert.doesNotMatch(reviewView, new RegExp(text));
   }
+});
+
+
+test("historical capture uses its date template, preserves Markdown and returns the exact write",async()=>{
+  const plugin=makePlugin();plugin.settings=plugin.normalizeSettings({managedPaths:{diaryRoot:"06_Diary"}});
+  let seeded="";const originalSeed=plugin.buildCalendarNoteContent.bind(plugin);plugin.buildCalendarNoteContent=async spec=>{seeded=spec.date;return originalSeed(spec);};
+  const date="2001-02-12",text="A [[linked note]]  \nSecond line\n\n  - Nested idea";
+  const result=await plugin.appendHomeQuickCapture({date,text,now:"2026-09-16T10:20:00",refresh:false});
+  assert.equal(result.ok,true);assert.equal(result.path,"06_Diary/2001/2001-02-12.md");
+  assert.equal(result.write.previousText,"");assert.equal(seeded,"2001-02-12");assert.match(result.write.text,/## Notes/);
+  assert.doesNotMatch(result.write.text,/\[10:20\]/);
+  assert.match(result.write.text,/- A \[\[linked note\]\]  \n  Second line\n  \n    - Nested idea/);
+  const sameDay=await plugin.appendHomeQuickCapture({date:"2026-09-16",text:"With time",now:"2026-09-16T10:20:00",refresh:false});
+  assert.match(sameDay.write.text,/- \[10:20\] With time/);
+});
+
+test("daily state first write uses selected-day seed and clear keeps absence",async()=>{
+  const plugin=makePlugin();plugin.settings=plugin.normalizeSettings({managedPaths:{diaryRoot:"06_Diary"}});
+  let seeded="";const originalSeed=plugin.buildCalendarNoteContent.bind(plugin);plugin.buildCalendarNoteContent=async spec=>{seeded=spec.date;return originalSeed(spec);};
+  const saved=await plugin.saveDailyStateForDate("2001-02-13",{mood:"稳定",energy:4},{refresh:false});
+  assert.equal(seeded,"2001-02-13");assert.equal(saved.write.previousText,"");
+  const cleared=await plugin.saveDailyStateForDate("2001-02-13",{energy:""},{refresh:false});
+  assert.equal(cleared.write.previousText,saved.write.text);
+  assert.equal(cleared.state.energy,"");assert.equal(cleared.state.mood,"稳定");
 });

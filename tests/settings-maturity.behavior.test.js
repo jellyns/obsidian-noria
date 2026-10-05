@@ -75,6 +75,15 @@ function loadPluginClass() {
   return sandbox.module.exports.default || sandbox.module.exports;
 }
 
+test("saved Timeline presets retain calendar anchors and focus magnification choices",()=>{
+  const plugin=makePlugin(),w=require("../src/runtime/views/task-timeline/time-window.js");
+  const first=w.at(+new Date("2026-01-31T13:20:00"),{amount:1,unit:"month"}),window=w.shift(first,1);
+  const preset=plugin.addTimelinePresetInSettings({label:"Month end",timeWindow:window,focusMagnification:false});
+  assert.equal(preset.focusMagnification,false);assert.equal(w.shift(preset.timeWindow,-1).startMs,first.startMs);
+  const reloaded=plugin.normalizeSettings(JSON.parse(JSON.stringify(plugin.settings))).timelineView.presets[0];
+  assert.equal(reloaded.focusMagnification,false);assert.equal(w.shift(reloaded.timeWindow,1).startMs,+new Date("2026-03-31T13:20:00"));
+});
+
 function makePlugin(input = {}) {
   const PluginClass = loadPluginClass();
   const plugin = new PluginClass();
@@ -306,6 +315,8 @@ test("release settings schema exposes standard workspace home defaults and task 
   assert.equal(invalidTaskCalendarPrefs.eisenhowerGranularity, "week");
   assert.equal(invalidTaskCalendarPrefs.showEarlyHours, false);
   assert.deepEqual(JSON.parse(JSON.stringify(settings.timelineView)), {
+    orientation:"horizontal",timeWindow:null,focusMagnification:true,scaleFavorites:[{amount:1,unit:"day"},{amount:1,unit:"week"},{amount:1,unit:"month"}],
+    verticalFilter:{tasks:true,records:true,showDone:true,ctime:false,mtime:false,query:""},verticalMetadata:"folder",
     scaleMode: "auto",
     defaultLayers: ["task", "annotation"],
     showDone: true,
@@ -813,16 +824,6 @@ test("appearance settings use visible choices a visual tag list and a semantic p
   assert.doesNotMatch(preview, /previewDensity|previewAccent|previewStatus|previewCard/);
 });
 
-test("home guide panel settings copy treats Inbox as a primary overview workbench", () => {
-  const source = readPluginSource();
-
-  assert.match(source, /"settings\.home\.guidePanelsDesc": "Controls secondary Guide panels\. Inbox actions live in the primary Home overview Inbox\."/);
-  assert.match(source, /"settings\.home\.guidePanelsDesc": "控制次级 Guide 面板；Inbox 操作集中在主页概览 Inbox。"/);
-  assert.doesNotMatch(source, /"settings\.home\.guideInbox"/);
-  assert.doesNotMatch(source, /"settings\.home\.guideInbox": "Inbox panel"/);
-  assert.doesNotMatch(source, /"settings\.home\.guideInbox": "Inbox 面板"/);
-});
-
 test("home widget settings disclose view widget execution boundary", () => {
   const source = readPluginSource();
 
@@ -830,4 +831,38 @@ test("home widget settings disclose view widget execution boundary", () => {
   assert.match(source, /protocols, absolute paths, and path traversal are blocked/);
   assert.match(source, /view 小组件运行安全的库内相对 JS 视图/);
   assert.match(source, /协议、绝对路径和路径穿越会被阻止/);
+});
+
+test("weather settings are searchable by their task in both languages", () => {
+  const plugin = makePlugin();
+  for (const query of ["天气", "城市", "weather", "city"]) {
+    const ids = plugin.searchSettingsRegistry(query).map(entry => entry.id);
+    for (const id of ["weather.enabled", "weather.manualCity", "weather.qweatherApiHost"]) assert.ok(ids.includes(id));
+  }
+});
+
+test("task display settings are searchable by visible labels and common queries", () => {
+  for (const locale of ["zh", "en"]) {
+    const plugin=makePlugin({locale});
+    for (const key of ["calendarDensity","taskColorMode","showSourceChips","showCompletedTasks","monthOverflowBehavior"]) {
+      const label=plugin.t(`settings.tasks.${key}`);
+      assert.ok(plugin.searchSettingsRegistry(label).some(e=>e.id===`tasksCalendar.${key}`),`${locale}: ${label}`);
+    }
+    assert.ok(plugin.searchSettingsRegistry("隐藏完成").some(e=>e.id==="tasksCalendar.showCompletedTasks"));
+    assert.ok(plugin.searchSettingsRegistry("overflow").some(e=>e.id==="tasksCalendar.monthOverflowBehavior"));
+  }
+});
+
+test("conditional calendar search follows the active owner without changing mode", () => {
+  const plugin = makePlugin();
+  const root = plugin.getSettingsRegistry().find(e=>e.id === "calendar.calendarRootFolder");
+  const pattern = plugin.getSettingsRegistry().find(e=>e.id === "calendar.calendarCustomFilePattern");
+  for (const mode of ["noria", "daily-notes", "custom"]) {
+    plugin.settings.calendar.calendarIntegrationMode=mode;
+    const r=plugin.resolveSettingsTarget(root),p=plugin.resolveSettingsTarget(pattern);
+    assert.equal(r.targetId || r.id, mode === "custom" ? root.id : mode === "noria" ? "managedPaths.diaryRoot" : "calendar.calendarIntegrationMode");
+    assert.equal(p.targetId || p.id, mode === "custom" ? pattern.id : "calendar.calendarIntegrationMode");
+    assert.equal(r.tab,mode === "noria" ? "overview" : "calendar");
+    assert.equal(plugin.settings.calendar.calendarIntegrationMode,mode);
+  }
 });

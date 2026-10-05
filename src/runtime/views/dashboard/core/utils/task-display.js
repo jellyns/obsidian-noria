@@ -29,7 +29,7 @@
 
   function cleanTaskTitle(text, options = {}) {
     let out = String(text || "");
-    out = out.replace(/^\s*[-*]\s*\[[ xX]\]\s*/g, "");
+    out = out.replace(/^\s*[-*+]\s*\[[^\]]\]\s*/g, "");
     out = out.replace(/^[\s\uFEFF]*(?:⚠️|⚠|❗|!)+\s*/u, "");
     out = out.replace(/\s*(?:⚠️|⚠|❗|!)+[\s\uFEFF]*$/u, "");
     out = out.replace(/(?:📅|📆|🗓|⏳|⌛|🛫|➕|✅|❌)\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?/gu, " ");
@@ -119,4 +119,5 @@
     getTaskVisualState,
     renderTaskRow
   };
+  if (typeof module !== "undefined" && module.exports) module.exports = root.utils.taskDisplay;
 })();

@@ -3790,16 +3790,17 @@ test("task calendar month rows share themed checkbox geometry and span alignment
   );
   assert.ok(
     monthCellContentBlocks.some((block) => (
-      /position:\s*absolute/.test(block)
-      && /top:\s*var\(--tc-month-cell-top-base,\s*24px\)/.test(block)
+      /position:\s*relative/.test(block)
+      && /top:\s*auto/.test(block)
       && /left:\s*0/.test(block)
       && /right:\s*0/.test(block)
-      && /bottom:\s*0/.test(block)
+      && /bottom:\s*auto/.test(block)
+      && /overflow:\s*visible/.test(block)
       && /height:\s*auto/.test(block)
       && /min-height:\s*0/.test(block)
       && /max-height:\s*none/.test(block)
     )),
-    "month cellContent should be the task scrollport below the fixed day header"
+    "month cells should share the week scrollport, retaining their natural content height"
   );
   assert.ok(monthReserveSpacerBlocks.length > 0, "month reserve spacer blocks should be found");
   for (const block of monthReserveSpacerBlocks) {
@@ -4256,38 +4257,15 @@ test("side timeline counter cards use quiet border-only emphasis", () => {
   assert.match(timelineView, /\.noria-tl-counter-card\[data-active="1"\] \.noria-tl-counter-label\{[^\n]*color:var\(--text-normal\)/);
 });
 
-test("timeline inbox capture panel is border-light and renders today's inbox list", () => {
-  const styles = fs.readFileSync(path.join(pluginRoot, "styles.css"), "utf8");
+test("timeline capture reuses the recoverable composer and keeps dated entries below it", () => {
   const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
-  const panelBlock = styles.match(/\.noria-tl-inline-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const headBlock = styles.match(/\.noria-tl-inline-head\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const headActionsBlock = styles.match(/\.noria-tl-inline-head-actions\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const footerBlock = styles.match(/\.noria-tl-inline-footer\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const focusBlock = styles.match(/\.noria-tl-inline-textarea:focus\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const capturePanelStart = main.indexOf("renderTimelineCapturePanel(body, U");
-  const capturePanelEnd = main.indexOf("createTimelineInlineSection", capturePanelStart);
-  const capturePanelBody = main.slice(capturePanelStart, capturePanelEnd);
-
-  assert.ok(panelBlock, "inline panel style should exist");
-  assert.match(panelBlock, /border:\s*0/);
-  assert.match(panelBlock, /background:\s*transparent/);
-  assert.ok(headBlock, "inline panel head style should exist");
-  assert.match(headBlock, /border-bottom:\s*0/);
-  assert.ok(headActionsBlock, "inline panel head action style should exist");
-  assert.match(headActionsBlock, /justify-content:\s*flex-end/);
-  assert.ok(footerBlock, "inline footer style should exist");
-  assert.doesNotMatch(capturePanelBody, /noria-tl-inline-close/);
-  assert.match(main, /noria-tl-inline-head-actions/);
-  assert.match(capturePanelBody, /options\s*=\s*\{\}/);
-  assert.match(capturePanelBody, /const actionHost = options\.actionHost/);
-  assert.match(capturePanelBody, /const saveBtn = actionHost\.createEl\("button"/);
-  assert.doesNotMatch(capturePanelBody, /footer\.createEl\("button"[\s\S]*noria-tl-inline-primary-btn/);
-  assert.match(capturePanelBody, /footer\.createDiv\(\{ cls: "noria-tl-inline-status is-muted" \}\)/);
-  assert.ok(focusBlock, "inline textarea focus style should exist");
-  assert.doesNotMatch(focusBlock, /box-shadow/);
-  assert.match(styles, /\.noria-tl-inline-inbox-list/);
-  assert.match(styles, /\.noria-tl-inline-inbox-time/);
-  assert.match(main, /renderTimelineTodayInboxList/);
-  assert.match(main, /parseDiaryInboxEntries/);
-  assert.match(main, /timeline\.inline\.todayInboxEmpty/);
+  const start = main.indexOf("  renderTimelineCapturePanel(body, U) {");
+  const end = main.indexOf("  createTimelineInlineSection", start);
+  const capture = main.slice(start, end);
+  assert.match(capture, /new QuickCaptureComposer/);
+  assert.match(capture, /readTimelineDiary\(U, date\)/);
+  assert.match(capture, /parseDiaryInboxEntries/);
+  assert.match(capture, /timeline\.inline\.entriesFailed/);
+  assert.match(capture, /seq !== readSeq \|\| composer.disposed/);
+  assert.doesNotMatch(capture, /appendHomeQuickCapture|createEl\("textarea"/);
 });

@@ -152,15 +152,19 @@ const notePeak = Math.max(0, ...noteData);
 const wordPeak = Math.max(0, ...wordData);
 
 const panel = root.createDiv();
-panel.style.cssText = `padding:8px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};width:100%;min-width:0;min-height:0;height:100%;display:flex;flex-direction:column;`;
+panel.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};width:100%;min-width:0;min-height:0;height:100%;display:flex;flex-direction:column;`;
+if (input?.cardContent) Object.assign(panel.style, {padding:"0",border:"0",boxShadow:"none",background:"transparent"});
 const isNarrow = (root?.clientWidth || 0) > 0 && (root?.clientWidth || 0) < 760;
 const head = panel.createDiv();
+head.addClass("noria-card-heading");
 head.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;min-width:0;flex-shrink:0;";
 const titleRow = head.createDiv();
 titleRow.style.cssText = "display:flex;align-items:center;min-width:0;";
 const titleMain = titleRow.createDiv({ text: noteTrendT("runtime.home.trends.noteTrendTitle") });
 titleMain.className = "dashboard-panel-title";
 titleMain.style.cssText = "font-weight:800;font-size:1.02em;color:var(--dash-heading-text,var(--text-normal));letter-spacing:0.01em;line-height:1.25;";
+
+if (input?.cardContent) { head.remove(); }
 
 const chartWrap = panel.createDiv();
 /* 仅保留外层 panel 一道描边：内层不再叠 border/内阴影/高白渐变，避免「双线夹白条」噪声 */
@@ -197,22 +201,16 @@ const fmtSmall = (v) => {
   if (n >= 10000) return `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}w`;
   return String(n);
 };
-const smoothPath = (pts) => {
-  if (!pts.length) return "";
-  if (pts.length < 3) return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
-  let d = `M ${pts[0][0]} ${pts[0][1]}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i - 1] || pts[i];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[i + 2] || p2;
-    const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
-    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
-    const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
-    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
-    d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+const countLinePath = (pts) => {
+  if(!pts.length)return "";
+  const slopes=pts.slice(1).map((p,i)=>(p[1]-pts[i][1])/(p[0]-pts[i][0]));
+  const tangent=i=>i===0?slopes[0]:i===pts.length-1?slopes.at(-1):slopes[i-1]*slopes[i]<=0?0:2*slopes[i-1]*slopes[i]/(slopes[i-1]+slopes[i]);
+  let path=`M ${pts[0][0]} ${pts[0][1]}`;
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i],b=pts[i+1],dx=(b[0]-a[0])/3;
+    path+=` C ${a[0]+dx} ${a[1]+tangent(i)*dx}, ${b[0]-dx} ${b[1]-tangent(i+1)*dx}, ${b[0]} ${b[1]}`;
   }
-  return d;
+  return path;
 };
 
 const svg = svgEl("svg");
@@ -222,8 +220,15 @@ svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;overflow:hidden;";
 chartWrap.appendChild(svg);
 
+const announcement=chartWrap.createDiv({cls:"noria-trend-announcement",attr:{role:"status","aria-live":"polite"}});
+let inspecting=false;
+let selectedIndex = Math.max(0,dayList.findLastIndex((_,i)=>noteData[i]||wordData[i]));
+chartWrap.classList.add("noria-trend-interactive");
+chartWrap.setAttribute("tabindex","0");chartWrap.setAttribute("role","group");
+chartWrap.setAttribute("aria-label",/^zh/.test(noriaBridge.locale||"")?"趋势图：左右键选择日期，Home／End 到首尾，显示悬浮读数。":"Trend: arrow keys select dates; Home / End select first / last. Values appear in the tooltip.");
+
 const renderChart = () => {
-  const chartW = Math.max(360, Math.round(measure(chartWrap, 760)));
+  const chartW = Math.max(240, Math.round(measure(chartWrap, 760)));
   const chartH = Math.max(232, Math.round(measureH(chartWrap, 252)));
   const padL = chartW < 520 ? 40 : 46;
   const padR = chartW < 520 ? 42 : 48;
@@ -231,14 +236,18 @@ const renderChart = () => {
   const padB = 28;
   const plotW = Math.max(120, chartW - padL - padR);
   const plotH = Math.max(120, chartH - padT - padB);
-  const xAt = (i) => padL + (days <= 1 ? 0 : (i / (days - 1)) * plotW);
+  const xAt = (i) => padL + (i + .5) / days * plotW;
   const yLeft = (v) => padT + plotH - (Number(v || 0) / noteMax) * plotH;
   const yRight = (v) => padT + plotH - (Number(v || 0) / wordMax) * plotH;
   const uid = `nt${Math.random().toString(36).slice(2, 9)}`;
   clearEl(svg);
   svg.setAttribute("viewBox", `0 0 ${chartW} ${chartH}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", noteTrendT("runtime.home.trends.noteTrendAria", { days }));
+  // Obsidian's aria-label tooltip handler only supports HTML elements.
+  svg.setAttribute("aria-labelledby", `${uid}-title`);
+  const chartTitle = setAttrs(svgEl("title"), { id: `${uid}-title` });
+  chartTitle.textContent = noteTrendT("runtime.home.trends.noteTrendAria", { days });
+  svg.appendChild(chartTitle);
 
   const defs = svgEl("defs");
   const lineAreaGrad = svgEl("linearGradient");
@@ -272,13 +281,13 @@ const renderChart = () => {
   const renderAxisStats = (x, anchor, color, total, avg) => {
     const totalText = svgEl("text");
     totalText.classList.add("noria-note-trend-axis-stat", anchor === "end" ? "is-right" : "is-left");
-    setAttrs(totalText, { x, y: 11, "text-anchor": anchor, fill: color, "font-size": "10.5", "font-weight": "650" });
-    totalText.textContent = `Total: ${total}`;
+    setAttrs(totalText, { x, y: 11, "text-anchor": anchor, fill: color, "font-size": "12", "font-weight": "650" });
+    totalText.textContent = `${/^zh/.test(String(noriaBridge.locale || "")) ? "总计" : "Total"}: ${total}`;
     svg.appendChild(totalText);
     const avgText = svgEl("text");
     avgText.classList.add("noria-note-trend-axis-stat", anchor === "end" ? "is-right" : "is-left");
-    setAttrs(avgText, { x, y: 25, "text-anchor": anchor, fill: color, "font-size": "10.5", "font-weight": "760" });
-    avgText.textContent = `Average: ${avg}`;
+    setAttrs(avgText, { x, y: 25, "text-anchor": anchor, fill: color, "font-size": "12", "font-weight": "760" });
+    avgText.textContent = `${/^zh/.test(String(noriaBridge.locale || "")) ? "平均" : "Average"}: ${avg}`;
     svg.appendChild(avgText);
   };
   renderAxisStats(padL, "start", chartColor("tickLeft"), noteTotal, noteAvg);
@@ -287,22 +296,22 @@ const renderChart = () => {
   const axisFill = chartColor("tickX");
   const leftTitle = svgEl("text");
   leftTitle.classList.add("noria-note-trend-axis-title");
-  setAttrs(leftTitle, { x: padL, y: padT - 8, "text-anchor": "start", fill: chartColor("tickLeft"), "font-size": "11", "font-weight": "760" });
+  setAttrs(leftTitle, { x: padL, y: padT - 8, "text-anchor": "start", fill: chartColor("tickLeft"), "font-size": "12", "font-weight": "760" });
   leftTitle.textContent = noteTrendT("runtime.home.trends.newNotes");
   svg.appendChild(leftTitle);
   const rightTitle = svgEl("text");
   rightTitle.classList.add("noria-note-trend-axis-title");
-  setAttrs(rightTitle, { x: padL + plotW, y: padT - 8, "text-anchor": "end", fill: chartColor("tickRight"), "font-size": "11", "font-weight": "760" });
+  setAttrs(rightTitle, { x: padL + plotW, y: padT - 8, "text-anchor": "end", fill: chartColor("tickRight"), "font-size": "12", "font-weight": "760" });
   rightTitle.textContent = noteTrendT("runtime.home.trends.words");
   svg.appendChild(rightTitle);
-  const tickNote = [0, Math.ceil(noteMax / 2), noteMax];
+  const tickNote = [...new Set([0, Math.ceil(noteMax / 2), noteMax])];
   tickNote.forEach((val) => {
     const tx = svgEl("text");
     setAttrs(tx, { x: padL - 8, y: yLeft(val) + 4, "text-anchor": "end", fill: chartColor("tickLeft"), "font-size": "10.5", "font-weight": "620" });
     tx.textContent = String(val);
     svg.appendChild(tx);
   });
-  const tickWord = [0, Math.ceil(wordMax / 2), wordMax];
+  const tickWord = [...new Set([0, Math.ceil(wordMax / 2), wordMax])];
   tickWord.forEach((val) => {
     const tx = svgEl("text");
     setAttrs(tx, { x: padL + plotW + 8, y: yRight(val) + 4, "text-anchor": "start", fill: chartColor("tickRight"), "font-size": "10.5", "font-weight": "620" });
@@ -312,12 +321,12 @@ const renderChart = () => {
 
   const bars = [];
   const markers = [];
-  const barW = Math.max(4, Math.min(13, Math.floor((plotW / days) * 0.54)));
+  const barW = Math.min(13, (plotW / days) * 0.54);
   wordData.forEach((v, i) => {
     const baseY = padT + plotH;
     const x = xAt(i) - barW / 2;
     const yTop = yRight(v);
-    const h = Math.max(2, baseY - yTop);
+    const h = Math.max(0, baseY - yTop);
     const bar = svgEl("rect");
     setAttrs(bar, {
       x: x.toFixed(1),
@@ -328,7 +337,7 @@ const renderChart = () => {
       ry: Math.min(4, barW / 2),
       fill: chartColor("barFill"),
       stroke: chartColor("barStroke"),
-      "stroke-width": "0.7",
+      "stroke-width": v > 0 ? Math.min(.7, barW / 4) : 0,
       opacity: "0.82"
     });
     const tip = svgEl("title");
@@ -339,7 +348,7 @@ const renderChart = () => {
   });
 
   const linePoints = noteData.map((v, i) => [xAt(i), yLeft(v)]);
-  const linePath = smoothPath(linePoints);
+  const linePath = countLinePath(linePoints);
   const area = svgEl("path");
   setAttrs(area, { d: `${linePath} L ${xAt(days - 1).toFixed(1)} ${padT + plotH} L ${xAt(0).toFixed(1)} ${padT + plotH} Z`, fill: `url(#lineArea-${uid})`, opacity: "0.76" });
   svg.appendChild(area);
@@ -356,7 +365,7 @@ const renderChart = () => {
 
   noteData.forEach((v, i) => {
     const c = svgEl("circle");
-    setAttrs(c, { cx: xAt(i).toFixed(1), cy: yLeft(v).toFixed(1), r: "2.6", fill: chartColor("lineMarkerFill"), stroke: chartColor("lineMarkerStroke"), "stroke-width": "1.25" });
+    setAttrs(c, { cx: xAt(i).toFixed(1), cy: yLeft(v).toFixed(1), r: days > plotW / 8 ? "0" : "2.6", fill: chartColor("lineMarkerFill"), stroke: chartColor("lineMarkerStroke"), "stroke-width": "1.25" });
     svg.appendChild(c);
     markers[i] = c;
   });
@@ -379,31 +388,22 @@ const renderChart = () => {
     });
     return Array.from(out).sort((a, b) => a - b);
   };
-  const labelRows = [];
-  const fitLabelY = (targetY) => {
-    let y = Math.max(padT + 10, Math.min(padT + plotH - 6, targetY));
-    for (let guard = 0; guard < 10; guard++) {
-      const hit = labelRows.some((old) => Math.abs(old - y) < 12);
-      if (!hit) break;
-      y += 12;
-      if (y > padT + plotH - 6) y = Math.max(padT + 10, targetY - 12);
-    }
-    labelRows.push(y);
-    return y;
-  };
+  const labelBoxes=[];
   const renderKeyLabels = (indexes, data, yFn, color, className, preferRight) => {
-    indexes.forEach((i) => {
+    indexes.sort((a,b)=>Number(data[b])-Number(data[a])).forEach((i) => {
       const v = Number(data[i] || 0);
       if (v <= 0) return;
       const label = svgEl("text");
       label.classList.add("noria-note-trend-key-label", className);
-      const rawX = xAt(i) + (preferRight ? 7 : 6);
-      const x = Math.min(Math.max(rawX, padL + 5), padL + plotW - 5);
-      const y = fitLabelY(yFn(v) - 8);
+      const valueText=fmtSmall(v),width=valueText.length*6.5;
+      const candidates=[[7,-8],[7,15],[-width-7,-8],[-width-7,15]].map(([dx,dy])=>({x:Math.max(padL+3,Math.min(padL+plotW-width-3,xAt(i)+dx)),y:yFn(v)+dy}));
+      const position=candidates.find(({x,y})=>y>=padT+10&&y<=padT+plotH-3&&!labelBoxes.some(b=>x<b.x+b.width+4&&x+width+4>b.x&&y-11<b.y+4&&y+4>b.y-11));
+      if(!position)return;
+      const {x,y}=position;labelBoxes.push({x,y,width});
       setAttrs(label, {
         x: x.toFixed(1),
         y: y.toFixed(1),
-        "text-anchor": x > padL + plotW - 40 ? "end" : "start",
+        "text-anchor": "start",
         fill: color,
         "font-size": "10.5",
         "font-weight": "760"
@@ -436,6 +436,8 @@ const renderChart = () => {
   svg.appendChild(hoverLine);
   const tooltip = svgEl("g");
   tooltip.classList.add("noria-note-trend-tooltip");
+  tooltip.classList.add("noria-trend-tooltip");
+  tooltip.style.pointerEvents="none";
   tooltip.style.opacity = "0";
   const tipRect = svgEl("rect");
   setAttrs(tipRect, { width: "142", height: "42", rx: "8", fill: "color-mix(in srgb,var(--background-primary) 96%,rgba(255,255,255,.52))", stroke: "color-mix(in srgb,var(--background-modifier-border) 78%,rgba(99,102,241,.22))" });
@@ -454,40 +456,33 @@ const renderChart = () => {
     hoverLine.setAttribute("x2", x.toFixed(1));
     hoverLine.setAttribute("opacity", "1");
     bars[i]?.setAttribute("opacity", "1");
-    bars[i]?.setAttribute("stroke-width", "1.25");
+    bars[i]?.setAttribute("stroke-width", wordData[i]>0?"1.25":"0");
     markers[i]?.setAttribute("r", "4");
     tipDate.textContent = dayList[i];
     tipValue.textContent = `${noteTrendT("runtime.home.trends.newNotes")} ${noteData[i]} · ${noteTrendT("runtime.home.trends.words")} ${wordData[i]}`;
-    const tx = Math.min(Math.max(x + 10, padL + 4), padL + plotW - 146);
+    const tipW=Math.min(chartW-12,Math.max(142,tipValue.getComputedTextLength()+18));
+    tipRect.setAttribute("width",tipW);
+    const tx=Math.max(6,Math.min(x+10,chartW-tipW-6));
     const ty = Math.max(padT + 4, Math.min(Math.min(yLeft(noteData[i]), yRight(wordData[i])) - 52, padT + plotH - 48));
     tooltip.setAttribute("transform", `translate(${tx.toFixed(1)},${ty.toFixed(1)})`);
     tooltip.style.opacity = "1";
+    announcement.setText(tipDate.textContent+" · "+tipValue.textContent);
   };
   const hideHover = (i) => {
     hoverLine.setAttribute("opacity", "0");
     tooltip.style.opacity = "0";
     bars[i]?.setAttribute("opacity", "0.82");
-    bars[i]?.setAttribute("stroke-width", "0.7");
-    markers[i]?.setAttribute("r", "2.6");
+    bars[i]?.setAttribute("stroke-width", wordData[i]>0?String(Math.min(.7,barW/4)):"0");
+    markers[i]?.setAttribute("r", days>plotW/8?"0":"2.6");
   };
-  const hitW = Math.max(8, plotW / days);
-  dayList.forEach((_, i) => {
-    const hit = svgEl("rect");
-    hit.classList.add("noria-note-trend-hit-zone");
-    setAttrs(hit, {
-      x: (xAt(i) - hitW / 2).toFixed(1),
-      y: padT,
-      width: hitW.toFixed(1),
-      height: plotH,
-      fill: "transparent"
-    });
-    const title = svgEl("title");
-    title.textContent = `${dayList[i]} · ${noteTrendT("runtime.home.trends.newNotes")} ${noteData[i]} · ${noteTrendT("runtime.home.trends.words")} ${wordData[i]}`;
-    hit.appendChild(title);
-    hit.addEventListener("mouseenter", () => showHover(i));
-    hit.addEventListener("mouseleave", () => hideHover(i));
-    svg.appendChild(hit);
-  });
+  const select=i=>{hideHover(selectedIndex);selectedIndex=Math.max(0,Math.min(days-1,i));chartWrap.dataset.index=String(selectedIndex);inspecting=true;showHover(selectedIndex);};
+  chartWrap.onpointermove=event=>{const r=svg.getBoundingClientRect();if(!r.width)return;const i=Math.max(0,Math.min(days-1,Math.floor(((event.clientX-r.left)*chartW/r.width-padL)/plotW*days)));if(i!==selectedIndex||!inspecting)select(i);};
+  chartWrap.onpointerdown=chartWrap.onpointermove;
+  chartWrap.onpointerleave=()=>{if(chartWrap.ownerDocument.activeElement!==chartWrap){hideHover(selectedIndex);inspecting=false;}};
+  chartWrap.onfocus=()=>select(selectedIndex);
+  chartWrap.onblur=()=>{hideHover(selectedIndex);inspecting=false;};
+  chartWrap.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();select(event.key==='Home'?0:event.key==='End'?days-1:selectedIndex+(event.key==='ArrowLeft'?-1:1));};
+  chartWrap.dataset.index=String(selectedIndex);if(inspecting)showHover(selectedIndex);
 };
 
 renderChart();
@@ -501,6 +496,7 @@ try {
       renderChart();
     });
     ro.observe(chartWrap);
+    input?.registerCleanup?.(() => ro.disconnect());
   }
 } catch (_) {}
 })();

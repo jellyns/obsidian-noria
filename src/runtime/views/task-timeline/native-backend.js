@@ -351,6 +351,16 @@
     let lastMeasuredWidth = NaN;
     let lastMeasuredHeight = NaN;
     let manualScaleTimer = null;
+    const windows = root.timeWindow;
+    let timeWindow = windows?.normalize(settings.timeWindow);
+    let focusMagnification = settings.focusMagnification !== false;
+    const fitWindow = () => {
+      if (timeWindow && mainViewport?.widthPx) {
+        const focus=timeWindow.focusMs??(timeWindow.startMs+timeWindow.endMs)/2;
+        mainViewport=apis.viewport.createViewport({...mainViewport,zones:focusMagnification?buildFocusHotZones(focus):[]});
+        mainViewport = apis.viewport.fitRange(mainViewport, timeWindow.startMs, timeWindow.endMs);
+      }
+    };
 
     const emitManualScaleState = () => {
       manualScaleTimer = null;
@@ -358,6 +368,8 @@
       const centerMs = finite(mainViewport.centerMs, nowMs(context));
       try {
         context.onManualScaleState({
+          timeWindow: timeWindow ? { ...timeWindow } : null,
+          focusMagnification,
           manualCenter: new Date(centerMs).toISOString(),
           manualZoomIndex: nearestZoomIndex(mainViewport.msPerPx, zoomSteps(false, centerMs)),
           manualOverviewZoomIndex: nearestZoomIndex(overviewViewport?.msPerPx, zoomSteps(true, centerMs))
@@ -390,24 +402,36 @@
     const initializeViewports = (widthPx) => {
       if (mainViewport && overviewViewport) {
         mainViewport = apis.viewport.resizeViewport(mainViewport, widthPx);
+        fitWindow();
         overviewViewport = apis.viewport.resizeViewport(overviewViewport, widthPx);
         return;
       }
       const currentMs = nowMs(context);
       const centerMs = chooseCenter(canonicalIndex.events, settings, currentMs);
-      const zones = buildFocusHotZones(centerMs);
+      const zones = focusMagnification ? buildFocusHotZones(centerMs) : [];
       mainViewport = apis.viewport.createViewport({
         centerMs,
         msPerPx: scaleFor(canonicalIndex.events, settings, false, centerMs),
         widthPx,
         zones
       });
+      if (!timeWindow && windows) {
+        const start = new Date(centerMs); start.setHours(0, 0, 0, 0);
+        timeWindow = settings.scaleMode === "manual" && settings.manualZoomIndex != null
+          ? windows.normalize(apis.viewport.visibleRange(mainViewport))
+          : windows.at(+start, {amount:1,unit:"day"});
+      }
+      fitWindow();
       overviewViewport = apis.viewport.createViewport({
         centerMs,
         msPerPx: scaleFor(canonicalIndex.events, settings, true, centerMs),
         widthPx,
         zones
       });
+      if (timeWindow) {
+        const span = timeWindow.endMs - timeWindow.startMs;
+        overviewViewport = apis.viewport.fitRange(overviewViewport, timeWindow.startMs - span * 2, timeWindow.endMs + span * 2);
+      }
     };
 
     const render = (reasons) => {
@@ -489,14 +513,27 @@
       getTask: (taskKey) => taskMap.get(text(taskKey)) || null,
       updateViewport: (viewport) => {
         if (!viewport) return;
+        const zoomed = mainViewport && Math.abs(viewport.msPerPx / mainViewport.msPerPx - 1) > 1e-8;
         mainViewport = viewport;
+        if (windows) {
+          const range = apis.viewport.visibleRange(mainViewport);
+          timeWindow = !zoomed && timeWindow?.scale ? windows.at(range.startMs, timeWindow.scale) : windows.normalize(range);
+          fitWindow();
+        }
         schedule("viewport");
         scheduleManualScaleState();
       },
       centerOn: (centerMs) => {
         if (!mainViewport) initializeViewports(readRect(context, timelineEl || container, explicitSize).width);
+        if (timeWindow && windows) {
+          const delta = finite(centerMs, nowMs(context)) - mainViewport.centerMs;
+          timeWindow = timeWindow.scale ? windows.at(timeWindow.startMs + delta, timeWindow.scale)
+            : {...timeWindow,startMs:timeWindow.startMs+delta,endMs:timeWindow.endMs+delta};
+        }
         mainViewport = apis.viewport.createViewport({ ...mainViewport, centerMs: finite(centerMs, nowMs(context)) });
+        fitWindow();
         schedule("center");
+        scheduleManualScaleState();
       },
       now: () => nowMs(context),
       markMode: settings.markMode === true,
@@ -584,6 +621,24 @@
 
     const instance = {
       host,
+      getWindow() { return timeWindow ? {...timeWindow} : mainViewport ? apis.viewport.visibleRange(mainViewport) : null; },
+      getFocus() { return timeWindow?.focusMs ?? mainViewport?.centerMs ?? nowMs(context); },
+      getFocusMagnification() { return focusMagnification; },
+      setFocusMagnification(value) {
+        focusMagnification=value===true;
+        if(timeWindow&&mainViewport)timeWindow={...timeWindow,focusMs:timeWindow.focusMs??mainViewport.centerMs};
+        fitWindow();schedule("focus-magnification");scheduleManualScaleState();
+      },
+      setWindow(value) {
+        const next = windows?.normalize(value); if (!next) return false;
+        timeWindow = next;
+        if (!mainViewport) initializeViewports(readRect(context, timelineEl || container, explicitSize).width);
+        fitWindow();
+        const span = next.endMs - next.startMs;
+        overviewViewport = apis.viewport.fitRange(overviewViewport, next.startMs-span*2, next.endMs+span*2);
+        schedule("time-window"); scheduleManualScaleState(); return true;
+      },
+      flushWindow() { emitManualScaleState(); },
       selectAnnotation(id) { selectedAnnotationId = text(id); schedule("annotation-select"); },
       previewAnnotation(event) {
         if (!event?.id) return;
@@ -633,6 +688,7 @@
           interactive: context.interactive !== false,
           mainCenterMs: mainViewport ? mainViewport.centerMs : null,
           mainMsPerPx: mainViewport ? mainViewport.msPerPx : null,
+          visibleRange: mainViewport ? apis.viewport.visibleRange(mainViewport) : null,
           overviewCenterMs: overviewViewport ? overviewViewport.centerMs : null,
           overviewMsPerPx: overviewViewport ? overviewViewport.msPerPx : null,
           lastReasons: lastReasons.slice()

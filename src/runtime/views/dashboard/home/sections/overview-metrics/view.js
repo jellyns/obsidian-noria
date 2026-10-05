@@ -24,11 +24,16 @@ const noriaPagesForScope = (scopeId) => {
   try { return noriaBridge.runtime?.pagesForScope?.(scopeId, ctx) || []; } catch (_) { return []; }
 };
 const isHero = input?.metricsLayout === "hero";
+const requestedRange = input?.statsRange;
+const hasPeriod = requestedRange && requestedRange.mode !== "all";
+const rangeInput = requestedRange?.mode === "homeCurrent" ? (noriaBridge.homeSettings?.trendsRange || {mode:"last30"}) : requestedRange;
+const period = hasPeriod ? await noriaBridge.data.resolveRange({range:{...rangeInput}}, {ctx}) : null;
+const metricText = (zh, en) => String(metricsBridge.locale || metricsBridge.i18n?.locale || "en").startsWith("zh") ? zh : en;
 const host = container.createDiv();
 host.addClass("dashboard-metrics-host");
 if (isHero) host.addClass("dashboard-metrics-host--hero");
 host.style.cssText = isHero
-  ? "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;overflow:visible;padding:0;width:100%;max-width:100%;box-sizing:border-box;min-width:0;height:100%;align-items:stretch;align-content:stretch;justify-items:stretch;"
+  ? "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr));gap:9px;overflow:visible;padding:0;width:100%;max-width:100%;box-sizing:border-box;min-width:0;height:100%;align-items:stretch;align-content:stretch;justify-items:stretch;"
   : "display:grid;grid-auto-flow:column;grid-auto-columns:minmax(148px,1fr);gap:10px;margin-bottom:4px;overflow-x:auto;padding-bottom:2px;";
 
 const pagesFromRuntime = noriaPagesForScope("notes").filter((p) => p.file && (p.file.extension === "md" || !p.file.extension));
@@ -75,8 +80,8 @@ async function runOverviewMetricReadQueue(queue, limit = 8) {
   await Promise.all(workers);
 }
 const now = new Date();
-const todayStr = now.toISOString().slice(0, 10);
 const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayStr = toDateStr(now);
 const normalizeDiary = (n) => (/^\d{8}$/.test(n) ? `${n.slice(0,4)}-${n.slice(4,6)}-${n.slice(6,8)}` : n);
 const noteCreatedValue = (page) => page?.created || page?.file?.ctime;
 const normalizeNoteDate = (value) => {
@@ -120,7 +125,10 @@ for (let i = 0; i < 365; i++) {
   if (diarySet.has(ds) || pageDateSet.has(ds)) streak++; else break;
 }
 
-const createdToday = metricPages.filter((p) => normalizeNoteDate(noteCreatedValue(p)) === todayStr).length;
+const createdToday = metricPages.filter((p) => {
+  const date = normalizeNoteDate(noteCreatedValue(p));
+  return period ? date >= period.start && date <= period.end : date === todayStr;
+}).length;
 
 const metricsCache = getMetricsCacheState();
 if (!metricsCache.byPath || typeof metricsCache.byPath !== "object" || Array.isArray(metricsCache.byPath)) {
@@ -160,11 +168,13 @@ const charStr = charCount >= 1000
   : new Intl.NumberFormat(metricsLocale).format(charCount);
 
 let completedTaskCount = 0;
-for (const p of pages) {
-  const tasks = p.file.tasks || [];
-  for (let ti = 0; ti < tasks.length; ti++) {
-    if (tasks[ti].completed) completedTaskCount++;
-  }
+if (!Array.isArray(input?.overviewFields) || input.overviewFields.includes("completedTasks")) {
+  const result = await noriaBridge.data.getTasks({
+    range: period ? rangeInput : {mode:"last30"},
+    rangePolicy: period ? "range" : "allFacts",
+    bucketBy:"completion", status:"done"
+  }, {ctx});
+  completedTaskCount = result.items.length;
 }
 
 const allPages = pages.filter((p) => !isIgnoredPath(p.file.path || ""));
@@ -251,6 +261,7 @@ const renderMetricRows = (rows, style) => {
   const smFs = isHero ? "clamp(17px,1.9vw,22px)" : "26px";
   rows.forEach((rowSpec) => {
     const row = body.createDiv();
+    if (rowSpec.hint) row.setAttribute?.("title", rowSpec.hint);
     row.style.cssText = "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;";
     const labelSh = isHero ? "none" : "0 1px 2px rgba(15,23,42,.22)";
     const valSh = isHero ? "none" : "0 1px 6px rgba(2,6,23,.22)";
@@ -263,15 +274,19 @@ const renderMetricRows = (rows, style) => {
   });
 };
 
+const currentHint = metricText("当前快照，不代表所选区间的历史总量。", "Current snapshot, not a historical total for the selected period.");
+const periodHint = period ? `${period.start} — ${period.end}` : "";
 const metricRowsSpec = [
-  [{ label: metricsT("runtime.home.metrics.daysUsed"), value: daysUsed, big: true }, { label: metricsT("runtime.home.metrics.usageStreak"), value: streak, big: true }],
-  [{ label: metricsT("runtime.home.metrics.totalNotes"), value: metricPages.length, big: true }, { label: metricsT("runtime.home.metrics.todayNotes"), value: `+${createdToday}`, big: true }],
-  [{ label: metricsT("runtime.home.metrics.totalWords"), value: charStr, big: true }, { label: metricsT("runtime.home.metrics.completedTasks"), value: completedTaskCount, big: true }],
-  [{ label: metricsT("runtime.home.metrics.missingTags"), value: tagMissing, big: true }, { label: metricsT("runtime.home.metrics.brokenLinks"), value: unresolvedCount, big: true }]
+  [{ key:"daysUsed", label: metricsT("runtime.home.metrics.daysUsed"), value: daysUsed, big: true }, { key:"usageStreak", label: metricsT("runtime.home.metrics.usageStreak"), value: streak, big: true }],
+  [{ key:"totalNotes", label: metricsT("runtime.home.metrics.totalNotes"), value: metricPages.length, big: true, hint:currentHint }, { key:"todayNotes", label: period ? metricText("区间新建笔记", "Notes created in period") : metricsT("runtime.home.metrics.todayNotes"), value: `+${createdToday}`, big: true, hint:periodHint }],
+  [{ key:"totalWords", label: metricText("当前字符量", "Current characters"), value: charStr, big: true, hint:currentHint }, { key:"completedTasks", label: period ? metricText("区间完成事项", "Tasks completed in period") : metricsT("runtime.home.metrics.completedTasks"), value: completedTaskCount, big: true, hint:periodHint }],
+  [{ key:"missingTags", label: metricsT("runtime.home.metrics.missingTags"), value: tagMissing, big: true, hint:currentHint }, { key:"brokenLinks", label: metricsT("runtime.home.metrics.brokenLinks"), value: unresolvedCount, big: true, hint:currentHint }]
 ];
+const selectedFields = Array.isArray(input?.overviewFields) ? new Set(input.overviewFields) : null;
 /* 第三张卡（累计字数）：与第一张「OB天数」同色阶，避免紫色强调单独跳脱 */
 metricRowsSpec.forEach((rows, i) => {
   const stylePick = i === 2 ? (metricStyles[0] || fallbackStyle) : (metricStyles[i] || metricStyles[0] || fallbackStyle);
-  renderMetricRows(rows, stylePick);
+  const visible = selectedFields ? rows.filter(row => selectedFields.has(row.key)) : rows;
+  if (visible.length) renderMetricRows(visible, stylePick);
 });
 })();

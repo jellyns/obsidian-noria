@@ -8,6 +8,8 @@ let {
   timelineSettings,
   onTimelineManualScaleState,
   onTimelineFocusTodayReady,
+  onTimelineBackendReady,
+  onTimelineWindowChanged,
   onTimelineMarkModeChange,
   isTimelineRuntimeCurrent
 } = (typeof input !== "undefined" && input) || {};
@@ -171,12 +173,14 @@ async function taskTimelineEnsureRuntime(options = {}) {
     ["event-model", TASK_TIMELINE_EVENT_MODEL_PATH],
     ["task-adapter", TASK_TIMELINE_TASK_ADAPTER_PATH],
     ["task-edit", TASK_TIMELINE_TASK_EDIT_PATH],
+    ["pomodoro-binding", ".obsidian/plugins/noria/views/task-timeline/pomodoro-binding.js"],
     ["annotation-provider", TASK_TIMELINE_ANNOTATION_PROVIDER_PATH],
     ["annotation-editor", TASK_TIMELINE_ANNOTATION_EDITOR_PATH],
     options.pomodoroLayerActive ? ["pomodoro-provider", TASK_TIMELINE_POMODORO_PROVIDER_PATH] : null,
     ["trace-provider", TASK_TIMELINE_TRACE_PROVIDER_PATH]
   ].filter(Boolean);
   const nativeSpecs = [
+    ["time-window", ".obsidian/plugins/noria/views/task-timeline/time-window.js"],
     ["engine-contract", TASK_TIMELINE_ENGINE_CONTRACT_PATH],
     ["native-viewport", TASK_TIMELINE_NATIVE_VIEWPORT_PATH],
     ["native-event-index", TASK_TIMELINE_NATIVE_EVENT_INDEX_PATH],
@@ -837,7 +841,7 @@ async function taskTimelineRender() {
       externalStateLayer: true,
       events: filteredEvents,
       settings,
-      onRender: () => taskTimelineSetState(root, stage, "ready", "", counts),
+      onRender: () => { taskTimelineSetState(root, stage, "ready", "", counts); onTimelineWindowChanged?.(); },
       onManualScaleState: typeof onTimelineManualScaleState === "function" ? onTimelineManualScaleState : null,
       onMarkModeChange: typeof onTimelineMarkModeChange === "function" ? onTimelineMarkModeChange : null,
       services: {
@@ -887,6 +891,7 @@ async function taskTimelineRender() {
     };
     timelineEl.__noriaTaskTimelineCleanup = cleanup;
     timelineEl.__noriaTaskTimelineBackend = backendInstance;
+    if (typeof onTimelineBackendReady === "function") onTimelineBackendReady(backendInstance, taskModel, providerResult.events, timelineEl);
 
     timing.totalMs = taskTimelineRoundMs(taskTimelinePerfNow() - loadStartedAt);
     taskTimelineSetLoadDiagnostics(timelineEl, "ready", timing, counts);

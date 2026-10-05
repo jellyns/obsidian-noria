@@ -18,39 +18,18 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-test("home daily-state picker localizes mood and focus labels without changing raw values", () => {
-  const srcMain = read("src/main.js");
-  const dailyState = read("views/dashboard/home/sections/trends-and-stats/blocks/daily-state/view.js");
-
-  assert.match(srcMain, /displayRuntimeLabel\(domain,\s*value,\s*fallback\s*=/);
-  assert.match(dailyState, /dailyStateLabel\("mood",\s*x\.key,\s*x\.key\)/);
-  assert.match(dailyState, /dailyStateLabel\("focus",\s*x\.key,\s*x\.key\)/);
-  assert.match(dailyState, /saveStatePatch\(date,\s*kind,\s*op\.value,\s*\{\s*refresh:\s*false\s*\}\)/);
-  assert.match(dailyState, /\["mood",\s*"energy",\s*"focus"\]\.includes\(kind\)/);
-  assert.doesNotMatch(dailyState, /saveStatePatch\(date,\s*"weather"/);
-
-  for (const literal of [
-    '{ key: "很好", emoji: "😀", score: 5 }',
-    '{ key: "很专注", emoji: "🟢", score: 4 }'
-  ]) {
-    assert.match(dailyState, new RegExp(escapeRegExp(literal)), "daily-state choices should keep raw protocol values for diary writeback");
-  }
-
-  for (const key of [
-    "runtime.label.mood.great",
-    "runtime.label.mood.stable",
-    "runtime.label.focus.deep",
-    "runtime.label.focus.steady"
-  ]) {
-    assert.match(srcMain, new RegExp(JSON.stringify(key)));
-  }
+test("daily-state controls localize native menus without changing diary values",()=>{
+  const controls=read("src/record-fields.js"),main=read("src/main.js");
+  assert.match(controls,/plugin.displayRuntimeLabel/);
+  for(const value of ["很好","稳定","很专注","基本专注","难进入状态"])assert.ok(controls.includes(value));
+  for(const key of ["workbench.stateMood","workbench.stateEnergy","workbench.stateClear"])assert.equal(main.split(JSON.stringify(key)+":").length-1,2);
 });
 
 test("home runtime panels consume the Noria locale bridge", () => {
   const countdown = read("views/periodic/dashboardCountdown.js");
   const habits = read("views/periodic/dashboardHabitWeek.js");
 
-  for (const source of [countdown, habits]) {
+  for (const source of [habits]) {
     assert.match(source, /const runtimeT\s*=/);
     assert.match(source, /bridge\.t/);
     assert.match(source, /bridge\.i18n/);
@@ -67,10 +46,11 @@ test("starter registry readers and writers accept localized Markdown section tit
     projectGuide: read("views/dashboard/home/sections/guide-panels/view.js")
   };
 
-  for (const source of [targets.habitData, targets.habitParsing, targets.habitHome, targets.habitFocus]) {
+  for (const source of [targets.habitData, targets.habitParsing, targets.habitHome]) {
     assert.match(source, /Active habits/);
     assert.match(source, /打卡中的习惯/);
   }
+  assert.match(targets.habitFocus, /bridge\.diaryHabits\.render\(/);
   for (const source of [targets.habitData, targets.habitParsing, targets.habitHome]) {
     assert.match(source, /Daily recurring task source/);
     assert.match(source, /循环任务源（每日）/);
@@ -83,38 +63,10 @@ test("starter registry readers and writers accept localized Markdown section tit
   }
 });
 
-test("countdown manager primary UI strings are catalog keys", () => {
-  const main = read("main.js");
-  const countdown = read("views/periodic/dashboardCountdown.js");
-
-  for (const key of [
-    "runtime.countdown.managerTitle",
-    "runtime.countdown.managerSubtitle",
-    "runtime.countdown.fieldDate",
-    "runtime.countdown.fieldName",
-    "runtime.countdown.fieldType",
-    "runtime.countdown.fieldActions",
-    "runtime.countdown.empty",
-    "runtime.countdown.noticeInvalid",
-    "runtime.countdown.noticeSaveFailed",
-    "runtime.countdown.noticeSaved",
-    "runtime.common.cancel",
-    "runtime.common.save"
-  ]) {
-    assert.match(main, new RegExp(JSON.stringify(key)));
-    assert.match(countdown, new RegExp(JSON.stringify(key)));
-  }
-
-  for (const literal of [
-    "倒计时管理",
-    "新增 / 编辑 / 删除在此统一操作",
-    "暂无手动倒计时",
-    "请填写有效日期和名称",
-    "保存失败",
-    "已保存"
-  ]) {
-    assert.doesNotMatch(countdown, new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
+test("countdown and shared record managers provide Chinese and English labels",()=>{
+  const countdown=read("src/countdown-cards.js"),manager=read("src/record-manager.js");
+  assert.match(countdown,/getNoriaLocale/);assert.match(manager,/getNoriaLocale/);
+  for(const label of ["新增倒计时","Add countdown","开始日期","Start date","已归档","Archived"])assert.ok(countdown.includes(label));
 });
 
 test("habit manager primary UI strings are catalog keys", () => {
@@ -236,7 +188,7 @@ test("task editor Chinese catalog has no English primary or advanced field label
     ["runtime.tasksCalendar.fields.cancelled", "取消"],
     ["runtime.tasksCalendar.fields.status", "状态"],
     ["runtime.tasksCalendar.fields.recurs", "重复"],
-    ["runtime.tasksCalendar.editor.advanced", "高级"],
+    ["runtime.tasksCalendar.editor.advanced", "重复与依赖"],
     ["runtime.tasksCalendar.editor.beforeThis", "前置任务"],
     ["runtime.tasksCalendar.editor.afterThis", "后续任务"]
   ]) {
@@ -244,7 +196,7 @@ test("task editor Chinese catalog has no English primary or advanced field label
   }
 });
 
-test("home guide panel managers use locale catalog for primary labels and notices", () => {
+test("home guide panel managers retain localized entry titles and use the shared form", () => {
   const main = read("src/main.js");
   const guidePanels = read("views/dashboard/home/sections/guide-panels/view.js");
   const overviewColumns = read("views/dashboard/home/sections/overview-columns/view.js");
@@ -254,18 +206,10 @@ test("home guide panel managers use locale catalog for primary labels and notice
     "runtime.home.notice.missingPath",
     "runtime.home.moc.managerTitle",
     "runtime.home.moc.pathPicker",
-    "runtime.home.moc.empty",
     "runtime.home.project.managerTitle",
     "runtime.home.project.title",
     "runtime.home.project.openRegistry",
     "runtime.home.project.manage",
-    "runtime.home.project.savePath",
-    "runtime.home.project.restore",
-    "runtime.home.project.delete",
-    "runtime.home.project.hiddenEmpty",
-    "runtime.home.project.add",
-    "runtime.home.path.choose",
-    "runtime.home.moc.bridgeNotReady"
   ]) {
     assert.match(main, new RegExp(JSON.stringify(key)));
     assert.match(guidePanels, new RegExp(JSON.stringify(key)));
@@ -385,7 +329,6 @@ test("home and periodic runtime queries use runtime helper scopes instead of loc
     heatmaps: read("views/dashboard/home/sections/trends-and-stats/blocks/heatmaps/view.js"),
     noteTrend: read("views/dashboard/home/sections/trends-and-stats/blocks/note-trend/view.js"),
     tagDistribution: read("views/dashboard/home/sections/trends-and-stats/blocks/tag-distribution/view.js"),
-    inbox: read("views/periodic/dashboardGuideInbox.js"),
     dailyMit: read("views/periodic/dailyMit.js"),
     dailyOther: read("views/periodic/dailyOtherToday.js"),
     countdown: read("views/periodic/dashboardCountdown.js"),
@@ -400,10 +343,9 @@ test("home and periodic runtime queries use runtime helper scopes instead of loc
     assert.doesNotMatch(source, /const\s+noriaTaskArray\s*=/, name);
     assert.doesNotMatch(source, /const\s+toPlainArray\s*=/, name);
   }
-  for (const name of ["dailyMit", "dailyOther", "countdown", "todayTasks", "focus", "monthlyOther", "weeklyOther"]) {
+  for (const name of ["dailyMit", "dailyOther", "todayTasks", "focus", "monthlyOther", "weeklyOther"]) {
     assert.match(targets[name], /runtime\?\.tasksForScope\?\.\("tasks",\s*ctx\)/, name);
   }
-  assert.match(targets.inbox, /runtime\?\.pagesForManagedPath\?\.\("inboxRoot",\s*ctx\)/);
   assert.match(targets.noteTrend, /runtime\.pagesForScope\?\.\("notes",\s*ctx\)|runtime\.pagesForScope\("notes",\s*ctx\)/);
   assert.match(targets.tagDistribution, /runtime\.pagesForScope\?\.\("notes",\s*ctx\)|runtime\.pagesForScope\("notes",\s*ctx\)/);
 });

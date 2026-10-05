@@ -102,6 +102,7 @@ created: "${date}"
 weather: "${weather}"
 mood: "${mood}"
 energy: ${energy}
+sleep_hours: ${[7, 7.5, 8, 6.5, 7.5][index % 5]}
 focus: "${focus}"
 tags:
   - daily-plan
@@ -161,6 +162,11 @@ const managedPaths = {
 };
 const pluginData = {
   managedPaths,
+  recordFields: [
+    {id:"mood",property:"mood",name:tx("Mood","心情"),type:"option",options:isZh?["很好","稳定","一般","偏低","很差"]:["great","steady","neutral","low","rough"],icon:"smile",enabled:true,legacy:"mood"},
+    {id:"energy",property:"energy",name:tx("Energy","精力"),type:"level",min:1,max:5,icon:"battery-medium",enabled:true,legacy:"energy"},
+    {id:"sleep",property:"sleep_hours",name:tx("Sleep duration","睡眠时长"),type:"number",unit:tx("hours","小时"),icon:"moon",color:"#8b7cf6",enabled:true}
+  ],
   onboarding: {
     profile: "standard",
     workspaceRoot: "02_Areas/Noria",
@@ -170,9 +176,9 @@ const pluginData = {
   home: {
     profilePreset: "default",
     identity: {
-      displayName: "乙辛Zmod31",
-      greetingName: "乙辛Zmod31",
-      avatarPath: "99_Attachment/乙辛Zmod31头像.jpg",
+      displayName: "Noria",
+      greetingName: "Noria",
+      avatarPath: "99_Attachment/noria.svg",
       quoteListPath: "02_Areas/Noria/Quotes.md"
     },
     guidePanels: { inbox: true, projects: true, moc: true, reviewCenter: true, reviewCenterExpanded: false }
@@ -202,7 +208,7 @@ const pluginData = {
 write(".obsidian/plugins/noria/data.json", `${JSON.stringify(pluginData, null, 2)}\n`);
 write(".noria-demo-vault", `Noria release demo\nDate: ${anchorDate}\nLocale: ${locale}\n`);
 
-copyDemoAsset("avatar.jpg", "99_Attachment/乙辛Zmod31头像.jpg");
+write("99_Attachment/noria.svg", fs.readFileSync(path.join(repoRoot, "docs/assets/brand/noria-avatar.svg"), "utf8"));
 if (isZh) copyDemoAsset("Quotes.zh-CN.md", "02_Areas/Noria/Quotes.md");
 else write("02_Areas/Noria/Quotes.md", `- Knowledge becomes useful when it changes the next action.\n- Review connects activity with direction.\n- A system should make useful work easier to see.\n`);
 const researchProjectName = tx("Research writing", "研究写作");

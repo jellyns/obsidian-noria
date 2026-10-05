@@ -19,7 +19,7 @@ function readSource(rel) {
 function loadHabitTaskStatus(app, scheduleRefresh = () => {}) {
   const source = readSource("views/periodic/dashboardHabitWeek.js");
   const start = source.indexOf("const markTaskStatus = async");
-  const end = source.indexOf("\n\nconst contentRaw", start);
+  const end = source.indexOf("const contentRaw", start);
   assert.ok(start >= 0 && end > start, "expected habit task status helper");
   const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new Function("app", "scheduleRefresh", "escapeRegExp", `${source.slice(start, end)}; return markTaskStatus;`)(
@@ -53,6 +53,8 @@ function createFakeElement(tagName = "div", opts = {}) {
   const el = {
     tagName,
     children: [],
+    dataset:{},
+    createSpan(opts){return this.createEl("span",opts);},
     textContent: opts.text || "",
     innerHTML: "",
     style: {
@@ -84,7 +86,11 @@ function createFakeElement(tagName = "div", opts = {}) {
         return this.values.has(String(name));
       }
     },
-    attrs: {},
+    attrs: { ...(opts.attr || {}) },
+    dataset: {},
+    focus() {},
+    contains(child) { return !!child && (child === this || this.children.some(el => el.contains(child))); },
+    getComputedTextLength() { return this.textContent.length * 12; },
     listeners: {},
     addClass(...names) {
       this.classList.add(...names);
@@ -182,6 +188,28 @@ function flattenElements(el) {
   return out;
 }
 
+test("shared task row retains committed status if its view refresh fails", async()=>{
+  const {renderWorkbenchTaskRow}=require("../src/task-row.js");
+  const task={path:"Projects/Read.md",line:2,text:"Read [due:: 2099-01-05]",completed:false};
+  const plugin={t:key=>key,getLocalYmd:()=>"2099-01-02",requestNoriaRefresh(){},
+    updateTaskCheckboxStatus:async()=>({ok:true,line:2,text:"## Tasks\n\n- [x] Read [due:: 2099-01-05] [completion:: 2099-01-02]"})};
+  const row=renderWorkbenchTaskRow(plugin,createFakeElement(),task,{onSaved(){throw new Error("view refresh failed");}});
+  const nodes=flattenElements(row),box=nodes.find(n=>n.attrs?.type==="checkbox");
+  box.checked=true;await box.dispatchEvent({type:"change"});
+  assert.equal(box.checked,true);assert.equal(box.disabled,false);assert.equal(task.status,"done");
+  assert.equal(nodes.find(n=>n.attrs?.role==="status").textContent,"workbench.taskRefreshFailed");
+});
+
+test("shared task row restores its checkbox and keeps the task after a failed source write",async()=>{
+  const {renderWorkbenchTaskRow}=require("../src/task-row.js");
+  const task={path:"Projects/Read.md",line:2,text:"Read",completed:false};
+  const plugin={t:key=>key,getLocalYmd:()=>"2099-01-02",updateTaskCheckboxStatus:async()=>({ok:false})};
+  const row=renderWorkbenchTaskRow(plugin,createFakeElement(),task),nodes=flattenElements(row),box=nodes.find(n=>n.attrs?.type==="checkbox");
+  box.checked=true;await box.dispatchEvent({type:"change"});
+  assert.equal(box.checked,false);assert.equal(task.completed,false);
+  assert.equal(nodes.find(n=>n.attrs?.role==="status").textContent,"workbench.taskUpdateFailed");
+});
+
 async function flushQueuedTimers(queue, rounds = 4) {
   for (let i = 0; i < rounds; i += 1) {
     const jobs = queue.splice(0);
@@ -192,13 +220,27 @@ async function flushQueuedTimers(queue, rounds = 4) {
     for (const job of jobs) {
       if (typeof job.fn === "function") job.fn();
     }
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
   }
 }
 
 async function runRuntimeSource(rel, { input = {}, app = {}, ctx = null, ctxFallback = {}, globals = {} } = {}) {
   const source = readSource(rel);
+  if(rel==="views/periodic/dashboardGuideProjects.js") {
+    const bridge=input.noriaBridge;
+    const {renderWorkbenchTaskRow}=require("../src/task-row.js");
+    const {appendProjectTask}=require("../src/task-document.js");
+    bridge.tasks={projectViewState:{selected:"",expanded:{},drafts:{}},
+      renderRow:(parent,task,options)=>renderWorkbenchTaskRow({t:(key,params)=>bridge.t?.(key,params)||key,getLocalYmd:()=>"2099-01-01"},parent,task,options),
+      appendToProject:async({path,text})=>{
+        const file=app.vault.getAbstractFileByPath(path);let result;
+        const transform=current=>{result=appendProjectTask(current,text);return result.text;};
+        if(app.vault.process)await app.vault.process(file,transform);else await app.vault.modify(file,transform(await app.vault.read(file)));
+        return {path,from:path,line:result.line,text:result.rawText,rawText:result.rawText,completed:false,status:"open",_inProgress:false};
+      }
+    };
+  }
+  if (rel === "views/periodic/dashboardHabitWeek.js") globals = { requestAnimationFrame: callback => callback(), ...globals };
   const previous = new Map();
   for (const [key, value] of Object.entries(globals)) {
     previous.set(key, globalThis[key]);
@@ -272,13 +314,15 @@ test("embedded runtime app wrapper preserves prototype vault and adapter APIs", 
   const PluginClass = new Function(
     "noriaReadEmbeddedSource",
     "noriaRuntimeSourceFallbackPath",
+    "noriaIsOwnedEmbeddedPath",
     `return class TestPlugin {
       ${methodSource}
       async loadTextFromVault(pathText) { return "fallback:" + pathText; }
     };`
   )(
     (pathText) => String(pathText || "").includes("views/embedded.js") ? "embedded-source" : "",
-    (pathText) => String(pathText || "").startsWith("views/") ? `src/runtime/${pathText}` : ""
+    (pathText) => String(pathText || "").startsWith("views/") ? `src/runtime/${pathText}` : "",
+    (pathText) => String(pathText || "").startsWith(".obsidian/plugins/noria/views/")
   );
   const plugin = new PluginClass();
 
@@ -1130,6 +1174,8 @@ test("home daily-section markdown card resolves the managed diary and renders on
       mount,
       noriaBridge: {
         runtimeBuildId: "daily-section-ready-build",
+        calendar:{resolveNote:async()=>({path:"06_Diary/2026/2026-08-10.md"})},
+        runtime:{extractH2Section:require('../src/public-api.js').extractH2Section},
         today: "2026-08-10",
         paths: { diaryRoot: "06_Diary" },
         performance: { viewSourceCache: false, homeLazySections: false },
@@ -1196,6 +1242,8 @@ test("home daily-section card removes its normal shell when the requested sectio
       mount,
       noriaBridge: {
         runtimeBuildId: "daily-section-empty-build",
+        calendar:{resolveNote:async()=>({path:"06_Diary/2026/2026-08-10.md"})},
+        runtime:{extractH2Section:require('../src/public-api.js').extractH2Section},
         today: "2026-08-10",
         paths: { diaryRoot: "06_Diary" },
         performance: { viewSourceCache: false, homeLazySections: false },
@@ -1235,7 +1283,42 @@ test("home daily-section card removes its normal shell when the requested sectio
   assert.equal(renderCount, 0);
 });
 
-test("home edit mode keeps the disabled daily-section card visible as a configuration placeholder", async () => {
+test("daily suggestions read current Markdown even when view source cache contains older content", async () => {
+  const mount=createFakeElement(),path="Diary/2099/2099-12-28.md",build="fresh-advice";
+  const load=async p=>p===path?"## 建议\n\nUpdated advice":"";
+  await runRuntimeSource("views/dashboard/home/view.js",{
+    input:{previewWidget:{id:"daily-advice",type:"markdown",props:{sourceMode:"daily-section",heading:"建议",date:"2099-12-28",diaryRoot:"Diary"}},noriaBridge:{runtimeBuildId:build,performance:{viewSourceCache:true},runtime:{extractH2Section:require('../src/public-api.js').extractH2Section},t:key=>key}},
+    ctxFallback:{io:{load},container:mount,paragraph(){},markdown:{MarkdownRenderer:{async render(_app,text,el){el.createDiv({text});}}}},app:{vault:{adapter:{read:load}}},
+    globals:{__noriaHomeViewSourceTextCacheBuildId:build,__noriaHomeViewSourceTextCache:new Map([[`${build}:${path}`,"## 建议\n\nOld advice"]]),window:{moment:{}},document:{getElementById:()=>null,createElement:tag=>createFakeElement(tag),head:createFakeElement("head")}}
+  });
+  assert.ok(flattenElements(mount).some(el=>el.textContent==="Updated advice"));
+  assert.ok(!flattenElements(mount).some(el=>el.textContent==="Old advice"));
+});
+
+test("daily-section read failure stays visible and retries only its card; missing notes remain quiet", async () => {
+  for(const missing of [false,true]){
+    const mount=createFakeElement(),path="06_Diary/2026/2026-08-10.md";
+    let failed=true;
+    const load=async p=>{if(p===path){if(failed)throw Object.assign(Error("read unavailable"),{code:missing?"ENOENT":"EIO"});return "## 建议\n\nRecovered advice";}return "";};
+    await runRuntimeSource("views/dashboard/home/view.js",{
+      input:{mount,noriaBridge:{runtimeBuildId:"daily-section-retry-"+missing,today:"2026-08-10",paths:{diaryRoot:"06_Diary"},calendar:{resolveNote:async()=>({path})},runtime:{extractH2Section:require('../src/public-api.js').extractH2Section},performance:{viewSourceCache:false,homeLazySections:false},
+        homeSettings:{widgets:[{id:"daily-advice",type:"markdown",enabled:true,order:10,size:"full",title:"建议",props:{sourceMode:"daily-section",heading:"建议"}}]},t:key=>key}},
+      ctxFallback:{io:{load},container:mount,paragraph(){},markdown:{MarkdownRenderer:{async render(_app,text,el){el.createDiv({text});}}}},app:{vault:{adapter:{read:load,exists:async()=>!missing}}},
+      globals:{window:{moment:{}},document:{getElementById:()=>null,createElement:tag=>createFakeElement(tag),head:createFakeElement("head")}}
+    });
+    const shell=flattenElements(mount).find(el=>el.attrs?.["data-noria-widget-id"]==="daily-advice");
+    if(missing){assert.equal(shell.hidden,true);assert.equal(shell.attrs["data-noria-widget-state"],"empty");continue;}
+    assert.notEqual(shell.hidden,true);assert.equal(shell.attrs["data-noria-widget-state"],"failed",JSON.stringify(flattenElements(shell).map(el=>el.textContent)));
+    const retry=flattenElements(shell).find(el=>el.attrs?.["data-noria-markdown-source-action"]==="retry");assert.ok(retry);
+    failed=false;await retry.click();
+    assert.equal(flattenElements(mount).find(el=>el.attrs?.["data-noria-widget-id"]==="daily-advice"),shell);
+    assert.equal(shell.attrs["data-noria-widget-state"],"ready");
+    assert.ok(flattenElements(shell).some(el=>el.textContent==="Recovered advice"));
+    assert.ok(!flattenElements(shell).some(el=>el.attrs?.["data-noria-markdown-source-action"]==="retry"));
+  }
+});
+
+test("home edit mode keeps a hidden card visible with the shared menu for restoring it", async () => {
   const mount = createFakeElement();
   await runRuntimeSource("views/dashboard/home/view.js", {
     input: {
@@ -1257,8 +1340,7 @@ test("home edit mode keeps the disabled daily-section card visible as a configur
           }]
         },
         runtime: {
-          editHomeWidget() { return { ok: true }; },
-          openHomeWidgetSettings() { return { ok: true }; }
+          openHomeWidgetMenu() { return { ok: true }; }
         },
         t(key) { return key; }
       }
@@ -1279,7 +1361,7 @@ test("home edit mode keeps the disabled daily-section card visible as a configur
   assert.ok(shell);
   assert.notEqual(shell.hidden, true);
   assert.equal(shell.attrs["data-noria-widget-enabled"], "false");
-  assert.ok(flattenElements(shell).some((el) => el.attrs?.["data-noria-widget-edit-action"] === "show"));
+  assert.ok(flattenElements(shell).some((el) => el.attrs?.["data-noria-widget-shell-action"] === "menu"));
 });
 
 test("home markdown widget renders multiple source notes as a briefing group", async () => {
@@ -3289,7 +3371,8 @@ test("home facade renders today action strip as a compact daily workbench", asyn
       enterPrevented = true;
     }
   });
-  assert.equal(enterPrevented, true, "plain Enter submits one-line capture");
+  assert.equal(enterPrevented, false, "plain Enter leaves room for multiline diary notes");
+  await input.dispatchEvent({type:"keydown",key:"Enter",ctrlKey:true,preventDefault(){}});
 
   input.value = "Shift Enter 保留多行";
   await input.dispatchEvent({ type: "input" });
@@ -3791,13 +3874,13 @@ test("home facade maps widget layout spans and lets customized hero widgets spli
   const byId = Object.fromEntries(shells.map((el) => [el.attrs["data-noria-widget-id"], el]));
   assert.equal(byId.identity.attrs["data-noria-widget-span"], "4");
   assert.equal(byId.identity.style["--noria-home-widget-span"], "4");
-  assert.equal(byId.identity.style.gridColumn, "span 4");
+  assert.equal(byId.identity.style.gridColumn, undefined, "responsive CSS owns the effective column width");
   assert.equal(byId.metrics.attrs["data-noria-widget-span"], "8");
   assert.equal(byId.metrics.style["--noria-home-widget-span"], "8");
-  assert.equal(byId.metrics.style.gridColumn, "span 8");
+  assert.equal(byId.metrics.style.gridColumn, undefined);
   assert.equal(byId.ops.attrs["data-noria-widget-span"], "2");
   assert.equal(byId.ops.style["--noria-home-widget-span"], "2");
-  assert.equal(byId.ops.style.gridColumn, "span 2");
+  assert.equal(byId.ops.style.gridColumn, undefined);
 });
 
 test("home hero follows widget order and only pairs adjacent identity and metrics cards", async () => {
@@ -5181,6 +5264,7 @@ test("home identity weather service loading shares build-bound pending state", (
 
 test("home identity weather line shows current temperature and range without adding a card", async () => {
   const mount = createFakeElement();
+  let refreshWeather, failFetch = false, failWrite = false, fetches = 0;
   const weatherPayload = {
     city: "北京",
     mappedWeather: "晴",
@@ -5198,6 +5282,7 @@ test("home identity weather line shows current temperature and range without add
     input: {
       mount,
       noriaBridge: {
+        runtime: {openWeatherDetails(_anchor, _payload, refresh) {refreshWeather = refresh;}},
         homeSettings: {
           identity: {
             displayName: "乙辛",
@@ -5232,13 +5317,14 @@ test("home identity weather line shows current temperature and range without add
     },
     globals: {
       __noriaRuntimeBridge: {
-        weather: { enabled: true, autoWriteDaily: false, cacheMinutes: 5 }
+        weather: { enabled: true, autoWriteDaily: true, cacheMinutes: 5 }
       },
       dashboardCore: {
         theme: { home: { overview: { identity: {} } } },
         utils: {
           weatherService: {
-            getWeatherForDate: async () => weatherPayload,
+            getWeatherForDate: async () => {fetches++; if(failFetch) throw Error('network down'); return weatherPayload;},
+            readWriteDailyWeather: async () => {if(failWrite) throw Error('disk unavailable'); return {ok:true};},
             getWeatherForHome: async () => weatherPayload
           }
         }
@@ -5262,11 +5348,13 @@ test("home identity weather line shows current temperature and range without add
   const line = weatherLines[0];
   assert.equal(line.attrs["data-noria-weather-state"], "scheduled");
   await flushQueuedTimers(timers);
-  assert.match(line.textContent, /北京/);
-  assert.match(line.textContent, /24℃/);
-  assert.match(line.textContent, /18[~–]29℃/);
-  assert.match(line.textContent, /湿度 57%/);
-  assert.doesNotMatch(line.textContent, /IP 1\.2\.3\.4/);
+  const weatherText=flattenElements(line).map(el=>el.textContent).join(" ");
+  const weatherButton=flattenElements(line).find(el=>el.classList.contains("noria-weather-summary"));
+  assert.match(weatherText, /北京/);
+  assert.match(weatherText, /24°/);
+  assert.match(weatherText, /18[~–]29℃/);
+  assert.match(weatherButton.title, /湿度 57%/);
+  assert.doesNotMatch(weatherText, /IP 1\.2\.3\.4|湿度/);
   assert.equal(line.attrs["data-noria-weather-current-temp"], "24");
   assert.equal(line.attrs["data-noria-weather-temp-min"], "18");
   assert.equal(line.attrs["data-noria-weather-temp-max"], "29");
@@ -5276,6 +5364,25 @@ test("home identity weather line shows current temperature and range without add
     flattenElements(mount).filter((el) => el.classList.contains("dashboard-hero-weather")).length,
     0
   );
+  weatherButton.onclick();
+  failFetch = true;
+  assert.equal(await refreshWeather(true), false);
+  assert.ok(flattenElements(line).includes(weatherButton), 'failed refresh retains the displayed weather');
+  assert.equal(line.attrs['data-noria-weather-state'], 'stale');
+  const feedback = flattenElements(mount).find(el => el.classList.contains('noria-weather-feedback'));
+  const retry = flattenElements(feedback).find(el => el.tagName === 'button');
+  assert.equal(feedback.hidden, false);
+  failFetch = false; failWrite = true;
+  await retry.onclick();
+  assert.equal(line.attrs['data-noria-weather-state'], 'ready', 'diary failure does not invalidate weather');
+  assert.match(line.attrs['data-noria-weather-write-error'], /disk unavailable/);
+  const reads = fetches;
+  failWrite = false;
+  await retry.onclick();
+  assert.equal(fetches, reads, 'retrying diary write does not refetch weather');
+  assert.equal(feedback.hidden, true);
+  assert.equal(line.attrs['data-noria-weather-error'], '');
+  assert.equal(line.attrs['data-noria-weather-write-error'], '');
 });
 
 test("home identity weather failure stays low priority while preserving diagnostics", async () => {
@@ -6003,8 +6110,7 @@ test("empty habits countdowns and active projects render explicit empty states",
 
   assert.match(habits, /runtime\.habits\.noActiveAction/);
   assert.match(habits, /openFilePath\(targetPath\)/);
-  assert.match(countdown, /runtime\.countdown\.noneAction/);
-  assert.match(countdown, /openCountdownManagePanel/);
+  assert.match(countdown, /bridge.runtime.renderCountdown/);
   assert.match(projects, /runtime\.periodic\.projects\.emptyActiveProjectTasks/);
   assert.match(projects, /proj\.stage === "active"/);
 });
@@ -6024,6 +6130,7 @@ test("habit missing-registry empty state creates and opens a real registry", asy
       noriaBridge: {
         locale: "zh-CN",
         paths: { habitRegistryPath: habitPath },
+        diaryHabits: {today:()=>"2026-09-24"},
         refresh: {
           requestRefresh(scope, reason) {
             refreshes.push({ scope, reason });
@@ -6102,191 +6209,29 @@ test("habit missing-registry empty state creates and opens a real registry", asy
   assert.deepEqual(refreshes, [{ scope: "home", reason: "habit-registry-write" }]);
 });
 
-test("home countdown rows expose source-aware workbench actions and open due task sources", async () => {
-  const countdownPathText = "02_Areas/知识库管理/Countdowns.md";
-  const dueTaskPath = "01_Projects/论文-6Equation/Tasks.md";
-  const manualCountdown = [
-    "## 重要日期",
-    "",
-    "| 日期 | 名称 | 类型 |",
-    "| --- | --- | --- |",
-    "| 2099-06-20 | 手动里程碑 | project |",
-    "|            |          |     |"
-  ].join("\n");
-  const fileBodies = new Map([
-    [countdownPathText, manualCountdown],
-    [dueTaskPath, "- [ ] 到期任务 #due [due:: 2099-06-18]"]
-  ]);
-  const mount = createFakeElement();
-  const opened = [];
-  const leaf = {
-    view: {
-      getViewType: () => "markdown",
-      setEphemeralState(state) {
-        opened.push({ state });
-      },
-      editor: {
-        setCursor(pos) {
-          opened.push({ cursor: pos });
-        },
-        scrollIntoView(range, center) {
-          opened.push({ range, center });
-        }
-      }
-    },
-    async openFile(file, options) {
-      opened.push({ path: file.path, options });
-    }
-  };
-
-  await runRuntimeSource("views/periodic/dashboardCountdown.js", {
-    input: {
-      mount,
-      noriaBridge: {
-        paths: { importantDatesPath: countdownPathText },
-        runtime: {
-          async tasksForScope(scope) {
-            assert.equal(scope, "tasks");
-            return [
-              {
-                text: "到期任务 #due [due:: 2099-06-18]",
-                rawLine: "- [ ] 到期任务 #due [due:: 2099-06-18]",
-                completed: false,
-                due: "2099-06-18",
-                path: dueTaskPath,
-                line: 7
-              }
-            ];
-          }
-        },
-        t(key, params = {}) {
-          const map = {
-            "runtime.countdown.tooltip": `目标日 ${params.date} · 还剩 ${params.days} 天`,
-            "runtime.countdown.remaining": "还有",
-            "runtime.countdown.dayUnit": "天",
-            "runtime.countdown.add": "新增倒计时",
-            "runtime.countdown.none": "暂无倒计时事项。",
-            "runtime.countdown.noneAction": "添加倒计时"
-          };
-          return map[key] || key;
-        }
-      }
-    },
-    ctxFallback: {
-      io: { load: async (pathText) => fileBodies.get(pathText) || "" },
-      container: createFakeElement()
-    },
-    app: {
-      vault: {
-        getAbstractFileByPath(pathText) {
-          return fileBodies.has(pathText) ? { path: pathText, name: path.basename(pathText) } : null;
-        },
-        read: async (file) => fileBodies.get(file.path) || ""
-      },
-      workspace: {
-        activeLeaf: leaf,
-        getLeaf: () => leaf
-      }
-    },
-    globals: {
-      requestAnimationFrame: (fn) => setImmediate(fn),
-      window: {
-        innerWidth: 1300,
-        innerHeight: 900,
-        addEventListener() {},
-        removeEventListener() {}
-      },
-      document: {
-        createElement: (tag) => createFakeElement(tag),
-        body: createFakeElement(),
-        addEventListener() {},
-        removeEventListener() {}
-      }
-    }
-  });
-
-  const cards = flattenElements(mount).filter((el) => el.classList?.contains?.("dashboard-countdown-card"));
-  assert.equal(cards.length, 2);
-  const dueCard = cards.find((el) => el.attrs["data-countdown-kind"] === "due");
-  const manualCard = cards.find((el) => el.attrs["data-countdown-kind"] === "manual");
-
-  assert.ok(dueCard, "due countdown should render as a card");
-  assert.equal(dueCard.attrs["data-noria-action-kind"], "open-countdown-source");
-  assert.equal(dueCard.attrs["data-noria-action-source"], "home-countdown");
-  assert.equal(dueCard.attrs["data-countdown-source-path"], dueTaskPath);
-  assert.equal(dueCard.attrs["data-countdown-source-line"], "7");
-
-  assert.ok(manualCard, "manual countdown should render as a card");
-  assert.equal(manualCard.attrs["data-noria-action-kind"], "manage-countdown");
-  assert.equal(manualCard.attrs["data-noria-action-source"], "home-countdown");
-  assert.equal(manualCard.attrs["data-countdown-source-path"], countdownPathText);
-  assert.equal(manualCard.attrs["data-countdown-source-line"], "4");
-
-  await dueCard.onclick();
-  assert.deepEqual(opened[0], { path: dueTaskPath, options: { active: true } });
-  assert.deepEqual(opened[1], { state: { line: 7 } });
-  assert.deepEqual(opened[2], { cursor: { line: 7, ch: 0 } });
+test("countdown runtime delegates to the shared component and registers its disposal",async()=>{
+  const mount=createFakeElement();mount.dataset={};let received,disposed=0,registered;
+  await runRuntimeSource("views/periodic/dashboardCountdown.js",{input:{mount,actionsHost:"actions",registerCleanup:fn=>registered=fn,noriaBridge:{runtime:{renderCountdown:async(host,options)=>{received={host,options};return ()=>disposed++;}}}}});
+  assert.equal(received.host,mount);assert.equal(received.options.actionsHost,"actions");registered();assert.equal(disposed,1);
 });
 
-test("home countdown loads manual rows and due tasks in parallel", () => {
-  const countdown = readSource("views/periodic/dashboardCountdown.js");
-  const renderStart = countdown.indexOf("const renderCountdownTray = async () => {");
-  const renderEnd = countdown.indexOf("const actionsHost = input?.actionsHost", renderStart);
-  assert.ok(renderStart > 0 && renderEnd > renderStart, "renderCountdownTray body should be found");
-  const renderBlock = countdown.slice(renderStart, renderEnd);
-  assert.match(renderBlock, /Promise\.all\(\[\s*parseImportantRows\(\),\s*parseDueTasks\(\)\s*\]\)/);
-  assert.doesNotMatch(renderBlock, /const\s+\{\s*rows:\s*importantRows\s*\}\s*=\s*await\s+parseImportantRows\(\);\s*const\s+dueTasks\s*=\s*await\s+parseDueTasks\(\);/);
+test("shared countdown loads manual rows and scoped due tasks in parallel",()=>{
+  const countdown=readSource("src/countdown-cards.js");
+  assert.match(countdown,/Promise.all\(\[this.records\(\),this.plugin.getRuntimeTaskRows\("tasks"\)\]\)/);
+  assert.match(countdown,/this.plugin.openTaskDetails/);
 });
 
-test("habit home matrix uses soft dark grid and purple streak semantics", () => {
-  const habits = readSource("views/periodic/dashboardHabitWeek.js");
-  const bootstrap = readSource("views/dashboard/home/sections/bootstrap-style/view.js");
-
-  assert.match(habits, /const\s+HABIT_WINDOW_DAYS\s*=\s*22/);
-  assert.match(habits, /const\s+HABIT_COMPACT_FIRST_LINE_DAYS\s*=\s*11/);
-  assert.match(habits, /isMonthStartDate/);
-  assert.match(habits, /head\.addClass\("is-month-start"\)/);
-  assert.match(habits, /Number\(streak\?\.streakCount \|\| 0\)\s*<\s*2/);
-  assert.doesNotMatch(habits, /btn\.onmouseenter[\s\S]*rgba\(59,\s*130,\s*246/);
-  assert.doesNotMatch(habits, /boxShadow\s*=\s*"0 0 0 2px rgba\(59,\s*130,\s*246/);
-
-  assert.match(bootstrap, /--habit-matrix-bg:/);
-  assert.match(bootstrap, /--habit-grid-line:/);
-  assert.match(bootstrap, /--habit-done:\s*#8b5cf6/);
-  assert.match(bootstrap, /--habit-name-col:\s*clamp\(88px,\s*25%,\s*116px\)/);
-  assert.doesNotMatch(bootstrap, /--habit-today-column:\s*transparent/);
-  assert.match(bootstrap, /--habit-today-column:\s*color-mix/);
-  assert.match(bootstrap, /\.dashboard-habit-21-track::after/);
-  assert.match(bootstrap, /\.dashboard-habit-today-strip\s*\{[\s\S]*border-bottom:\s*1px solid/);
-  assert.match(bootstrap, /\.dashboard-habit-today-list\s*\{[\s\S]*flex-wrap:\s*wrap/);
-  assert.match(bootstrap, /\.dashboard-habit-today-chip\s*\{[\s\S]*border-radius:\s*999px/);
-  assert.match(bootstrap, /\.dashboard-habit-today-chip\.is-done\s*\{[\s\S]*background:\s*color-mix/);
-  assert.match(bootstrap, /\.dashboard-habit-21-grid\s*\{[\s\S]*flex:\s*0 0 auto/);
-  assert.match(bootstrap, /\.dashboard-habit-21-grid\s*\{[\s\S]*background:\s*transparent/);
-  assert.match(bootstrap, /\.dashboard-habit-21-grid\s*\{[\s\S]*box-shadow:\s*none/);
-  assert.match(bootstrap, /\.dashboard-habit-21-name\s*\{[\s\S]*background:\s*transparent/);
-  assert.match(bootstrap, /\.dashboard-habit-21-name\s*\{[\s\S]*border-right:\s*0/);
-  assert.match(bootstrap, /\.dashboard-habit-21-name\s+\.dashboard-task-title\s*\{[\s\S]*font-weight:\s*620/);
-  assert.match(bootstrap, /\.dashboard-habit-21-track\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(bootstrap, /\.dashboard-habit-21-line\s*\{[\s\S]*grid-template-columns:\s*repeat\(11,\s*minmax\(0,\s*1fr\)\)/);
-  assert.doesNotMatch(
-    bootstrap,
-    /\.dashboard-habit-21-head-track\s*\{[\s\S]*?grid-template-columns:\s*repeat\(22,\s*minmax\(0,\s*1fr\)\)/,
-    "the two header line wrappers must occupy the same two-column track as the habit rows"
-  );
-  assert.match(bootstrap, /--habit-cell-h:\s*17px/);
-  assert.match(bootstrap, /--habit-head-h:\s*15px/);
-  assert.match(bootstrap, /\.dashboard-habit-21-head-track\s*\{[\s\S]*display:\s*flex/);
-  assert.match(bootstrap, /\.dashboard-habit-21-head-track\s+\.dashboard-habit-21-line\s*\{[\s\S]*display:\s*grid/);
-  assert.match(bootstrap, /\.dashboard-habit-21-head-track\s+\.dashboard-habit-21-line\s*\{[\s\S]*grid-template-columns:\s*repeat\(11,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(bootstrap, /\.dashboard-habit-21-date-head\.is-today\s*\{[\s\S]*border-radius:\s*999px/);
-  assert.match(bootstrap, /\.dashboard-habit-21-date-head\.is-month-start\s*\{[\s\S]*font-weight:\s*680/);
-  assert.match(bootstrap, /\.dashboard-habit-21-cell\.is-today::before\s*\{[\s\S]*background:\s*var\(--habit-today-column\)/);
-  assert.match(bootstrap, /\.dashboard-habit-21-token\s*\{[\s\S]*background:\s*transparent/);
-  assert.match(bootstrap, /button\.dashboard-habit-21-token\[data-noria-action-state="pending"\]/);
-  assert.match(bootstrap, /button\.dashboard-habit-21-token\[data-noria-action-state="failed"\]/);
-  assert.match(bootstrap, /\.dashboard-habit-21-cell\.is-done\.is-streak-start\.is-streak-end\s+\.dashboard-habit-21-token/);
-  assert.match(bootstrap, /\.dashboard-habit-21-cell\.is-done\.is-streak-middle\s+\.dashboard-habit-21-token/);
+test("habit history defaults to 21 days and retains the selected range including today", () => {
+  const source = readSource("views/periodic/dashboardHabitWeek.js");
+  const setup = source.slice(source.indexOf("const requestedHistoryDays ="), source.indexOf("const getSectionTaskEntries"));
+  const readDates = new Function("input", "bridge", setup + "; return { dates, todayKey };");
+  for (const count of [undefined, 7, 14, 21, 30, 60, 90]) {
+    const {dates, todayKey} = readDates({historyDays:count}, {diaryHabits:{today:()=>"2026-09-24"}});
+    assert.equal(dates.length, count || 21);
+    assert.equal(new Set(dates).size, dates.length);
+    assert.equal(dates.at(-1), todayKey);
+  }
+  assert.equal(readDates({}, {diaryHabits:{today:()=>"2026-09-24"},homeSettings:{widgets:[{id:"habit-history-card",props:{historyDays:14}}]}}).dates.length, 14);
 });
 
 test("habit writeback resolves sleep notes from the configured diary root", () => {
@@ -6395,15 +6340,9 @@ test("Today tasks period additions use a latest-text transaction helper", () => 
   assert.doesNotMatch(method, /app\.vault\.(?:read|modify|create)/);
 });
 
-test("countdown table updates transform the latest note text", () => {
-  const source = readSource("views/periodic/dashboardCountdown.js");
-  const start = source.indexOf("const writeImportantRows = async");
-  const end = source.indexOf("\n\nconst openCountdownManagePanel", start);
-  assert.ok(start >= 0 && end > start, "expected countdown write helper");
-  const method = source.slice(start, end);
-
-  assert.match(method, /app\.vault\.process/);
-  assert.doesNotMatch(method, /await app\.vault\.modify\(file, next\)/);
+test("countdown edits use the plugin latest-text transaction",()=>{
+  assert.match(readSource("src/countdown-cards.js"),/processTextAtVaultPath/);
+  assert.match(readSource("src/countdown-document.js"),/Countdown changed|changed elsewhere/);
 });
 
 test("project card registry and next-step writes use latest-text transactions", () => {
@@ -6411,14 +6350,16 @@ test("project card registry and next-step writes use latest-text transactions", 
   const registryStart = source.indexOf("const renderProjectRegistry =");
   const registryEnd = source.indexOf("\n  const removeProjectFromView", registryStart);
   const nextStart = source.indexOf("const appendProjectNextStep = async");
-  const nextEnd = source.indexOf("\n  const openTaskTarget", nextStart);
+  const nextEnd = source.indexOf("\n  const registry = await", nextStart);
   assert.ok(registryStart >= 0 && registryEnd > registryStart);
   assert.ok(nextStart >= 0 && nextEnd > nextStart);
 
   const registryMethods = source.slice(registryStart, registryEnd);
   const nextMethod = source.slice(nextStart, nextEnd);
   assert.match(registryMethods, /app\.vault\.process/);
-  assert.match(nextMethod, /app\.vault\.process/);
+  assert.match(nextMethod, /bridge\.tasks\.appendToProject/);
+  const main=fs.readFileSync(path.join(pluginRoot,"src/main.js"),"utf8");
+  assert.match(main.slice(main.indexOf("async appendTaskToProject"),main.indexOf("async updateTaskCheckboxStatus")),/processTextAtVaultPath/);
 });
 
 test("home project manager applies registry actions to the latest file text", () => {
@@ -6429,12 +6370,11 @@ test("home project manager applies registry actions to the latest file text", ()
   const mutationBlock = source.slice(processStart, managerStart);
 
   assert.match(mutationBlock, /app\.vault\.process/);
-  assert.match(mutationBlock, /appendProjectEntry[\s\S]*processProjectRegistry/);
-  assert.match(mutationBlock, /updateProjectTargetPath[\s\S]*processProjectRegistry/);
-  assert.match(mutationBlock, /hideProjectEntry[\s\S]*processProjectRegistry/);
   assert.match(mutationBlock, /deleteProjectEntry[\s\S]*processProjectRegistry/);
-  assert.match(mutationBlock, /resumeProjectFromHidden[\s\S]*processProjectRegistry/);
   assert.doesNotMatch(mutationBlock, /await writeProjectRegistry/);
+  const manager=source.slice(managerStart,source.indexOf("function setGuideToolbarActionState",managerStart));
+  assert.match(manager,/save:async[\s\S]*processProjectRegistry/);
+  assert.match(manager,/current\.targetPath!==original\.targetPath/);
 });
 
 test("habit missing-file creation reuses a concurrently created note without overwriting it", async () => {
@@ -6498,6 +6438,7 @@ test("habit home block renders active habits without mutating registry on view l
       actionsHost: createFakeElement(),
       noriaBridge: {
         paths: { habitRegistryPath: habitPath },
+        diaryHabits:{today:()=>"2026-09-24",renderPicture(){},decorateHistory(){},renderRow:()=>{}},
         runtime: {
           toArray(value) {
             return Array.from(value || []);
@@ -6557,7 +6498,7 @@ test("habit home block renders active habits without mutating registry on view l
   assert.doesNotMatch(text, /runtime\.habits\.noActive/);
 });
 
-test("habit home today token toggles the existing registry record format", async () => {
+test("habit home today token writes through the date-note store without changing definitions", async () => {
   const todayDate = new Date();
   const todayKey = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
   const habitPath = "02_Areas/知识库管理/Habits.md";
@@ -6577,6 +6518,8 @@ test("habit home today token toggles the existing registry record format", async
     "## 循环任务源（每日）",
     ""
   ].join("\n");
+  const writes = [], controls=[], refreshes=[];
+  const registryBefore = registry;
   let modifiedText = "";
   let processCalls = 0;
   const mount = createFakeElement();
@@ -6587,6 +6530,7 @@ test("habit home today token toggles the existing registry record format", async
       actionsHost: createFakeElement(),
       noriaBridge: {
         paths: { habitRegistryPath: habitPath },
+        diaryHabits: { today:()=>todayKey,assertToday:date=>assert.equal(date,todayKey),renderPicture(){},decorateHistory(){},renderRow:request=>controls.push(request), async write(request) { writes.push(request); return {ok:true}; } },
         runtime: {
           toArray(value) {
             return Array.from(value || []);
@@ -6598,7 +6542,7 @@ test("habit home today token toggles the existing registry record format", async
             return value;
           }
         },
-        refresh: { requestRefresh() {} },
+        refresh: { requestRefresh(scope,reason) {refreshes.push({scope,reason});} },
         t(key, params = {}) {
           const messages = {
             "runtime.habits.toggleRecord": `切换 ${params.date} ${params.name} 打卡`
@@ -6650,58 +6594,11 @@ test("habit home today token toggles the existing registry record format", async
     }
   });
 
-  const todayToken = flattenElements(mount).find((el) =>
-    el.tagName === "button" &&
-    el.classList.contains("dashboard-habit-21-token") &&
-    el.attrs["data-habit-name"] === "阅读" &&
-    el.attrs["data-habit-date"] === todayKey
-  );
-  assert.ok(todayToken, "today habit token should expose stable habit/date metadata");
-  assert.equal(todayToken.attrs["data-habit-type"], "check");
-  assert.equal(todayToken.attrs["data-noria-action-source"], "home-habit-checkin");
-  assert.equal(todayToken.attrs["data-noria-action-kind"], "toggle-habit-checkin");
-  assert.equal(todayToken.attrs["data-noria-action-target"], "阅读");
-  assert.equal(todayToken.attrs["data-noria-action-target-path"], habitPath);
-  assert.equal(todayToken.attrs["data-noria-action-target-date"], todayKey);
-  assert.equal(todayToken.attrs["data-noria-action-state"], "idle");
-  assert.equal(todayToken.attrs["aria-pressed"], "false");
-  assert.match(todayToken.attrs["aria-label"], /阅读/);
-  assert.equal(typeof todayToken.onclick, "function");
-
-  const todayChip = flattenElements(mount).find((el) =>
-    el.tagName === "button" &&
-    el.classList.contains("dashboard-habit-today-chip") &&
-    el.attrs["data-noria-habit-name"] === "阅读" &&
-    el.attrs["data-noria-habit-date"] === todayKey
-  );
-  assert.ok(todayChip, "today habit strip should expose a same-day chip");
-  assert.equal(todayChip.attrs["data-noria-action-source"], "home-habit-today-strip");
-  assert.equal(todayChip.attrs["data-noria-action-kind"], "focus-habit-today-token");
-  assert.equal(todayChip.attrs["data-noria-action-target"], "阅读");
-  assert.equal(todayChip.attrs["data-noria-action-target-date"], todayKey);
-  assert.equal(todayChip.attrs["data-noria-action-target-path"], habitPath);
-  assert.equal(todayChip.attrs["data-noria-habit-today-state"], "pending");
-  assert.equal(todayChip.attrs["aria-pressed"], "false");
-  assert.equal(typeof todayChip.onclick, "function");
-
-  await todayChip.onclick({ preventDefault() {} });
-
-  assert.equal(processCalls, 1);
-  assert.match(modifiedText, /<!-- concurrent habit edit -->/);
-  assert.match(modifiedText, new RegExp(`- \\[x\\] 阅读 #habit #active \\[due:: ${todayKey}\\] \\[completion:: ${todayKey}\\]`));
-  assert.equal(todayToken.attrs["aria-pressed"], "true");
-  assert.equal(todayToken.attrs["data-noria-action-state"], "ok");
-  assert.equal(todayChip.attrs["data-noria-habit-today-state"], "done");
-  assert.equal(todayChip.attrs["aria-pressed"], "true");
-
-  const shell = flattenElements(mount).find((el) => el.classList.contains("dashboard-habit-21-shell"));
-  assert.ok(shell, "habit shell should mirror the last check-in action");
-  assert.equal(shell.attrs["data-noria-action-source"], "home-habit-checkin");
-  assert.equal(shell.attrs["data-noria-last-habit-checkin-action-state"], "ok");
-  assert.equal(shell.attrs["data-noria-last-habit-checkin-action-kind"], "toggle-habit-checkin");
-  assert.equal(shell.attrs["data-noria-last-habit-checkin-action-habit"], "阅读");
-  assert.equal(shell.attrs["data-noria-last-habit-checkin-action-date"], todayKey);
-  assert.equal(shell.attrs["data-noria-last-habit-checkin-action-path"], habitPath);
+  const todayControl=controls.find(row=>row.date===todayKey&&row.config.name==="阅读");
+  assert.ok(todayControl);assert.equal(controls.length,21);assert.equal(todayControl.compact,true);
+  await todayControl.onSave(true,"");assert.equal(processCalls,0);assert.equal(registry,registryBefore);
+  assert.equal(writes.length,1);assert.equal(writes[0].date,todayKey);assert.equal(writes[0].done,true);assert.equal(writes[0].refresh,false);
+  assert.ok(refreshes.some(r=>r.scope==="tasks"&&r.reason==="habit-checkin-saved"));
 });
 
 test("home note trend renders note series from the shared home snapshot", async () => {
@@ -6751,6 +6648,72 @@ test("home note trend renders note series from the shared home snapshot", async 
   assert.match(text, /Total: 3/);
   assert.match(text, /Total: 600/);
   assert.doesNotMatch(text, /Total: 0/);
+});
+
+test('home heatmaps keep daily note dates under aggregated trends and render every requested year',async()=>{
+ const mount=createFakeElement(),draws=[],cleanups=[],removed=[];
+ await runRuntimeSource('views/dashboard/home/sections/trends-and-stats/blocks/heatmaps/view.js',{
+  input:{mount,heatmapMode:'workload',statsRange:{start:'2025-12-30',end:'2026-01-04'},statsSnapshot:{domains:{notes:{trend:{series:[{start:'2025-12-29',notes:99}]}}}},registerCleanup:fn=>cleanups.push(fn),noriaBridge:{t:key=>key,runtime:{pagesForManagedPath:()=>[],pagesForScope:()=>[{created:'2025-12-31',file:{path:'one.md'}},{created:'2026-01-02',file:{path:'two.md'}}]}}},
+  globals:{dashboardCore:{components:{charts:{yearHeatmapCalendar:{renderYearHeatmapCalendar:(host,options)=>{draws.push(options);return {__noriaChartCleanup:()=>removed.push(options.year)};}}}}}}
+ });
+ const notes=flattenElements(mount).find(el=>el.tagName==='button'&&el.textContent==='runtime.home.trends.newNotes');notes.onclick();
+ assert.deepEqual(draws.slice(-2).map(d=>d.year),[2025,2026]);
+ assert.deepEqual(draws.slice(-2).flatMap(d=>d.entries.map(e=>[e.date,e.rawValue])),[['2025-12-31',1],['2026-01-02',1]]);
+ assert.equal(removed.length,2);cleanups.forEach(fn=>fn());assert.equal(removed.length,4);
+});
+
+test('workload task cells use completion daily series rather than diary checkboxes or weekly totals', async () => {
+ const mount=createFakeElement(),draws=[];
+ await runRuntimeSource('views/dashboard/home/sections/trends-and-stats/blocks/heatmaps/view.js',{
+  input:{mount,heatmapMode:'workload',statsRange:{start:'2026-01-01',end:'2026-01-07'},
+   statsSnapshot:{domains:{tasks:{completion:{undatedCompleted:7,series:[{start:'2026-01-01',done:99}],dailySeries:[{date:'2026-01-02',done:3},{date:'2026-01-05',done:91},{date:'2026-02-01',done:9}]}}}},
+   noriaBridge:{t:(key,params)=>params?.count?`${key}:${params.count}`:key,runtime:{pagesForScope:()=>[],pagesForManagedPath:()=>[{file:{name:'2026-01-01.md',path:'06_Diary/2026-01-01.md',tasks:[{text:'Checked',completed:true}]}}]}}},
+  globals:{dashboardCore:{components:{charts:{yearHeatmapCalendar:{renderYearHeatmapCalendar:(_host,options)=>{draws.push(options);return {};}}}}}}
+ });
+ const button=key=>flattenElements(mount).find(el=>el.tagName==='button'&&el.textContent===`runtime.home.trends.${key}`);
+ const definition=flattenElements(mount).find(el=>el.tagName==='details');
+ assert.ok(!definition.open, 'metric explanation stays collapsed by default');
+ button('tasks').onclick();
+ assert.deepEqual(draws.at(-1).entries.map(e=>[e.date,e.rawValue]),[['2026-01-02',3],['2026-01-05',91]]);
+ assert.match(definition.children.at(-1).textContent,/completedDefinition.*undatedDefinition:7/);
+ button('activityIntensity').onclick();
+ assert.match(definition.children.at(-1).textContent,/activityDefinition/);
+ assert.doesNotMatch(definition.children.at(-1).textContent,/undatedDefinition/);
+});
+
+test("home SVG charts keep accessible names without invoking HTML-only host tooltips", async () => {
+  const paths = [
+    "views/dashboard/home/sections/trends-and-stats/blocks/note-trend/view.js",
+    "views/dashboard/home/sections/trends-and-stats/blocks/task-trend/view.js",
+    "views/dashboard/core/components/charts/leader-donut-chart.js"
+  ];
+  for (const runtimePath of paths) {
+    const mount = createFakeElement();
+    const core = {};
+    await runRuntimeSource(runtimePath, {
+      input: {
+        mount,
+        statsSnapshot: { domains: { notes: { trend: { series: [{ key: "2026-05-01", notes: 1, words: 10 }] } } } },
+        noriaBridge: { t: () => "图表名称" }
+      },
+      globals: {
+        dashboardCore: core,
+        document: {
+          createElement: (tag) => createFakeElement(tag),
+          createElementNS: (_ns, tag) => createFakeElement(tag)
+        }
+      }
+    });
+    core.components?.charts?.leaderDonutChart?.renderLeaderDonutChart(mount, {
+      ariaLabel: "图表名称", total: 2, items: [{ label: "项目", value: 2 }]
+    });
+    const svg = flattenElements(mount).find((el) => el.tagName === "svg");
+    assert.ok(svg, `${runtimePath} should render its chart`);
+    assert.equal(svg.attrs.role, "img");
+    assert.equal(svg.attrs["aria-label"], undefined, "Obsidian routes aria-label hover targets through HTMLElement.isShown");
+    const title = flattenElements(svg).find((el) => el.tagName === "title" && el.attrs.id === svg.attrs["aria-labelledby"]);
+    assert.equal(title?.textContent, "图表名称", "the chart must retain its accessible name");
+  }
 });
 
 test("home note share renders distribution from the shared home snapshot", async () => {
@@ -7061,7 +7024,8 @@ test("project guide uses Data API task facts for project todos", async () => {
   assert.match(text, /补算例/);
   assert.match(text, /继续推导/);
   assert.doesNotMatch(text, /当前暂无未完成任务/);
-  assert.doesNotMatch(text, /已完成项|已取消项|习惯打卡/);
+  assert.match(text, /已完成项/);
+  assert.doesNotMatch(text, /已取消项|习惯打卡/);
   assert.equal(globalThis.__noriaHomeProjectsLastDebug?.taskSource, "data");
   assert.ok(globalThis.__noriaHomeProjectsLastDebug?.dataTaskCount >= 5);
   delete globalThis.__noriaHomeProjectsLastDebug;
@@ -7192,13 +7156,13 @@ test("project guide appends a next step to the selected project note inline", as
   assert.match(fileBodies.get(projectMoc), /## 目标\n\n完成方程推导。\n\n- \[ \] 写下一步实验方案\n$/);
   assert.equal(input.attrs["data-noria-action-state"], "ok");
   assert.equal(nextButton.attrs["data-noria-action-state"], "ok");
-  assert.deepEqual(refreshRequests, [["home", "project-next-step"]]);
+  assert.deepEqual(refreshRequests, [["tasks", "project-next-step"]]);
   const renderedText = flattenElements(mount).map((el) => el.textContent).filter(Boolean).join(" ");
   assert.match(renderedText, /写下一步实验方案/);
   const createdRows = flattenElements(mount).filter((el) => el.classList?.contains?.("dashboard-project-task-row"));
   const createdRow = createdRows.find((el) => el.attrs["data-noria-project-task-source-path"] === projectMoc);
   assert.ok(createdRow, "created next step should render as a source-aware project task row");
-  assert.equal(createdRow.attrs["data-noria-action-kind"], "open-project-task-source");
+  assert.equal(createdRow.attrs["data-noria-action-kind"], "edit-project-task");
   assert.equal(createdRow.attrs["data-noria-action-source"], "home-project-guide");
   assert.equal(createdRow.attrs["data-noria-project-task-kind"], "backlog");
   assert.equal(createdRow.attrs["data-noria-project-task-status"], "open");
@@ -7509,7 +7473,7 @@ test("project guide respects multi-segment managed project roots", async () => {
   delete globalThis.__noriaHomeProjectsLastDebug;
 });
 
-test("MOC chips use filled color surfaces without decorative gradients", () => {
+test("MOC entries use the parent surface and keep color in the small topic marker", () => {
   const bootstrap = readSource("views/dashboard/home/sections/bootstrap-style/view.js");
   const block = bootstrap.match(/\.dashboard-moc-chip\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
   const hoverBlock = bootstrap.match(/\.dashboard-moc-chip:hover\s*\{[\s\S]*?\n\s{4}\}/)?.[0] || "";
@@ -7521,7 +7485,8 @@ test("MOC chips use filled color surfaces without decorative gradients", () => {
   assert.match(block, /color:\s*var\(--moc-chip-ink\)/);
   const fillLine = block.match(/--moc-chip-fill:[^\n]+/)?.[0] || "";
   assert.doesNotMatch(fillLine, /var\(--moc-chip-accent\)\s+[3-9][0-9]%/);
-  assert.match(fillLine, /var\(--moc-chip-accent\)\s+1[2-8]%/);
+  assert.match(fillLine, /transparent/);
+  assert.match(bootstrap,/\.dashboard-moc-chip::before\s*\{[\s\S]*?background:\s*var\(--moc-chip-accent\)/);
   assert.ok(hoverBlock, "MOC chip hover block should exist");
   const hoverFillLine = hoverBlock.match(/--moc-chip-fill:[^\n]+/)?.[0] || "";
   assert.doesNotMatch(hoverFillLine, /var\(--moc-chip-accent\)\s+[3-9][0-9]%/);
@@ -7535,14 +7500,13 @@ test("Home guide MOC section uses direct chips instead of the retired canvas ent
   assert.doesNotMatch(guidePanels, new RegExp(`views/dashboard/home/sections/${retiredSection}`));
 });
 
-test("Home MOC chip panel uses its own compact resizer storage", () => {
+test("Home MOC entries reuse the common card menu and support an automatic height reset", () => {
   const guidePanels = readSource("views/dashboard/home/sections/guide-panels/view.js");
 
-  assert.match(guidePanels, /noria\.tray\.guide\.moc\.chips\.height/);
-  assert.doesNotMatch(guidePanels, /noria\.tray\.guide\.moc\.height/);
-  assert.match(guidePanels, /minHeight:\s*56/);
-  assert.match(guidePanels, /maxHeight:\s*(?:2[0-9]{2}|3[0-9]{2})/);
-  assert.match(guidePanels, /overflow-y:auto/);
+  assert.doesNotMatch(guidePanels, /noria\.tray\.guide\.moc\.chips\.height/);
+  assert.match(guidePanels, /noria\.tray\.guide\.moc\.height/);
+  assert.match(guidePanels, /shell\._noriaResetHeight = reset/);
+  assert.match(guidePanels, /mocShell\._noriaConfigureWidget/);
 });
 
 test("home tray resizers expose local transient storage diagnostics", () => {
@@ -7559,7 +7523,7 @@ test("home tray resizers expose local transient storage diagnostics", () => {
   assert.match(sources, /aria-orientation",\s*"horizontal"/);
   assert.match(overviewColumns, /noria\.tray\.workbench\.height/);
   assert.match(guidePanels, /noria\.tray\.guide\.entries\.height/);
-  assert.match(guidePanels, /noria\.tray\.guide\.moc\.chips\.height/);
+  assert.doesNotMatch(guidePanels, /noria\.tray\.guide\.moc\.chips\.height/);
 });
 
 test("main MOC resolver keeps configured Markdown primary and same-name Canvas secondary", () => {
@@ -7582,6 +7546,7 @@ test("MOC chips keep configured Markdown as the primary entry and expose same-na
     input: {
       mount,
       noriaBridge: {
+        runtime: { async openHomeSource(target) { opened.push(target); return {ok:true}; } },
         t(key, params = {}) {
           return params.path ? `${key}:${params.path}` : key;
         },
@@ -7621,7 +7586,7 @@ test("MOC chips keep configured Markdown as the primary entry and expose same-na
     }
   });
 
-  const chip = flattenElements(mount).find((el) => el.tagName === "a" && el.textContent === "知识管理·MOC");
+  const chip = flattenElements(mount).find((el) => el.tagName === "a" && el.textContent === "知识管理");
   assert.ok(chip?.onclick, "MOC chip should be directly clickable");
   assert.equal(chip.attrs.href, "05_MOC/知识管理·MOC.md");
   await chip.onclick({ preventDefault() {}, stopPropagation() {} });
@@ -7642,6 +7607,7 @@ test("MOC chips show a missing Markdown primary even when same-name Canvas remai
     input: {
       mount,
       noriaBridge: {
+        runtime: { async openHomeSource(target) { opened.push(target); return {ok:true}; } },
         t(key, params = {}) {
           return params.path ? `${key}:${params.path}` : key;
         },
@@ -7680,7 +7646,7 @@ test("MOC chips show a missing Markdown primary even when same-name Canvas remai
     }
   });
 
-  const chip = flattenElements(mount).find((el) => el.tagName === "a" && el.textContent === "缺失·MOC");
+  const chip = flattenElements(mount).find((el) => el.tagName === "a" && el.textContent === "缺失");
   assert.ok(chip?.classList.contains("dashboard-moc-chip--missing"), "missing Markdown should remain visibly missing");
   assert.equal(chip.attrs.href, "05_MOC/缺失·MOC.md");
   await chip.onclick({ preventDefault() {}, stopPropagation() {} });
@@ -7699,6 +7665,7 @@ test("MOC chips keep explicitly configured Canvas entries as direct legacy visua
     input: {
       mount,
       noriaBridge: {
+        runtime: { async openHomeSource(target) { opened.push(target); return {ok:true}; } },
         t(key, params = {}) {
           return params.path ? `${key}:${params.path}` : key;
         },
@@ -7737,7 +7704,7 @@ test("MOC chips keep explicitly configured Canvas entries as direct legacy visua
     }
   });
 
-  const chip = flattenElements(mount).find((el) => el.tagName === "a" && el.textContent === "思维模型·MOC");
+  const chip = flattenElements(mount).find((el) => el.tagName === "a" && el.textContent === "思维模型");
   assert.equal(chip?.attrs.href, "05_MOC/思维模型·MOC.canvas");
   assert.equal(flattenElements(mount).some((el) => el.attrs["data-noria-moc-role"] === "visual"), false);
   await chip.onclick({ preventDefault() {}, stopPropagation() {} });

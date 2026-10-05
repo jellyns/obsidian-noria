@@ -632,7 +632,7 @@
       anchorCity: anchor.city,
       anchorIp: anchor.ip
     });
-    if (cached) return cached;
+    if (cached && options.force !== true) return cached;
 
     const payload = isHistoryDate
       ? await getHistoricalWeatherByDate(cfg, { targetDate, filePath: options.filePath, anchor })

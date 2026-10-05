@@ -122,6 +122,17 @@
     };
   }
 
+  // Fit the actual endpoints, including time magnification zones. The midpoint
+  // is measured in painted distance, which need not be the temporal midpoint.
+  function fitRange(viewport, startMs, endMs, widthPx = viewport.widthPx) {
+    if (!(endMs > startMs) || !(widthPx > 0)) return viewport;
+    const base = { ...viewport, centerMs: startMs, msPerPx: 1, widthPx };
+    const weighted = timeDiffToPx(base, startMs, endMs);
+    const msPerPx = weighted / widthPx;
+    const centerMs = pixelDiffToDate(base, weighted / 2, startMs);
+    return { ...viewport, centerMs, msPerPx, widthPx };
+  }
+
   function panByPx(viewport, deltaPx) {
     return createViewport({
       ...viewport,
@@ -214,6 +225,7 @@
   }
 
   root.nativeViewport = {
+    fitRange,
     createViewport,
     dateMsToPx,
     pxToDateMs,

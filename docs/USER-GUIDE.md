@@ -42,10 +42,10 @@ Noria does not silently create or move files at startup. Use this order:
 2. Check Inbox, Projects, Diary, template, and registry paths.
 3. Confirm which files and parent directories will be created.
 4. Run initialization or repair.
-5. Open Home and inspect the sample project, tasks, habits, and countdowns.
-6. Follow one sample task to its Markdown source and verify that Task Board and Task Timeline read the same task.
+5. Open Home and add a next step to Noria Workspace, or create a project through the Project card’s **+**.
+6. Complete it or open its details, then find the same task in its source, Diary and Task Board.
 
-Initialization creates only missing content and never overwrites an existing file. New users can keep the small example set until the workflow is familiar, then edit or remove it.
+Initialization supplies the workspace files and entrances without synthetic completions, check-ins or deadlines. Screenshots use a separate demonstration vault.
 
 ### 1.4 First Acceptance Check
 
@@ -54,10 +54,14 @@ Initialization creates only missing content and never overwrites an existing fil
 - Task Timeline loads without opening Task Board first.
 - Calendar creates period notes under the configured path.
 - Habit, countdown, project, and MOC entries open their source files.
-- Review Center is available on Home and supports Day, Week, Month, and Year.
+- Review is available from the workbench navigation and supports Day, Week, Month, and Year.
 - Weather is off in a fresh installation. The first explicit workspace initialization enables it; later repairs preserve the user's choice. Configure a location or provider only when weather is needed.
 
 ## 2. Home
+
+Use **Add card → Interaction** to select existing content or create questions. Supported answers are single/multiple choice, text, numbers and dates. The pencil button edits questions, options and defaults. Answers are saved in Markdown; external Agents can read them and respond through Noria's API, with results shown in the same card. Saving does not start an Agent. Multiple placements share the conversation; changed questions preserve drafts for review.
+
+Open **Page settings → Manage pages** to rename, reorder, show or hide navigation entries, choose their pictures, or set the default entry. Create a blank page or start with the trends template, then use **Add a card** to compose it. Each page keeps its own layout while cards read the original notes and tasks. Restore hidden cards from the catalog; removing a custom page does not delete source notes. Diary and Day retain their dedicated features. The default applies to new workbenches; existing workspaces restore their saved page.
 
 Home is Noria's central workbench, not a fixed collection of features. It organizes current state, next actions, knowledge entrances, and longer-term observations on one configurable page.
 
@@ -68,21 +72,21 @@ Home is Noria's central workbench, not a fixed collection of features. It organi
 The default first screen is organized as:
 
 1. Identity, quote, weather, and overview metrics.
-2. Capture, task input, and current progress.
+2. Top navigation for Home and Diary, with Day and Calendar links; Page settings provides Add a card and Edit layout.
 3. Today Tasks, Inbox, and Countdown cards.
 4. Projects and MOC entrances.
-5. Trends and Statistics, followed by Review Center.
+5. Trends and Statistics; reviews are available from Diary.
 
 The default order is only a starting point. Every major card can be managed as a level-one widget.
 
 ### 2.2 Capture And Task Input
 
-Home provides two input modes:
+Home no longer duplicates the capture and task input strip:
 
-- **Capture** writes an idea, clue, or temporary record to today's diary Inbox.
-- **Task** writes an actionable item to today's diary task section.
+- **Capture** ideas, clues, and temporary records in Timeline.
+- **Add tasks** from the Today Tasks card.
 
-Input, mode selection, submission, and adjacent navigation stay on one line. Captured material does not need to be classified immediately.
+Resize cards in ordinary mode by hovering over a card or focusing its bottom-edge handle. Layout editing keeps handles visible. Home and Diary share this interaction, including narrow panes; the card menu restores automatic height. Captured material does not need to be classified immediately.
 
 ### 2.3 Today Tasks
 
@@ -100,30 +104,49 @@ An unfinished task can continue the next day. Noria does not treat rollover as p
 
 The Inbox card shows the current queue, workflow groups, and a small set of actionable items. Its header keeps view switching, queue opening, and add actions. The guide area does not duplicate a second Inbox card.
 
-A compact habit entry may appear below the Inbox list, but it does not repeat full habit history.
+Today's check-ins and history stay in the Habit card. It shows the last 21 days by default; **… → Card settings → History days** offers 7, 14, 21, 30, 60, or 90 days. Narrow cards scroll horizontally, keep names fixed, and start at today. Click a date cell to backfill a check-in, or a habit name to edit its parameters.
+
+![Home habit history](assets/en/home-habits.png)
 
 ### 2.5 Countdowns
 
-Countdowns occupy the third first-screen column. Each item emphasizes remaining days and a progress bar without repeating a date that can be derived from the source. Urgency uses restrained semantic color instead of a side rail or a large warning surface.
+Each item shows “In n days”, or “Today”; Home shows upcoming items only; expired and archived items remain available in the manager. Use **+** to add an item and select an item to edit its name, start and end dates. Progress uses the actual date range; an older item without a start date has no invented progress.
+
+The colored bar displays time progress only. Date fields and setup hints stay inside the editor; click the item to edit its name, start date and deadline. Archive and restore items in the manager. Records stay in countdown Markdown; task-backed items update the original task.
 
 ### 2.6 Projects And MOCs
 
-- Project cards connect registry entries, project home notes, and current incomplete tasks.
-- MOC cards provide stable knowledge entrances. Markdown is the primary entrance; Canvas is an optional visual view.
-- Home shows entrances and current actions rather than copying entire project or knowledge documents.
+- Click a project to select its tasks. The note icon beside **Add next step** opens its main note while retaining the selected project and unfinished input.
+- MOC entries use an aligned grid that adapts to the card width. A small color marker identifies each entry; a same-name Canvas gets a separate icon. The display omits the trailing `·MOC`, while the source filename stays intact.
+- Use **+** to choose an existing Markdown or Canvas file. Use **… → Manage content** to adjust order, color, or paths and remove entries. Removing an entry keeps the source file. File and folder renames in the vault update saved entry paths; a missing entry offers a replacement picker.
+
+Project, MOC, workflow, and queue source links keep Home available and reuse an existing Markdown, Canvas, or Base tab. Ctrl/Cmd-click or middle-click opens another tab; Ctrl/Cmd+Alt-click opens a split. Hover preview follows Obsidian's Page preview settings. Home keeps links to source documents rather than duplicating their content.
+
+![MOC entries on Home](assets/en/home-moc.png)
+
+Project management lists names and stages before opening a single item for editing. Choose an existing note or explicitly create a project note. An invalid existing path does not silently create a file. Hiding, completing or removing an entry keeps its source note.
 
 ### 2.7 Home Widgets
 
-In Home edit mode or `Settings -> Noria -> Home`, you can:
+Use **+** on the Home action bar or Diary toolbar to add built-in functions, a note / Base, statistics or an available third-party component. Configure the card with a preview of real content; restore hidden cards from the same catalog.
 
-- enable or hide widgets;
-- drag to reorder them;
-- change width and grid span;
-- choose the default expanded or collapsed state;
-- add Markdown, action, stat, Base, list, or trusted custom view widgets;
-- restore hidden built-in widgets.
+Choose **Add statistics · Start with a template**, then browse Recommended, All styles or My templates. Dashboard statistics includes the overview, note and task trends, habit history, both yearly heatmaps, tag distribution and daily records. These retain their existing metrics and interactions, can be added to Home or custom pages, and can be saved as personal templates. Their diary-period support is pending, so diary galleries explain and disable them. The eleven basic chart types each have a default setup; record templates use configured fields where available. Choose a property if no suitable state field exists. Gallery drawings illustrate styles; the editor previews real data. Recent days includes today, and switching basic charts keeps the date range and filters. Templates store configuration without copying source data; removing one leaves existing cards intact. Ready-made dashboard cards retain their existing range and metric settings rather than offering arbitrary data-source substitution.
 
-Cards in the same row align to the grid row height. Hover settings controls stay near the card boundary and should not cover the card's own actions.
+Segmented composition restores the earlier percentage strip as a configurable chart. It uses your current record property, supports Follow page for daily/weekly/monthly/yearly notes, and opens the corresponding records from a segment or category detail. Missing values are excluded; overlapping categories and negative values cannot form exclusive shares. Use counts, sums or distributions rather than averages or extrema. The same renderer also serves legacy periodic distributions.
+
+Period trends offers two dual-axis templates: Notes and words, and Task count and completion rate. They work on Home, custom pages and diaries. Follow page is the default; fixed ranges and recent days are also available. Day/week/month buttons change the current view; save the default grouping in card settings. Auto uses days up to 45 days, weeks up to 180 days, and months for longer ranges. Task activity places completed tasks by completion date and open tasks by due/scheduled/start dates or the existing fallback. Rates are recomputed from grouped completed/activity counts, never averaged from daily percentages; periods without tasks have no rate. Values and definitions exposes full period keys, both metrics and their calculation rules. Legends identify the left and right axes. Point or touch the chart to inspect exact values; arrow keys select periods and Home / End jump to the endpoints. Resizing preserves the selected period and expanded values. The note chart pairs new-note counts with diary non-whitespace character counts, including Markdown markup; this is not the amount newly written that day.
+
+Home note and task trends support pointer or touch inspection and arrow keys / Home / End, with exact values in the hover or keyboard tooltip. Resizing retains the selected period; zero-valued bars have no height. Generic line and column charts retain the selected date when an in-place property edit refreshes their data.
+
+Under **Chart appearance**, choose colors and the density, scale, sample markers or legend options applicable to the chart. Line and column charts support a reference value in the same unit. Values outside a custom scale remain visible, with an expanded-scale notice. **Save appearance** reuses display settings without changing another card's data source, filters or reference value. Removing a preset leaves applied cards unchanged. Empty line and column charts omit unused axes; diary charts retain a date picker for adding records.
+
+Each card’s **…** separates content management from layout: visual width choices, move, collapse, automatic height, duplicate and hide. Copies have independent configuration. Cards in a row share a height; the bottom handle adjusts it, while a narrow single column grows naturally. Home has its own layout. Daily, weekly, monthly and yearly diaries each share a separate layout across dates.
+
+A Dataview card uses a note containing a query. Its dependency opens in Obsidian’s native plugin installer. Two cards can use separate notes; disabling the dependency affects those cards, and enabling it restores them. Note / Base cards reuse native rendering. Other plugins need an adapter or embeddable note content; arbitrary full plugin interfaces are not supported. See the [card provider API](CARD-PROVIDERS.md).
+
+![Add and configure cards](assets/en/card-catalog.png)
+
+![Shared card menu](assets/en/home-card-menu.png)
 
 ### 2.8 External Markdown Workbench
 
@@ -137,11 +160,15 @@ Task Board organizes Markdown tasks from diary, project, and regular notes into 
 
 Use Month to review task distribution, multi-day work, deadlines, and workload over a longer span. Start with the overall shape, then move into Week or Day to arrange time.
 
+Scroll within a crowded week to reach its remaining tasks. All seven days scroll together under fixed date headings, preserving continuous multi-day bars; other weeks stay in place. Editing or completing a task preserves your position. Completion uses the checkbox and color cues while titles stay readable.
+
 ![Task Board month view](assets/en/task-board-month.png)
 
 ### 3.2 Week
 
 Use Week to arrange tasks and time blocks across the current week. Parallel tasks adapt title and time detail to the available width and height while preserving task identity.
+
+Crowded days show an expand button in their heading to open that date in Day view. Other headings reveal it on hover or keyboard focus. The date link still opens the diary. Switching between Day and Week keeps the date you are viewing; use Today to return to the current date.
 
 ![Task Board week view](assets/en/task-board-week.png)
 
@@ -159,6 +186,14 @@ Use Matrix to reconsider importance and urgency when the task pool grows. The fo
 
 ### 3.5 Edit Tasks
 
+Hover over a time block to read its full title and actual time range in the native tooltip. Multi-day tasks show both endpoint dates rather than using the visible segment's midnight boundary as the deadline. The readout closes when dragging starts.
+
+Dragging in Month preserves the task's existing date fields and times; a date-only deadline stays date-only. Moving a block in Week or Day preserves its actual duration, even when a short task has a larger visual height. Small pointer movements do not reschedule. Press Escape or release outside a valid date cell to cancel.
+
+Week and Day show the full interval on one line when it fits, such as `09:00–11:30`. Narrow blocks may use two lines. When space is insufficient, the label shows only the start time or is hidden; the full interval remains available in the task tooltip and editor.
+
+A floating preview shows the proposed interval. Drag near the top or bottom of a scrollable region to scroll automatically. Month range bars expose handles at their real endpoints; these change only the selected date, keeping its time. Middle segments across weeks have no endpoint handles. Rescheduling a regular task within one file offers **Undo** for about 12 seconds, extended while hovered or focused. Undo restores only that task line and refuses to overwrite subsequent changes to it. This shortcut does not yet cover daily-note moves between files or batch editing.
+
 The task editor supports:
 
 - title and tags;
@@ -170,9 +205,11 @@ The task editor supports:
 
 In any Markdown note, place the cursor on a task or plain text line and run **Noria: Edit or create task at cursor**.
 
+Home, Diary, Task Board, and Timeline use this same editor. Start, Scheduled, and Due stay in fixed rows, with space for individual date and time digits. Type a time directly, or open the picker using the clock or `Alt+↓`. Expand repeat rules, dependencies, and lifecycle dates when needed. Dates and times are optional; changing the title adds no date, and editing one endpoint does not move the other. Save applies changes. Closing retains input for the current session; **Discard changes** clears it.
+
 ### 3.6 Create Period Notes
 
-When a selected date has no matching note, Noria creates it from the active path and template by default. Enable creation confirmation in Calendar settings when you want an explicit prompt.
+Selecting a date opens Diary in the workbench. A missing note is created on the first save, using the configured path and template. Quarterly notes and native-note entry points when Home is disabled still follow Calendar's creation-confirmation setting.
 
 ## 4. Task Timeline
 
@@ -190,6 +227,14 @@ Task Timeline is Noria's own time view for observing tasks across dates, time bl
 Task Timeline should load after Obsidian restores the workspace and should not require Task Board to be opened first.
 
 ### 4.2 Navigation And Scale
+
+One toolbar button switches between horizontal and vertical layouts. The vertical timeline mixes tasks, captures and diary records by date and recorded time. **Today** jumps to today's entries; scrolling up or down loads neighboring dates as needed. Click a date heading to navigate this timeline with the sidebar calendar without changing the diary page. An empty today still has a landing point. Horizontal span and vertical reading position are kept separately.
+
+Complete or edit tasks in place. Completed tasks remain with reduced emphasis; vertical filters can hide them or open **Unscheduled tasks**. Folder and tag details are optional. Untimed entries do not add a time placeholder. Note creation and last modification are opt-in; last modification is not an edit history. Failed page loads can be retried at the affected edge without clearing existing entries. Dense days offer further expansion.
+
+Long records start with a compact preview. **Read more** renders the complete Markdown in place; **Collapse** keeps the preview visible. Expansion is retained in the view state without changing the source note. Task completion and stream refresh preserve the focused control when it remains available, without taking focus from another panel. Failed expansion keeps the preview and allows retry.
+
+In the horizontal layout, click **1 day** to choose an exact visible span. Favorites start with one day, week and month; enter a temporary number of hours, days, weeks, months or years, or explicitly **Save favorite**. Reorder or remove favorites and restore defaults without deleting custom entries. Edge arrows move by the selected span; months and years use calendar arithmetic. Resizing, refreshing and reopening preserve the endpoints; switching orientation does not rewrite the horizontal span. Free Ctrl/Cmd-wheel zoom displays **Custom** and the actual span. Named views also retain exact endpoints.
 
 - Click **Today** to return to the current date.
 - Use the wheel to pan horizontally through time.
@@ -246,21 +291,51 @@ When the current state differs from a saved view, Noria marks it as modified. On
 
 Annotations appear as compact phase bands above the mixed task rows. Project annotations show **Project · Phase**. Overlapping bands use up to two rows; open **More phases** to access additional annotations. Click a band name to edit or delete it. While editing, dragging an endpoint changes the draft; use **Save** to keep it or **Escape** to cancel. Annotations do not change task dates. They describe phases or periods; they are not tasks or measured work time.
 
-## 5. Calendar
+## 5. Calendar And Diary
 
-Noria Calendar lives in the sidebar and opens or creates daily, weekly, monthly, quarterly, and yearly notes, giving period planning, daily records, and reviews a direct path into the matching Markdown file.
+
+
+The **+** action on a diary task card opens the shared task editor and saves to the selected day, week, month or year note. For a daily note, Scheduled starts at the selected date; Start and Due stay empty. Closing retains input for the current session; Discard changes clears it.
+
+Choose **Add a card → Activity** to browse diary content, captures and task creation/completion by date. The current diary body is not repeated, and confirmed reviews remain in their own section. Load earlier records in batches of 7, 14 or 30 dates. Source buttons and event titles open the original note. Home uses the current week; Diary follows the selected period.
+
+Card settings separately control records, task events, note creation and last modification. Task events require recorded creation/completion dates; planned dates are not treated as actual events. File activity is off by default. Last modification reflects the current file timestamp, not a history of individual edits.
+
+Persistent **Home / Diary** navigation leads to a shared diary page: records above and the confirmed review below, reachable through the outline. They share the selected period, date, and Markdown source; reference material opens on demand. This update is available in the local experience build.
+
+![Diary workspace](assets/en/diary-workspace.png)
+
+Select the date title to open the existing calendar temporarily. **Open in sidebar** keeps it available beside the workbench; when that calendar is already visible, the date title uses it. Task Board, Timeline, and ordinary notes retain their independent views.
 
 ### 5.1 Main Actions
 
-- Click a date to open its diary note.
-- Switch between Day, Week, Month, Quarter, and Year entrances.
-- Return quickly to today.
-- Create a period note when the target does not exist.
-- Use the configured template for initial content.
+- Hover or focus a card to reveal **…**. Choose Narrow, Standard, Wide, or Full row; move or collapse the card, or reset the diary card layout. Widths adapt to narrow panes. Layout belongs to the current workbench and is restored across dates and reopening without changing note contents.
+- Day, Week, Month, and Year change the period around the selected date. The date strip shows seven days in the selected week, adjacent weeks, months of the selected year, or adjacent years. The date title still opens the calendar.
+- Select month/year headings to browse. Use the arrows to reach other years, then choose a date. Browsing alone does not change the writing target. Use Diary's Month or Year switch to open that period.
+- **Today / This week / This month / This year** returns to the actual current period. Choosing a date closes the temporary calendar and returns keyboard focus.
+- The date arrows use the same controls as the task panel. The pencil/book icon switches between editing and reading, as does Obsidian's reading/editing command with your current shortcut. The list, file, and refresh icons open the outline, source note, and reload action. Hover or focus a control for its label.
+- Existing notes open for reading. Missing dates show the configured template ready to edit. Changes autosave while you write; saving keeps the editor, selection, and scroll position. `Ctrl/Cmd+S` saves immediately.
+- Switching pages retains drafts, the cursor, and scrolling. Closing and reopening can recover unfinished text and its target date.
+
+![Diary editing with autosave](assets/en/diary-editor.png)
+
+*Editing in the local experience build, with example note content. The book icon returns to reading; no separate Save button is needed for normal writing.*
 
 ### 5.2 Creation Behavior
 
-Clicking a missing date creates its note directly by default. Settings can require confirmation and can control whether a newly created note opens automatically.
+Browsing, focusing, or leaving an untouched template creates no file. The first text change is autosaved to the selected date; a habit check-in or quick capture can also create it using the same configured template. The source icon explicitly creates and opens a missing note using Calendar's creation settings. Switching dates or reading modes flushes pending edits to their original destination. An existing empty or frontmatter-only note stays as it is; Noria does not refill its template.
+
+New built-in day, week, month, and year templates start with **Notes** and **Plan**. Inbox, habit records, and review are added when used. Existing custom templates remain unchanged, and date variables follow the selected period, including past dates. Rename, remove, or reorder headings freely. `cssclasses: [daily-clean]` scopes typography to date notes and inherits the theme and fonts. The action list reads tasks across their original sources, including earlier unfinished work; task titles open the shared compact editor, its source icon opens the original line, and checkboxes complete or reopen the original task. The top-three focus appears only for the actual current period. Checkboxes inside the prose preview remain read-only.
+
+Diary and Home habit actions write dated records to the configured daily note. Definitions stay in Habits.md; actual values and targets are stored with each quantitative record. Past dates show recorded activity and offer explicit backfill; future dates cannot be checked in. Recording a habit can create a missing daily note. Week, month, and year show a compact task/habit/writing summary with full statistics on demand.
+
+You can check a task or record a habit while editing prose. Independent changes carry into the draft; overlapping edits still require comparison. Habit annotations, tags, and block links are preserved. Outline follows the current headings in both reading and editing.
+
+If saving fails or the source changes externally, the editor keeps your input and offers retry, copy, and recovery actions. Reopened recovery text waits for editing or **Use this draft** before saving; simply opening it does not overwrite the source. Review uses the same protection described in [Save protection](#85-save-protection).
+
+Installation does not rewrite existing templates, embedded views, or historical notes. The older `focusPanel` and `habitCheckin` habit controls also write to the selected date note, supporting withdrawals and actual values; they require an explicit date. Existing registry check-ins remain readable, and date-note records take precedence for the same habit and day, including withdrawals. Review historical migration differences first; duplicate records remain available for comparison. Quarterly notes and native entry points with Home disabled retain Calendar's creation and confirmation behavior.
+
+The date-note preset uses matching heading levels in reading and Live Preview. Its styles are maintained in the plugin. If your vault also enables the older `daily-clean` CSS snippet, disable that snippet in Appearance to use the plugin preset; you can keep the snippet file.
 
 ### 5.3 Date Sources
 
@@ -272,6 +347,20 @@ Calendar supports three sources:
 
 Only fields relevant to the active source are shown, preventing multiple path systems from competing on the same page.
 
+### 5.4 Quick Notes And Daily State
+
+In a daily **Record** page, the square-pencil icon opens Quick note for the selected date. Home capture and the **Noria: Quick note** command use today; assign a shortcut through Obsidian if useful. The composer names its target date. Week, Month, and Year do not silently write a daily note.
+
+Enter inserts a new line; `Ctrl/Cmd+Enter` saves. Links, paragraphs, and indentation stay in Markdown under `## Inbox`. Today's notes receive a time; past or future dates do not receive a made-up event time. You can supply `[HH:mm]` explicitly. Reading shows a quiet time column, with untimed notes after timed ones, without rearranging the source.
+
+A first capture uses the selected date's configured template. Unfinished input survives changing dates; a failed save keeps the text for retry. Independent prose changes are preserved, while an unresolved conflict blocks capture. Recording a note does not create a task; use passage selection when you choose to turn it into one.
+
+Mood and Energy beside the daily record use native menus. Clear removes a value; Focus is optional under **…**, and existing weather remains background information. Filling in a state on an empty date also uses that date's template.
+
+![Quick notes and state controls](assets/en/diary-quick-notes.png)
+
+*Example content in the experience build.*
+
 ## 6. Habits
 
 Habits separate today's completion from long-term formation.
@@ -282,7 +371,7 @@ The compact habit entry under the Home Inbox card is for quick check-in and does
 
 ### 6.2 Habit Cards
 
-The full habit card shows habit names, date columns, and check-in states. Habit names reuse MOC card title size and weight so typography stays consistent across Noria.
+The full habit card shows habit names, date columns, and check-in states. Consecutive completed days form connected bands; gaps and partial records remain distinct. Habit names reuse MOC card title size and weight so typography stays consistent across Noria.
 
 Supported behavior includes:
 
@@ -294,7 +383,15 @@ Supported behavior includes:
 
 ### 6.3 History And Heatmaps
 
-Full habit history lives in Trends and Statistics. Today's chips are not repeated there. Habit history, an individual habit heatmap, and the aggregate heatmap are independent Home widgets that can be added, hidden, reordered, and resized.
+Home keeps names and today’s controls fixed, with horizontally scrollable history between them. The range includes today exactly once. It starts at 21 days; **… → Card settings → History days** offers 7, 14, 21, 30, 60 and 90. Select a historical cell to backfill that date.
+
+Each habit can have its own icon and color, with a scheduled streak and the actual number of checked-in days this week. Hover the summary for scheduled progress and extra check-ins. Streaks are independent of the visible window. Choose daily or selected weekdays and an effective date for schedule changes. Rest days and recorded pauses do not break a streak; extra check-ins on rest days do not increase it. An unfinished today is not counted as a break. Older habits keep their daily meaning, without inventing past pause intervals.
+
+New habits can start in the past. Backfills before the first schedule count toward actual weekly check-ins and show a prompt to complete the historical plan. Select the habit name to edit its initial start date. Moving that date earlier extends only the first schedule, preserving later changes, pauses, and the original check-in notes.
+
+Home and Diary share checkbox, numeric and time controls. Actual values stay separate from goals; failed saves retain input. The registry owns definitions and each date note owns its records. Renaming retains history, pause / established states keep past records, and a new goal does not reinterpret old check-ins.
+
+Numeric habits can explicitly bind to a daily record property, sharing one value with statistics. Heatmaps and period summaries remain available separately.
 
 ## 7. Trends And Statistics
 
@@ -312,7 +409,7 @@ All statistics cards share one range control:
 
 ### 7.2 Note Trend
 
-Note Trend shows the number of newly created notes and the current word count of diary files. Word count describes current file content and is not the same as words added on that day.
+Note Trend shows newly created notes and the current non-whitespace character count of diary files. Character count describes current file content, not characters added that day.
 
 ### 7.3 Task Completion Trend
 
@@ -329,56 +426,120 @@ Note Distribution groups notes by top-level vault directory, not by tags. It hel
 
 ### 7.6 Daily State
 
-Daily State shows continuous signals such as mood, weather, energy, and focus. Mood, energy, and focus are editable; weather is a read-only service result. The card aligns with adjacent statistics cards and stays visually quiet when data is sparse.
+Unrecorded daily fields show their icon and name. Categories have state icons; scales use visual segments. In **Configure records → Edit → State appearance**, change each state's label, icon and color while retaining its original stored value. Use a separate field for a different property, type, unit or scale range so old records keep their meaning.
+
+Mood and energy are optional presets that can be renamed or disabled. In Diary, **… → Record fields** lets you choose a preset, reuse a property or create a field. Configure options, a scale, a number / unit or a toggle, plus an icon and color. Replace a numeric value or add to its daily total; each field keeps one current value per day.
+
+Diary uses compact, field-colored controls that save a selection immediately. Home’s Daily records card aligns up to three fields on one date axis: bands for categories and independently scaled trends for numbers. Missing dates remain gaps, not zeros. Hover or use the arrow keys to select a date; click or press Enter to open its diary. Choose displayed fields with the header filter icon, and expand Summary & sources for distributions, averages and source records.
+
+Values live in the date note’s native properties. Disabling a field preserves history; renaming its display label keeps the property key. Use a separate field for a different unit or type so old values retain their meaning. Review material includes the configured names, units and values for the selected period.
+
+![Custom records and statistics](assets/en/daily-state.png)
+
+### 7.7 Custom Statistics Cards
+
+Choose “Add statistics card” from a record to prefill its property, or select Statistics in the card catalog and start from a record, folder, task or habit template. Configure Source → Field and calculation → Time range → Display, alongside a preview of actual data. Open matched counts and source details from the top-right chart button. Additional filters cover subfolders, tags, property conditions and grouping.
+
+Use count, sum, mean, minimum, maximum or category distribution, or reuse task and habit statistics. Diary cards follow the selected period; Home follows its shared range. A card can instead use fixed or all dates. Trends for ordinary notes require an event-date property or an explicit file creation / modification date. A current category is not a history of changes.
+
+Use Statistics templates in the card library to browse or search templates. All styles starts with editable chart types. Returning from the editor keeps the selected category, search and template; unapplied edits can be kept or discarded.
+
+Available displays follow the data type: numbers, lines, columns, horizontal bars, donuts, continuous strips, daily states, calendar heatmaps, target progress and period comparison. Overlapping categories and negative values cannot become donut shares. Task completion uses all tasks in the chosen due/scheduled cohort and their current completion state; habit completion uses historically scheduled check-ins through today. Targets use the same unit as the value. Comparison uses equally long ranges, truncates the current period at today, and does not calculate percentage growth from a zero baseline. Zero baselines and missing records are explained directly. Signed comparisons share a zero line, with negative values to the left and positive values to the right. Number summaries retain exact values with a smaller unit; click the number or either comparison period to inspect its own sources. No scheduled check-ins is not shown as 0% completion. Values above the target retain their actual percentage while the bar stops at full.
+
+Click a donut slice or leader label to inspect or edit its source. Labels remain interactive when the legend is hidden; use Tab and Enter or Space with a keyboard. Hover or focus a category to highlight its leader and temporarily show its full name, value and percentage; leaving it clears the readout. Read-only donuts also support keyboard inspection. Dense labels receive more vertical room, and cross-side leaders stay outside the ring. Tiny shares retain their true size and can be opened from labels or composition detail rows. Horizontal bars share a common baseline and track width for accurate comparison.
+
+Heatmaps and daily state grids label their months. Monthly calendars align each month to weekdays. Long heatmaps and strips initially reveal the selected date and retain selection and scrolling after source updates. Tab enters the selected day; use arrows and Home/End to navigate. Long heatmaps move one week horizontally and one day vertically; monthly calendars move one week vertically. Numeric heatmap colors follow signed values from low to high, with a scale legend. Zero, missing records and multiple states remain distinct.
+
+The homepage habit and workload heatmaps retain their own yearly views and show each year in a cross-year range. Tab enters a day; left/right moves a week, up/down moves a day, and Home/End reaches the year's endpoints. Focus shows a temporary exact readout. New notes use their original creation dates, never weekly or monthly bucket totals. Completed tasks shares the configured task scope and completion dates with Task completion trend: explicit completion dates take priority, daily-note tasks without one use the note date, and tasks without any usable date stay outside day cells. Diary characters counts current non-whitespace content, including properties and Markdown syntax. Later edits change the count; it is not daily writing output.
+
+Activity intensity scales daily completed tasks, new notes and diary characters to their respective daily peaks in the range, weighted 35%, 35% and 30%. Colors and active dates support relative comparisons, not hours worked or productivity; changing the range can change colors and rankings. Mixed scores are no longer displayed as output quantities. Expand How this is calculated for the current metric's definition and the number of completed tasks without a usable date.
+
+Missing values remain distinct from zero and false; lines break across missing dates. Incompatible types or a specified mixed-unit property list the affected sources. Multi-select categories count each note once per category. Select a daily state or a single property source to edit it in place; multiple sources open a note chooser. Writes go to that source, and a changed original value blocks a stale edit. Missing diary dates support backfilling; future actual records are disabled. Summary numbers and task/habit charts show sources rather than writing an aggregate back to one record.
+
+![Configure a statistics card](assets/en/card-statistics.png)
+
+*Screenshots use isolated demonstration records. Card and configurable-record improvements are in the current experience build and have not been formally released.*
 
 ## 8. Review Center
 
-Review Center lives on Home and supports Day, Week, Month, and Year. The final editor is primary; evidence and external analysis expand only when needed.
+Day, Week, Month and Year reviews appear **below the diary body**, also reachable through its outline. Records and review share the selected date and Markdown note. The preview shows confirmed text; recovered drafts and reference material remain separate. Review commands still open the requested period directly. This update is available in the local experience build and has not yet been formally released.
 
 ![Review Center](assets/en/review-center.png)
+
+*The screenshot uses example content.*
 
 ### 8.1 Core Flow
 
 1. Select a period and target date.
-2. Start writing directly in the final editor.
-3. Expand evidence and analysis only when useful.
-4. Prepare local evidence and save the external-agent prompt to Noria's local cache.
-5. Refresh and inspect the external review note.
-6. Adopt only grounded content with action value.
-7. Save explicitly to the diary or period note.
+2. Read an existing review, or start writing if the period is still unwritten.
+3. Use a section's pencil to edit it, or **Edit review** for the full Markdown. Both edit the same draft.
+4. Open **Reference** when you need records, earlier reviews, evidence, or external analysis.
+5. Changes autosave to the selected date note while you keep editing. Reading a different reference does not change this destination.
 
-### 8.2 Daily Review
+### 8.2 Reading And Editing
 
-The daily final review contains:
+Sections follow the actual Markdown hierarchy and order, including custom and repeated headings. Short sections are shown in full; long ones offer **Read more**. Wide panes can pair two adjacent short sections, while narrow panes use one column. The outline icon opens a section menu. Source, reload, and reference icons stay beside it; hover or focus them for their labels.
 
-- Summary;
-- GDD Highlight, Deviation, and Blocker;
-- Gratitude;
-- Personal reflection.
+The editor uses Obsidian's Markdown Source mode, with headings, lists, links, undo/redo, and `Ctrl/Cmd+S` for immediate saving. Autosave keeps the editor and cursor in place, and waits for IME composition to finish. Editing a section keeps the rest of the document intact. **All sections** and the book icon flush pending edits before returning to reading; Obsidian's reading/editing command and your assigned shortcut also work here. Use undo for ordinary corrections. To rename the review's outer title, edit the full Markdown.
 
-Gratitude and Personal reflection use equal editor heights. External analysis does not infer or overwrite personal records. Mood, weather, energy, and focus belong to separate Daily State data.
+**Add a writing outline** is optional. You can rename, remove, or add headings, write a few unstructured lines, or keep GDD as a personal reflection outline. Noria no longer creates mandatory Highlight, Deviation, and Blocker fields. Existing templates and historical notes are not rewritten on installation; custom templates remain under your control. Mood, weather, energy, and focus remain separate Daily State data.
 
-### 8.3 Weekly, Monthly, And Yearly Review
+### 8.3 References Across Periods
 
-Period reviews use one complete Markdown final editor. Saving writes to the review section of the target period note instead of splitting the result across repeated forms.
+**Reference → Records** opens alongside the review in a wide pane. In a narrow pane it temporarily takes the reading area; close it to return to the same editor and cursor.
+
+A monthly review can reference weekly reviews and follow **Read source records** into their daily notes. A yearly review can reference months or daily records. Missing lower-level reviews do not prevent reading the available records or writing the current review. Dates resolve through Noria's existing diary and Calendar paths. When viewing the current day's records, the review being edited is omitted from the reference preview to avoid repeating it.
+
+Tasks in review previews are read-only. Open the source to change them. Legacy embedded dashboards and note transclusions link to their source instead of exposing controls that could write using the wrong line number; ordinary images remain visible.
 
 ### 8.4 Evidence And External Agents
 
-Noria prepares local evidence JSON and prompts for an external agent but does not call a model inside the plugin. The `noria-review` workflow can combine:
+Noria prepares local evidence JSON and prompts but does not call a model inside the plugin. From **Reference → Analysis**, prepare the evidence, run your external workflow, then refresh to inspect its review note.
 
-- Noria evidence for the target period;
-- Codex task conversations for the target date;
-- planning triplets for candidate projects;
-- verifiable files, tests, and Git artifacts.
+The prompt points to a `.material.json` file containing original prose, relevant task/state facts, and a source index. The full evidence JSON remains available for checking a specific gap. Monthly material prefers adopted weekly reviews; yearly material prefers monthly reviews, with daily records when lower reviews are missing. Executable view blocks and repeated statistics are omitted from the reading material; authored text is retained.
 
-The review groups work by project owner and keeps one global through-line. It does not mechanically create a next action for every project.
+The default skill uses concrete theme headings, distinguishes facts from interpretation, and respects personal records without forcing them into action plans. Length follows the material. It asks for additional reading only when a named gap affects an important judgment; it does not require scanning the vault, all conversations, or every project's plans.
+
+For an existing installation, use **Default review Skill → Install** in the review settings to update an unchanged older stock skill. Custom skills are preserved; **Reset** deliberately replaces them. Noria still does not run a model or automatically adopt its output.
+
+**Add this section** adopts a selected analysis section into your review, preserves the existing text, and autosaves the result. Merely opening or refreshing analysis does not add it to your note. Adoption does not create tasks. Keep only material you want in your own review; observations and personal records need not become actions.
 
 ### 8.5 Save Protection
 
 - Unsaved content enters a recovery draft.
 - Noria blocks an overwrite when the target note changed externally.
-- External analysis remains an editable draft.
-- Only explicit saving writes to Markdown.
+- External analysis enters your review only through deliberate adoption.
+- Your edits autosave; reopening a recovery draft alone does not write it to Markdown.
+
+When a recovery draft's original source still matches, its text reopens for inspection. Edit it or choose **Use this draft** to resume saving. If the source changed, an older draft cannot be verified safely, or another draft remains for the same period, use **Drafts (n)** to inspect, copy, or use a selected draft. **Discard this draft** applies only to that draft.
+
+After a save conflict, **Keep draft and reload source** preserves the local content before loading the latest source for editing. A successful save clears only the drafts handled by that save; other editors' drafts and unresolved content remain available. Hard breaks, indentation, and fenced code are preserved and included in conflict checks. Dates and periods that disagree are rejected.
+
+The first save binds one complete review with two hidden-in-reading-mode comments. Keep both comments when editing the source; titles inside them are free to change:
+
+```markdown
+%% noria:review:start %%
+## A few things from this month
+
+### Worth remembering
+
+Your own words.
+%% noria:review:end %%
+```
+
+Incomplete or duplicate boundaries, ambiguous legacy review headings, and unfinished fences prevent saving. Use **Open source** to repair the note, then refresh. Content outside the review is preserved.
+
+### 8.6 Create Or Link Tasks From Records
+
+Select a passage while reading or editing a diary or review. Use the context menu or **… → Create task from selection**, or **Link selection to an existing task**. Both actions are also available as Noria commands, with shortcuts assignable in Obsidian.
+
+For a new task, the shared editor lets you change the title and choose **Save to**: an existing project task note or daily tasks on the adoption day. Dates remain optional. Linking an existing task adds the source without changing its title, status, or schedule. Selecting text that is already a task opens that original task.
+
+The original passage stays intact. The task stores an ordinary Markdown link and quotation beneath its checkbox. After saving, continue at the original reading or editing position; **View task** opens the task, and its **Back to record** icon returns to the source diary or review. Repeating the action on the same passage offers linked tasks and an explicit option to create another.
+
+Closing the task editor keeps input for the current session; **Discard changes** clears it. Unresolved record drafts and changed source passages must be handled before a task can be saved. A task adoption action does not accept a recovery draft on your behalf.
+
+![Create a task from a review passage](assets/en/review-task-adoption.png)
 
 ## 9. Settings
 
@@ -443,7 +604,8 @@ Maintenance provides:
 | --- | --- | --- |
 | Content | Notes, tasks, projects, diary, habits, countdowns | Markdown or Base |
 | Configuration | Paths, modules, Home layout, view preferences | Plugin `data.json` |
-| Derived | Statistics snapshots, review evidence, recovery drafts | Regenerable support data |
+| Derived | Statistics snapshots and review evidence | Regenerable support data |
+| Recovery | Unsaved reviews and preserved conflicting drafts | User input that cannot be regenerated; cleared only after the corresponding save or explicit discard |
 | Credentials | Weather service keys | Obsidian SecretStorage |
 
 Noria does not convert the vault into a private database. Ordinary Markdown remains readable and editable when the plugin is disabled.
@@ -473,11 +635,12 @@ Tasks with `#tl/` tags and time fields can enter Task Timeline. Event templates 
 - `#habit` tasks are excluded from ordinary task lists by default.
 - `Projects.md` uses groups and wikilinks for project entrances.
 - `Countdowns.md` stores important dates in a Markdown table.
-- `Inbox workflow.md` defines handling rules; `Inbox queue.base` provides the queue view.
+- `Inbox workflow.md` is a generated reference snapshot; `Inbox queue.base` provides editable queue views. The card uses the current workflow configuration in settings.
+- Unmodified default queue and guide files update automatically. Custom or untracked content stays intact, and deleted files are not recreated. To adopt a new version or restore the previous one, open Companion files in the advanced Inbox workflow settings. Restoring keeps your choice instead of automatically replacing it again. If the file was edited after updating, it stays intact and backup details remain available.
 
 ### 10.5 Diary And Review
 
-Daily, weekly, monthly, and yearly notes remain ordinary Markdown. Noria view blocks provide dynamic views, while prose and personal records remain under user control.
+Daily, weekly, monthly, and yearly notes remain ordinary Markdown. Diary and Review read and edit the same date note; task lists and statistics are provided by the workspace. Existing embedded view blocks remain available in older notes and templates.
 
 ### 10.6 External Content On Home
 
@@ -523,7 +686,7 @@ Noria does not require every module to be used every day.
 
 ### 11.2 Capture Quickly
 
-- Use Capture for ideas and clues that belong in today's diary Inbox.
+- Use Home Capture or **Noria: Quick note** for today; use the Diary icon for the selected date.
 - Use Task when the item is already actionable.
 
 ### 11.3 Process Inbox
@@ -561,15 +724,17 @@ Completion is not a fourth status. Successful deletion, merging, moving, or arch
 ### 11.6 Advance Projects And Knowledge
 
 1. Find a project in Home's Projects area. With the starter workspace, you can use one of the example projects first.
-2. Enter a concrete next action in **Add next step**, then add it. Noria writes the task to that project's Markdown note.
-3. Click the task to open its source. With the cursor on that line, run **Noria: Edit or create task at cursor** to set its schedule or completion state.
-4. Open Task Board or Task Timeline to see the scheduled task, then complete it when the work is done. Changes remain in the original note and update the task views.
+2. Enter a concrete action in **Add next step**. Noria uses the project's existing task note and task section. If several task notes are possible, choose the destination. The new task appears immediately, and failed writes retain your input.
+3. Click a task title to use the same editor as Task Board. Tags, priority, repeat rules, and dependencies are available there too. The source icon opens the original task line. Dates are optional, and closing retains input for the current session.
+4. Complete or reopen a task with its checkbox. Use **View all** for the remaining list and expand completed items when needed. Task Board and Task Timeline read the same original task; undated tasks remain undated until you schedule them.
 
 Maintain stage outputs in the project note and connect reusable conclusions to the appropriate MOC.
 
+![Shared task editor with optional dates and times](assets/en/workbench-task-editor.png)
+
 ### 11.7 Use Habits And Trends
 
-Use Home for today's check-in. Keep full habit history and heatmaps in Trends and Statistics. Trends are more useful during weekly and monthly review than as a daily score.
+Use Home for today's check-in and the adjustable history, initially 21 days. Open Trends and Statistics for broader habit history and heatmaps. Trends are more useful during weekly and monthly review than as a daily score.
 
 ### 11.8 Receive External Briefings
 
@@ -577,7 +742,7 @@ An external workflow generates Markdown and Home displays its summary and source
 
 ### 11.9 Complete A Daily Review
 
-Write directly in the final editor. Prepare evidence and use an external agent only when useful. Adopt grounded content, then save explicitly to the diary.
+Open the day, read what is already there or start writing, and edit only the part that needs attention. An outline and external analysis are optional. Save explicitly to the same day's note.
 
 ### 11.10 Review A Period
 
@@ -694,11 +859,13 @@ Changing configuration does not move existing files. Initialization creates only
 .obsidian/plugins/noria/cache/review/recovery-drafts.json
 ```
 
-Markdown, Base, Canvas, templates, and final review notes should be preserved. Statistics caches and evidence can be regenerated. Before clearing cache, confirm that there is no unsaved recovery draft.
+Markdown, Base, Canvas, templates, and final review notes should be preserved. Statistics caches and evidence can be regenerated. `cache/review/recovery-drafts.json` contains user input and must not be deleted as ordinary cache. The repository installer preserves existing `data.json` and `cache/`. A settings backup does not include recovery drafts; include the recovery file when backing up unsaved content.
 
 ### A.4 Review Paths
 
-Final review notes follow Diary root:
+The final review is a section of the corresponding date note, such as `Noria/Diary/2026/2026-08-04.md`, `2026-W32.md`, `2026-08.md`, or `2026.md`. Daily reviews follow Diary root; longer periods use their configured Calendar paths.
+
+External analysis artifacts are separate notes under Diary root:
 
 ```text
 06_Diary/2026/2026-08-04-review.md
@@ -745,6 +912,8 @@ input.mount.appendChild(el);
 Run only code that you wrote or reviewed, and prefer the injected `input.noriaBridge`.
 
 ### B.3 Public Data API
+
+The experience build also exposes `app.plugins.plugins.noria.api` (version 1) for task queries/date/status updates and daily suggestion reads/updates. See [External Agent API](AGENT-API.md) for inputs, conflicts, refresh and lifecycle behavior. The existing Data API below is unchanged; task writes use the new API's `ref`, not the Data API `identity`.
 
 ```js
 bridge.data.resolveRange(request)
@@ -817,3 +986,24 @@ npm run release:check
 ```
 
 The public installation package contains only `manifest.json`, `main.js`, and `styles.css`.
+
+
+### Pictures and date navigation
+
+Card, habit, record-field and state appearance settings share one picture picker. Search the host application's icons, enter an emoji, or select PNG, JPEG, WebP or SVG images from a vault folder, optionally including subfolders. Images keep their original colors; line icons inherit the content color. Stable image references follow file and folder renames within the vault. Missing images can be replaced or reset to the default.
+
+Change home card pictures in Card settings. Built-in diary cards offer Change picture in their header menu; layouts remain shared separately by daily, weekly, monthly and yearly notes. Action icons keep a consistent meaning.
+
+The date strip arrows move a group of dates. The row below combines the date range, period controls, return-to-current action and document actions. Narrow cards keep editing visible and collect secondary actions in More. Clicking the range opens the existing sidebar calendar, which follows the viewed diary: select days, weeks, months or years. Browsing does not switch the diary until a selection is made. Review actions sit beside the Review heading.
+
+Built-in home, diary, task calendar, Timeline and statistics views run without Dataview. Dataview remains optional for user-authored Dataview queries; it is not needed for Noria's native data queries. New habits use semantic default pictures; explicitly selected pictures and colors are preserved.
+
+Daily record charts use compact bands for scales and trends for continuous numbers. Missing data is distinct from zero. Completed habit runs show their count in the last block, starting at two. Counts use the complete history and historical schedule, independently of the displayed history window.
+
+### Card layout gestures
+
+Drag blank space in the card header to reorder; the function picture stays at the far left. Text, links and buttons retain their normal behavior. The chevron beside the right-hand menu appears on hover or keyboard focus, and remains visible when collapsed. Drag the outer right edge to preview a snapped width, release to save, or press Escape to cancel. At narrow viewport widths cards use the responsive layout; the menu slider still sets the preferred width for a wider view. Height remains adjustable at the bottom edge without entering layout mode.
+
+The compact header menu retains content management and card settings, a width slider, and icon actions for moving, automatic height, duplication where supported, and hiding. Hover or focus an icon for its label. Hidden cards offer Undo and remain available in the card catalog. Use the menu arrows for keyboard or touch reordering; with the width handle focused, arrow keys adjust width; the height handle's Home key restores automatic height. Daily, weekly, monthly and yearly diary layouts remain separate.
+
+Default mood pictures share one expression family, energy uses five sun states, and focus uses converging rings. Empty fields remain muted. Pictures and state labels remain customizable, and these default pictures are also available in the shared picture picker. Legacy default pictures use the refreshed artwork; custom pictures and state overrides are retained.

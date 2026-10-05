@@ -7,6 +7,8 @@
   root.utils = root.utils || {};
 
   const SVG = {
+    ellipsis:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
     "list-checks":
       '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     inbox:
@@ -52,6 +54,11 @@
   };
 
   function trySetIcon(el, iconId) {
+    const setIcon = globalThis.__noriaRuntimeBridge?.runtime?.setIcon;
+    if (typeof setIcon === "function") {
+      setIcon(el, iconId);
+      return true;
+    }
     try {
       const req = typeof require !== "undefined" ? require : globalThis.require;
       const obs = req && req("obsidian");

@@ -14,16 +14,20 @@
   }
 })(() => {
 
-  // Review headings are top-level ATX headings, outside metadata and code fences.
-  const scanAtxHeadings = (text) => {
-    const headings = [];
+  // Shared lexical boundaries for headings and managed review ranges.
+  const scanMarkdownLines = (text, options = {}) => {
+    const lines = [];
     let fence = null;
     let frontmatter = false;
+    let comment = "";
     let lineNumber = 0;
+    const listIndents = [];
     for (const match of String(text || "").matchAll(/[^\r\n]*(?:\r\n|\r|\n|$)/g)) {
       if (!match[0]) continue;
       const line = match[0].replace(/[\r\n]+$/, "");
       const currentLine = lineNumber++;
+      const row = { text: line, visible: line, line: currentLine, start: match.index, end: match.index + match[0].length, eligible: false };
+      lines.push(row);
       if (currentLine === 0 && /^\uFEFF?---[ \t]*$/.test(line)) {
         frontmatter = true;
         continue;
@@ -32,24 +36,72 @@
         if (/^(?:---|\.\.\.)[ \t]*$/.test(line)) frontmatter = false;
         continue;
       }
-      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      // Task edits also need real nested lists. Keep source offsets intact and
+      // interpret indentation relative to the parent list, not a code block.
+      let blockLine = line;
+      if (options.listContent && !comment) {
+        const expanded = line.replace(/^\t+/, tabs => "    ".repeat(tabs.length));
+        const indent = /^ */.exec(expanded)[0].length;
+        if (expanded.trim() && !fence) {
+          while (listIndents.length && indent < listIndents[listIndents.length - 1]) listIndents.pop();
+        }
+        const base = listIndents[listIndents.length - 1] || 0;
+        blockLine = expanded.slice(Math.min(indent, base));
+        const item = !fence && /^ {0,3}(?:[-+*]|\d+[.)])[ \t]+/.exec(blockLine);
+        if (item) {
+          listIndents.push(base + item[0].length);
+          blockLine = blockLine.slice(item[0].length);
+        }
+      }
+      const marker = !comment && /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(blockLine);
       if (fence) {
         if (marker && marker[1][0] === fence[0]
-          && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+          && marker[1].length >= fence.length && !marker[2].trim()) { fence = null; row.fenceEnd = true; }
         continue;
       }
       if (marker && (marker[1][0] !== "`" || !marker[2].includes("`"))) {
         fence = marker[1];
+        row.fenceLanguage = marker[2].trim().split(/\s/)[0];
+        row.fenceStart = true;
         continue;
       }
-      const heading = /^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$/.exec(line);
+      if (/^(?: {4}|\t)/.test(blockLine) && !comment) continue;
+      row.eligible = !comment;
+      let visible = "";
+      let inlineCode = 0;
+      for (let i = 0; i < line.length;) {
+        if (comment) {
+          const closing = comment === "percent" ? "%%" : "-->";
+          if (line.startsWith(closing, i)) { visible += " ".repeat(closing.length); i += closing.length; comment = ""; }
+          else { visible += " "; i++; }
+        } else if (line[i] === "`") {
+          const run = /^`+/.exec(line.slice(i))[0];
+          if (!inlineCode) inlineCode = run.length;
+          else if (inlineCode === run.length) inlineCode = 0;
+          visible += run; i += run.length;
+        } else if (!inlineCode && (line.startsWith("%%", i) || line.startsWith("<!--", i))) {
+          comment = line.startsWith("%%", i) ? "percent" : "html";
+          const size = comment === "percent" ? 2 : 4;
+          visible += " ".repeat(size); i += size;
+        } else { visible += line[i++]; }
+      }
+      row.visible = visible;
+    }
+    return lines;
+  };
+
+  const scanAtxHeadings = (text) => {
+    const headings = [];
+    for (const row of scanMarkdownLines(text)) {
+      if (!row.eligible) continue;
+      const heading = /^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$/.exec(row.visible);
       if (!heading) continue;
       headings.push({
         level: heading[1].length,
         title: String(heading[2] || "").replace(/[ \t]+#+[ \t]*$/, "").trim(),
-        line: currentLine,
-        start: match.index,
-        end: match.index + match[0].length
+        line: row.line,
+        start: row.start,
+        end: row.end
       });
     }
     return headings;
@@ -372,242 +424,59 @@
   };
 
   /** --- GDD --- */
+  const trimReviewBoundaryLines = (value) => String(value || "").replace(/\r\n?/g, "\n").replace(/^\n+|\n+$/g, "");
+
+  const readReviewChildBody = (text, matchesTitle) => {
+    const raw = String(text || "");
+    const headings = scanAtxHeadings(raw);
+    const rows = scanMarkdownLines(raw);
+    const starts = rows.filter(row => row.eligible && row.text.trim() === "%% noria:review:start %%");
+    const ends = rows.filter(row => row.eligible && row.text.trim() === "%% noria:review:end %%");
+    if ((starts.length || ends.length) && (starts.length !== 1 || ends.length !== 1 || starts[0].start >= ends[0].start)) return "";
+    const recapIndex = headings.findIndex((entry) => entry.level === 2 && /^(复盘|Review)$/i.test(entry.title));
+    const recap = headings[recapIndex];
+    const from = starts[0]?.end ?? recap?.end ?? 0;
+    const end = ends[0]?.start ?? (recap ? headings.slice(recapIndex + 1).find((entry) => entry.level <= 2)?.start ?? raw.length : raw.length);
+    const candidates = headings.filter((entry) => entry.start >= from && entry.start < end);
+    const index = candidates.findIndex((entry) => entry.level === 3 && matchesTitle(entry.title));
+    if (index < 0) return "";
+    const next = candidates.slice(index + 1).find((entry) => entry.level <= 3);
+    return trimReviewBoundaryLines(raw.slice(candidates[index].end, next ? next.start : end));
+  };
+
   const parseGdd = (text) => {
     const out = { hi: "", dev: "", blk: "" };
-    const m = String(text || "").match(new RegExp(`^###\\s*GDD\\s*(?:\\r?\\n)+([\\s\\S]*?)${blockEnd}`, "m"));
-    if (!m) return out;
-    const block = m[1];
-    const pick = (labels) => {
-      const lines = block.split(/\r?\n/);
-      const re1 = new RegExp(`^\\s*[-*]?\\s*(?:${labels.join("|")})\\s*[：:]\\s*(.*)$`, "i");
-      for (const line of lines) {
-        const mm = line.match(re1);
-        if (mm) return String(mm[1] || "").trim();
-      }
-      return "";
-    };
-    out.hi = pick(["亮点", "Highlight"]);
-    out.dev = pick(["偏差", "Deviation"]);
-    out.blk = pick(["阻塞", "Blocker"]);
+    const block = readReviewChildBody(text, (title) => /^GDD$/i.test(title));
+    const keys = { "亮点": "hi", highlight: "hi", "偏差": "dev", deviation: "dev", "阻塞": "blk", blocker: "blk" };
+    let active = "";
+    let fence = null;
+    for (const line of block.split("\n")) {
+      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      const wasFenced = !!fence;
+      if (fence && marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+      else if (!fence && marker && (marker[1][0] !== "`" || !marker[2].includes("`"))) fence = marker[1];
+      const match = !wasFenced && !marker && /^[ \t]*[-*]?[ \t]*(亮点|Highlight|偏差|Deviation|阻塞|Blocker)[ \t]*([：:])(.*)$/i.exec(line);
+      if (match) {
+        active = keys[match[1].toLowerCase()];
+        out[active] = match[2] === ":" && match[3].startsWith(" ") ? match[3].slice(1) : match[3];
+      } else if (active) out[active] += `\n${line}`;
+    }
+    for (const key of Object.keys(out)) out[key] = trimReviewBoundaryLines(out[key]);
     return out;
   };
 
-  const inferGddLanguage = (text) => {
-    const raw = String(text || "");
-    if (/^\s*[-*]?\s*(?:亮点|偏差|阻塞)\s*[：:]/m.test(raw)) return "zh";
-    if (/^\s*[-*]?\s*(?:Highlight|Deviation|Blocker)\s*:/mi.test(raw)) return "en";
-    return inferDiaryLanguage(raw);
-  };
-
-  const formatGddSection = (s, language = runtimeDiaryLanguage()) => {
-    const labels = diaryStructure(language).gdd;
-    const colon = normalizeDiaryLanguage(language) === "zh" ? "：" : ": ";
-    return [
-      "### GDD",
-      "",
-      `- ${labels.hi}${colon}${s.hi}`,
-      `- ${labels.dev}${colon}${s.dev}`,
-      `- ${labels.blk}${colon}${s.blk}`,
-      ""
-    ].join("\n");
-  };
-
-  const upsertGdd = (text, s) => {
-    const raw = String(text || "");
-    const language = inferGddLanguage(raw);
-    const block = formatGddSection(s, language);
-    const gddSection = new RegExp(`^###\\s*GDD\\s*(?:\\r?\\n)+[\\s\\S]*?${blockEnd}`, "m");
-    if (gddSection.test(raw)) {
-      return raw.replace(gddSection, block);
-    }
-    const afterState = new RegExp(`(^###\\s+(?:日态|Daily state)\\s*(?:\\r?\\n)+[\\s\\S]*?${blockEnd})`, "mi");
-    if (afterState.test(raw)) return raw.replace(afterState, `$1\n${block}\n`);
-    const recap = /(^##\s+(?:复盘|Review)\s*(?:\r?\n)+)/mi;
-    if (recap.test(raw)) return raw.replace(recap, `$1${block}\n`);
-    return raw.replace(/\s*$/, "") + "\n\n" + block;
-  };
-
-  /** --- 感想 ### 感想… --- */
-  const upsertThoughtSection = (text, body) => {
-    const raw = String(text || "");
-    const inner = String(body || "").trim();
-    const language = inferDiaryLanguage(raw);
-    const block = `### ${diaryStructure(language).thought}\n\n${inner}\n`;
-    const re = new RegExp(`^###\\s*(?:感想[^\\n]*|Free writing)\\s*(?:\\r?\\n)+[\\s\\S]*?${blockEnd}`, "mi");
-    if (re.test(raw)) return raw.replace(re, block);
-    const afterGdd = new RegExp(`(^###\\s*GDD\\s*(?:\\r?\\n)+[\\s\\S]*?${blockEnd})`, "m");
-    if (afterGdd.test(raw)) return raw.replace(afterGdd, `$1\n${block}\n`);
-    const recap = /(^##\s+(?:复盘|Review)\s*(?:\r?\n)+)/mi;
-    if (recap.test(raw)) return raw.replace(recap, `$1${block}\n`);
-    return raw.replace(/\s*$/, "") + "\n\n" + block;
-  };
-
-  const parseThought = (text) => {
-    const re = new RegExp(`^###\\s*(?:感想[^\\n]*|Free writing)\\s*(?:\\r?\\n)+([\\s\\S]*?)${blockEnd}`, "mi");
-    const m = String(text || "").match(re);
-    return m ? m[1].trim() : "";
-  };
+  const isThoughtHeading = (title) => /^(?:感想(?:[（(].*)?|Free writing)$/i.test(title);
+  const parseThought = (text) => readReviewChildBody(text, isThoughtHeading);
 
   const parseGratitude = (text) => {
-    const re = new RegExp(`^###\\s*(?:今日感恩|Gratitude)\\s*(?:\\r?\\n)+([\\s\\S]*?)${blockEnd}`, "mi");
-    const m = String(text || "").match(re);
-    return m ? m[1].trim() : "";
+    return readReviewChildBody(text, (title) => /^(?:今日感恩|Gratitude)$/i.test(title));
   };
 
   /** --- 最终复盘归档：写回 总结 / GDD / 今日感恩 / 感想 --- */
   const parseSummary = (text) => {
-    const re = new RegExp(`^###\\s*(?:总结|Summary)\\s*(?:\\r?\\n)+([\\s\\S]*?)${blockEnd}`, "mi");
-    const m = String(text || "").match(re);
-    return m ? m[1].trim() : "";
+    return readReviewChildBody(text, (title) => /^(?:总结|Summary)$/i.test(title));
   };
 
-  const formatSummarySection = (body, language = runtimeDiaryLanguage()) =>
-    `### ${diaryStructure(language).summary}\n\n${String(body || "").trim()}\n`;
-
-  const isPlaceholderBody = (body) => {
-    const s = String(body || "").trim();
-    return !s || s === "-" || s === "TODO" || s === "TBD" || /^待补/.test(s);
-  };
-
-  const mergeSectionBody = (existing, incoming) => {
-    const oldBody = String(existing || "").trim();
-    const newBody = String(incoming || "").trim();
-    if (isPlaceholderBody(oldBody)) return newBody;
-    if (isPlaceholderBody(newBody)) return oldBody;
-    if (oldBody.includes(newBody)) return oldBody;
-    if (newBody.includes(oldBody)) return newBody;
-    return `${oldBody}\n\n${newBody}`;
-  };
-
-  const extractRecapBlock = (text) => {
-    const raw = String(text || "");
-    const headings = scanAtxHeadings(raw);
-    const matchIndex = headings.findIndex((heading) => heading.level === 2 && /^(复盘|Review)$/i.test(heading.title));
-    const match = headings[matchIndex];
-    if (!match) {
-      return {
-        found: false,
-        before: raw.replace(/\s*$/, ""),
-        body: "",
-        after: "",
-        language: inferDiaryLanguage(raw)
-      };
-    }
-    const start = match.start;
-    const afterHead = match.end;
-    const nextSection = headings.slice(matchIndex + 1).find((heading) => heading.level <= 2);
-    const end = nextSection ? nextSection.start : raw.length;
-    return {
-      found: true,
-      before: raw.slice(0, start).replace(/\s*$/, ""),
-      body: raw.slice(afterHead, end).replace(/^\s+/, "").replace(/\s+$/, ""),
-      after: raw.slice(end),
-      language: headingDiaryLanguage(match.title)
-    };
-  };
-
-  const stripChildSections = (body, headings) => {
-    const raw = String(body || "");
-    const sections = scanAtxHeadings(raw);
-    let cursor = 0;
-    let preserved = "";
-    for (let index = 0; index < sections.length; index += 1) {
-      const section = sections[index];
-      if (section.level !== 3 || !headings.some((heading) => section.title.startsWith(heading))) continue;
-      preserved += raw.slice(cursor, section.start);
-      const next = sections.slice(index + 1).find((heading) => heading.level <= 3);
-      cursor = next ? next.start : raw.length;
-    }
-    return (preserved + raw.slice(cursor)).replace(/\n{3,}/g, "\n\n").trim();
-  };
-
-  const buildFinalReviewBlock = (payload, language = runtimeDiaryLanguage()) => {
-    const p = payload || {};
-    const structure = diaryStructure(language);
-    return [
-      `## ${structure.review}`,
-      "",
-      formatSummarySection(p.summary || "", language).trimEnd(),
-      "",
-      formatGddSection(p.gdd || { hi: "", dev: "", blk: "" }, language).trimEnd(),
-      "",
-      `### ${structure.gratitude}\n\n${String(p.gratitude || "").trim()}`,
-      "",
-      `### ${structure.thought}\n\n${String(p.thought || "").trim()}`,
-      ""
-    ].join("\n");
-  };
-
-  const writeFinalReviewSections = (text, payload) => {
-    const p = payload || {};
-    const raw = stripVisibleDailyStateFields(String(text || ""));
-    const recap = extractRecapBlock(raw);
-    const existingBody = recap.body || "";
-    const preserved = stripChildSections(existingBody, [
-      "日态",
-      "总结",
-      "GDD",
-      "今日感恩",
-      "感想",
-      "综合总结",
-      "内容变化分析",
-      "建议",
-      "GDD 建议",
-      "证据引用",
-      "输入摘要",
-      "证据引用/输入摘要",
-      "Daily state",
-      "Summary",
-      "Gratitude",
-      "Free writing",
-      "Comprehensive summary",
-      "Content change analysis",
-      "Recommendations",
-      "GDD recommendations",
-      "Evidence references",
-      "Input summary",
-      "Evidence references/Input summary"
-    ]);
-    const finalBlock = buildFinalReviewBlock(p, recap.language).trimEnd();
-    const blockWithPreserved = preserved ? `${finalBlock}\n\n${preserved}\n` : `${finalBlock}\n`;
-    if (!recap.found) {
-      return `${recap.before}\n\n${blockWithPreserved}`;
-    }
-    return `${recap.before ? `${recap.before}\n\n` : ""}${blockWithPreserved}${recap.after ? `\n${recap.after}` : ""}`;
-  };
-
-  const replaceFinalReviewSections = (text, payload) => {
-    const p = payload || {};
-    return writeFinalReviewSections(text, {
-      ...p,
-      summary: String(p.summary || ""),
-      gdd: {
-        hi: String(p.gdd?.hi || ""),
-        dev: String(p.gdd?.dev || ""),
-        blk: String(p.gdd?.blk || "")
-      },
-      gratitude: String(p.gratitude || ""),
-      thought: String(p.thought || "")
-    });
-  };
-
-  const upsertFinalReviewSections = (text, payload) => {
-    const p = payload || {};
-    const recap = extractRecapBlock(stripVisibleDailyStateFields(String(text || "")));
-    const existingBody = recap.body || "";
-    const oldGdd = parseGdd(existingBody);
-    return writeFinalReviewSections(text, {
-      ...p,
-      summary: mergeSectionBody(parseSummary(existingBody), p.summary),
-      gdd: {
-        hi: mergeSectionBody(oldGdd.hi, p.gdd?.hi),
-        dev: mergeSectionBody(oldGdd.dev, p.gdd?.dev),
-        blk: mergeSectionBody(oldGdd.blk, p.gdd?.blk)
-      },
-      gratitude: mergeSectionBody(parseGratitude(existingBody), p.gratitude),
-      thought: mergeSectionBody(parseThought(existingBody), p.thought)
-    });
-  };
 
   /** --- 今日任务：在 ### 今日任务 下追加一行 --- */
   const appendTodayTaskLine = (text, lineRaw) => {
@@ -641,10 +510,18 @@
     return `${hh}:${mm}`;
   };
 
-  const diaryInboxSectionRe = () => /^(##\s*Inbox\s*)(?:\r?\n)*([\s\S]*?)(?=^##\s|^###\s|^```|$(?![\s\S]))/m;
+  const readDiaryInboxSection = (text) => {
+    const raw = String(text || ""), headings = scanAtxHeadings(raw);
+    const matches = headings.filter(h => h.level === 2 && h.title.toLowerCase() === "inbox");
+    if (matches.length !== 1) return null;
+    const heading = matches[0];
+    const end = headings.find(h => h.start > heading.start && h.level <= 2)?.start ?? raw.length;
+    const entryEnd = headings.find(h => h.start > heading.start && h.start < end)?.start ?? end;
+    return { start: heading.start, contentStart: heading.end, end, entryEnd, body: raw.slice(heading.end, entryEnd) };
+  };
 
   const parseDiaryInboxEntryLine = (line, index) => {
-    const m = String(line || "").match(/^\s*[-*]\s+(?:\[(\d{2}):(\d{2})\]\s*)?(.+?)\s*$/);
+    const m = String(line || "").match(/^[-*][ \t](?:\[(\d{2}):(\d{2})\][ \t])?(.+)$/);
     if (!m) return null;
     const hh = m[1] != null ? Number(m[1]) : null;
     const mm = m[2] != null ? Number(m[2]) : null;
@@ -653,7 +530,7 @@
     return {
       index,
       line: String(line || "").trim(),
-      text: String(m[3] || "").trim(),
+      text: (m[1] != null && !hasTime ? `[${m[1]}:${m[2]}] ` : "") + String(m[3] || ""),
       time,
       hasTime,
       minute: hasTime ? hh * 60 + mm : Number.POSITIVE_INFINITY
@@ -670,51 +547,50 @@
 
   const parseDiaryInboxEntries = (text) => {
     const raw = String(text || "");
-    const m = raw.match(diaryInboxSectionRe());
-    if (!m) return [];
-    return sortDiaryInboxEntries(
-      String(m[2] || "")
-        .split(/\r?\n/)
-        .map((line, index) => parseDiaryInboxEntryLine(line, index))
-        .filter(Boolean)
-    );
+    const section = readDiaryInboxSection(raw);
+    if (!section) return [];
+    const rows = scanMarkdownLines(section.body, {listContent:true}), entries = [];
+    for (let i=0; i<rows.length; i++) {
+      const row=rows[i];
+      if (!row.eligible || !/^[-*]\s+/.test(row.text)) continue;
+      const entry=parseDiaryInboxEntryLine(row.text,row.line);
+      if (!entry) continue;
+      let end=row.end, blank=false;
+      for (let j=i+1; j<rows.length; j++) {
+        const next=rows[j];
+        if (next.eligible && /^(?:[-*]\s+|#{1,6}\s+)/.test(next.text)) break;
+        if (next.text.trim() && !/^(?: {2}|\t)/.test(next.text) && (blank || next.fenceStart)) break;
+        end=next.end; blank=!next.text.trim(); i=j;
+      }
+      const block=section.body.slice(row.start,end).replace(/(?:\r?\n[ \t]*)+$/, "");
+      const continuation=block.slice(row.text.length).replace(/\r\n?/g,"\n").replace(/^ {2}/gm,"");
+      entries.push({...entry, line:block, text:entry.text+continuation,
+        start:section.contentStart+row.start, end:section.contentStart+end});
+    }
+    return sortDiaryInboxEntries(entries);
   };
 
   const buildDiaryInboxLine = (lineRaw, options = {}) => {
-    const raw = String(lineRaw || "").trim().replace(/\s*\n+\s*/g, " ");
-    if (!raw) return "";
-    if (/^\[\d{2}:\d{2}\]\s+\S/.test(raw)) return `- ${raw}`;
-    return `- [${formatInboxMinute(options.now)}] ${raw}`;
-  };
-
-  const renderDiaryInboxBody = (body, extraLine = "") => {
-    const existing = [];
-    const preserved = [];
-    String(body || "").split(/\r?\n/).forEach((line, index) => {
-      const entry = parseDiaryInboxEntryLine(line, index);
-      if (entry) {
-        existing.push(entry);
-        return;
-      }
-      if (String(line || "").trim()) preserved.push({ index, line: String(line || "").trim() });
-    });
-    const added = extraLine ? parseDiaryInboxEntryLine(extraLine, existing.length + preserved.length) : null;
-    const sorted = sortDiaryInboxEntries(added ? existing.concat(added) : existing);
-    return sorted.map((entry) => entry.line).concat(preserved.map((entry) => entry.line)).join("\n");
+    const raw = String(lineRaw || "").replace(/\r\n?/g,"\n").replace(/^(?:[ \t]*\n)+|(?:\n[ \t]*)+$/g,"");
+    if (!raw.trim()) return "";
+    const hasExplicitTime=/^\[(?:[01]\d|2[0-3]):[0-5]\d\]\s+\S/.test(raw);
+    const prefix=hasExplicitTime || options.includeTime === false ? "" : `[${formatInboxMinute(options.now)}] `;
+    return `- ${prefix}${raw.split("\n").join("\n  ")}`;
   };
 
   const appendDiaryInboxLine = (text, lineRaw, options = {}) => {
     const line = buildDiaryInboxLine(lineRaw, options);
     if (!line) return text;
     const raw = String(text || "");
-    const re = diaryInboxSectionRe();
-    if (re.test(raw)) {
-      return raw.replace(re, (_, head, body) => {
-        const rendered = renderDiaryInboxBody(body, line);
-        return `${String(head || "## Inbox").trimEnd()}\n\n${rendered ? `${rendered}\n` : ""}`;
-      });
+    const section=readDiaryInboxSection(raw), eol=/\r\n|\n|\r/.exec(raw)?.[0] || "\n";
+    const entry=line.replace(/\n/g,eol);
+    if (section) {
+      const prefix=raw.slice(0,section.entryEnd), suffix=raw.slice(section.entryEnd);
+      const gap=prefix.endsWith(eol+eol)?"":prefix.endsWith(eol)?eol:eol+eol;
+      return prefix+gap+entry+eol+(suffix?eol:"")+suffix;
     }
-    return raw.trimEnd() + `\n\n## Inbox\n\n${line}\n`;
+    if (scanAtxHeadings(raw).some(h=>h.level===2 && h.title.toLowerCase()==="inbox")) throw new Error("Multiple Inbox sections; choose one in the source note before capturing.");
+    return raw+(raw?eol+eol:"")+`## Inbox${eol}${eol}${entry}${eol}`;
   };
 
   /** 各步是否有内容（轻量圆点用） */
@@ -726,8 +602,7 @@
     );
     const todayTasksMatch = raw.match(todayTasksRe);
     const hasTodayTasks = !!(todayTasksMatch && /^\s*-\s*\[[ xX]\]/m.test(todayTasksMatch[1]));
-    const inboxM = raw.match(/^##\s*Inbox\s*(?:\r?\n)+([\s\S]*?)(?=^##\s|^###\s|^```)/m);
-    const hasInbox = !!(inboxM && /^\s*[-*]\s+\S/m.test(inboxM[1]));
+    const hasInbox = parseDiaryInboxEntries(raw).length > 0;
     const st = parseDailyStateFromBody(raw);
     const hasState = DAILY_STATE_KEYS.some((k) => String(st[k] || "").trim());
     const g = parseGdd(raw);
@@ -739,7 +614,9 @@
   };
 
   return {
+    scanMarkdownLines,
     scanAtxHeadings,
+    readDiaryInboxSection,
     DAILY_STATE_KEYS: DAILY_STATE_KEYS.slice(),
     normalizeYmd,
     getDiaryPathForDate,
@@ -754,15 +631,9 @@
     upsertDailyStateSection,
     pickField,
     parseGdd,
-    formatGddSection,
-    upsertGdd,
     parseSummary,
-    formatSummarySection,
-    upsertFinalReviewSections,
-    replaceFinalReviewSections,
     parseGratitude,
     parseThought,
-    upsertThoughtSection,
     parseDiaryInboxEntries,
     appendTodayTaskLine,
     appendDiaryInboxLine,

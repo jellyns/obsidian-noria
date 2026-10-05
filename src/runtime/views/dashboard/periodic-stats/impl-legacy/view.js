@@ -84,6 +84,12 @@ function inferScope() {
 }
 
 function getDateRange(resolvedScope) {
+  if (input?.dateRange?.start && input?.dateRange?.end) {
+    const start=window.moment(input.dateRange.start,"YYYY-MM-DD",true).startOf("day");
+    const end=window.moment(input.dateRange.end,"YYYY-MM-DD",true).startOf("day");
+    if (!start.isValid() || !end.isValid() || end.isBefore(start)) throw new Error("Invalid date-note statistics range");
+    return {scope:resolvedScope,year:start.year(),start,end};
+  }
   const file = ctx.current()?.file;
   const name = String(file?.name || "").replace(".md", "");
   const path = String(file?.path || "");

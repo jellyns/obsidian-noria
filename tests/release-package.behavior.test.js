@@ -210,6 +210,7 @@ test("English and Chinese public docs keep equivalent demo images in separate lo
     "task-board-day.png",
     "task-board-quadrant.png",
     "task-timeline-wide.png",
+    "diary-workspace.png",
     "review-center.png"
   ];
 
@@ -217,8 +218,8 @@ test("English and Chinese public docs keep equivalent demo images in separate lo
     const englishTargets = localMarkdownImages(englishFile);
     const chineseTargets = localMarkdownImages(chineseFile);
     const expectedImages = path.basename(englishFile) === "USER-GUIDE.md"
-      ? [...expected.slice(0, 6), "task-timeline-hours.png", ...expected.slice(6)]
-      : expected;
+      ? [expected[0], "home-habits.png", "home-moc.png", "card-catalog.png", "home-card-menu.png", ...expected.slice(1, 6), "task-timeline-hours.png", expected[6], "diary-editor.png", "diary-quick-notes.png", "daily-state.png", "card-statistics.png", expected[7], "review-task-adoption.png", "workbench-task-editor.png"]
+      : [expected[0], "home-moc.png", ...expected.slice(1, 6), "home-habits.png", "card-statistics.png", expected[6], "diary-quick-notes.png", expected[7]];
     assert.deepEqual(englishTargets.map((target) => path.basename(target)), expectedImages);
     assert.deepEqual(chineseTargets.map((target) => path.basename(target)), expectedImages);
     assert.ok(englishTargets.every((target) => target.replace(/\\/g, "/").includes("assets/en/")));
@@ -379,6 +380,9 @@ test("vault install cleans only Noria development files and preserves Noria data
   fs.writeFileSync(path.join(target, "src", "main.js"), "dev source\n", "utf8");
   fs.writeFileSync(path.join(target, "README.md"), "dev readme\n", "utf8");
   fs.writeFileSync(path.join(target, "data.json"), "{\"keep\":true}\n", "utf8");
+  const recovery = path.join(target, "cache", "review", "recovery-drafts.json");
+  fs.mkdirSync(path.dirname(recovery), { recursive: true });
+  fs.writeFileSync(recovery, "{\"unsaved\":\"keep this draft\"}\n", "utf8");
 
   const result = spawnSync(process.execPath, [releaseInstall, vault], {
     cwd: pluginRoot,
@@ -386,8 +390,9 @@ test("vault install cleans only Noria development files and preserves Noria data
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.deepEqual(fs.readdirSync(target).sort(), ["data.json", "main.js", "manifest.json", "styles.css"]);
+  assert.deepEqual(fs.readdirSync(target).sort(), ["cache", "data.json", "main.js", "manifest.json", "styles.css"]);
   assert.equal(fs.readFileSync(path.join(target, "data.json"), "utf8"), "{\"keep\":true}\n");
+  assert.equal(fs.readFileSync(recovery, "utf8"), "{\"unsaved\":\"keep this draft\"}\n");
   assert.match(result.stdout, /Noria installed to/);
 });
 

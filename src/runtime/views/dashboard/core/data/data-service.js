@@ -860,9 +860,9 @@
       const distribution = { total: 0, items: [] };
       const byFolder = new Map();
       const dailyState = {
-        summary: { validDays: 0, averageEnergy: 0, averageFocus: 0 },
+        summary: { validDays: 0, averageEnergy: null, averageFocus: null, energyCount: 0, focusCount: 0 },
         distribution: { weather: {}, mood: {} },
-        series: Array.from(buckets.values()).map((b) => ({ ...b, energy: 0, focus: 0, weather: "", mood: "", validDays: 0 }))
+        series: Array.from(buckets.values()).map((b) => ({ ...b, energy: 0, focus: 0, weather: "", mood: "", validDays: 0, energyCount: 0, focusCount: 0 }))
       };
       const noteByBucket = new Map(trend.series.map((row) => [row.key, row]));
       const stateByBucket = new Map(dailyState.series.map((row) => [row.key, row]));
@@ -908,7 +908,7 @@
         const focusRaw = String(p?.focus || "").trim();
         const focus = Number(focusScore[focusRaw] || 0);
         if (!(weather || mood || energy || focus)) continue;
-        dailyState.summary.validDays += 1;
+        if(mood || energy || focus)dailyState.summary.validDays += 1;
         if (weather) {
           dailyState.distribution.weather[weather] = dailyState.distribution.weather[weather] || { count: 0, pct: 0 };
           dailyState.distribution.weather[weather].count += 1;
@@ -917,31 +917,27 @@
           dailyState.distribution.mood[mood] = dailyState.distribution.mood[mood] || { count: 0, pct: 0 };
           dailyState.distribution.mood[mood].count += 1;
         }
-        if (energy) energyTotal += energy;
-        if (focus) focusTotal += focus;
+        if (energy) {energyTotal += energy;dailyState.summary.energyCount++;}
+        if (focus) {focusTotal += focus;dailyState.summary.focusCount++;}
         if (stateRow) {
           stateRow.energy += energy;
           stateRow.focus += focus;
           if (weather && !stateRow.weather) stateRow.weather = weather;
           if (mood && !stateRow.mood) stateRow.mood = mood;
-          stateRow.validDays += 1;
+          if(mood || energy || focus)stateRow.validDays += 1;
+          if(energy)stateRow.energyCount++;if(focus)stateRow.focusCount++;
         }
       }
-      const valid = dailyState.summary.validDays;
-      if (valid) {
-        dailyState.summary.averageEnergy = Number((energyTotal / valid).toFixed(2));
-        dailyState.summary.averageFocus = Number((focusTotal / valid).toFixed(2));
+      const {energyCount,focusCount}=dailyState.summary;
+      dailyState.summary.averageEnergy=energyCount?Number((energyTotal/energyCount).toFixed(2)):null;
+      dailyState.summary.averageFocus=focusCount?Number((focusTotal/focusCount).toFixed(2)):null;
+      for (const map of [dailyState.distribution.weather,dailyState.distribution.mood]) {
+        const count=Object.values(map).reduce((sum,item)=>sum+item.count,0);
+        Object.values(map).forEach(item=>{item.pct=count?Number((item.count/count*100).toFixed(1)):0;});
       }
-      for (const map of [dailyState.distribution.weather, dailyState.distribution.mood]) {
-        Object.keys(map).forEach((key) => {
-          map[key].pct = valid ? Number(((map[key].count / valid) * 100).toFixed(1)) : 0;
-        });
-      }
-      dailyState.series.forEach((row) => {
-        if (row.validDays) {
-          row.energy = Number((row.energy / row.validDays).toFixed(2));
-          row.focus = Number((row.focus / row.validDays).toFixed(2));
-        }
+      dailyState.series.forEach(row=>{
+        row.energy=row.energyCount?Number((row.energy/row.energyCount).toFixed(2)):null;
+        row.focus=row.focusCount?Number((row.focus/row.focusCount).toFixed(2)):null;
       });
       distribution.total = trend.totalCreated;
       distribution.items = Array.from(byFolder.entries()).map(([key, count]) => ({
@@ -1109,10 +1105,12 @@
       const byBucket = new Map(rows.map((row) => [row.key, row]));
       const tasks = await getTasks({ range: resolved, bucketBy: "active", status: "all" });
       const completedItems = [];
+      const completedByDate = new Map(resolved.dates.map(date => [date, 0]));
       const openItems = [];
       for (const item of tasks.items) {
         if (item.completed) {
           const ds = item.dates.completion;
+          if (completedByDate.has(ds)) completedByDate.set(ds, completedByDate.get(ds) + 1);
           const row = byBucket.get(bucketForDate(ds, resolved.granularity));
           if (row) {
             row.done += 1;
@@ -1141,6 +1139,7 @@
           activityTotal,
           completionRate: activityTotal ? Math.min(100, Number(((completedItems.length / activityTotal) * 100).toFixed(1))) : 0,
           undatedCompleted: tasks.undated.completed.length,
+          dailySeries: Array.from(completedByDate, ([date, done]) => ({ date, done })),
           series: rows,
           completedItems: completedItems.slice(0, 80),
           openItems: openItems.slice(0, 80)
@@ -1216,6 +1215,7 @@
         name,
         status,
         action,
+        work: String(inboxField(page, "inbox-work") || "").trim(),
         reviewDate: normalizeDateValue(inboxField(page, "inbox-review")),
         next: String(inboxField(page, "inbox-next") || "").trim(),
         created: normalizeDateValue(page?.file?.ctime || inboxField(page, "created") || inboxField(page, "date")),
@@ -1330,7 +1330,7 @@
     function projectEntryFromLine(lineText) {
       const raw = String(lineText || "").replace(/^-+\s*/, "").trim();
       if (!raw) return null;
-      const link = raw.match(/^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]$/);
+      const link = raw.match(/^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/);
       let name = "";
       let targetPath = "";
       let info = null;
@@ -1622,11 +1622,17 @@
       const activeNames = [...new Set([...activeFromSection, ...activeFromSource])]
         .filter((name) => name && !masteredSet.has(name) && !pausedSet.has(name))
         .sort((a, b) => a.localeCompare(b, "zh-CN"));
+      const aliases=new Map(),ids=new Map();
+      for(const title of ["打卡中的习惯","暂停的习惯","已养成习惯"])for(const line of habitSectionItems(content,title)){
+        const name=canonicalHabitName(line),alias=/\[aliases::\s*([^\]]+)\]/.exec(line)?.[1],id=/\[habit-id::\s*([^\]]+)\]/.exec(line)?.[1]?.trim();
+        if(id)ids.set(id,name);for(const value of (alias||"").split(";").map(s=>s.trim()).filter(Boolean))aliases.set(value,name);
+      }
       return {
         registryPath,
         sourceRows,
-        activeNames,
-        activeSet: new Set(activeNames),
+        aliases,ids,
+        activeNames:[...new Set(activeNames.map(name=>aliases.get(name)||name))].filter(name=>!pausedSet.has(name)&&!masteredSet.has(name)),
+        activeSet: new Set(activeNames.map(name=>aliases.get(name)||name).filter(name=>!pausedSet.has(name)&&!masteredSet.has(name))),
         pausedSet,
         masteredSet
       };
@@ -1697,18 +1703,26 @@
       const registry = await collectHabitRegistryState();
       const rawRows = await collectRawHabitSources(registry);
       const recordMap = new Map();
+      const recordRanks = new Map();
       rawRows.forEach((task) => {
         const record = habitRecordFromTask(task);
         if (!record) return;
+        const id=/\[habit-id::\s*([^\]]+)\]/.exec(record.text)?.[1]?.trim();
+        record.name=registry.ids.get(id)||registry.aliases.get(record.name)||record.name;
+        const property=/\[record-field::\s*([^\]]+)\]/.exec(record.text)?.[1]?.trim();
+        if(property){const file=app?.vault?.getAbstractFileByPath(record.sourcePath),value=file&&app?.metadataCache?.getFileCache(file)?.frontmatter?.[property],target=Number(/\[target::\s*([^\]]+)\]/.exec(record.text)?.[1]);
+          record.done=typeof value==="number"&&Number.isFinite(target)&&value>=target;}
         if (!inRange(record.date, resolved.start, resolved.end)) return;
-        if (registry.pausedSet.has(record.name) || registry.masteredSet.has(record.name)) return;
-        if (registry.activeSet.size && !registry.activeSet.has(record.name)) return;
+        const fromDiary=record.sourcePath !== registry.registryPath;
+        if (hasHabitTag(record.text,"paused")) return;
+        if (!fromDiary && (registry.pausedSet.has(record.name) || registry.masteredSet.has(record.name))) return;
+        if (!fromDiary && registry.activeSet.size && !registry.activeSet.has(record.name)) return;
         const key = `${record.name}|${record.date}`;
-        recordMap.set(key, record.done || recordMap.get(key) === true);
+        const rank=fromDiary ? task.__noriaSource === "vault" ? 3 : 2 : 1;
+        if(rank>(recordRanks.get(key)||0)) {recordMap.set(key,record.done);recordRanks.set(key,rank);}
+        else if(rank === recordRanks.get(key)) recordMap.set(key, record.done || recordMap.get(key) === true);
       });
-      const activeNames = registry.activeNames.length
-        ? registry.activeNames
-        : [...new Set([...recordMap.keys()].map((key) => key.split("|")[0]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+      const activeNames = [...new Set([...registry.activeNames,...recordMap.keys()].map(key=>key.split("|")[0]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-CN"));
       const activeSet = new Set(activeNames);
       const series = resolved.dates.map((date) => {
         let checked = 0;

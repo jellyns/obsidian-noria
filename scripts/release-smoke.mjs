@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,7 @@ function loadPluginClass(source) {
       if (id === "fs") return fs;
       if (id === "os") return os;
       if (id === "path") return path;
+      if (id === "crypto") return crypto;
       fail(`unexpected external require: ${id}`);
     },
     globalThis: null,

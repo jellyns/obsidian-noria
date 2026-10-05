@@ -48,6 +48,7 @@ function loadPluginClass(options = {}) {
         };
       }
       if (id === "child_process") return {};
+      if (id === "crypto") return require("node:crypto");
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -82,6 +83,18 @@ function makePlugin(options = {}) {
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
+
+test("missing embedded candidates do not search the vault for development sources",async()=>{
+  const plugin=makePlugin(),reads=[];
+  plugin.app.vault={getAbstractFileByPath:()=>null,adapter:{read:async p=>{reads.push(p);return "user source";},exists:async()=>true,stat:async()=>({type:"file"})}};
+  const missing=".obsidian/plugins/noria/views/dashboard/home/sections/guide-panels.js";
+  assert.equal(await plugin.loadTextFromVault(missing),"");
+  const adapter=plugin.createEmbeddedRuntimeApp().vault.adapter;
+  assert.equal(await adapter.read(missing),"");assert.equal(await adapter.exists(missing),false);assert.equal(await adapter.stat(missing),null);
+  assert.deepEqual(reads,[]);
+  assert.equal(await adapter.read("Custom/my-view.js"),"user source");
+  assert.ok((await adapter.read(".obsidian/plugins/noria/views/dashboard/home/sections/guide-panels/view.js")).length>100);
+});
 
 function makeElement(tag, text, opts, log) {
   const node = {
@@ -250,6 +263,12 @@ test("vault custom JavaScript views require an explicit trust opt-in", async () 
   await plugin.runNoriaView("Custom/Noria/trusted", {}, hostFor(trustedNodes));
   assert.equal(loaded.length, 1);
   assert.match(JSON.stringify(trustedNodes), /trusted custom view/);
+});
+
+test("the embedded habit check-in is a built-in view without custom script permission",()=>{
+  const plugin=makePlugin();
+  assert.equal(plugin.settings.security.allowCustomJsViews,false);
+  assert.equal(plugin.resolveNoriaViewPath("habitCheckin"),".obsidian/plugins/noria/views/periodic/habitCheckin.js");
 });
 
 test("native runtime view source loading single-flights concurrent same-source views", async () => {

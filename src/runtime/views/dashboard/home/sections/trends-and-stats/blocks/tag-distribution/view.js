@@ -114,9 +114,10 @@ const baseColors =
     ];
 
 const card = root.createDiv();
-card.style.cssText = `padding:8px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};width:100%;min-width:0;min-height:0;height:100%;box-sizing:border-box;display:flex;flex-direction:column;`;
+card.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};width:100%;min-width:0;min-height:0;height:100%;box-sizing:border-box;display:flex;flex-direction:column;`;
 
 const head = card.createDiv();
+head.addClass("noria-card-heading");
 head.style.cssText = "margin-bottom:4px;flex-shrink:0;display:flex;align-items:center;gap:8px;";
 const titleEl = head.createDiv({ text: tagDistributionT("runtime.home.trends.noteShareTitle") });
 titleEl.className = "dashboard-panel-title";

@@ -26,8 +26,27 @@
     };
   }
 
+  function leaderPoints(outer, elbow, end, cx, cy, radius, right) {
+    const clearsRing = (a, b) => {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = clamp(((cx - a.x) * dx + (cy - a.y) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+      return Math.hypot(a.x + t * dx - cx, a.y + t * dy - cy) >= radius;
+    };
+    if (clearsRing(elbow, end)) return [outer, elbow, end];
+    const railX = cx + (right ? 1 : -1) * (radius + 4);
+    const bend = { x: railX, y: elbow.y };
+    // Balancing can place a label on the opposite side. Escape above/below
+    // the ring before crossing it, rather than cutting through the slices.
+    const approach = clearsRing(elbow, bend) ? [elbow, bend] : [
+      elbow,
+      { x: elbow.x, y: cy + (elbow.y <= cy ? -1 : 1) * (radius + 4) },
+      { x: railX, y: cy + (elbow.y <= cy ? -1 : 1) * (radius + 4) }
+    ];
+    return [outer, ...approach, { x: railX, y: end.y }, end];
+  }
+
   function arcPath(cx, cy, outerR, innerR, startAngle, endAngle) {
-    const span = Math.max(0.01, endAngle - startAngle);
+    const span = Math.max(0, endAngle - startAngle);
     const end = startAngle + Math.min(359.99, span);
     const large = end - startAngle > 180 ? 1 : 0;
     const o0 = polar(cx, cy, outerR, startAngle);
@@ -47,11 +66,12 @@
     const source = Array.isArray(items) ? items : [];
     const values = source
       .map((item, index) => ({
+        key: item?.key ?? index,
         label: String(item?.label || "").trim() || `项目 ${index + 1}`,
         value: Number(item?.value || 0),
         color: item?.color || palette[index % palette.length]
       }))
-      .filter((item) => item.value > 0);
+      .filter((item) => Number.isFinite(item.value) && item.value > 0);
     const sum = Number(total || 0) > 0 ? Number(total || 0) : values.reduce((acc, item) => acc + item.value, 0);
     let angle = 0;
     return values.map((item) => {
@@ -135,24 +155,23 @@
     return fallback;
   }
 
-  function truncateLabel(text, maxPx, fontPx) {
-    const source = String(text || "");
-    const maxChars = Math.max(2, Math.floor(Number(maxPx || 0) / (Number(fontPx || 12) * 0.62)));
-    if (source.length <= maxChars) return source;
-    return `${source.slice(0, Math.max(1, maxChars - 1))}…`;
-  }
-
   function computeLayout(parent, options) {
     const fallbackW = clamp(options.width || options.size || 420, 300, 560);
     const width = clamp(measureWidth(parent, fallbackW), 300, 560);
-    const height = clamp(options.height || Math.round(width * 0.62), 220, 340);
-    const labelMinGap = clamp(options.labelMinGap ?? (width < 360 ? 22 : 26), 18, 34);
-    const labelColumnMin = clamp(options.labelColumnMin ?? 92, 62, 150);
+    const labelMinGap = clamp(options.labelMinGap ?? (width < 360 ? 24 : 26), 24, 34);
+    const slices = normalizeItems(options.items, options.total, DEFAULT_PALETTE);
+    const sides = balanceLabelSides(slices.map(slice => {
+      const sideVector = Math.cos(((slice.midAngle - 90) * Math.PI) / 180);
+      return { slice, isRight: sideVector >= 0, sideConfidence: Math.abs(sideVector) };
+    }), options.labelBalance || 'natural');
+    const sideCount = Math.max(sides.filter(s => s.isRight).length, sides.filter(s => !s.isRight).length);
+    const height = Math.max(clamp(options.height || Math.round(width * 0.62), 220, 340), (sideCount - 1) * labelMinGap + 48);
+    const labelColumnMin = clamp(options.labelColumnMin ?? (width < 360 ? 76 : 92), 62, 150);
     const labelColumnMax = clamp(options.labelColumnMax ?? 142, labelColumnMin, 170);
     const labelColumn = clamp(width * 0.25, labelColumnMin, labelColumnMax);
     const cx = width / 2;
     const cy = height / 2 + 6;
-    const outerR = clamp(Math.min(height * 0.405, (width - labelColumn * 2 - 8) / 2), 66, 124);
+    const outerR = clamp(Math.min(height * 0.405, (width - labelColumn * 2 - 8) / 2), 44, 124);
     const innerR = outerR * clamp(options.innerRadiusRatio ?? 0.58, 0.35, 0.78);
     const lineR = outerR + clamp(width * 0.008, 3, 5);
     const minY = Math.max(18, labelMinGap * 0.8);
@@ -182,11 +201,14 @@
     const palette = Array.isArray(options.palette) && options.palette.length ? options.palette : DEFAULT_PALETTE;
     const host = parent.createDiv();
     host.className = "noria-leader-donut";
-    host.style.cssText = "width:100%;min-width:0;display:flex;align-items:center;justify-content:center;";
+    host.style.cssText = "position:relative;width:100%;min-width:0;display:flex;align-items:center;justify-content:center;";
 
+    let renderedWidth;
     const render = () => {
+      const focusedKey = host.contains(document.activeElement) ? document.activeElement?.getAttribute('data-category-key') : null;
       clearEl(host);
       const layout = computeLayout(parent, options);
+      renderedWidth = layout.width;
       const { width, height, cx, cy, outerR, innerR, lineR, minY, maxY } = layout;
       const total = Number(options.total || 0);
       const slices = normalizeItems(options.items, total, palette);
@@ -196,11 +218,16 @@
       const svg = createSvgEl("svg");
       setAttrs(svg, {
         viewBox: `0 0 ${width} ${height}`,
-        role: "img",
-        "aria-label": options.ariaLabel || chartT("runtime.chart.donutAria", {}, "Note share")
+        role: typeof options.onSelect === 'function' ? 'group' : 'img',
+        "aria-labelledby": `${uid}-title`
       });
       svg.style.cssText = "width:100%;max-width:100%;height:auto;display:block;overflow:hidden;";
       host.appendChild(svg);
+
+      // Obsidian's aria-label tooltip handler only supports HTML elements.
+      const chartTitle = setAttrs(createSvgEl("title"), { id: `${uid}-title` });
+      chartTitle.textContent = options.ariaLabel || chartT("runtime.chart.donutAria", {}, "Note share");
+      svg.appendChild(chartTitle);
 
       const defs = createSvgEl("defs");
       const shadow = createSvgEl("filter");
@@ -220,6 +247,16 @@
       slices.forEach((slice, index) => {
         const g = createSvgEl("g");
         g.classList.add("noria-leader-donut__slice");
+        setAttrs(g, { role: typeof options.onSelect === 'function' ? 'button' : 'img', tabindex: 0,
+          'data-category-key': slice.key, 'aria-labelledby': `${uid}-slice-${index}` });
+        if (typeof options.onSelect === 'function') {
+          g.addEventListener('click', () => options.onSelect(slice.key, g));
+          g.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            options.onSelect(slice.key, g);
+          });
+        }
         const path = createSvgEl("path");
         setAttrs(path, {
           d: arcPath(cx, cy, outerR, innerR, slice.startAngle, slice.endAngle),
@@ -228,7 +265,8 @@
           "stroke-width": "1.25"
         });
         path.style.cssText = `filter:url(#${uid}-shadow);transition:opacity .12s ease,stroke-width .12s ease;`;
-        const title = createSvgEl("title");
+        const title = createSvgEl("desc");
+        title.setAttribute('id', `${uid}-slice-${index}`);
         title.textContent = `${slice.label} · ${slice.value} · ${(slice.pct * 100).toFixed(1)}%`;
         path.appendChild(title);
         g.appendChild(path);
@@ -272,19 +310,19 @@
         const endX = info.isRight ? labelX - 5 : labelX + 5;
         const poly = createSvgEl("polyline");
         setAttrs(poly, {
-          points: `${info.pointOuter.x.toFixed(1)},${info.pointOuter.y.toFixed(1)} ${info.pointElbow.x.toFixed(1)},${info.pointElbow.y.toFixed(1)} ${endX.toFixed(1)},${info.y.toFixed(1)}`,
+          points: leaderPoints(info.pointOuter, info.pointElbow, { x: endX, y: info.y }, cx, cy, outerR, info.isRight).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
           fill: "none",
           stroke: lineColor,
           "stroke-width": "1.15",
           "stroke-linecap": "round",
           "stroke-linejoin": "round"
         });
-        poly.style.cssText = "transition:stroke .12s ease,stroke-width .12s ease;";
-        svg.appendChild(poly);
+        poly.style.cssText = "pointer-events:none;transition:stroke .12s ease,stroke-width .12s ease;";
+        groups[info.index].g.appendChild(poly);
 
         const dot = createSvgEl("circle");
         setAttrs(dot, { cx: info.pointOuter.x.toFixed(1), cy: info.pointOuter.y.toFixed(1), r: "2", fill: info.slice.color });
-        svg.appendChild(dot);
+        groups[info.index].g.appendChild(dot);
 
         const fullLabel = info.slice.pct < 0.075 ? `${info.slice.label} ${(info.slice.pct * 100).toFixed(1)}%` : info.slice.label;
         const label = createSvgEl("text");
@@ -294,37 +332,64 @@
           "text-anchor": anchor,
           "dominant-baseline": "middle"
         });
-        label.textContent = truncateLabel(fullLabel, info.isRight ? layout.rightTextMax : layout.leftTextMax, layout.labelFont);
+        label.textContent = fullLabel;
         label.style.cssText = `fill:${labelColor};font-size:${layout.labelFont}px;font-weight:700;letter-spacing:0;transition:fill .12s ease,font-weight .12s ease;`;
-        const labelTitle = createSvgEl("title");
-        labelTitle.textContent = `${info.slice.label} · ${info.slice.value} · ${(info.slice.pct * 100).toFixed(1)}%`;
-        label.appendChild(labelTitle);
-        svg.appendChild(label);
-
         const item = groups[info.index];
+        item.g.appendChild(label);
+        // Measure actual glyphs: CJK labels are wider than a Latin character estimate.
+        const textMax = info.isRight ? layout.rightTextMax : layout.leftTextMax;
+        let visible = Array.from(fullLabel);
+        while (visible.length > 1 && label.getComputedTextLength() > textMax) {
+          visible.pop();
+          label.textContent = visible.join('') + '…';
+        }
+        if (typeof options.onSelect === 'function') {
+          const hit = setAttrs(createSvgEl('rect'), {
+            x: info.isRight ? labelX : labelX - textMax, y: info.y - 12,
+            width: textMax, height: 24, fill: 'transparent', 'aria-hidden': 'true'
+          });
+          item.g.insertBefore(hit, label);
+        }
+
         item.poly = poly;
         item.label = label;
         item.dot = dot;
-        const enter = () => {
-          item.path.setAttribute("stroke-width", "2.3");
-          item.path.style.opacity = "0.9";
-          poly.setAttribute("stroke-width", "1.8");
-          poly.setAttribute("stroke", info.slice.color);
-          label.style.fill = info.slice.color;
-          label.style.fontWeight = "800";
-        };
-        const leave = () => {
-          item.path.setAttribute("stroke-width", "1.25");
-          item.path.style.opacity = "1";
-          poly.setAttribute("stroke-width", "1.15");
-          poly.setAttribute("stroke", lineColor);
-          label.style.fill = labelColor;
-          label.style.fontWeight = "700";
-        };
-        [item.path, poly, label, dot].forEach((el) => {
-          el.addEventListener("mouseenter", enter);
-          el.addEventListener("mouseleave", leave);
+      });
+
+      const trace = setAttrs(createSvgEl('g'), { 'aria-hidden': 'true' });
+      trace.style.cssText = 'pointer-events:none;display:none;';
+      const traceBack = setAttrs(createSvgEl('polyline'), { fill: 'none', stroke: 'var(--background-primary)', 'stroke-width': 4.5, 'stroke-linejoin': 'round' });
+      const traceFront = setAttrs(createSvgEl('polyline'), { fill: 'none', 'stroke-width': 1.8, 'stroke-linejoin': 'round' });
+      trace.appendChild(traceBack); trace.appendChild(traceFront); svg.appendChild(trace);
+      const hint = host.createDiv({ cls: 'noria-donut-inspection', attr: { 'aria-hidden': 'true' } });
+      hint.hidden = true;
+      let hovered = null, focused = null;
+      const inspect = () => {
+        const index = hovered ?? focused;
+        groups.forEach((item, i) => {
+          const active = i === index;
+          item.path.setAttribute('stroke-width', active ? '2.3' : '1.25');
+          item.poly.style.opacity = index === null || active ? '1' : '.18';
+          item.dot.style.opacity = index === null || active ? '1' : '.18';
         });
+        trace.style.display = index === null ? 'none' : '';
+        hint.hidden = index === null;
+        if (index === null) return;
+        const item = groups[index], slice = slices[index];
+        traceBack.setAttribute('points', item.poly.getAttribute('points'));
+        traceFront.setAttribute('points', item.poly.getAttribute('points'));
+        traceFront.setAttribute('stroke', slice.color);
+        hint.textContent = `${slice.label} · ${slice.value} · ${(slice.pct * 100).toFixed(1)}%`;
+        const box = host.getBoundingClientRect(), anchor = item.label.getBoundingClientRect();
+        hint.style.left = `${Math.max(0, Math.min(anchor.left - box.left, box.width - hint.offsetWidth))}px`;
+        const above = anchor.top - box.top - hint.offsetHeight - 6;
+        hint.style.top = `${Math.max(0, Math.min(above >= 0 ? above : anchor.bottom - box.top + 6, box.height - hint.offsetHeight))}px`;
+      };
+      groups.forEach((item, index) => {
+        item.g.addEventListener('mouseenter', () => { hovered = index; inspect(); });
+        item.g.addEventListener('mouseleave', () => { hovered = null; inspect(); });
+        item.g.addEventListener('focus', () => { focused = index; inspect(); });
+        item.g.addEventListener('blur', () => { focused = null; inspect(); });
       });
 
       const centerValue = createSvgEl("text");
@@ -336,7 +401,7 @@
 
       const centerLabel = createSvgEl("text");
       setAttrs(centerLabel, { x: cx, y: cy + 15, "text-anchor": "middle", "dominant-baseline": "middle" });
-      centerLabel.textContent = chartT("runtime.chart.totalNotes", {}, "Total notes");
+      centerLabel.textContent = options.centerLabel || chartT("runtime.chart.totalNotes", {}, "Total notes");
       centerLabel.style.cssText = `fill:${mutedColor};font-size:11px;font-weight:640;letter-spacing:0;`;
       centerLabel.classList.add("noria-leader-donut__center-label");
       svg.appendChild(centerLabel);
@@ -348,6 +413,7 @@
         empty.style.cssText = `fill:${mutedColor};font-size:13px;font-weight:620;`;
         svg.appendChild(empty);
       }
+      if (focusedKey !== null) groups.find(item => item.g.getAttribute('data-category-key') === focusedKey)?.g.focus();
     };
 
     render();
@@ -358,9 +424,10 @@
             ro.disconnect();
             return;
           }
-          render();
+          if (computeLayout(parent, options).width !== renderedWidth) render();
         });
         ro.observe(parent);
+        host.__noriaChartCleanup = () => ro.disconnect();
       }
     } catch (_) {}
 
@@ -369,6 +436,7 @@
 
   root.components.charts.leaderDonutChart = {
     renderLeaderDonutChart,
-    _test: { arcPath, normalizeItems, distributeLabels, balanceLabelSides, polar, computeLayout, truncateLabel }
+    _test: { arcPath, normalizeItems, distributeLabels, balanceLabelSides, polar, computeLayout, leaderPoints }
   };
+  if (typeof module !== "undefined" && module.exports) module.exports = root.components.charts.leaderDonutChart;
 })();

@@ -61,6 +61,7 @@ function loadPluginClass(options = {}) {
       if (id === "fs") return options.fs || require("node:fs");
       if (id === "os") return options.os || require("node:os");
       if (id === "path") return options.path || require("node:path");
+      if (id === "crypto") return require("node:crypto");
       throw new Error(`Unexpected require: ${id}`);
     },
     navigator: options.navigator,
@@ -210,15 +211,14 @@ test("managed note seeds are minimal and parseable by current views", () => {
   const plugin = makePlugin();
   const zhPlugin = makePlugin({ language: "zh" });
 
-  assert.match(plugin.getManagedNoteSeed("importantDates"), /\|\s*Date\s*\|\s*Name\s*\|\s*Type\s*\|/);
+  assert.match(plugin.getManagedNoteSeed("importantDates"), /\|\s*Date\s*\|\s*Name\s*\|\s*Start\s*\|/);
   assert.match(plugin.getManagedNoteSeed("habitRegistry"), /## Active habits/);
-  assert.match(plugin.getManagedNoteSeed("habitRegistry"), /## Daily recurring task source/);
+  assert.doesNotMatch(plugin.getManagedNoteSeed("habitRegistry"), /\[[ x]\]|completion::/);
   assert.match(plugin.getManagedNoteSeed("projectRegistry"), /## Active projects/);
   assert.match(plugin.getManagedNoteSeed("projectRegistry"), /## Hidden projects/);
   assert.match(zhPlugin.getManagedNoteSeed("habitRegistry"), /## 打卡中的习惯/);
   assert.match(zhPlugin.getManagedNoteSeed("projectRegistry"), /## 进行中的项目/);
-  assert.match(plugin.getManagedNoteSeed("habitRegistry"), /#habit/);
-  assert.match(plugin.getManagedNoteSeed("habitRegistry"), /#active/);
+  assert.doesNotMatch(plugin.buildStarterProjectSeed({}), /\[[ x]\]|completion::/);
   assert.match(plugin.getManagedNoteSeed("templateLibrary"), /#tl\/template/);
   assert.match(plugin.getManagedNoteSeed("templateLibrary"), /\[default_tag:: #tl\/breakfast\]/);
   assert.doesNotMatch(plugin.getManagedNoteSeed("templateLibrary"), /\|\s*Name\s*\|\s*Start\s*\|\s*Duration\s*\|\s*Tag\s*\|/);
@@ -267,11 +267,9 @@ test("non-diary starter notes do not opt into diary styling", () => {
     assert.doesNotMatch(plugin.getSupportSeedText(key, pathText), /^---\n[\s\S]*cssclasses:/m, key);
   }
   assert.doesNotMatch(plugin.buildStarterProjectSeed({ summary: "demo" }, "setup"), /^---\n[\s\S]*cssclasses:/m);
-  assert.doesNotMatch(plugin.buildStarterInboxSeed({ title: "demo" }), /^---\n[\s\S]*cssclasses:/m);
-  assert.match(plugin.buildStarterInboxSeed({ title: "demo" }), /^---\n[\s\S]*inbox-status:/m);
 });
 
-test("daily and periodic templates use daily-clean blocks without embedded periodic stats", () => {
+test("daily and periodic templates use readable Markdown without runtime view blocks", () => {
   const plugin = makePlugin({ language: "zh-CN" });
   plugin.settings = plugin.normalizeSettings({
     onboarding: { profile: "custom" },
@@ -290,21 +288,20 @@ test("daily and periodic templates use daily-clean blocks without embedded perio
 
   const daily = plugin.getManagedNoteSeed("dailyTemplate");
   assert.match(daily, /tags:\n  - '#daily-plan'/);
-  assert.match(daily, /```noria-view\n\{\n  "view": "focusPanel"/);
-  assert.match(daily, /"sourcePath": "02_Areas\/知识库管理\/Habits\.md"/);
-  assert.match(daily, /"view": "dailyOtherToday"/);
-  assert.match(daily, /"view": "statusSelector"/);
+  assert.match(daily, /## 记录\n\n## 计划\n\n$/);
+  assert.doesNotMatch(daily, /## Inbox|## 习惯记录|## 复盘/);
+  assert.doesNotMatch(daily, /noria-view|focusPanel|statusSelector|dailyOtherToday/);
   assert.doesNotMatch(daily, /weather:/);
 
-  assert.match(plugin.getManagedNoteSeed("weeklyTemplate"), /"view": "weeklyOtherTasks"/);
-  assert.match(plugin.getManagedNoteSeed("monthlyTemplate"), /"view": "monthlyOtherTasks"/);
+  assert.doesNotMatch(plugin.getManagedNoteSeed("weeklyTemplate"), /noria-view|weeklyOtherTasks/);
+  assert.doesNotMatch(plugin.getManagedNoteSeed("monthlyTemplate"), /noria-view|monthlyOtherTasks/);
   assert.doesNotMatch(plugin.getManagedNoteSeed("weeklyTemplate"), /periodicStats/);
   assert.doesNotMatch(plugin.getManagedNoteSeed("monthlyTemplate"), /periodicStats/);
   assert.doesNotMatch(plugin.getManagedNoteSeed("yearlyTemplate"), /periodicStats/);
 
   assert.match(plugin.createDailyDiarySeed(), /^---\n[\s\S]*cssclasses:\n[\s\S]*  - daily-clean/m);
   assert.doesNotMatch(plugin.createDailyDiarySeed(), /noria-note|noria-diary|weather:/);
-  assert.match(plugin.createDailyDiarySeed(), /\n---\n\n## 待办/);
+  assert.match(plugin.createDailyDiarySeed(), /\n---\n\n## 记录/);
 });
 
 test("runtime bridge exposes managed paths, refresh bus, and performance defaults", () => {
@@ -800,19 +797,13 @@ test("targeted Noria settings consume the requested tab before display", () => {
   assert.match(displayBody, /this\.activeTab = this\.normalizeTabId\(preferredTab \|\| this\.activeTab\)/);
 });
 
-test("Home widget settings handoff records the exact widget before opening Home settings", () => {
-  const plugin = makePlugin();
-  const calls = [];
-  plugin.openNoriaSettings = (tab) => {
-    calls.push([tab, plugin._settingsHomeWidgetFocusId]);
-    return { ok: true, tab };
-  };
-
-  const result = plugin.openHomeWidgetSettings("workbench");
-
-  assert.deepEqual(calls, [["home", "workbench"]]);
-  assert.deepEqual(plain(result), { ok: true, tab: "home", widgetId: "workbench" });
-  assert.deepEqual(plain(plugin.openHomeWidgetSettings("")), { ok: false, error: "missing-widget-id" });
+test("Home card settings open locally with the selected instance", () => {
+  const plugin = makePlugin(), calls = [];
+  plugin.cards = {catalog(context,id){calls.push([context.page,id]);}};
+  plugin.openNoriaSettings = () => assert.fail("Card configuration stays on the current page");
+  assert.deepEqual(plain(plugin.openHomeWidgetSettings("workbench")), {ok:true,widgetId:"workbench"});
+  assert.deepEqual(calls,[["home","workbench"]]);
+  assert.deepEqual(plain(plugin.openHomeWidgetSettings("")), {ok:false,error:"missing-widget-id"});
 });
 
 test("Home edit mode keeps chrome transient while persisting widget edits through existing schema helpers", async () => {
@@ -958,7 +949,7 @@ test("Noria Calendar settings default to Noria paths and normalize custom values
   assert.equal(Object.prototype.hasOwnProperty.call(plugin.serializeSettingsForSave({ calendar: { calendarEnabled: false } }).calendar, "calendarEnabled"), false);
 });
 
-test("calendar opens missing notes directly by default and only confirms when enabled", async () => {
+test("explicit source-note creation retains the configured confirmation preference", async () => {
   let confirmCalls = 0;
   const plugin = makePlugin({
     window: {
@@ -985,7 +976,7 @@ test("calendar opens missing notes directly by default and only confirms when en
   };
   plugin.requestNoriaRefresh = () => {};
 
-  const direct = await plugin.openCalendarPeriodNote({ period: "daily", date: "2026-07-25" });
+  const direct = await plugin.openCalendarPeriodNote({ period: "daily", date: "2026-07-25", source: true });
   assert.equal(direct.ok, true);
   assert.equal(confirmCalls, 0);
   assert.deepEqual(created, ["Noria/Diary/2026/2026-07-25.md"]);
@@ -994,7 +985,7 @@ test("calendar opens missing notes directly by default and only confirms when en
   created.length = 0;
   opened.length = 0;
   plugin.settings.calendar.calendarConfirmBeforeCreate = true;
-  const cancelled = await plugin.openCalendarPeriodNote({ period: "daily", date: "2026-07-25" });
+  const cancelled = await plugin.openCalendarPeriodNote({ period: "daily", date: "2026-07-25", source: true });
   assert.deepEqual(plain(cancelled), {
     ok: false,
     cancelled: true,
@@ -1003,6 +994,27 @@ test("calendar opens missing notes directly by default and only confirms when en
   assert.equal(confirmCalls, 1);
   assert.deepEqual(created, []);
   assert.deepEqual(opened, []);
+});
+
+test("calendar date entry opens the diary workspace without creating a missing note", async () => {
+  const plugin = makePlugin();
+  plugin.settings = plugin.normalizeSettings({});
+  const requests = [];
+  plugin.openDiaryInHome = async request => {requests.push(request); return {ok: true, created: false};};
+  plugin.createCalendarNoteIfMissing = async () => {throw new Error("Navigation must not create a date note");};
+  const result = await plugin.openCalendarPeriodNote({period: "daily", date: "2097-09-12"});
+  assert.equal(result.created, false);
+  assert.deepEqual(requests, [{period: "daily", date: "2097-09-12"}]);
+});
+
+test("diary and review resolve the same custom daily path", async () => {
+  const plugin = makePlugin();
+  plugin.settings = plugin.normalizeSettings({calendar: {calendarIntegrationMode: "custom", calendarRootFolder: "Journal", calendarCustomFilePattern: "YYYY/MM/YYYY-MM-DD"}});
+  const selection = plugin.resolveReviewSelection({mode: "daily", anchorDate: "2097-09-12"});
+  const diary = await plugin.resolveCalendarNoteSpecAsync("daily", selection.anchorDate);
+  const review = await plugin.getReviewFinalTarget(selection);
+  assert.equal(diary.path, "Journal/2097/09/2097-09-12.md");
+  assert.equal(review.targetPath, diary.path);
 });
 
 test("calendar missing-note creation is single-flight and never overwrites a concurrent file", async () => {
@@ -1260,6 +1272,22 @@ test("Noria Calendar date task writeback preserves English task headings", () =>
   assert.match(empty, /^## Tasks$/m);
   assert.match(empty, /^### Today tasks$/m);
   assert.doesNotMatch(empty, /^## 待办$/m);
+});
+
+test("quick capture uses the chosen date's template variables and configured target, without refilling existing empty notes",async()=>{
+  const plugin=makePlugin({language:"zh-CN"});plugin.settings=plugin.normalizeSettings({});
+  const files=new Map([["Custom/2098-02-04.md",""]]);
+  plugin.app.vault={getAbstractFileByPath:p=>files.has(p)?{path:p}:null};
+  plugin.resolveCalendarNoteSpecAsync=async(mode,date)=>({period:mode,date,periodId:date,path:`Custom/${date}.md`,templatePath:"Templates/day.md"});
+  plugin.loadTextFromVault=async()=>"## {{title}}\n\n{{date}} / {{period}}\n";
+  plugin.ensureDiaryDayBlocks=async()=>({normalizeYmd:v=>v,appendDiaryInboxLine:(text,value)=>text+"\n"+value});
+  plugin.processTextAtVaultPath=async(p,fn)=>files.set(p,fn(files.get(p)||""));
+  plugin.requestNoriaRefresh=()=>{};
+  const missing=await plugin.appendHomeQuickCapture({date:"2098-02-03",text:"A real capture"});
+  assert.equal(missing.path,"Custom/2098-02-03.md");
+  assert.equal(files.get(missing.path),"## 2098-02-03\n\n2098-02-03 / 2098-02-03\n\nA real capture");
+  await plugin.appendHomeQuickCapture({date:"2098-02-04",text:"Preserve my empty note"});
+  assert.equal(files.get("Custom/2098-02-04.md"),"\nPreserve my empty note");
 });
 
 test("Home quick capture writes today's diary Inbox through shared diary block helper", async () => {
@@ -2689,7 +2717,7 @@ test("human-readable source views read managed paths from the bridge", () => {
   ];
   const combined = files.map((file) => fs.readFileSync(pluginPath(file), "utf8")).join("\n");
 
-  assert.match(combined, /bridge\.paths\?\.importantDatesPath/);
+  assert.match(fs.readFileSync(pluginPath("src/countdown-cards.js"),"utf8"), /getManagedPath\("importantDates"\)/);
   assert.match(combined, /bridge\.paths\?\.habitRegistryPath/);
   assert.match(combined, /bridge\.paths\?\.projectRegistryPath/);
   assert.match(combined, /bridge\.paths\?\.dailyTemplatePath/);

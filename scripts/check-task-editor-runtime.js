@@ -1,0 +1,52 @@
+// Evaluate in Obsidian NoriaTest after installing the experience build.
+(async()=>{
+  if(app.vault.getName()!=="NoriaTest")throw Error("Use NoriaTest only");
+  const p=app.plugins.plugins.noria,fs=require("fs"),root="F:/NoriaTest/_acceptance-c-editor-20260915";
+  const path="Noria/Projects/C公共编辑器验收.md",report=[];
+  const check=(name,ok)=>{report.push({name,ok:!!ok});fs.writeFileSync(root+"/runtime-results.json",JSON.stringify(report,null,2));if(!ok)throw Error(name);};
+  const wait=async fn=>{for(let i=0;i<100;i++){if(await fn())return;await new Promise(r=>setTimeout(r,40));}throw Error("Timed out");};
+  const overlay=()=>document.querySelector(".tc-planner-te-overlay"),field=id=>overlay()?.querySelector("#tc-planner-te-"+id);
+  if(overlay())throw Error("Preserve or close the existing editor before testing");
+  const source="---\ntest_fixture: true\n---\n\n## 任务\n\n- [ ] 阅读 [[书]] #阅读 [custom:: 保留] ^book  \n- [ ] 散步 [due:: 2099-01-10]\n- [ ] 整理照片 ⏫ 🔁 every week 🆔 photo1 ➕ 2099-01-01 #生活 ^photos\n- [ ] 选照片 [id:: select1]\n- [ ] 写游记 [dependsOn:: select1]\n\n# 记录\n原文保留。  \n";
+  if(app.vault.getAbstractFileByPath(path))throw Error("Fixture exists; inspect it before rerunning");
+  await app.vault.create(path,source);fs.writeFileSync(root+"/fixture-before.md",source);
+  const text=()=>p.loadTextFromVault(path);
+  const task=async word=>{const s=await text(),raw=s.split("\n").find(l=>l.startsWith("- [")&&l.includes(word));if(!raw)throw Error("Missing fixture task "+word);return {path,rawText:raw,text:raw,line:s.split("\n").indexOf(raw)};};
+  const open=async word=>{await p.openTaskDetails(await task(word));await wait(overlay);};
+  const change=(id,value)=>{const el=field(id);el.value=value;el.dispatchEvent(new Event(el.tagName==="SELECT"?"change":"input",{bubbles:true}));};
+  const close=()=>overlay().dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));
+  const discard=()=>overlay().querySelector(".tc-planner-te-discard").click();
+  const save=async()=>{overlay().querySelector(".tc-planner-te-btn--primary").click();await wait(()=>!overlay()||overlay().querySelector(".tc-planner-te-error").textContent);if(overlay())throw Error(overlay().querySelector(".tc-planner-te-error").textContent);};
+  const state={p,fs,root,path,report,check,wait,overlay,field,text,task,open,change,close,discard,save};globalThis.__noriaEditorAcceptance=state;
+  await open("阅读");
+  check("Full shared editor is available",!!field("tags")&&!!field("repeat")&&!!field("created-date")&&!!field("status")&&!!field("priority"));
+  check("Undated task stays undated",["start-date","start-time","end-date","end-time","scheduled-date"].every(id=>field(id).value===""));
+  check("Metadata is separate from the title",field("title").value==="阅读 [[书]]"&&field("tags").value==="#阅读");
+  change("title","阅读两章 [[书]]");await save();
+  check("Title-only save preserves original source bytes",await text()===source.replace("阅读 [[书]]","阅读两章 [[书]]"));
+  await open("散步");check("Due-only task has no injected start or time",field("start-date").value===""&&field("end-time").value==="");
+  change("end-date","");await save();check("Removing date does not create another date",(await task("散步")).rawText==="- [ ] 散步 ");
+  await open("整理照片");check("Emoji metadata is read independently",field("repeat").value==="every week"&&field("priority").value==="high"&&field("created-date").value==="2099-01-01");
+  change("tags","#照片 #生活");change("repeat","every month");change("priority","low");change("created-date","2099-01-02");
+  close();await open("整理照片");check("Advanced draft survives closing",field("tags").value==="#照片 #生活"&&field("repeat").value==="every month"&&field("created-date").value==="2099-01-02"&&field("priority").value==="low");
+  await save();const advanced=(await task("整理照片")).rawText;
+  check("Advanced save retains ID and block reference",advanced.includes("🆔 photo1")&&advanced.endsWith("^photos")&&advanced.includes("[repeat:: every month]")&&advanced.includes("[priority:: low]"));
+  await open("阅读");change("scheduled-time","13:45");overlay().querySelector(".tc-planner-te-btn--primary").click();
+  await wait(()=>overlay().querySelector(".tc-planner-te-error").textContent);check("Time without date is retained and explained",field("scheduled-time").value==="13:45"&&!(await task("阅读")).rawText.includes("scheduled::"));
+  change("scheduled-date","2099-01-03");change("start-date","2099-01-03");change("start-time","15:00");change("end-date","2099-01-03");change("end-time","14:00");
+  check("Editing an endpoint does not move the other",field("start-time").value==="15:00");
+  overlay().querySelector(".tc-planner-te-btn--primary").click();await wait(()=>overlay().querySelector(".tc-planner-te-error").textContent);check("Reversed range keeps the draft instead of rewriting it",field("end-time").value==="14:00"&&!(await task("阅读")).rawText.includes("start::"));discard();
+  await open("阅读");change("status","done");change("done-date","2099-01-02");change("done-time","15:30");await save();check("Explicit completion time is saved",(await task("阅读")).rawText.includes("[completion:: 2099-01-02 15:30]"));
+  await open("阅读");change("status","todo");await save();check("Reopening clears completion",!(await task("阅读")).rawText.includes("completion::"));
+  // The public source-note adapter used by Board and Timeline must route here too.
+  const row=await task("散步");globalThis.__noriaTasksCalendarApi.openTaskDateTimeEditorFromMarkdownLine({filePath:path,lineIndex:row.line,rawLine:row.rawText});await wait(overlay);
+  check("Source adapter opens the same full guarded editor",overlay().dataset.sourcePath===path&&!!field("tags")&&field("start-date").value==="");
+  change("title","散步并拍照");await save();check("Source adapter saves without injecting dates",(await task("散步")).rawText==="- [ ] 散步并拍照 ");
+  const cursorRow=await task("散步");await p.editTaskUnderCursor({getCursor:()=>({line:cursorRow.line}),getLine:()=>cursorRow.rawText,focus(){}},{file:app.vault.getAbstractFileByPath(path)});await wait(overlay);
+  check("Cursor command uses the same editor",!!field("repeat")&&overlay().dataset.sourcePath===path);discard();
+  await open("散步");change("title","不覆盖外部改动");const changed=(await text()).replace("散步并拍照","本人修改了路线");await app.vault.modify(app.vault.getAbstractFileByPath(path),changed);
+  overlay().querySelector(".tc-planner-te-btn--primary").click();await wait(()=>overlay().querySelector(".tc-planner-te-error").textContent);
+  check("External source change keeps both source and draft",await text()===changed&&field("title").value==="不覆盖外部改动");discard();
+  fs.writeFileSync(root+"/fixture-after.md",await text());
+  return {checks:report.length,passed:report.filter(r=>r.ok).length,fixture:path};
+})()

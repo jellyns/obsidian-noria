@@ -122,6 +122,7 @@
     const evidence = extractFirstHeading(body, ["证据索引", "证据引用", "输入摘要", "证据引用/输入摘要"]);
     return {
       meta,
+      body,
       sections: {
         summary,
         analysis,
@@ -148,6 +149,7 @@
     const sections = parsed.sections || {};
     const gdd = parsed.gddSuggestion || {};
     return [
+      String(parsed.body||"").replace(/^#{1,6}\s+.*$/gm,"").replace(/%%[\s\S]*?%%/g,""),
       sections.summary,
       sections.analysis,
       sections.advice,
@@ -488,44 +490,6 @@
     })
     .filter(Boolean);
 
-  const buildDailyReviewPrompt = ({ date, artifactPath, evidenceHash, evidenceMarkdown }) => {
-    const ymd = normalizeYmd(date);
-    return [
-      "请基于下面证据，为 Noria 每日复盘生成一份可直接保存到复盘笔记的 Markdown。",
-      "",
-      `日期：${ymd}`,
-      `复盘笔记：${normalizePath(artifactPath)}`,
-      `evidence_hash：${String(evidenceHash || "").trim()}`,
-      "",
-      "要求：",
-      "- 只输出复盘笔记 Markdown，不要解释你的生成过程，不要写入主日记，也不要创建任务。",
-      "- 证据包括任务清单、已过滤的知识库或项目材料变化、日记摘录和日态草稿。",
-      "- 分析时请区分：关键任务 / 日常时间线任务 / 知识库或项目材料变化；生活打卡不要与真正推进混为一谈。",
-      "- 习惯打卡（#habit、喝水、锻炼等例行项）不计入项目任务叙事；最多在偏差与阻塞或证据索引里一句话聚合提及。",
-      "- 写作目标：先判断，再用必要证据支撑。不要做“证据复读机”，不要把不同项目揉成一段流水账。",
-      "- 若证据指向多个项目，按语义 owner 合并；可结合各项目的任务三件套 task_plan.md、findings.md、progress.md，但计划不能单独证明完成。",
-      "- daily 正文按项目数量自然伸缩，通常以 600–900 字为上限目标；单项目可以更短。同一个统计数字全文最多出现一次。",
-      "- 禁止填充语：整体上、总的来说、可以看出、值得注意的是。语言要像人写的复盘，不像工作报告。",
-      "- 今日判断不超过 120 字，回答今天真正推进了什么、偏离了什么；项目复盘中每个项目不超过 150 字，只保留项目判断和有证据的状态事实。",
-      "- 全局只保留一个明天最重要的一件事，作为明天最小下一步；最多再列一个低成本收尾，不要为每个项目分别生成下一步。",
-      "- 忽略 .codex、.obsidian、node_modules、插件文档、依赖文档、附件和构建产物；这些不是复盘对象。",
-      "- 忽略渲染出来的仪表盘、习惯矩阵、状态控件、插件 UI 配置和旧视图代码；除非它们以用户手写复盘内容出现。",
-      "- 不要把文件路径清单当作复盘正文；路径只能在证据引用/输入摘要中少量出现，用来支撑判断。",
-      "- 如果证据不足，请明确写“证据不足”，不要补造不存在的任务、情绪、天气、结论或产出。",
-      "- 明日聚焦必须具体、可执行、可验证，并明确“明天最重要的一件事：”。禁止泛泛的“继续优化”“保持节奏”。",
-      "- AI 建议自然融合进最终总结正文，不要单独设计写回主日记的小节。",
-      "- 输出结构固定为 frontmatter 加以下二级标题：今日判断、项目复盘、明日聚焦、可选的偏差与阻塞、证据索引。",
-      "- frontmatter 只写 period、mode、generated_at、evidence_hash。",
-      "- 偏差与阻塞使用亮点、偏差、阻塞三行全局判断；没有真实阻塞就写“无明确阻塞”，不要在每个项目重复 GDD。",
-      "- 证据索引只写项目 owner、证据路径、evidence_hash 和一行口径说明，不超过 5 行。",
-      "- 不要输出代码围栏，不要输出额外标题，不要添加未在证据中出现的链接。",
-      "",
-      "## 证据",
-      "",
-      String(evidenceMarkdown || "").trim() || "（当前没有可用证据）"
-    ].join("\n");
-  };
-
   const buildClaudianReviewPrompt = ({ template, skillName, date, mode, period, artifactPath, evidenceFile }) => {
     const reviewMode = String(mode || "daily").trim() || "daily";
     const reviewPeriod = String(period || normalizeYmd(date)).trim() || normalizeYmd(date);
@@ -682,7 +646,6 @@
     parseCommitLog,
     parseNumstat,
     summarizeFileChanges,
-    buildDailyReviewPrompt,
     buildClaudianReviewPrompt,
     buildDailyEvidenceMarkdown
   };

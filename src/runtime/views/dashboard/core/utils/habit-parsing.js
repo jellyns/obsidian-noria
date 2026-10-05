@@ -47,6 +47,7 @@
 
   function normalizeHabit(text) {
     return String(text || "")
+      .replace(/[ \t]+\^[A-Za-z0-9-]+[ \t]*$/, "")
       .replace(/#habit-active\b/gi, "")
       .replace(/#habit-paused\b/gi, "")
       .replace(/#habit-done\b/gi, "")
@@ -104,6 +105,10 @@
     ["type", "target", "value", "unit"].forEach((key) => {
       if (fields[key] != null && String(fields[key]).trim() !== "") out[key] = String(fields[key]).trim();
     });
+    if(fields["habit-id"])out.id=fields["habit-id"];
+    if(fields.aliases)out.aliases=fields.aliases;
+    if(fields["record-field"])out.recordField=fields["record-field"];
+    for(const key of ["icon","color","weekdays","plan"])if(fields[key])out[key]=fields[key];
     return out;
   }
 
@@ -113,12 +118,12 @@
     if (meta.type || meta.target || meta.unit) return { name, ...meta };
 
     let m = name.match(/^喝\s*(\d+(?:\.\d+)?)\s*杯水$/);
-    if (m) return { name: "喝水", type: "number", target: m[1], unit: "杯" };
+    if (m) return { name, aliases:"喝水", type: "number", target: m[1], unit: "杯",...meta };
 
     m = name.match(/^运动\s*(\d+(?:\.\d+)?)\s*(大卡|千卡|kcal|卡)$/i);
-    if (m) return { name: "运动", type: "number", target: m[1], unit: m[2] };
+    if (m) return { name, aliases:"运动", type: "number", target: m[1], unit: m[2],...meta };
 
-    if (/睡/.test(name) && /12[:：]30/.test(name)) return { name, type: "sleep", target: "00:30" };
+    if (/睡/.test(name) && /12[:：]30/.test(name)) return { name, type: "sleep", target: "00:30",...meta };
 
     return { name, ...meta };
   }
@@ -133,6 +138,10 @@
     if (type) parts.push(`[type:: ${type}]`);
     if (target) parts.push(`[target:: ${target}]`);
     if (unit) parts.push(`[unit:: ${unit}]`);
+    if (config?.id) parts.push(`[habit-id:: ${config.id}]`);
+    if (config?.aliases) parts.push(`[aliases:: ${config.aliases}]`);
+    if (config?.recordField) parts.push(`[record-field:: ${config.recordField}]`);
+    for(const key of ["icon","color","weekdays","plan"])if(config?.[key])parts.push(`[${key}:: ${config[key]}]`);
     return parts.join(" ");
   }
 
@@ -281,4 +290,5 @@
     minutesBetween,
     buildSleepTimelineLine
   };
+  if (typeof module !== "undefined" && module.exports) module.exports = root.utils.habitParsing;
 })();

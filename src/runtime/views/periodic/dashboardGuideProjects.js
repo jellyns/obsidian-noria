@@ -13,6 +13,8 @@ const host = (input && input.mount) ? input.mount : this.container;
     await Promise.all(workers);
   }
   const bridge = input?.noriaBridge || globalThis.__noriaRuntimeBridge || {};
+  const projectViewState = bridge.tasks.projectViewState;
+  const completedOpen = projectViewState.completedOpen || (projectViewState.completedOpen = {});
   const projectsT = (key, params = {}) => {
     try {
       if (bridge && typeof bridge.t === "function") return bridge.t(key, params);
@@ -113,15 +115,16 @@ const host = (input && input.mount) ? input.mount : this.container;
     return false;
   };
   const parseItemText = (line) => {
-    const raw = String(line || "").replace(/^-+\s*/, "").trim();
-    const m = raw.match(/^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]$/);
+    const raw = String(line || "").replace(/<!-- noria-stage:(?:active|planned|done) -->/g, "").replace(/^-+\s*/, "").trim();
+    const m = raw.match(/^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/);
     if (m) {
       const path = normalizePath(m[1] || "");
+      const description = raw.slice(m[0].length);
       const projSeg = path.match(new RegExp(`${escapeRegExp(projectsRoot)}/([^/]+)`));
-      if (projSeg) return { name: normalizeName(projSeg[1]), targetPath: path };
+      if (projSeg) return { name: normalizeName(m[2] || projSeg[1]), targetPath: path, description };
       const alias = normalizeName(m[2] || "");
-      if (alias) return { name: alias, targetPath: path };
-      return { name: normalizeName(path.split("/").pop()), targetPath: path };
+      if (alias) return { name: alias, targetPath: path, description };
+      return { name: normalizeName(path.split("/").pop().replace(/\.(md|canvas)$/i,"")), targetPath: path, description };
     }
     return { name: normalizeName(raw), targetPath: "" };
   };
@@ -397,17 +400,21 @@ const host = (input && input.mount) ? input.mount : this.container;
     document.addEventListener("keydown", onEsc, true);
     activeMenuState = { menu, onDocPointerDown, onEsc };
   };
-  const openProjectNote = async (proj) => {
+  const openProjectNote = async (proj, event, anchor) => {
     const preferred = normalizePath(proj?.targetPath || "");
     const fallback = normalizePath(proj?.mocPath || "");
     const p = preferred || fallback;
-    const f = app.vault.getAbstractFileByPath(p);
+    const f = app.vault.getAbstractFileByPath(p.split("#")[0]);
     if (!f) {
       bridge.runtime?.notice?.("runtime.periodic.projects.sourceMissing", { path: p }, 4500)
         || new Notice(projectsT("runtime.periodic.projects.sourceMissing", { path: p }), 4500);
       return;
     }
-    await app.workspace.getLeaf(false).openFile(f);
+    try {
+      await bridge.runtime.openHomeSource(p, { event, anchor });
+    } catch (error) {
+      notifyProject("runtime.home.moc.openFailed", {}, 4000);
+    }
   };
   const projectTaskLine = (text) => {
     const value = normalizeName(text).replace(/^\s*[-*]\s*\[[^\]]*\]\s*/, "").trim();
@@ -420,68 +427,26 @@ const host = (input && input.mount) ? input.mount : this.container;
       return null;
     }
     const p = normalizePath(proj?.targetPath || proj?.mocPath || "");
-    const f = app.vault.getAbstractFileByPath(p);
+    const f = app.vault.getAbstractFileByPath(p.split("#")[0]);
     if (!f) {
       notifyProject("runtime.periodic.projects.sourceMissing", { path: p }, 4500);
       return null;
     }
-    let line = 0;
-    const append = (current) => {
-      const base = String(current || "").replace(/\s+$/g, "");
-      const prefix = base ? `${base}\n\n` : "";
-      line = prefix ? prefix.split("\n").length - 1 : 0;
-      return `${prefix}${taskLine}\n`;
-    };
-    if (typeof app.vault.process === "function") {
-      await app.vault.process(f, append);
-    } else {
-      let before = "";
-      try {
-        if (typeof app.vault.read === "function") before = String(await app.vault.read(f) || "");
-        else before = String(await app.vault.cachedRead?.(f) || "");
-      } catch (_) {}
-      if (!before) {
-        try { before = String(await app.vault.adapter?.read?.(p) || ""); } catch (_) {}
-      }
-      await app.vault.modify(f, append(before));
-    }
+    const created = await bridge.tasks.appendToProject({path:p,text:taskLine,candidatePaths:[...proj.open,...(proj.completed||[])].map(t=>t.path||t.from)});
+    if(!created)return null;
     notifyProject("runtime.periodic.projects.nextAdded", { name: proj.name }, 1600);
-    try { bridge.refresh?.requestRefresh?.("home", "project-next-step"); } catch (_) {}
-    try { globalThis.__noriaHomeRefreshBus?.emit?.("projects", 20); } catch (_) {}
     return {
+      ...created,
       text: taskLine,
       completed: false,
       cancelled: false,
       status: "open",
       checkboxState: "todo",
-      path: p,
-      from: p,
-      line,
+      path: created.path,
+      from: created.path,
+      line: created.line,
       _inProgress: false
     };
-  };
-  const openTaskTarget = async (task) => {
-    const p = String(task?.path || task?.from || "").trim();
-    if (!p) return;
-    const f = app.vault.getAbstractFileByPath(p);
-    if (!f) {
-      bridge.runtime?.notice?.("runtime.periodic.projects.sourceMissing", { path: p }, 4500)
-        || new Notice(projectsT("runtime.periodic.projects.sourceMissing", { path: p }), 4500);
-      return;
-    }
-    const leaf = app.workspace.getLeaf(false);
-    await leaf.openFile(f);
-    const line = Number(task?.line);
-    if (!Number.isFinite(line)) return;
-    setTimeout(() => {
-      const editor = leaf?.view?.editor;
-      if (!editor || typeof editor.setCursor !== "function") return;
-      const ln = Math.max(0, Math.floor(line));
-      editor.setCursor({ line: ln, ch: 0 });
-      if (typeof editor.scrollIntoView === "function") {
-        editor.scrollIntoView({ from: { line: ln, ch: 0 }, to: { line: ln, ch: 0 } }, true);
-      }
-    }, 0);
   };
   const registry = await readProjectRegistry();
 
@@ -626,23 +591,10 @@ const host = (input && input.mount) ? input.mount : this.container;
       .replace(/\s{2,}/g, " ")
       .trim();
 
-  const toDateObj = (v) => {
-    if (!v) return null;
-    const s = String(v).slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-    const d = new Date(`${s}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
-  };
-  const today0 = new Date();
-  today0.setHours(0, 0, 0, 0);
   const isInProgressTask = (t) => {
     if (String(t?.checkboxState || "") === "in_progress") return true;
     const text = String(t?.text || "");
     if (/进行中/.test(text)) return true;
-    const start = toDateObj(t?.start) || toDateObj(t?.scheduled);
-    const due = toDateObj(t?.due);
-    if (start && due) return start.getTime() <= today0.getTime() && today0.getTime() <= due.getTime();
-    if (start && !due) return start.getTime() <= today0.getTime();
     return false;
   };
 
@@ -717,7 +669,7 @@ const host = (input && input.mount) ? input.mount : this.container;
       debugEntry.openCount = open.length;
       debugEntry.stage = stage;
       projectDebug.projects.push(debugEntry);
-      projectBuildRows[projectIndex] = { name: proj.name, mocPath, targetPath, done, total, open, pct, stage, hasInProgress, _debug: debugEntry };
+      projectBuildRows[projectIndex] = { name: proj.name, mocPath, targetPath, done, total, open, completed:tasks.filter(t=>t.completed||t.status==="done"), pct, stage, hasInProgress, _debug: debugEntry };
     });
   });
   await runProjectGuideBuildQueue(projectBuildJobs);
@@ -749,7 +701,7 @@ const host = (input && input.mount) ? input.mount : this.container;
   const panel = wrap.createDiv();
   panel.addClass?.("dashboard-project-current-panel");
   panel.style.cssText =
-    "border:1px solid color-mix(in srgb,rgba(99,102,241,.12),var(--background-modifier-border) 88%);border-radius:11px;padding:8px 10px;background:color-mix(in srgb,var(--background-primary) 98%,rgba(99,102,241,.03));box-shadow:none;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;";
+    "border:0;border-radius:0;padding:4px 0;background:transparent;box-shadow:none;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;";
 
   const buttonRefs = [];
   const setBtn = (btn, active, stage, pct) => {
@@ -767,55 +719,25 @@ const host = (input && input.mount) ? input.mount : this.container;
   };
 
   const appendProjectTaskRow = (parent, task, displayText, variant, opts = {}) => {
-    const row = parent.createDiv();
+    const row = bridge.tasks.renderRow(parent,task,{onSaved:(result,updated,control)=>{
+      projectViewState.lastTask={path:task.path,line:result.line};
+      if(updated.completed)completedOpen[projectViewState.selected]=true;
+      projectViewState.focusTask={...projectViewState.lastTask,control};
+    }});
     row.addClass("dashboard-project-task-row");
     const taskPath = normalizePath(task?.path || task?.from || "");
     const taskLine = Number(task?.line);
-    let style = "display:flex;align-items:center;gap:7px;padding:3px 3px 3px 0;min-width:0;cursor:pointer;";
-    if (opts.extraTopMargin) style += "margin-top:2px;";
-    row.style.cssText = style;
-    setNodeAttr(row, "role", "button");
-    setNodeAttr(row, "tabindex", "0");
-    setNodeAttr(row, "title", projectsT("runtime.periodic.projects.openTaskSource"));
-    setNodeAttr(row, "data-noria-action-kind", "open-project-task-source");
+    setNodeAttr(row, "data-noria-action-kind", "edit-project-task");
     setNodeAttr(row, "data-noria-action-source", "home-project-guide");
     setNodeAttr(row, "data-noria-project-task-kind", variant || "task");
     setNodeAttr(row, "data-noria-project-task-status", task?.status || (task?.completed ? "done" : "open"));
     if (taskPath) setNodeAttr(row, "data-noria-project-task-source-path", taskPath);
     if (Number.isFinite(taskLine) && taskLine >= 0) setNodeAttr(row, "data-noria-project-task-source-line", String(Math.floor(taskLine)));
-    const ring = row.createEl("input");
-    ring.type = "checkbox";
-    ring.checked = !!task.completed;
-    ring.className = "task-list-item-checkbox noria-themed-checkbox noria-themed-checkbox--home";
-    ring.setAttr("data-state", task.completed ? "done" : "default");
-    ring.setAttr("aria-hidden", "true");
-    ring.setAttr("tabindex", "-1");
-    const textRow = row.createDiv();
-    textRow.style.cssText =
-      "flex:1;min-width:0;display:flex;align-items:center;justify-content:flex-start;gap:6px;overflow:hidden;min-height:0;";
-    const textMain = document.createElement("div");
-    textMain.className = "dashboard-task-title dashboard-task-title--one-line";
-    textMain.textContent = displayText;
-    textMain.style.cssText =
-      "font-size:var(--dash-text-row-size,.86em);line-height:var(--dash-text-row-line,1.25);font-weight:var(--dash-text-row-weight,500);color:var(--text-normal);";
-    textRow.appendChild(textMain);
-    row.appendChild(textRow);
-    const open = () => {
-      void openTaskTarget(task);
-    };
-    row.onclick = (ev) => {
-      ev.preventDefault();
-      open();
-    };
-    row.onkeydown = (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") {
-        ev.preventDefault();
-        open();
-      }
-    };
+    return row;
   };
 
   const renderProject = (proj) => {
+    projectViewState.selected=proj.name;
     panel.empty();
     panel.setAttr?.("data-project-open-count", String(proj.open.length));
     panel.setAttr?.("data-project-total-count", String(proj.total));
@@ -833,6 +755,14 @@ const host = (input && input.mount) ? input.mount : this.container;
 
     const nextRow = panel.createDiv();
     nextRow.addClass("dashboard-project-next-row");
+    const sourceButton = nextRow.createEl("button", { cls: "clickable-icon noria-project-source" });
+    sourceButton.type = "button";
+    sourceButton.setAttr("aria-label", projectsT("runtime.periodic.projects.openNote"));
+    sourceButton.setAttr("title", projectsT("runtime.periodic.projects.openNote"));
+    bridge.runtime?.setIcon?.(sourceButton, "file-text");
+    sourceButton.onclick = (event) => { void openProjectNote(proj, event, sourceButton); };
+    sourceButton.onauxclick = (event) => { if (event.button === 1) { event.preventDefault(); void openProjectNote(proj,event,sourceButton); } };
+    sourceButton.onmouseenter = (event) => bridge.runtime?.previewHomeSource?.(proj.targetPath || proj.mocPath, event, sourceButton);
     const nextTargetPath = normalizePath(proj?.targetPath || proj?.mocPath || "");
     const setNextState = (state) => {
       setNodeAttr(nextRow, "data-noria-project-next-state", state || "idle");
@@ -844,6 +774,8 @@ const host = (input && input.mount) ? input.mount : this.container;
     setNextState("idle");
     const nextInput = nextRow.createEl("input");
     nextInput.type = "text";
+    nextInput.value=projectViewState.drafts[proj.name]||"";
+    nextInput.addEventListener("input",()=>{projectViewState.drafts[proj.name]=nextInput.value;});
     nextInput.className = "dashboard-project-next-input";
     nextInput.setAttr?.("placeholder", projectsT("runtime.periodic.projects.nextPlaceholder"));
     nextInput.setAttribute?.("aria-label", projectsT("runtime.periodic.projects.nextAria", { name: proj.name }));
@@ -912,10 +844,15 @@ const host = (input && input.mount) ? input.mount : this.container;
       if (!created) return;
       setNextActionState("ok");
       nextInput.value = "";
+      projectViewState.drafts[proj.name]="";
+      projectViewState.lastTask={path:created.path,line:created.line};
       proj.open.unshift(created);
       proj.total += 1;
       proj.pct = proj.total > 0 ? Math.round((proj.done / proj.total) * 100) : 0;
       renderProject(proj);
+      panel.querySelector?.(".dashboard-project-next-input")?.focus?.({preventScroll:true});
+      projectViewState.focusNext=proj.name;
+      try { bridge.refresh?.requestRefresh?.("tasks", "project-next-step"); } catch (_) {}
     };
     nextBtn.onclick = async (ev) => {
       ev?.preventDefault?.();
@@ -946,8 +883,12 @@ const host = (input && input.mount) ? input.mount : this.container;
       empty.style.cssText =
         "padding:6px 4px;color:var(--text-muted);font-size:.86em;line-height:1.35;";
     } else {
-      const inProgress = proj.open.filter((t) => t._inProgress).slice(0, 8);
-      const backlog = proj.open.filter((t) => !t._inProgress).slice(0, 8);
+      const full=projectViewState.expanded[proj.name];
+      const last=projectViewState.lastTask;
+      const pinned=t=>last&&t.path===last.path&&t.line===last.line;
+      const ordered=proj.open.slice().sort((a,b)=>Number(pinned(b))-Number(pinned(a)));
+      const inProgress = ordered.filter((t) => t._inProgress).slice(0, full?undefined:8);
+      const backlog = ordered.filter((t) => !t._inProgress).slice(0, full?undefined:8);
       if (inProgress.length) {
         const h = listWrap.createDiv({ text: projectsT("runtime.periodic.projects.inProgress") });
         h.style.cssText =
@@ -960,6 +901,23 @@ const host = (input && input.mount) ? input.mount : this.container;
           appendProjectTaskRow(listWrap, t, cleanTask(t.text), "backlog", { extraTopMargin: firstMargin && i === 0 })
         );
       }
+      if(inProgress.length+backlog.length<proj.open.length){
+        const more=listWrap.createEl("button",{cls:"noria-project-all-tasks",text:projectsT("workbench.allTasks",{count:proj.open.length})});
+        more.onclick=()=>{projectViewState.expanded[proj.name]=true;renderProject(proj);};
+      }
+    }
+    if(proj.completed?.length){
+      const done=listWrap.createEl("details");
+      done.open=completedOpen[proj.name]===true;
+      done.addEventListener("toggle",()=>{completedOpen[proj.name]=done.open;});
+      done.createEl("summary",{text:projectsT("runtime.periodic.projects.completed")+" · "+proj.completed.length});
+      proj.completed.forEach(t=>appendProjectTaskRow(done,t,cleanTask(t.text),"done"));
+    }
+    if(projectViewState.focusNext===proj.name){nextInput.focus?.({preventScroll:true});projectViewState.focusNext="";}
+    if(projectViewState.focusTask){
+      const target=projectViewState.focusTask;
+      const row=[...panel.querySelectorAll?.(".noria-workbench-task-row")||[]].find(el=>el.dataset.sourcePath===target.path&&Number(el.dataset.sourceLine)===target.line);
+      row?.querySelector(target.control==="checkbox"?"input[type=checkbox]":".noria-diary-task-title")?.focus({preventScroll:true});projectViewState.focusTask=null;
     }
   };
 
@@ -982,7 +940,8 @@ const host = (input && input.mount) ? input.mount : this.container;
         total: proj.total,
         pct: proj.pct
       }));
-      btn.onclick = () => {
+      btn.onclick = (event) => {
+        if (event?.ctrlKey || event?.metaKey) { event.preventDefault(); void openProjectNote(proj,event,btn); return; }
         closeProjectMenu();
         buttonRefs.forEach((x) => setBtn(x.btn, x.name === proj.name, x.stage, x.pct));
         renderProject(proj);
@@ -991,8 +950,10 @@ const host = (input && input.mount) ? input.mount : this.container;
         ev.preventDefault();
         ev.stopPropagation();
         closeProjectMenu();
-        await openProjectNote(proj);
+        await openProjectNote(proj, ev, btn);
       };
+      btn.onauxclick = (event) => { if (event.button === 1) { event.preventDefault(); void openProjectNote(proj,event,btn); } };
+      btn.onmouseenter = (event) => bridge.runtime?.previewHomeSource?.(proj.targetPath || proj.mocPath,event,btn);
       btn.oncontextmenu = async (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1017,5 +978,5 @@ const host = (input && input.mount) ? input.mount : this.container;
     renderProject(target);
   };
 
-  rebuild(projectData[0].name);
+  rebuild(projectViewState.selected || projectData[0].name);
 })();

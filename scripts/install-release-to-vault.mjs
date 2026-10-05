@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const releaseAssets = ["manifest.json", "main.js", "styles.css"];
-const preservedInstallFiles = new Set([...releaseAssets, "data.json"]);
+// The cache directory also contains user-authored recovery drafts.
+const preservedInstallFiles = new Set([...releaseAssets, "data.json", "cache"]);
 
 const args = process.argv.slice(2);
 const keepExtra = args.includes("--keep-extra");
@@ -67,7 +68,7 @@ const installed = fs.readdirSync(targetRoot).sort();
 const unexpected = installed.filter((name) => !preservedInstallFiles.has(name));
 if (unexpected.length) {
   console.warn(`Noria install warning: non-release files remain in ${targetRoot}: ${unexpected.join(", ")}`);
-  console.warn("Run without --keep-extra to remove development files while preserving data.json.");
+  console.warn("Run without --keep-extra to remove development files while preserving data.json and recovery storage.");
 }
 
 console.log(`Noria installed to ${targetRoot}`);

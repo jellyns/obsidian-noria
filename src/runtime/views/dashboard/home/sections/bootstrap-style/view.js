@@ -43,7 +43,7 @@
       --dash-radius-card: 14px;
       --dash-section-x: 2px;
       /* 主页一级区块纵向节奏：头像、工作台、导引、趋势统计之间统一用这一处调整 */
-      --dash-home-section-gap: 2px;
+      --dash-home-section-gap: 12px;
       --dash-workbench-gap: 12px;
       --dash-workbench-accent: color-mix(in srgb, var(--interactive-accent) 72%, rgb(14 165 233));
       --dash-hero-gap: 14px;
@@ -312,14 +312,19 @@
     .dashboard-home-root > [data-noria-widget-span="10"] { grid-column: span 10; }
     .dashboard-home-root > [data-noria-widget-span="11"] { grid-column: span 11; }
     .dashboard-home-root > [data-noria-widget-span="12"] { grid-column: span 12; }
+    .dashboard-home-root > .dashboard-home-widget-shell[data-noria-widget-span] {
+      grid-column: span var(--noria-home-widget-span, 12);
+    }
     @media (max-width: 900px) {
-      .dashboard-home-root > [data-noria-widget-span] {
-        grid-column: 1 / -1 ;
+      .dashboard-home-root > [data-noria-widget-span],
+      .dashboard-home-root > .dashboard-home-widget-shell[data-noria-widget-span] {
+        grid-column: 1 / -1;
       }
     }
     @container noria-home (max-width: 900px) {
-      .dashboard-home-root > [data-noria-widget-span] {
-        grid-column: 1 / -1 ;
+      .dashboard-home-root > [data-noria-widget-span],
+      .dashboard-home-root > .dashboard-home-widget-shell[data-noria-widget-span] {
+        grid-column: 1 / -1;
       }
     }
     .dashboard-home-root > .callout[data-callout="info"] {
@@ -459,14 +464,15 @@
     .dashboard-home-root .dashboard-guide-card:focus-within .dashboard-tray-resize-handle,
     .dashboard-home-root .dashboard-moc-host:hover .dashboard-tray-resize-handle,
     .dashboard-home-root .dashboard-moc-host:focus-within .dashboard-tray-resize-handle {
-      opacity: .01; /* 维持可交互命中，视觉上近乎不可见 */
+      opacity: 1;
     }
-    /* MOC：嵌入导引区，无第二张「白卡」外框；chip 自身仍有 pill 层次 */
+    .dashboard-tray-resize-handle::after { content: ""; position: absolute; bottom: 4px; left: calc(50% - 16px); width: 32px; height: 2px; border-radius: 2px; background: var(--background-modifier-border-hover); }
+    /* MOC shares the Home card surface; individual entries remain flat. */
     .dashboard-home-root .dashboard-moc-host {
-      background: transparent ;
-      border: none ;
+      background: var(--dash-surface) ;
+      border: 1px solid var(--background-modifier-border) ;
       box-shadow: none ;
-      border-radius: 0 ;
+      border-radius: var(--dash-radius-card) ;
     }
     .theme-dark .dashboard-home-root .dashboard-guide-card {
       background: var(--dash-surface) ;
@@ -533,15 +539,7 @@
       letter-spacing: 0 ;
       line-height: 1.25 ;
     }
-    .dashboard-home-root .dashboard-workbench-panel__title::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--dash-workbench-accent) 72%, var(--text-muted) 28%);
-      flex: 0 0 auto;
-      opacity: .72;
-    }
+
     .dashboard-home-root .dashboard-workbench-panel__tools {
       gap: 3px ;
       min-width: 0;
@@ -826,6 +824,7 @@
     .dashboard-home-root > .dashboard-home-widget-shell-native:not([data-noria-widget-collapsed="true"]) > .dashboard-home-widget-native-content {
       flex: 1 1 auto;
       min-height: 0;
+      overflow: auto;
       display: flex;
       flex-direction: column;
     }
@@ -869,22 +868,18 @@
       display: inline-flex;
       align-items: center;
       gap: 2px;
-      opacity: 0;
-      pointer-events: none;
+      opacity: 1;
+      pointer-events: auto;
       transition: opacity var(--dash-motion-fast);
     }
     .dashboard-home-widget-shell-actions--overlay {
       position: absolute;
-      top: 0;
+      top: 12px;
       right: 8px;
       left: auto;
       z-index: 8;
-      transform: translateY(calc(-100% + 1px));
-      padding: 2px;
-      border: 1px solid color-mix(in srgb, var(--background-modifier-border) 58%, transparent);
-      border-radius: 6px;
-      background: color-mix(in srgb, var(--background-primary) 92%, transparent);
-      box-shadow: 0 1px 4px color-mix(in srgb, var(--background-modifier-box-shadow) 18%, transparent);
+      transform: none;
+      padding: 0;
     }
     .dashboard-home-widget-shell:hover .dashboard-home-widget-shell-actions,
     .dashboard-home-widget-shell:focus-within .dashboard-home-widget-shell-actions {
@@ -924,6 +919,9 @@
       opacity: .48;
       cursor: wait;
     }
+    @container noria-home (max-width: 640px) {
+      .dashboard-home-widget-shell-actions { opacity: 1; pointer-events: auto; }
+    }
     .dashboard-home-root[data-noria-home-edit-mode="true"] .dashboard-home-widget-shell {
       margin-top: 30px;
       outline: 1px solid color-mix(in srgb, var(--dash-widget-accent) 20%, transparent);
@@ -947,32 +945,6 @@
     [data-noria-home-edit-mode="true"] .dashboard-home-widget-shell-native > .dashboard-home-widget-shell-actions--overlay {
       top: 0;
       right: 8px;
-    }
-    .dashboard-home-widget-edit-size {
-      width: 72px;
-      min-width: 72px;
-      height: 24px;
-      min-height: 24px;
-      margin: 0;
-      padding: 0 20px 0 6px;
-      border: 0;
-      border-radius: 5px;
-      background-color: transparent;
-      box-shadow: none;
-      color: var(--dash-widget-muted);
-      font-size: 11.5px;
-      font-weight: 650;
-      line-height: 22px;
-      letter-spacing: 0;
-    }
-    .dashboard-home-widget-edit-size:hover,
-    .dashboard-home-widget-edit-size:focus-visible {
-      background-color: color-mix(in srgb, var(--dash-widget-accent) 9%, transparent);
-      color: var(--dash-widget-text);
-      outline: none;
-    }
-    .dashboard-home-widget-edit-size:focus-visible {
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--dash-widget-accent) 34%, transparent);
     }
     .dashboard-home-widget-shell-hidden {
       min-height: 42px ;
@@ -2019,7 +1991,7 @@
     .dashboard-home-root .callout[data-callout="success"] .callout-content a.internal-link:not(.dashboard-task-title--link) { box-shadow: var(--dash-shadow-inset-soft); }
     .dashboard-project-next-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       align-items: center;
       gap: 6px;
       margin: 0 0 7px;
@@ -2148,8 +2120,8 @@
     }
     .dashboard-project-chip {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary));
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-home, var(--interactive-accent)) 8%, transparent);
-      --project-chip-border: color-mix(in srgb, var(--background-modifier-border) 84%, var(--noria-module-home, var(--interactive-accent)) 16%);
+      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 8%, transparent);
+      --project-chip-border: color-mix(in srgb, var(--background-modifier-border) 84%, var(--noria-module-projects, var(--interactive-accent)) 16%);
       position: relative;
       padding: 3px 10px;
       border-radius: 9px;
@@ -2165,11 +2137,11 @@
       transition: border-color .14s ease, background .14s ease, color .14s ease, box-shadow .14s ease, filter .14s ease;
     }
     .dashboard-project-chip[aria-pressed="true"] {
-      --project-chip-bg: color-mix(in srgb, var(--background-primary) 94%, var(--noria-module-home, var(--interactive-accent)) 6%);
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-home, var(--interactive-accent)) 26%, transparent);
-      --project-chip-border: color-mix(in srgb, var(--noria-module-home, var(--interactive-accent)) 48%, var(--background-modifier-border));
+      --project-chip-bg: color-mix(in srgb, var(--background-primary) 94%, var(--noria-module-projects, var(--interactive-accent)) 6%);
+      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 26%, transparent);
+      --project-chip-border: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 48%, var(--background-modifier-border));
       font-weight: 700;
-      color: color-mix(in srgb, var(--text-normal) 92%, var(--noria-module-home, var(--interactive-accent)) 8%);
+      color: color-mix(in srgb, var(--text-normal) 92%, var(--noria-module-projects, var(--interactive-accent)) 8%);
       box-shadow: none ;
     }
     .dashboard-project-chip[data-project-stage="planned"] {
@@ -2188,12 +2160,12 @@
     }
     .theme-dark .dashboard-project-chip {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 92%, rgb(30 41 59));
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-home, var(--interactive-accent)) 14%, transparent);
-      --project-chip-border: color-mix(in srgb, var(--background-modifier-border) 74%, var(--noria-module-home, var(--interactive-accent)) 26%);
+      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 14%, transparent);
+      --project-chip-border: color-mix(in srgb, var(--background-modifier-border) 74%, var(--noria-module-projects, var(--interactive-accent)) 26%);
     }
     .theme-dark .dashboard-project-chip[aria-pressed="true"] {
-      --project-chip-bg: color-mix(in srgb, var(--background-primary) 86%, var(--noria-module-home, var(--interactive-accent)) 14%);
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-home, var(--interactive-accent)) 34%, transparent);
+      --project-chip-bg: color-mix(in srgb, var(--background-primary) 86%, var(--noria-module-projects, var(--interactive-accent)) 14%);
+      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 34%, transparent);
     }
     .dashboard-guide-projects .dashboard-project-chip {
       max-width: min(100%, 11rem);
@@ -2444,19 +2416,9 @@
     }
     .dashboard-period-task-summary-main {
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       gap: 1px;
       min-width: 0;
-    }
-    .dashboard-period-task-summary-label {
-      min-width: 0;
-      color: color-mix(in srgb, var(--text-normal) 88%, var(--dash-workbench-accent));
-      font-size: .82em;
-      font-weight: 720;
-      line-height: 1.3;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     .dashboard-period-task-summary-meta {
       min-width: 0;
@@ -2467,10 +2429,6 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-    .dashboard-period-task-summary-count {
-      min-width: 34px;
-      justify-content: center;
     }
     .dashboard-period-task-group {
       display: flex;
@@ -2846,9 +2804,9 @@
     .dashboard-habit-21-shell {
       container-type: inline-size;
       --habit-name-col: clamp(88px, 25%, 116px);
-      --habit-cell-h: 17px;
-      --habit-head-h: 19px;
-      --habit-token-h: 10px;
+      --habit-cell-h: 30px;
+      --habit-head-h: 24px;
+      --habit-token-h: 16px;
       --habit-streak-pad: 1px;
       --habit-matrix-bg: transparent;
       --habit-matrix-bg-strong: transparent;
@@ -2983,21 +2941,15 @@
       min-width: 0;
       width: 100%;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(var(--habit-days, 21), minmax(28px, 1fr));
       align-items: center;
       position: relative;
       background-image: linear-gradient(90deg, var(--habit-grid-line-soft) 0 1px, transparent 1px);
-      background-size: calc(100% / 22) 100%;
+      background-size: calc(100% / var(--habit-days, 21)) 100%;
       background-position: 0 0;
     }
-    .dashboard-habit-21-line {
-      min-width: 0;
-      display: grid;
-      grid-template-columns: repeat(11, minmax(0, 1fr));
-      align-items: center;
-    }
     .dashboard-habit-21-head-track {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(var(--habit-days, 21), minmax(28px, 1fr));
     }
     .dashboard-habit-21-track::after {
       content: "";
@@ -3006,8 +2958,8 @@
       z-index: 0;
       top: 0;
       bottom: 0;
-      left: calc((var(--habit-today-index, 21) * 100%) / 22);
-      width: calc(100% / 22);
+      left: calc((var(--habit-today-index, 20) * 100%) / var(--habit-days, 21));
+      width: calc(100% / var(--habit-days, 21));
       background: var(--habit-today-column);
     }
     .dashboard-habit-21-cell,
@@ -3249,129 +3201,86 @@
     .theme-dark .dashboard-habit-21-token.has-streak-count {
       text-shadow: 0 1px 0 color-mix(in srgb, black 28%, transparent);
     }
-    @container (max-width: 520px) {
-      .dashboard-habit-21-grid {
-        --habit-cell-h: 17px;
-        --habit-head-h: 15px;
-        --habit-token-h: 10px;
-        gap: 2px;
-      }
-      .dashboard-habit-21-header {
-        margin-bottom: 1px;
-      }
-      .dashboard-habit-21-row:not(.dashboard-habit-21-header) {
-        row-gap: 0;
-      }
-      .dashboard-habit-21-row:not(.dashboard-habit-21-header) .dashboard-habit-21-track {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-        background-image: none;
-      }
-      .dashboard-habit-21-row:not(.dashboard-habit-21-header) .dashboard-habit-21-track::after {
-        top: calc(var(--habit-cell-h) + 1px);
-        left: calc(((var(--habit-today-index, 21) - 11) * 100%) / 11);
-        width: calc(100% / 11);
-      }
-      .dashboard-habit-21-row:not(.dashboard-habit-21-header) .dashboard-habit-21-line {
-        min-width: 0;
-        width: 100%;
-        display: grid;
-        align-items: center;
-        position: relative;
-        background-image: linear-gradient(90deg, var(--habit-grid-line-soft) 0 1px, transparent 1px);
-        background-size: calc(100% / 11) 100%;
-        background-position: 0 0;
-      }
-      .dashboard-habit-21-line--early {
-        grid-template-columns: repeat(11, minmax(0, 1fr));
-      }
-      .dashboard-habit-21-line--recent {
-        grid-template-columns: repeat(11, minmax(0, 1fr));
-        border-top: 0;
-      }
-      .dashboard-habit-21-head-track {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-        background-image: none;
-      }
-      .dashboard-habit-21-head-track::after {
-        display: none;
-      }
-      .dashboard-habit-21-head-track .dashboard-habit-21-line {
-        min-width: 0;
-        width: 100%;
-        display: grid;
-        grid-template-columns: repeat(11, minmax(0, 1fr));
-        align-items: center;
-        background-image: linear-gradient(90deg, var(--habit-grid-line-soft) 0 1px, transparent 1px);
-        background-size: calc(100% / 11) 100%;
-        background-position: 0 0;
-      }
-      .dashboard-habit-21-header .dashboard-habit-21-name,
-      .dashboard-habit-21-head-track {
-        min-height: calc(var(--habit-head-h) * 2);
-      }
-      .dashboard-habit-21-head-cell {
-        border-bottom: 0;
-      }
-      .dashboard-habit-21-name.dashboard-habit-21-cell,
-      .dashboard-habit-21-header .dashboard-habit-21-name {
-        height: auto;
-        align-self: stretch;
-        align-items: flex-start;
-      }
-      .dashboard-habit-21-cell.is-done.is-visual-line-start:not(.is-streak-start) .dashboard-habit-21-slot {
-        padding-left: var(--habit-streak-pad);
-      }
-      .dashboard-habit-21-cell.is-done.is-visual-line-end:not(.is-streak-end) .dashboard-habit-21-slot {
-        padding-right: var(--habit-streak-pad);
-      }
-      .dashboard-habit-21-cell.is-done.is-visual-line-start:not(.is-streak-start) .dashboard-habit-21-token {
-        border-top-left-radius: 4px;
-        border-bottom-left-radius: 4px;
-      }
-      .dashboard-habit-21-cell.is-done.is-visual-line-end:not(.is-streak-end) .dashboard-habit-21-token {
-        border-top-right-radius: 4px;
-        border-bottom-right-radius: 4px;
-      }
+
+    /* Shared native card headings keep actions in the card, including the range toolbar. */
+    .dashboard-home-widget-native-title-actions:empty { display: none; }
+    .dashboard-home-root .dashboard-home-widget-shell-actions--overlay { right: 12px; }
+    .dashboard-home-widget-shell-actions--overlay .dashboard-home-widget-shell-action {
+      width: 28px; height: 28px; min-height: 28px;
     }
+    .dashboard-home-widget-shell:not([data-noria-widget-collapsed="true"]) :is(.dashboard-guide-card__head, .dashboard-workbench-panel__head, .dashboard-home-trends-habit-history__head, .dashboard-moc-heading) {
+      padding-right: 0; min-height: 28px;
+    }
+    .dashboard-home-root [data-noria-widget-id="trends-range"] > .dashboard-home-widget-shell-actions--overlay { top: 0; right: 0; }
+    [data-noria-widget-id="trends-range"] .dashboard-home-trends-range-root { padding-right: 0; min-height: 28px; }
+    .dashboard-card-heading-icon { display: inline-flex; flex: 0 0 auto; color: var(--text-muted); align-items: center; }
+    .dashboard-card-heading-icon svg { width: 16px; height: 16px; stroke-width: 1.7; }
+    .dashboard-home-root :is(.dashboard-guide-card__head, .dashboard-workbench-panel__head, .dashboard-home-trends-habit-history__head, .dashboard-moc-heading) .dashboard-guide-icon-btn {
+      width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; box-shadow: none; background: transparent; color: var(--text-muted);
+    }
+    .dashboard-home-root :is(.dashboard-guide-card__head, .dashboard-workbench-panel__head, .dashboard-home-trends-habit-history__head, .dashboard-moc-heading) .dashboard-guide-icon-btn:hover {
+      background: var(--background-modifier-hover); color: var(--text-normal);
+    }
+    .dashboard-home-root .dashboard-guide-icon-btn svg { width: 16px; height: 16px; }
+    .dashboard-home-root [data-noria-widget-id="moc-strip"] :is(.dashboard-home-deferred-slot, .dashboard-guide-panels-stack, .dashboard-moc-host, .dashboard-moc-host > div, .dashboard-moc-strip),
+    .dashboard-home-root [data-noria-widget-id="projects-card"] :is(.dashboard-home-deferred-slot, .dashboard-guide-panels-stack) {
+      display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+    }
+    .dashboard-home-root [data-noria-widget-id="projects-card"] .dashboard-guide-panels-stack > div { flex: 1 1 auto; }
+    .dashboard-home-root [data-noria-widget-id="moc-strip"] .dashboard-moc-grid { align-content: start; }
+    .dashboard-tray-resize-handle:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+    .dashboard-habit-history-scroll { min-width: 0; width: 100%; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 6px; }
+    .dashboard-habit-history-scroll .dashboard-habit-21-grid {
+      --habit-name-col: 136px; min-width: calc(136px + var(--habit-days, 21) * 28px); width: 100%;
+    }
+    .dashboard-habit-history-scroll .dashboard-habit-21-name {
+      position: sticky; left: 0; z-index: 4; background: var(--dash-surface, var(--background-primary));
+    }
+    .dashboard-home-root .dashboard-habit-21-name .dashboard-task-title { text-wrap: nowrap; }
+    .dashboard-habit-history-scroll .dashboard-habit-21-name.dashboard-habit-21-cell { padding-right: 12px; }
+    button.dashboard-habit-today-summary { padding: 0; height: auto; border: 0; background: transparent; box-shadow: none; color: var(--text-muted); font-size: 11px; cursor: pointer; }
+    .dashboard-home-root .dashboard-project-chip { background: transparent; border-color: transparent; box-shadow: none; }
+    .dashboard-home-root .dashboard-project-chip[aria-pressed="true"] { background: color-mix(in srgb,var(--noria-module-projects) 12%,var(--background-primary)); border-color: transparent; }
+    .dashboard-home-root .dashboard-inbox-lane { box-shadow: none; border: 0; background: transparent; }
+    .dashboard-home-root .dashboard-inbox-lane.is-active { background: var(--background-modifier-hover); }
+    .dashboard-home-root .dashboard-inbox-list { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding-inline: 0; }
+
     /* —— 主页通用：MOC 条、Inbox 行、GDD、身份条 —— */
     .dashboard-moc-strip {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px 12px;
+      display: block;
+      container-type: inline-size;
       width: 100%;
       min-width: 0;
-      padding: 10px 12px 10px 14px;
+      padding: 12px;
       border-radius: var(--dash-radius);
-      background: var(--dash-surface-raised);
-      border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, rgba(99,102,241,.22));
-      box-shadow: 0 1px 0 rgba(255,255,255,.2) inset, 0 2px 10px rgba(30,58,138,.05);
+      background: var(--dash-surface);
+      border: 1px solid var(--background-modifier-border);
+      box-shadow: none;
     }
-    .theme-dark .dashboard-moc-strip {
-      box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 2px 14px rgba(0,0,0,.2);
-    }
-    /* 导引区内联：strip 不再套独立描边条；MOC 外层用 dashboard-moc-host，无白卡托盘 */
     .dashboard-moc-strip.dashboard-moc-strip--bare {
-      padding: 2px 0 0;
       margin: 0;
       border: none;
       border-radius: 0;
       background: transparent;
       box-shadow: none;
-      gap: 8px 10px;
     }
-    .theme-dark .dashboard-moc-strip.dashboard-moc-strip--bare {
-      box-shadow: none;
+    .dashboard-moc-heading {
+      display: flex;
+      align-items: center;
+      min-height: 28px;
+      margin-bottom: 8px;
     }
-    .dashboard-moc-empty.dashboard-moc-empty--bare {
-      border: none;
-      background: transparent;
-      box-shadow: none;
-      padding: 6px 0 4px;
+
+    .dashboard-moc-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px 12px;
+    }
+    @container (max-width: 680px) {
+      .dashboard-moc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @container (max-width: 370px) {
+      .dashboard-moc-grid { grid-template-columns: minmax(0, 1fr); }
     }
     .dashboard-moc-strip__lead {
       display: inline-flex;
@@ -3391,61 +3300,86 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      color: rgba(67,56,202,.88);
-      opacity: .9;
+      color: var(--text-muted);
     }
     .dashboard-moc-strip__label {
-      font-size: 1.02em;
-      font-weight: 800;
-      letter-spacing: .12px;
+      font-size: .9em;
+      font-weight: 650;
       line-height: 1.25;
       color: var(--dash-title-color);
       opacity: 1;
     }
     .dashboard-moc-entry {
-      display: inline-flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
       min-width: 0;
-      gap: 3px;
+      min-height: 40px;
+      gap: 0 4px;
+      padding: 2px 4px;
+      border-radius: var(--dash-radius-sm);
+    }
+    .dashboard-moc-entry:hover,
+    .dashboard-moc-entry:focus-within {
+      background: var(--background-modifier-hover);
+    }
+    .dashboard-moc-entry-path {
+      grid-row: 2;
+      grid-column: 1 / -1;
+      padding: 0 0 4px 12px;
+      color: var(--text-muted);
+      font-size: .75em;
+      overflow-wrap: anywhere;
     }
     .dashboard-moc-chip {
-      --moc-chip-accent: #6366f1;
-      --moc-chip-fill: color-mix(in srgb, var(--moc-chip-accent) 16%, var(--dash-surface-raised) 84%);
-      --moc-chip-border: color-mix(in srgb, var(--moc-chip-accent) 34%, var(--background-modifier-border) 66%);
+      --moc-chip-accent: var(--interactive-accent);
+      --moc-chip-fill: transparent;
       --moc-chip-ink: var(--dash-moc-entry-color);
       --link-decoration: none;
       --link-decoration-hover: none;
       display: inline-flex;
       align-items: center;
+      align-self: stretch;
+      gap: 8px;
+      min-width: 0;
       max-width: 100%;
-      padding: 5px 12px;
-      border-radius: var(--dash-pill-radius);
+      padding: 6px 4px;
+      border-radius: var(--dash-radius-sm);
       font-family: var(--dash-moc-entry-font-family);
       font-size: var(--dash-moc-entry-font-size);
       line-height: var(--dash-moc-entry-line-height);
       font-weight: var(--dash-moc-entry-font-weight);
       letter-spacing: var(--dash-moc-entry-letter-spacing);
-      border: 1px solid var(--moc-chip-border);
+      border: 0;
       background: var(--moc-chip-fill);
       background-image: none;
       color: var(--moc-chip-ink) ;
-      transition: transform .1s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
-      box-shadow: var(--dash-shadow-inset-soft);
+      overflow-wrap: anywhere;
+      box-shadow: none;
+    }
+    .dashboard-moc-chip::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--moc-chip-accent);
     }
     .dashboard-moc-visual-action {
-      width: 26px;
-      height: 26px;
+      grid-column: 2;
+      grid-row: 1;
+      width: 28px;
+      height: 28px;
       padding: 0;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       flex: 0 0 auto;
       border: 0;
-      border-radius: 999px;
+      border-radius: var(--dash-radius-sm);
       background: transparent;
       color: var(--text-muted);
       box-shadow: none;
-      opacity: .72;
       cursor: pointer;
     }
     .dashboard-moc-visual-action:hover,
@@ -3455,43 +3389,35 @@
       opacity: 1;
     }
     .theme-dark .dashboard-moc-chip {
-      --moc-chip-fill: color-mix(in srgb, var(--moc-chip-accent) 10%, var(--dash-surface-raised) 90%);
-      --moc-chip-border: color-mix(in srgb, var(--moc-chip-accent) 18%, var(--background-modifier-border) 82%);
-      --moc-chip-ink: color-mix(in srgb, var(--text-normal) 92%, var(--background-primary) 8%);
+      --moc-chip-fill: transparent;
+      --moc-chip-ink: var(--text-normal);
     }
     .dashboard-moc-chip:hover {
-      --moc-chip-fill: color-mix(in srgb, var(--moc-chip-accent) 24%, var(--dash-surface-raised) 76%);
-      border-color: color-mix(in srgb, var(--moc-chip-accent) 42%, var(--background-modifier-border) 58%);
-      box-shadow: 0 2px 8px color-mix(in srgb, var(--moc-chip-accent) 18%, rgba(67,56,202,.08));
-      transform: translateY(-0.5px);
-    }
-    .theme-dark .dashboard-moc-chip:hover {
-      --moc-chip-fill: color-mix(in srgb, var(--moc-chip-accent) 26%, var(--dash-surface-raised) 74%);
-      border-color: color-mix(in srgb, var(--moc-chip-accent) 44%, var(--background-modifier-border) 56%);
+      --moc-chip-fill: transparent;
     }
     .dashboard-moc-chip:focus-visible {
-      outline: none;
-      box-shadow: var(--dash-focus-ring), var(--dash-shadow-inset-soft);
+      outline: 2px solid var(--interactive-accent);
+      outline-offset: 2px;
     }
     .dashboard-moc-chip--missing {
-      --moc-chip-fill: color-mix(in srgb, rgba(239,68,68,.34) 42%, var(--dash-surface-raised) 58%);
-      --moc-chip-ink: color-mix(in srgb, rgba(185,28,28,.92) 78%, var(--text-normal) 22%);
-      border-style: solid;
-      border-color: color-mix(in srgb, var(--moc-chip-accent) 44%, rgba(239,68,68,.36));
+      --moc-chip-ink: var(--text-error);
+      --moc-chip-accent: var(--text-error);
     }
     .theme-dark .dashboard-moc-chip--missing {
-      --moc-chip-fill: color-mix(in srgb, rgba(248,113,113,.28) 38%, var(--dash-surface-raised) 62%);
-      --moc-chip-ink: color-mix(in srgb, rgba(248,113,113,.88) 68%, var(--text-normal) 32%);
-      border-color: color-mix(in srgb, var(--moc-chip-accent) 42%, rgba(248,113,113,.42));
+      --moc-chip-ink: var(--text-error);
     }
     .dashboard-moc-empty {
+      grid-column: 1 / -1;
       font-size: .8em;
       line-height: 1.45;
       color: var(--text-muted);
-      padding: 10px 12px;
-      border-radius: var(--dash-radius);
-      border: 1px dashed color-mix(in srgb, var(--background-modifier-border) 85%, rgba(99,102,241,.25));
-      background: color-mix(in srgb, var(--background-primary) 96%, rgba(129,140,248,.06));
+      padding: 8px 4px;
+    }
+    .noria-project-source {
+      flex: 0 0 auto;
+      min-width: 28px;
+      min-height: 28px;
+      color: var(--text-muted);
     }
     .dashboard-guide-card {
       border-radius: var(--dash-radius-card) ;
@@ -4256,6 +4182,9 @@
       opacity: .82;
     }
     .dashboard-guide-inbox .dashboard-inbox-row__side {
+      display: inline-flex;
+    }
+    .dashboard-guide-inbox .dashboard-inbox-date {
       display: none;
     }
     .dashboard-guide-inbox .dashboard-inbox-list {
@@ -5378,7 +5307,21 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .dashboard-home-root .dashboard-hero-strip__metrics > .dashboard-home-widget-shell-actions {
+      top: 3px; right: 3px; pointer-events: none;
+    }
+    .dashboard-hero-strip__metrics > .dashboard-home-widget-shell-actions button { opacity: 0; pointer-events: none; }
+    .dashboard-hero-strip__metrics:hover > .dashboard-home-widget-shell-actions button,
+    .dashboard-hero-strip__metrics:focus-within > .dashboard-home-widget-shell-actions button,
+    .dashboard-hero-strip__metrics > .dashboard-home-widget-shell-actions button[aria-expanded="true"] {
+      opacity: 1; pointer-events: auto;
+    }
+    @media (hover: none), (pointer: coarse) {
+      .dashboard-hero-strip__metrics > .dashboard-home-widget-shell-actions button { opacity: 1; pointer-events: auto; }
+    }
+    .dashboard-hero-metrics-content { display:flex; flex:1 1 auto; min-width:0; }
     .dashboard-hero-strip__metrics {
+      position: relative;
       flex: 0 0 calc(55% - var(--dash-hero-half-gap));
       min-width: 0;
       max-width: calc(55% - var(--dash-hero-half-gap));
@@ -5410,7 +5353,7 @@
         max-width: none;
       }
     }
-    .dashboard-hero-strip__metrics > .dashboard-metrics-host--hero {
+    .dashboard-hero-strip__metrics .dashboard-metrics-host--hero {
       flex: 1 1 auto;
       min-height: 6.45rem;
       width: 100%;
@@ -5419,23 +5362,23 @@
       box-sizing: border-box;
       overflow: hidden;
     }
-    .dashboard-hero-strip__metrics > .dashboard-metrics-host--hero .dashboard-metric-card--hero b {
+    .dashboard-hero-strip__metrics .dashboard-metrics-host--hero .dashboard-metric-card--hero b {
       overflow: visible ;
       text-overflow: clip ;
       letter-spacing: 0 ;
     }
-    .theme-dark .dashboard-hero-strip__metrics > .dashboard-metrics-host--hero .dashboard-metric-card--hero {
+    .theme-dark .dashboard-hero-strip__metrics .dashboard-metrics-host--hero .dashboard-metric-card--hero {
       border-color: color-mix(in srgb, var(--background-modifier-border) 42%, transparent) ;
       box-shadow: none ;
     }
     @media (max-width: 1180px) {
-      .dashboard-hero-strip__metrics > .dashboard-metrics-host--hero {
+      .dashboard-hero-strip__metrics .dashboard-metrics-host--hero {
         grid-template-columns: repeat(2, minmax(0, 1fr)) ;
         height: auto ;
       }
     }
     @container noria-home (max-width: 1180px) {
-      .dashboard-hero-strip__metrics > .dashboard-metrics-host--hero {
+      .dashboard-hero-strip__metrics .dashboard-metrics-host--hero {
         grid-template-columns: repeat(2, minmax(0, 1fr)) ;
         height: auto ;
       }
@@ -5486,6 +5429,7 @@
     }
     .dashboard-identity-avatar-wrap {
       flex: 0 0 auto;
+      align-self: flex-end;
       width: 48px;
       height: 48px;
       border-radius: 14px;
@@ -5514,6 +5458,7 @@
     }
     .dashboard-identity-textcol {
       flex: 1 1 auto;
+      align-self: stretch;
       min-width: 0;
       display: flex;
       flex-direction: column;
@@ -5544,13 +5489,13 @@
       color: color-mix(in srgb, var(--text-normal) 93%, rgba(226, 232, 240, 0.14));
     }
     .dashboard-hero-weather-inline {
-      margin-top: 9px;
+      margin-top: auto;
       min-height: 1.2rem;
       display: flex;
       align-items: center;
       width: 100%;
       min-width: 0;
-      padding: 2px 0 0 0;
+      padding: 9px 0 0 0;
     }
     .dashboard-hero-weather-inline__line {
       font-size: .78em;
@@ -5591,7 +5536,7 @@
         max-width: 4rem;
         height: 4rem;
         min-height: 4rem;
-        align-self: flex-start;
+        align-self: flex-end;
       }
       .dashboard-hero-weather-inline__line[data-noria-weather-state="ready"] {
         white-space: normal;

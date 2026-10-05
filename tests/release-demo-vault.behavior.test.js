@@ -144,7 +144,7 @@ test("release demo vault can generate an equivalent Simplified Chinese fixture",
 
   const data = JSON.parse(read(target, ".obsidian/plugins/noria/data.json"));
   assert.equal(data.weather.manualCity, "北京");
-  assert.equal(data.home.identity.displayName, "乙辛Zmod31");
+  assert.equal(data.home.identity.displayName, "Noria");
 
   const today = read(target, "06_Diary/2026/2026-07-11.md");
   assert.match(today, /散步并重置注意力/);
@@ -225,16 +225,16 @@ test("Chinese showcase vault expresses IPARA, Library identity, and ninety days 
     monthlyTemplate: "02_Areas/Noria/Templates/Monthly Template.md",
     yearlyTemplate: "02_Areas/Noria/Templates/Yearly Template.md"
   });
-  assert.equal(data.home.identity.displayName, "乙辛Zmod31");
-  assert.equal(data.home.identity.greetingName, "乙辛Zmod31");
-  assert.equal(data.home.identity.avatarPath, "99_Attachment/乙辛Zmod31头像.jpg");
+  assert.equal(data.home.identity.displayName, "Noria");
+  assert.equal(data.home.identity.greetingName, "Noria");
+  assert.equal(data.home.identity.avatarPath, "99_Attachment/noria.svg");
   assert.equal(data.home.identity.quoteListPath, "02_Areas/Noria/Quotes.md");
 
   for (const root of ["00_Inbox", "01_Projects", "02_Areas", "03_Resources", "04_Archives", "05_MOC", "06_Diary", "99_Attachment"]) {
     assert.ok(fs.existsSync(path.join(target, root)), `missing ${root}`);
   }
   assert.equal(fs.existsSync(path.join(target, "Noria")), false);
-  assert.ok(fs.statSync(path.join(target, "99_Attachment", "乙辛Zmod31头像.jpg")).size > 10000);
+  assert.ok(fs.statSync(path.join(target, "99_Attachment", "noria.svg")).size > 100);
   assert.ok((read(target, "02_Areas/Noria/Quotes.md").match(/^- /gm) || []).length >= 12);
   assert.ok(fs.existsSync(path.join(target, "05_MOC", "知识管理·MOC.md")));
   assert.ok(fs.existsSync(path.join(target, "03_Resources", "知识工作", "渐进式提炼.md")));

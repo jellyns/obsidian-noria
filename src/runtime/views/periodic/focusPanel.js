@@ -19,10 +19,10 @@ const focusT = (key, params = {}) => {
 const cur = ctx.current()?.file;
 const notePath = String(cur?.path || "");
 const noteName = String(cur?.name || "").replace(/\.md$/i, "");
-const noteDate =
+const noteDate = input?.date || (
   /^\d{8}$/.test(noteName)
     ? `${noteName.slice(0, 4)}-${noteName.slice(4, 6)}-${noteName.slice(6, 8)}`
-    : (/^\d{4}-\d{2}-\d{2}$/.test(noteName) ? noteName : "");
+    : (/^\d{4}-\d{2}-\d{2}$/.test(noteName) ? noteName : ""));
 
 const parseInlineDate = (text, key) => {
   const m = String(text || "").match(new RegExp(`\\[${key}::\\s*(\\d{4}-\\d{2}-\\d{2})\\]`, "i"));
@@ -55,52 +55,6 @@ const clean = (text) =>
     .replace(/\[[a-zA-Z_][a-zA-Z0-9_-]*::\s*[^\]]*\]/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
-const parseInlineFields = (text) => {
-  const fields = {};
-  String(text || "").replace(/\[([a-zA-Z_][a-zA-Z0-9_-]*)::\s*([^\]]*)\]/g, (_, key, value) => {
-    fields[String(key || "").trim()] = String(value || "").trim();
-    return "";
-  });
-  return fields;
-};
-const inferHabitConfig = (text) => {
-  const fields = parseInlineFields(text);
-  const name = clean(text);
-  if (fields.type || fields.target || fields.unit) {
-    return {
-      name,
-      type: String(fields.type || "").trim(),
-      target: String(fields.target || "").trim(),
-      unit: String(fields.unit || "").trim()
-    };
-  }
-  let m = name.match(/^喝\s*(\d+(?:\.\d+)?)\s*杯水$/);
-  if (m) return { name: "喝水", type: "number", target: m[1], unit: "杯" };
-  m = name.match(/^运动\s*(\d+(?:\.\d+)?)\s*(大卡|千卡|kcal|卡)$/i);
-  if (m) return { name: "运动", type: "number", target: m[1], unit: m[2] };
-  if (/睡/.test(name) && /12[:：]30/.test(name)) return { name, type: "sleep", target: "00:30", unit: "" };
-  return { name, type: "", target: "", unit: "" };
-};
-const canonicalHabitName = (text) => inferHabitConfig(text).name || clean(text);
-const habitRecordFromTask = (task, cfg) => {
-  const fields = parseInlineFields(task?.text || "");
-  const value = String(fields.value || "").trim();
-  const target = String(fields.target || cfg?.target || "").trim();
-  const unit = String(fields.unit || cfg?.unit || "").trim();
-  const type = String(fields.type || cfg?.type || "").trim();
-  return { value, target, unit, type, done: !!task?.completed };
-};
-const formatHabitLabel = (cfg, record = null) => {
-  const name = clean(cfg?.name || "");
-  if (!name) return "";
-  const type = String(record?.type || cfg?.type || "").trim();
-  if (type === "number") {
-    const amount = String(record?.value || record?.target || cfg?.target || "").trim();
-    const unit = String(record?.unit || cfg?.unit || "").trim();
-    if (amount) return `${name}${amount}${unit}`;
-  }
-  return name;
-};
 const priorityScore = (t) => {
   const p = String(t?.priority || "").toLowerCase();
   const map = { highest: 5, high: 4, medium: 3, low: 2, lowest: 1 };
@@ -157,61 +111,6 @@ const mitTasks = allTasks
   .sort((a, b) => b._score - a._score || a._clean.localeCompare(b._clean, "zh-CN"))
   .slice(0, 3);
 
-const source = ctx.page(sourcePath);
-const getSectionItems = (content, title) => {
-  const aliases = title === "打卡中的习惯" ? ["打卡中的习惯", "Active habits"] : [title];
-  let block = "";
-  for (const candidate of aliases) {
-    const escaped = String(candidate || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    block = (String(content || "").match(new RegExp(`##\\s*${escaped}[\\s\\S]*?(?=\\n##\\s|$)`)) || [])[0] || "";
-    if (block) break;
-  }
-  return [...new Set(
-    block
-      .split("\n")
-      .map((x) => x.trim())
-      .filter((x) => /^-\s+/.test(x))
-      .map((x) => x.replace(/^-+\s*/, "").trim())
-      .filter((x) => x && x !== "（空）" && !/^\(?\s*empty\s*\)?$/i.test(x))
-  )];
-};
-const registryContent = source ? await ctx.io.load(sourcePath) : "";
-const activeHabitConfigs = getSectionItems(registryContent, "打卡中的习惯").map(inferHabitConfig).filter((x) => !!x.name);
-const rawHabitTasks = !source ? [] : (source.file.tasks || []).filter((t) => {
-  const txt = String(t.text || "");
-  const tags = (t.tags || []).map((x) => String(x));
-  if (!tags.includes("#active")) return false;
-  if (tags.includes("#paused")) return false;
-  return /(^|\s)#habit\b/i.test(txt);
-});
-
-const habitItems = activeHabitConfigs.map((cfg) => {
-  const sameName = rawHabitTasks.filter((t) => canonicalHabitName(t.text) === cfg.name);
-  const sameDay = (t) => {
-    const dueDate = taskDate(t, "due") || taskDate(t, "scheduled") || taskDate(t, "start");
-    const doneDate = taskDate(t, "done");
-    if (noteDate && dueDate) return dueDate === noteDate || doneDate === noteDate;
-    return !noteDate || !dueDate || dueDate <= noteDate;
-  };
-  const doneToday = sameName.find((t) => {
-    if (!t.completed) return false;
-    return sameDay(t);
-  });
-  if (doneToday) {
-    const record = habitRecordFromTask(doneToday, cfg);
-    return { name: formatHabitLabel(cfg, record), task: doneToday, completed: true };
-  }
-  const pending = sameName.find((t) => {
-    if (t.completed) return false;
-    return sameDay(t);
-  });
-  if (pending) {
-    const record = habitRecordFromTask(pending, cfg);
-    return { name: formatHabitLabel(cfg, record), task: pending, completed: false };
-  }
-  return { name: formatHabitLabel(cfg, null), task: null, completed: false };
-});
-
 const styleId = "daily-focus-panel-style";
 let style = document.getElementById(styleId);
 if (!style) {
@@ -267,34 +166,4 @@ const habitCard = root.createEl("div", { cls: "daily-focus-card habit" });
 habitCard.style.cssText = "order:2;flex:1 1 0;min-width:0;align-self:stretch;";
 habitCard.createEl("div", { cls: "daily-focus-title", text: focusT("runtime.periodic.focus.habitCheckin") });
 const habitList = habitCard.createEl("div", { cls: "daily-focus-list" });
-if (habitItems.length === 0) {
-  habitList.createEl("div", { cls: "daily-focus-text", text: focusT("runtime.periodic.focus.noEnabledHabits") });
-} else {
-  for (const item of habitItems) {
-    const row = habitList.createEl("div", { cls: "daily-focus-item" });
-    const btn = row.createEl("input", { cls: `task-list-item-checkbox daily-focus-check noria-themed-checkbox noria-themed-checkbox--home${item.completed ? " done" : ""}` });
-    btn.type = "checkbox";
-    btn.checked = !!item.completed;
-    btn.setAttr("data-state", item.completed ? "done" : "default");
-    btn.disabled = !!item.completed || !item.task;
-    const text = row.createEl("span", { cls: "daily-focus-text", text: item.name || focusT("runtime.periodic.focus.unnamedHabit") });
-    if (item.completed) {
-      text.style.textDecoration = "line-through";
-      text.style.opacity = ".68";
-    } else if (item.task) {
-      btn.onchange = async () => {
-        btn.disabled = true;
-        const ok = await markTaskDone(item.task);
-        if (ok) {
-          btn.checked = true;
-          btn.classList.add("done");
-          text.style.textDecoration = "line-through";
-          text.style.opacity = ".68";
-        } else {
-          btn.disabled = false;
-          btn.checked = false;
-        }
-      };
-    }
-  }
-}
+await bridge.diaryHabits.render({container:habitList,date:noteDate,registryPath:sourcePath});

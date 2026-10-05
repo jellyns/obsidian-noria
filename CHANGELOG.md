@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+- Align card menus, apply functional colors, restore connected habit bands and warm countdowns, and keep expired countdowns in the manager. Simplify task summaries, weather and project labels while preserving registry descriptions.
+- Align daily record fields on one interactive date axis, preserve missing-day gaps, and keep mood choices distinct. Share field colors across recording and statistics.
+
+- Share the card catalog, real previews, layout menu, resizing, duplicate and restore across Home and per-period Diary layouts. Use the Noria color mark for the default avatar and a common list/detail editor for projects, MOCs, habits and countdowns.
+- Add real countdown start dates, drag-to-reschedule with cancellation, and reversible archives in source Markdown. Keep today accessible alongside configurable habit history and preserve numeric targets and recorded values.
+- Add configurable daily record fields and statistics for diary properties, arbitrary note properties, folders, tasks and habits, with source drilldown, missing-value handling and scoped review material.
+- Provide a card-provider lifecycle and a Dataview note adapter through Obsidian's plugin installer. Preserve independent instances and restore them after dependency changes.
+- Start a fresh vault with empty records instead of synthetic completions, habits and deadlines. Keep demonstration data in the isolated demo workflow.
+
+- Keep Month view tasks and multi-day bars inside their week, with one native scroll area and fixed date headings. Retain the scroll position through task edits, unify view toolbars, and prioritize readable titles in short time blocks.
+- Add multi-line quick notes to Diary, Home, and a global command, with selected-date templates, native Markdown links, recovery drafts, and no invented time for historical entries.
+- Record mood and energy beside the diary. Show sparse daily-state records clearly, link trends back to dates, and exclude missing values from averages.
+- Prepare compact review material with original prose, task facts, lower-period reviews, and source references. Replace fixed GDD and word targets with grounded theme-based reflection and purposeful source checks; accept natural analysis headings without automatically adopting content.
+
+- Unify Home card header icons, add buttons and menus; stretch MOC cards with their row and restore adjustable/automatic height.
+- Keep habit names readable with a single scrolling 21-day history, selectable from 7 to 90 days; open workflow and Base sources without replacing Home.
+
+- Align Home MOC entries in a responsive grid with small color markers, direct Canvas icons, native quick add, and the existing card menu. Keep saved paths in sync with vault renames and protect concurrent edits in the entry manager.
+- Reuse open source tabs for Home projects and MOCs, retain heading targets, and support native Page preview and modifier keys. Add a project main-note icon beside the next-step input.
+
+- Unify task editing across Home, Diary, Task Board, Timeline, and the cursor command, including tags, priorities, repeat rules, dependencies, and lifecycle dates. Refine native date/time fields and preserve optional dates, unfinished input, and concurrent source changes.
+- Create or link tasks from selected Diary and Review passages through native menus and the shared task editor. Preserve the original prose, keep readable Markdown citations, select an existing project task note or daily tasks, and find previously linked tasks without duplicating their state.
+- Accept project registry links followed by descriptive text in Home and the data service, so those projects remain available as task destinations.
+
+- Share task checkboxes and compact title/date/status editing across Home projects and Diary. Preserve undated and partially dated tasks, source metadata, expanded lists, and unfinished edits. Open the source at the task line.
+- Add project next steps to the existing task note and section, retain input after failures, and expose remaining tasks and completed items through the existing list controls.
+- Route older embedded habit controls to dated diary records, preserve explicitly configured registry paths, and support withdrawals without inventing measured values. Align date-note headings in reading and Live Preview.
+- Autosave Diary and Review without replacing the editor or interrupting IME composition. Reuse Obsidian's reading/editing command and assigned shortcut, and keep recovery drafts subject to inspection or adoption before saving.
+- Preview the configured period template before first writing; allow explicit source-note creation and reuse the template for first habit records and quick capture. Start new built-in templates with Notes and Plan while preserving existing empty files and custom templates.
+- Reuse the task panel's period arrows in Diary, consolidate Diary and Review toolbar actions into labeled native icons, and remove redundant month/year note buttons from Calendar. Keep month/year browsing in the calendar headings.
+- Unify Home card settings, collapse, width, move, and visibility in one native menu. Keep frequent actions directly available and restore hidden cards through the existing layout entry.
+
+- Present Diary focus, tasks, and habits in Home-style cards with adjustable width, order, and collapse. Restore the per-workbench layout after reopening without changing task or note data.
+- Add persistent Home / Diary navigation and a shared-date Record / Review switch inside Diary. Keep other Home cards, per-page scrolling, selected periods, and in-progress text.
+- Read and edit daily, weekly, monthly, and yearly notes with an on-demand calendar or the existing sidebar. Month/year headings browse periods without retargeting the editor. Browsing missing dates does not create files.
+- Preserve period tasks and earlier unfinished work; show the dynamic top three only in the current period. Task toggles update their source and record the actual completion date.
+- Write Diary and Home habit check-ins to daily notes while preserving centralized definitions and reading existing registry history. Synchronize withdrawals and quantitative records across Home and statistics. Add compact period summaries and on-demand charts.
+- Use the same configured date-note path for Diary and Review. Preserve native Markdown, frontmatter, concurrent source edits, and recovery drafts; default date templates contain plain content with scoped typography.
+- Keep independent habit and task writes in an unfinished diary draft, preserve source annotations and block links, and restore checkbox state after a failed write. Support the document outline while editing.
+
+- Replace fixed daily review fields with one Markdown document across day, week, month, and year. Read saved reviews as natural sections, edit a section or the full text, and use an optional writing outline.
+- Bind review saves with explicit range markers so titles can change without losing the write target. Preserve arbitrary sections and reject ambiguous or unfinished ranges.
+- Add on-demand record and analysis references, month-to-week-to-day traversal, section-level analysis adoption, and a single recovery-draft entry. Keep the editor and historical date stable while consulting references or saving.
+- Update bilingual review guides and screenshots from the isolated experience build. Existing notes and custom templates are not migrated automatically.
+- Release embedded editor focus ownership on exit, and preserve accessible chart names without triggering Obsidian's HTML-only tooltip handler on SVG elements.
+- Preserve review Markdown hard breaks, indentation, fenced examples, and unrelated note content; reject invalid dates and mismatched review periods.
+- Keep conflicting and older recovery drafts available for inspection and copying. Isolate drafts by editor and clear only the saved or explicitly discarded draft.
+- Preserve recovery storage during repository-based installation and distinguish user-authored drafts from regenerable caches in both user guides.
+
 ## 0.4.6 - 2026-09-09
 
 - Refined Task Timeline with consistent task markers, readable completed titles, details on hover or keyboard focus, and a continuous date/minimap navigation area across day and hour scales.

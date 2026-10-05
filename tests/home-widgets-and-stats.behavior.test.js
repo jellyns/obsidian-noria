@@ -10,6 +10,132 @@ const settingsMaintenance = require("../src/settings-maintenance.js");
 
 const pluginRoot = path.resolve(__dirname, "..");
 
+function mocNavigationPlugin(overrides = {}) {
+  const Plugin = loadPluginClass({
+    Keymap: { isModEvent: event => event?.pane || (event?.button === 1 || event?.ctrlKey ? "tab" : false) },
+    parseLinktext: target => { const at=target.indexOf("#"); return {path:at<0?target:target.slice(0,at),subpath:at<0?"":target.slice(at)}; },
+    ...overrides
+  });
+  const plugin = new Plugin();
+  plugin.settings = {homeDashboard:{mocEntries:[],mocEntryPaths:[]}};
+  plugin.saveSettings = async () => {};
+  plugin.requestNoriaRefresh = () => {};
+  return plugin;
+}
+
+test("MOC rename follows exact files and folder descendants without touching similarly named paths", async () => {
+  const p=mocNavigationPlugin();
+  await p.setMocEntries([{path:"Topics/Map.md",color:"#abcdef"},{path:"Topics/Sub/Other.canvas",color:""},{path:"Topics-other/Map.md",color:""}]);
+  await p.syncMocEntryRename({path:"Archive/Topics"},"Topics");
+  assert.deepEqual(plain(p.getMocEntriesForDashboard()),[{path:"Archive/Topics/Map.md",color:"#abcdef"},{path:"Archive/Topics/Sub/Other.canvas",color:""},{path:"Topics-other/Map.md",color:""}]);
+  await p.syncMocEntryRename({path:"Archive/Topics/Renamed.md"},"Archive/Topics/Map.md");
+  assert.equal(p.getMocEntriesForDashboard()[0].path,"Archive/Topics/Renamed.md");
+  assert.deepEqual(plain(p.settings.homeDashboard.mocEntryPaths),plain(p.getMocEntriesForDashboard().map(x=>x.path)));
+});
+
+test("queued MOC mutations use the latest list and retain concurrent additions", async () => {
+  const p=mocNavigationPlugin();
+  await p.setMocEntries([{path:"A.md",color:""}]);
+  let release;const gate=new Promise(resolve=>{release=resolve;});let calls=0;
+  p.saveSettings=async()=>{if(++calls===1)await gate;};
+  const rename=p.syncMocEntryRename({path:"B.md"},"A.md");
+  const add=p.updateMocEntries(entries=>[...entries,{path:"C.md",color:""}]);
+  release();await Promise.all([rename,add]);
+  assert.deepEqual(plain(p.settings.homeDashboard.mocEntryPaths),["B.md","C.md"]);
+});
+
+test("MOC save failure restores the old entries and permits a subsequent edit", async () => {
+  const p=mocNavigationPlugin();await p.setMocEntries([{path:"A.md",color:"#abcdef"}]);
+  p.saveSettings=async()=>{throw Error("disk full");};
+  await assert.rejects(p.syncMocEntryRename({path:"B.md"},"A.md"),/disk full/);
+  assert.deepEqual(plain(p.settings.homeDashboard.mocEntryPaths),["A.md"]);
+  assert.equal(p.getMocEntriesForDashboard()[0].color,"#abcdef");
+  p.saveSettings=async()=>{};await p.syncMocEntryRename({path:"B.md"},"A.md");
+  assert.deepEqual(plain(p.settings.homeDashboard.mocEntryPaths),["B.md"]);
+});
+
+test("MOC pickers include the workspace and existing topic folders outside the notes scope", async () => {
+  const p=mocNavigationPlugin();
+  p.settings.onboarding={workspaceRoot:"Noria"};
+  await p.setMocEntries([{path:"05_MOC/Topic.md"},{path:"Root topic.md"}]);
+  p.getScopeSpec=()=>({roots:["Projects"]});
+  let roots;
+  p.filesUnderRoots=(value,extensions)=>{roots=value;assert.deepEqual(plain(extensions),[".md",".canvas"]);return [{path:"05_MOC/Another.md"}];};
+  assert.equal(p.getMocSourceFiles()[0].path,"05_MOC/Another.md");
+  assert.deepEqual(plain(roots),["Projects","Noria","05_MOC","Root topic.md"]);
+});
+
+test("MOC picker distinguishes selection from the native close-before-choose lifecycle", async () => {
+  let choose = true;
+  const p=mocNavigationPlugin({FuzzySuggestModal: class {
+    setPlaceholder() {}
+    open() { this.onClose(); if (choose) void this.onChooseItem({path:"Topics/Map.md"}); }
+  }});
+  p.t=key=>key;
+  assert.equal((await p.pickMocEntry()).ok,true);
+  choose=false;
+  assert.deepEqual(plain(await p.pickMocEntry()),{ok:false,cancelled:true});
+  assert.deepEqual(plain(p.settings.homeDashboard.mocEntryPaths),["Topics/Map.md"]);
+});
+
+test("an old MOC manager cannot overwrite entries that changed while it was open", async () => {
+  const p=mocNavigationPlugin();await p.setMocEntries([{path:"A.md",color:""}]);
+  const expected=p.getMocEntriesForDashboard();await p.syncMocEntryRename({path:"B.md"},"A.md");
+  await assert.rejects(p.setMocEntries([{path:"A.md",color:"#abcdef"}],{expectedEntries:expected}),/changed/i);
+  assert.deepEqual(plain(p.settings.homeDashboard.mocEntryPaths),["B.md"]);
+});
+
+function sourceNavigationHarness(existing=false) {
+  const plugin=mocNavigationPlugin(),calls=[];
+  const file={path:"Topics/Map.md",extension:"md"};
+  const leaf={id:"source",view:{file},getViewState:()=>({type:"markdown",state:{file:file.path}})};
+  plugin.app={vault:{getAbstractFileByPath:path=>path===file.path?file:null},metadataCache:{getFirstLinkpathDest:path=>path===file.path?file:null},workspace:{
+    iterateAllLeaves(fn){if(existing)fn(leaf);},
+    async revealLeaf(value){calls.push(["reveal",value.id]);},
+    setActiveLeaf(value){calls.push(["active",value.id]);},
+    async openLinkText(...args){calls.push(["open",...args]);},
+    trigger(...args){calls.push(["trigger",...args]);}
+  }};
+  return {plugin,calls,file,leaf};
+}
+
+test("source lookup does not reuse the local graph that follows the same file", async () => {
+  const {plugin,calls,file}=sourceNavigationHarness();
+  plugin.app.workspace.iterateAllLeaves=fn=>fn({id:"graph",view:{file},getViewState:()=>({type:"localgraph",state:{}})});
+  const result=await plugin.openHomeSource(file.path);
+  assert.equal(result.reused,false);
+  assert.equal(calls[0][3],"tab");
+});
+
+test("Home source links keep the heading and open a separate tab", async()=>{
+  const {plugin,calls}=sourceNavigationHarness();
+  await plugin.openHomeSource("Topics/Map.md#Key materials");
+  assert.equal(calls[0][0],"open");assert.equal(calls[0][1],"Topics/Map.md#Key materials");assert.equal(calls[0][3],"tab");
+});
+
+test("Home source navigation reuses an existing target while explicit modifiers retain native meaning", async()=>{
+  const {plugin,calls}=sourceNavigationHarness(true);
+  await plugin.openHomeSource("Topics/Map.md#Key materials");
+  assert.ok(calls.some(x=>x[0]==="active"&&x[1]==="source"));
+  assert.equal(calls.find(x=>x[0]==="open")[3],false);
+  calls.length=0;await plugin.openHomeSource("Topics/Map.md",{event:{pane:"split"}});
+  assert.equal(calls[0][0],"open");assert.equal(calls[0][3],"split");
+  calls.length=0;await plugin.openHomeSource("Topics/Map.md",{event:{button:1}});
+  assert.equal(calls[0][3],"tab");
+});
+
+test("a missing Home source is reported without creating a file or changing the active view", async()=>{
+  const {plugin,calls}=sourceNavigationHarness();const result=await plugin.openHomeSource("Missing.md");
+  assert.equal(result.ok,false);assert.equal(result.reason,"missing");assert.equal(calls.length,0);
+});
+
+test("Home preview delegates the original event and anchor to the native Page preview source",()=>{
+  const {plugin,calls}=sourceNavigationHarness();const event={ctrlKey:true},anchor={};
+  plugin.previewHomeSource("Topics/Map.md#Reference",event,anchor);
+  const payload=calls[0][2];assert.equal(calls[0][1],"hover-link");assert.equal(payload.source,"noria-home-source");
+  assert.equal(payload.linktext,"Topics/Map.md#Reference");assert.equal(payload.event,event);assert.equal(payload.targetEl,anchor);
+});
+
 function pluginPath(...parts) {
   return sourcePath(path.join(...parts).replace(/\\/g, "/"));
 }
@@ -27,7 +153,7 @@ function cssBlock(source, selector) {
   return source.match(new RegExp(`${escaped}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0] || "";
 }
 
-function loadPluginClass() {
+function loadPluginClass(obsidianOverrides = {}) {
   const code = fs.readFileSync(path.join(pluginRoot, "src", "main.js"), "utf8");
   const module = { exports: {} };
   const context = {
@@ -45,16 +171,33 @@ function loadPluginClass() {
           Setting: class {},
           Notice: class {},
           setIcon() {},
-          getLanguage() { return "en"; }
+          getLanguage() { return "en"; },
+          ...obsidianOverrides
         };
       }
       if (id === "child_process") return {};
       if (id === "./generated/embedded-runtime-sources.js") {
         return { NORIA_EMBEDDED_RUNTIME_SOURCES: {}, NORIA_RUNTIME_BUILD_ID: "test" };
       }
+      if (["./runtime/views/task-timeline/time-window.js","./timeline-stream-model.js"].includes(id)) return require("../src/"+id.slice(2));
+      if (id === "./timeline-workspace.js") return {TimelineWorkspace:class {}};
+      if (id === "./review-document.js") return require("../src/review-document.js");
+      if (id === "./review-workspace.js") return { ReviewWorkspace: class {} };
+      if (id === "./workbench.js") return { NoriaWorkbench: class {} };
+      if (id === "./workbench-controls.js") return { installWorkbenchModeCommand() {} };
+      if (id === "./diary-habit-view.js") return {renderEmbeddedDiaryHabits(){}};
+      if (id === "./diary-habits.js") return require("../src/diary-habits.js");
+      if (id === "./habit-plan.js") return require("../src/habit-plan.js");
+      if (id === "./task-document.js") return require("../src/task-document.js");
+      if (id === "./task-editor-writeback.js") return require("../src/task-editor-writeback.js");
+      if (id === "./task-adoption-document.js") return require("../src/task-adoption-document.js");
+      if (["./quick-capture.js","./review-material.js"].includes(id))return {};
+      if (id === "./task-adoption.js") return {};
+      if (id === "./task-row.js") return require("../src/task-row.js");
       if (id === "./review-center-core.js") return reviewCenterCore;
       if (id === "./noria-identity.js") return noriaIdentity;
       if (id === "./settings-maintenance.js") return settingsMaintenance;
+      if (id === "crypto") return require("node:crypto");
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -64,6 +207,68 @@ function loadPluginClass() {
   vm.runInContext(code, context, { filename: "main.js" });
   return module.exports.default || module.exports;
 }
+
+function homeMenuHarness(widgets) {
+  let menu;
+  const module={exports:{}};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../src/card-system.js"),"utf8"),{
+    module,require:id=>id==="./card-controls.js"?{openCardMenu:options=>{menu=options;return()=>{};}}:id==="./card-direct-controls.js"?{notifyHidden(){}}:{},crypto:require("node:crypto")
+  });
+  const plugin={settings:{home:{widgets}},getNoriaLocale:()=>"en"},calls=[];
+  plugin.cards=Object.create(module.exports.CardSystem.prototype);plugin.cards.plugin=plugin;
+  plugin.cards.catalog=(context,id)=>calls.push(["configure",context.page,id]);
+  plugin.setHomeWidgetCollapsed=async(id,value)=>calls.push(["collapse",id,value]);
+  plugin.editHomeWidget=async(request)=>calls.push(plain(request));
+  const anchor={closest(){return {querySelectorAll:()=>[]};},ownerDocument:{}};
+  return {plugin,calls,open(id,ids){plugin.cards.homeMenu(id,anchor,ids);return menu;}};
+}
+
+test("opening shared Home card controls does not change records or layout",()=>{
+  const h=homeMenuHarness([{id:"tasks",size:"medium",enabled:true}]),before=JSON.stringify(h.plugin.settings);
+  const menu=h.open("tasks",["tasks"]);
+  assert.equal(menu.state().size,"medium");assert.equal(menu.state().first,true);assert.equal(menu.state().last,true);
+  assert.equal(JSON.stringify(h.plugin.settings),before);assert.deepEqual(h.calls,[]);
+});
+
+test("card settings, collapse, width and hiding preserve the selected instance",async()=>{
+  const h=homeMenuHarness([{id:"tasks",size:"medium",enabled:true}]),menu=h.open("tasks",["tasks"]);
+  await menu.actions[0].run();await menu.collapse(true);await menu.size("wide");await menu.hide();
+  assert.deepEqual(h.calls,[["configure","home","tasks"],["collapse","tasks",true],
+    {widgetId:"tasks",action:"size",value:"wide"},{widgetId:"tasks",action:"enabled",value:false}]);
+});
+
+test("moving cards targets the next visible neighbour and hidden cards can be restored",async()=>{
+  const h=homeMenuHarness([{id:"a",enabled:true},{id:"hidden",enabled:false},{id:"b",enabled:true}]);
+  await h.open("a",["a","b"]).move("down");await h.open("hidden",["a","hidden","b"]).hide();
+  assert.deepEqual(h.calls,[{widgetId:"a",action:"move",value:"down",targetId:"b"},{widgetId:"hidden",action:"enabled",value:true}]);
+});
+
+test("moving to a visible neighbour keeps hidden and future widget data intact", () => {
+  const Plugin=loadPluginClass(), plugin=new Plugin();
+  const make=(id,order,enabled)=>({id,type:"markdown",order,enabled,size:"medium",source:"Notes.md",props:{future:id}});
+  plugin.settings=plugin.normalizeSettings({home:{widgets:[make("a",10,true),make("hidden",20,false),make("b",30,true)]}});
+  const hidden=plain(plugin.settings.home.widgets.find(w=>w.id==="hidden"));
+  assert.equal(plugin.moveHomeWidgetInSettings("a","down","b"),true);
+  assert.deepEqual(plain(plugin.settings.home.widgets.filter(w=>["a","hidden","b"].includes(w.id)).map(w=>w.id)),["b","hidden","a"]);
+  const updated=plain(plugin.settings.home.widgets.find(w=>w.id==="hidden"));
+  assert.deepEqual({...updated,order:hidden.order},hidden);
+  assert.equal(plugin.moveHomeWidgetInSettings("a","down","b"),false);
+  assert.equal(plugin.moveHomeWidgetInSettings("a","up","missing"),false);
+});
+
+test("card collapse resolves after refresh so the menu can focus the replacement trigger", async () => {
+  const Plugin=loadPluginClass(), plugin=new Plugin();
+  plugin.updateHomeWidgetCollapsedInSettings=()=>({collapsed:true});
+  plugin.saveSettings=async()=>{};
+  let finishRefresh, completed=false;
+  plugin.requestNoriaRefresh=()=>new Promise(resolve=>{finishRefresh=resolve;});
+  const operation=plugin.setHomeWidgetCollapsed("tasks",true).then(()=>{completed=true;});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(completed,false);
+  finishRefresh();
+  await operation;
+  assert.equal(completed,true);
+});
 
 function loadRuntimeChart(rel) {
   const code = read(rel);
@@ -663,36 +868,23 @@ test("home daily-state range uses home settings before legacy localStorage", () 
   assert.deepEqual(plain(invalid), { days: 60, endDate: "" });
 });
 
-test("daily-state block respects synced settings and rememberBlockSelections", () => {
-  const dailyState = read("views/dashboard/home/sections/trends-and-stats/blocks/daily-state/view.js");
-
-  assert.match(dailyState, /getHomeDailyStateRange/);
-  assert.match(dailyState, /saveHomeDailyStateRange/);
-  assert.match(dailyState, /rememberBlockSelections\s*!==\s*false/);
-  assert.match(dailyState, /homeSettings\?\.defaults\?\.dailyStateRangeDays/);
-  assert.match(dailyState, /homeSettings\?\.dailyStateRange/);
-  assert.match(dailyState, /localStorage\.getItem\(STORAGE_KEY\)/);
-  assert.match(dailyState, /localStorage\.setItem\(STORAGE_KEY/);
+test("failed Home range save restores the last saved interval",async()=>{
+  const Plugin=loadPluginClass(),plugin=new Plugin();
+  plugin.settings=plugin.normalizeSettings({home:{trendsRange:{mode:"month"}}});
+  const before=plain(plugin.settings.home.trendsRange);
+  plugin.saveSettings=async()=>{throw Error("disk unavailable");};
+  await assert.rejects(plugin.saveHomeTrendsRange({mode:"week"}),/disk unavailable/);
+  assert.deepEqual(plain(plugin.settings.home.trendsRange),before);
 });
 
-test("home trends rerender releases block-local document listeners", () => {
-  const trends = read("views/dashboard/home/sections/trends-and-stats/view.js");
-  const dailyState = read("views/dashboard/home/sections/trends-and-stats/blocks/daily-state/view.js");
+test("daily records use the configured page range and source property definitions",()=>{
+  assert.match(read("views/dashboard/home/sections/trends-and-stats/blocks/daily-state/view.js"),/renderDailyRecordSummary\(host,input\?\.statsRange,\{widgetId:input\?\.widgetInstanceId,fields:input\?\.dailyRecordFields\}/);
+  const provider=read("src/property-stat-cards.js");assert.match(provider,/plugin.records.definitions/);assert.match(provider,/settings.home\?\.trendsRange/);
+});
 
-  assert.match(trends, /const activeBlockCleanups\s*=\s*new Set\(\)/);
-  assert.match(trends, /function createTrendsBlockCleanupRegistry\(/);
-  assert.match(trends, /registerCleanup:\s*blockCleanup\.add/);
-  assert.match(trends, /runTrendsBlockCleanup\(slot\)/);
-  assert.match(trends, /token\s*!==\s*renderToken\s*\|\|\s*trendsDisposed/);
-  assert.match(trends, /input\?\.registerCleanup[\s\S]{0,160}cleanupAllTrendsBlocks/);
-
-  assert.match(dailyState, /const onRangeMenuKeydown\s*=\s*\(ev\)\s*=>/);
-  assert.match(dailyState, /const onStatePickerKeydown\s*=\s*\(ev\)\s*=>/);
-  assert.match(dailyState, /document\.removeEventListener\("click",\s*closeRangeMenu\)/);
-  assert.match(dailyState, /document\.removeEventListener\("keydown",\s*onRangeMenuKeydown\)/);
-  assert.match(dailyState, /document\.removeEventListener\("click",\s*closeStatePicker\)/);
-  assert.match(dailyState, /document\.removeEventListener\("keydown",\s*onStatePickerKeydown\)/);
-  assert.match(dailyState, /input\?\.registerCleanup[\s\S]{0,160}cleanupDailyStateMenus/);
+test("home record summary releases the component and its metadata subscription",()=>{
+  const summary=read("views/dashboard/home/sections/trends-and-stats/blocks/daily-state/view.js"),provider=read("src/property-stat-cards.js");
+  assert.match(summary,/__noriaCardCleanup=dispose/);assert.match(provider,/component.registerEvent/);assert.match(provider,/component.unload\(\)/);
 });
 
 test("home widget manager can move widgets up and down without editing JSON", () => {
@@ -1605,7 +1797,7 @@ test("home widget manager exposes one low-noise profile preset apply control", (
   assert.doesNotMatch(main, /settings\.home\.widgetProfileMinimal[\s\S]{0,240}addButton[\s\S]{0,240}settings\.home\.widgetProfileExecution/);
 });
 
-test("home widget shells expose quiet settings and original-place collapse actions", () => {
+test("home widget shells expose one quiet native menu in place of separate controls", () => {
   const home = read("views/dashboard/home/view.js");
   const bootstrap = read("views/dashboard/home/sections/bootstrap-style/view.js");
   const main = read("src/main.js");
@@ -1613,8 +1805,9 @@ test("home widget shells expose quiet settings and original-place collapse actio
 
   assert.match(home, /function createHomeWidgetShellActions/);
   assert.match(home, /data-noria-widget-shell-action/);
-  assert.match(home, /homeBridge\.runtime\?\.openHomeWidgetSettings/);
-  assert.match(home, /homeBridge\.runtime\?\.setHomeWidgetCollapsed/);
+  assert.match(home, /homeBridge\.runtime\?\.openHomeWidgetMenu/);
+  assert.match(home, /"aria-haspopup": "menu"/);
+  assert.doesNotMatch(home, /function createHomeWidgetSizeSelect|function createHomeWidgetEditActionButton/);
   assert.match(home, /dashboard-home-widget-shell-actions--overlay/);
   assert.match(home, /createHomeWidgetShellActions\(widget,\s*shell/);
   assert.match(main, /openHomeWidgetSettings\(widgetId\)/);
@@ -1624,7 +1817,7 @@ test("home widget shells expose quiet settings and original-place collapse actio
   assert.match(overlayActions, /top:\s*0/);
   assert.match(overlayActions, /right:\s*8px/);
   assert.match(overlayActions, /left:\s*auto/);
-  assert.match(overlayActions, /transform:\s*translateY\(calc\(-100% \+ 1px\)\)/);
+  assert.doesNotMatch(bootstrap, /transform:\s*translateY\(calc\(-100% \+ 1px\)\)/);
   assert.doesNotMatch(overlayActions, /translateY\(calc\(-100% -/);
   assert.match(bootstrap, /\.dashboard-home-widget-shell:hover\s+\.dashboard-home-widget-shell-actions/);
   assert.match(bootstrap, /\.dashboard-home-widget-shell:focus-within\s+\.dashboard-home-widget-shell-actions/);
@@ -1663,19 +1856,19 @@ test("Home layout edit mode stays transient and exposes reversible schema-safe c
   assert.match(home, /data-noria-home-layout-edit-toggle/);
   assert.match(home, /runtime\.home\.layoutEdit\.open/);
   assert.match(home, /homeBridge\.runtime\?\.setHomeEditMode/);
-  assert.match(home, /homeBridge\.runtime\?\.editHomeWidget/);
+  assert.match(home, /homeBridge\.runtime\.openHomeWidgetMenu/);
   assert.match(home, /normalizeWidgetList\(homeBridge\.homeSettings\?\.widgets,\s*\{ includeDisabled: homeEditMode \}\)/);
-  assert.match(home, /if \(homeEditMode\) renderHomeLayoutEditBar/);
+  assert.match(home, /if \(homeEditMode && !opts.workbench\) renderHomeLayoutEditBar/);
   assert.match(home, /shouldUseHomeHeroStrip\(identity,\s*metrics,\s*\{ editMode: homeEditMode \}\)/);
   assert.match(home, /data-noria-widget-enabled/);
   assert.match(home, /dashboard-home-widget-shell-hidden/);
-  assert.match(home, /data-noria-widget-edit-action/);
-  assert.match(home, /data-noria-widget-edit-size/);
+  assert.match(home, /data-noria-widget-shell-action/);
+  assert.doesNotMatch(home, /data-noria-widget-edit-size/);
 
   assert.match(main, /homeEditMode:\s*this\._homeEditMode === true/);
   assert.match(main, /setHomeEditMode\(enabled\)/);
   assert.match(main, /editHomeWidget\(request = \{\}\)/);
-  assert.match(main, /moveHomeWidgetInSettings\(id,\s*direction\)/);
+  assert.match(main, /moveHomeWidgetInSettings\(id,\s*direction,\s*request\.targetId\)/);
   assert.match(main, /updateHomeWidgetSizeInSettings\(id,\s*value\)/);
   assert.match(main, /updateHomeWidgetEnabledInSettings\(id,\s*value === true\)/);
 
@@ -1849,7 +2042,7 @@ test("home widget layout CSS maps spans onto a responsive dashboard grid", () =>
 test("home responsive layout follows the pane container instead of the app viewport", () => {
   const bootstrap = read("views/dashboard/home/sections/bootstrap-style/view.js");
 
-  assert.match(bootstrap, /@container noria-home \(max-width:\s*1180px\)[\s\S]*\.dashboard-hero-strip__metrics\s*>\s*\.dashboard-metrics-host--hero[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(bootstrap, /@container noria-home \(max-width:\s*1180px\)[\s\S]*\.dashboard-hero-strip__metrics\s+\.dashboard-metrics-host--hero[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(bootstrap, /@container noria-home \(max-width:\s*900px\)[\s\S]*\.dashboard-hero-strip__inner\s*\{[\s\S]*flex-direction:\s*column/);
   assert.match(bootstrap, /@container noria-home \(max-width:\s*860px\)[\s\S]*\.dashboard-home-today-actions\s*\{[\s\S]*grid-template-columns:\s*1fr/);
   assert.match(bootstrap, /@container noria-home \(max-width:\s*520px\)[\s\S]*\.dashboard-home-today-capture-modes\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1/);
@@ -2276,19 +2469,18 @@ test("trend widgets default to full dashboard stats with one global range", () =
   assert.doesNotMatch(taskTrend, /tasks\?\.series/);
   assert.match(heatmaps, /statsSnapshot/);
   assert.match(tagDistribution, /statsSnapshot/);
-  assert.match(dailyState, /statsSnapshot/);
+  assert.match(dailyState, /input\?\.statsRange/);
   assert.doesNotMatch(noteTrend, /statsService/);
   assert.doesNotMatch(taskTrend, /statsService/);
   assert.match(taskTrend, /runtime\.home\.trends\.taskTrendTitle/);
   assert.match(taskTrend, /undatedCompleted/);
   assert.match(taskTrend, /noria-task-trend-axis-stat/);
-  assert.match(taskTrend, /smoothPath/);
   assert.doesNotMatch(taskTrend, /renderDualAxis/);
   assert.match(read("views/dashboard/periodic-stats/impl-legacy/view.js"), /tasks\?\.completion\?\.series/);
   assert.doesNotMatch(dailyState, /dashboard-daily-state-summary/);
-  assert.match(dailyState, /usingGlobalRange/);
-  assert.match(dailyState, /validDays/);
-  assert.match(dailyState, /averageEnergy/);
+  assert.match(dailyState,/renderDailyRecordSummary/);
+  assert.match(read("src/property-stat-cards.js"), /result.recorded/);
+  assert.match(read("src/property-statistics.js"), /config.calculate==="mean"/);
 });
 
 test("home trends heatmaps reads diary word counts in bounded parallel after task pass", () => {
@@ -2334,26 +2526,9 @@ test("home note trend fallback reads diary words in bounded parallel", () => {
   assert.doesNotMatch(cacheMissBlock, /await Promise\.all\(\s*diaryPages\.map/);
 });
 
-test("home daily state fallback reads diary state in bounded parallel before merging", () => {
-  const dailyState = read("views/dashboard/home/sections/trends-and-stats/blocks/daily-state/view.js");
-  const loadStart = dailyState.indexOf("async function loadWindowState(dayList)");
-  const loadEnd = dailyState.indexOf("return stateMap;", loadStart);
-  assert.ok(loadStart > 0 && loadEnd > loadStart, "daily-state window loader should return state map after loading rows");
-  const loadBlock = dailyState.slice(loadStart, loadEnd);
-
-  assert.match(dailyState, /async function runDailyStateDiaryReadQueue/);
-  assert.match(dailyState, /Math\.min\(limit,\s*queue\.length\)/);
-  assert.match(loadBlock, /const dailyStateDiaryReadJobs\s*=\s*\[\]/);
-  assert.match(loadBlock, /const dailyStateDiaryRows\s*=\s*\[\]/);
-  assert.match(loadBlock, /dailyStateDiaryReadJobs\.push\(async \(\) =>/);
-  assert.match(loadBlock, /await runDailyStateDiaryReadQueue\(dailyStateDiaryReadJobs\)/);
-  assert.match(loadBlock, /for \(const row of dailyStateDiaryRows\)/);
-  assert.ok(
-    loadBlock.indexOf("await runDailyStateDiaryReadQueue(dailyStateDiaryReadJobs)") <
-      loadBlock.indexOf("for (const row of dailyStateDiaryRows)"),
-    "daily-state should merge rows only after queued reads complete"
-  );
-  assert.doesNotMatch(loadBlock, /await Promise\.all\(\s*toPlainArray\(diaryPages\)\.map/);
+test("property statistics read source notes in bounded batches after applying the source scope",()=>{
+  const provider=read("src/property-stat-cards.js");assert.match(provider,/filesUnderRoots\(roots/);
+  assert.match(provider,/index\+=24/);assert.match(provider,/Promise.all\(candidates.slice\(index,index\+24\)/);
 });
 
 test("periodic stats legacy fallback reads diary contents in bounded parallel before aggregation", () => {
@@ -2503,8 +2678,6 @@ test("home stats visuals use taller trend charts, compact balanced donut, and al
   assert.match(tagDistribution, /height:\s*218/);
   assert.match(tagDistribution, /height:100%/);
   assert.match(tagDistribution, /box-sizing:border-box/);
-  assert.match(dailyState, /height:100%/);
-  assert.match(dailyState, /box-sizing:border-box/);
   assert.doesNotMatch(dailyState, /margin-bottom:8px/);
   assert.match(donut, /function balanceLabelSides/);
   assert.match(donut, /labelBalance/);
@@ -2544,9 +2717,18 @@ test("home habit history uses MOC-entry typography and native cards stretch natu
   );
 });
 
+test('year heatmap date positions do not drift during daylight saving time',()=>{
+ const sourcePath=require('node:path').resolve(__dirname,'../src/runtime/views/dashboard/core/components/charts/year-heatmap-calendar.js');
+ const script=`const fs=require('node:fs'),vm=require('node:vm'),context=vm.createContext({});vm.runInContext(fs.readFileSync(${JSON.stringify(sourcePath)},'utf8'),context);const chart=context.dashboardCore.components.charts.yearHeatmapCalendar._test;console.log(JSON.stringify([chart.dayOfYear(new Date(2026,2,9)),chart.dayOfYear(new Date(2026,10,2))]));`;
+ const result=require('node:child_process').execFileSync(process.execPath,['-e',script],{encoding:'utf8',env:{...process.env,TZ:'America/New_York'}});
+ assert.deepEqual(JSON.parse(result),[68,306]);
+});
+
 test("shared chart helpers balance donut label counts and align month labels to week columns", () => {
   const donut = loadRuntimeChart("views/dashboard/core/components/charts/leader-donut-chart.js").leaderDonutChart._test;
   const heatmap = loadRuntimeChart("views/dashboard/core/components/charts/year-heatmap-calendar.js").yearHeatmapCalendar._test;
+  assert.deepEqual(Array.from(heatmap.weekdayLabels(1,true)),['Mon','','Wed','','Fri','','']);
+  assert.deepEqual(Array.from(heatmap.weekdayLabels(0)),['Sun','Mon','Tue','Wed','Thu','Fri','Sat']);
 
   const labels = Array.from({ length: 5 }, (_, index) => ({
     isRight: false,

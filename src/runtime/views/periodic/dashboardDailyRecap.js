@@ -1,5 +1,5 @@
 /**
- * 主页「今日复盘」：按工作流分步、单 pane，写入 SSOT = 当日日记正文块。
+ * Legacy daily entry: Inbox/state remain here; review opens the shared Markdown workspace.
  * 依赖 globalThis.dashboardCore.utils.diaryDayBlocks（主页会预加载；否则下方 ensure）。
  */
 const recapInput = input || {};
@@ -82,8 +82,7 @@ function setSafeIcon(el, iconId) {
 const RECAP_STEPS = [
   { id: "inbox", label: "Inbox", iconId: "inbox", aria: periodicRecapT("runtime.periodic.dailyRecap.stepInboxAria") },
   { id: "state", label: periodicRecapT("runtime.periodic.dailyRecap.stepState"), iconId: "gauge", aria: periodicRecapT("runtime.periodic.dailyRecap.stepStateAria") },
-  { id: "gdd", label: "GDD", iconId: "sparkles", aria: periodicRecapT("runtime.periodic.dailyRecap.stepGddAria") },
-  { id: "thought", label: periodicRecapT("runtime.periodic.dailyRecap.stepThought"), iconId: "pen-line", aria: periodicRecapT("runtime.periodic.dailyRecap.stepThoughtAria") }
+  { id: "review", label: periodicRecapT("review.title"), iconId: "pen-line", aria: periodicRecapT("review.title") }
 ];
 const requestedStepIdsRaw = Array.isArray(recapInput.steps)
   ? recapInput.steps
@@ -91,7 +90,7 @@ const requestedStepIdsRaw = Array.isArray(recapInput.steps)
     ? recapInput.recapSteps
     : null;
 const requestedStepIds = requestedStepIdsRaw
-  ? new Set(requestedStepIdsRaw.map((x) => String(x || "").trim()).filter(Boolean))
+  ? new Set(requestedStepIdsRaw.map((x) => ["gdd", "thought"].includes(x) ? "review" : String(x || "").trim()).filter(Boolean))
   : null;
 const activeRecapSteps = requestedStepIds
   ? RECAP_STEPS.filter((x) => requestedStepIds.has(x.id))
@@ -356,8 +355,7 @@ const STATE_GROUPS = [
     paneWrap.empty();
     if (activeStepId === "inbox") return renderPaneInbox();
     if (activeStepId === "state") return renderPaneState();
-    if (activeStepId === "gdd") return renderPaneGdd();
-    return renderPaneThought();
+    return renderPaneReview();
   }
 
   function renderPaneInbox() {
@@ -486,87 +484,13 @@ const STATE_GROUPS = [
     }
   }
 
-  function renderPaneGdd() {
-    const g = U.parseGdd(diaryRaw);
-    const box = paneWrap.createDiv();
-    box.addClass("dashboard-recap-pane");
-    box.addClass("dashboard-recap-pane--gdd");
-    const split = box.createDiv();
-    split.addClass("dashboard-recap-save-split");
-    const left = split.createDiv();
-    left.style.cssText = "min-width:0;display:flex;flex-direction:column;gap:8px;";
-    const right = split.createDiv();
-    right.addClass("dashboard-recap-save-rail");
-    const grid = box.createDiv();
-    grid.addClass("dashboard-recap-gdd-grid");
-    left.appendChild(grid);
-
-    const mk = (label, full) => {
-      const col = grid.createDiv();
-      if (full) col.addClass("dashboard-recap-gdd-full");
-      const ta = col.createEl("textarea");
-      ta.addClass("dashboard-gdd-textarea");
-      ta.setAttr("aria-label", label);
-      ta.placeholder = periodicRecapT("runtime.periodic.dailyRecap.fieldPlaceholder", { label });
-      ta.rows = 1;
-      return ta;
-    };
-
-    const taHi = mk(periodicRecapT("runtime.periodic.dailyRecap.gddHighlight"));
-    taHi.value = g.hi;
-    const taDev = mk(periodicRecapT("runtime.periodic.dailyRecap.gddDeviation"));
-    taDev.value = g.dev;
-    const taBlk = mk(periodicRecapT("runtime.periodic.dailyRecap.gddBlocker"), true);
-    taBlk.value = g.blk;
-
-    const doSave = async () => {
-      const s = { hi: taHi.value, dev: taDev.value, blk: taBlk.value };
-      await writeDiary((t) => U.upsertGdd(t, s));
-      renderStepChrome();
-    };
-    attachRailSaveButton(right, periodicRecapT("runtime.periodic.dailyRecap.saveGdd"), doSave);
-    [taHi, taDev, taBlk].forEach((ta) => {
-      ta.onkeydown = (ev) => {
-        if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) {
-          ev.preventDefault();
-          doSave();
-        }
-      };
-    });
-  }
-
-  function renderPaneThought() {
-    const body = U.parseThought(diaryRaw);
-    const box = paneWrap.createDiv();
-    box.addClass("dashboard-recap-pane");
-    box.addClass("dashboard-recap-pane--thought");
-    const split = box.createDiv();
-    split.addClass("dashboard-recap-save-split");
-    split.addClass("dashboard-recap-save-split--fill");
-    const left = split.createDiv();
-    left.addClass("dashboard-recap-fill-main");
-    left.style.cssText = "min-width:0;min-height:0;height:100%;display:flex;flex-direction:column;gap:8px;";
-    const right = split.createDiv();
-    right.addClass("dashboard-recap-save-rail");
-    const ta = left.createEl("textarea");
-    ta.addClass("dashboard-gdd-textarea");
-    ta.addClass("dashboard-recap-textarea-fill");
-    ta.rows = 3;
-    ta.placeholder = periodicRecapT("runtime.periodic.dailyRecap.thoughtPlaceholder");
-    ta.value = body;
-    const doSave = async () => {
-      await writeDiary((t) => U.upsertThoughtSection(t, ta.value));
-      renderStepChrome();
-    };
-    attachRailSaveButton(right, periodicRecapT("runtime.periodic.dailyRecap.saveThought"), doSave);
-    ta.onkeydown = (ev) => {
-      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) {
-        ev.preventDefault();
-        doSave();
-      }
+  function renderPaneReview() {
+    const box = paneWrap.createDiv({ cls: "dashboard-recap-pane" });
+    const button = box.createEl("button", { text: periodicRecapT("review.title") });
+    button.onclick = async () => {
+      await bridge.openReviewCenter({ selection: { mode: "daily", anchorDate: U.normalizeYmd(new Date()) } });
     };
   }
-
   renderStepChrome();
   renderPane();
 })();

@@ -213,24 +213,14 @@ test("task editor keeps the primary flow quiet and moves real advanced fields be
   assert.match(editorBody, /repeatDepsBlock\s*=\s*document\.createElement\("details"\)/);
   assert.match(editorBody, /advancedSummary\s*=\s*document\.createElement\("summary"\)/);
   assert.match(editorBody, /runtime\.tasksCalendar\.editor\.advanced/);
-  assert.match(editorBody, /repeatDepsBlock\.open\s*=\s*!!\(taskAdvanced\.repeat\s*\|\|\s*selectedBeforeRefs\.length\s*\|\|\s*selectedAfterRefs\.length\)/);
+  assert.match(editorBody, /repeatDepsBlock\.open\s*=\s*false/);
   assert.doesNotMatch(editorBody, /onlyFuture(?:Wrap|Input|Text)/);
   assert.doesNotMatch(editorBody, /runtime\.tasksCalendar\.filter\.onlyFutureDates/);
   assert.doesNotMatch(editorBody, /buildDependencyPicker\("Before this"|buildDependencyPicker\("After this"/);
   assert.match(editorBody, /runtime\.tasksCalendar\.editor\.beforeThis/);
   assert.match(editorBody, /runtime\.tasksCalendar\.editor\.afterThis/);
 
-  const block = css.match(/\.tc-planner-te-block\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const priority = css.match(/\.tc-planner-te-priority\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const status = Array.from(css.matchAll(/\.tc-planner-te-status\s*\{[\s\S]*?\n\}/g))
-    .map((match) => match[0])
-    .find((block) => /grid-template-columns:\s*repeat\(4/.test(block)) || "";
-  assert.match(block, /border-radius:\s*0/);
-  assert.match(block, /background:\s*transparent/);
-  assert.match(block, /border:\s*0/);
-  assert.match(priority, /gap:\s*0/);
-  assert.match(priority, /border:\s*1px solid/);
-  assert.match(status, /gap:\s*0/);
-  assert.match(status, /border:\s*1px solid/);
-  assert.match(css, /\.tc-planner-te-advanced-summary\s*\{/);
+  assert.match(editorBody, /runtime\.tasksCalendar\.editor\.dateDetails/);
+  assert.match(editorBody, /runtime\.tasksCalendar\.editor\.prerequisiteCount/);
+  assert.match(css, /\.tc-planner-te-summary-hint/);
 });

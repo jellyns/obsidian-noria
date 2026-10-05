@@ -21,34 +21,16 @@
   }
 
   function setSafeIcon(el, iconId) {
-    try {
-      if (typeof require !== "undefined") {
-        const { setIcon } = require("obsidian");
-        if (typeof setIcon === "function") {
-          setIcon(el, iconId);
-          return true;
-        }
-      }
-    } catch (_) {}
+    if (typeof bridgeRoot.runtime?.setIcon === "function") {
+      bridgeRoot.runtime.setIcon(el, iconId);
+      return true;
+    }
     return false;
   }
 
-  function notify(message, timeout = 3200) {
-    try {
-      if (typeof Notice !== "undefined") {
-        new Notice(message, timeout);
-        return;
-      }
-    } catch (_) {}
-    try {
-      if (typeof require !== "undefined") {
-        const { Notice } = require("obsidian");
-        if (typeof Notice === "function") new Notice(message, timeout);
-      }
-    } catch (_) {}
+  function notify(key, params = {}) {
+    bridgeRoot.runtime?.notice?.(key, params, 3200);
   }
-
-  const useTextPlus = !!globalThis.__noriaGuideToolbar?.primaryAddUseTextPlus;
 
   const bridgeHome = bridgeRoot.homeDashboard || {};
   const normalizePath = (p) => String(p || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
@@ -73,33 +55,6 @@
     }))
     .filter((x) => x.path);
 
-  if (entries.length === 0) {
-    const hint = container.createDiv();
-    hint.addClass("dashboard-moc-empty");
-    if (input?.bareStrip) hint.addClass("dashboard-moc-empty--bare");
-    hint.style.whiteSpace = "normal";
-    hint.textContent = homeMocT("runtime.home.moc.emptyInline");
-    if (typeof input?.onAddMoc === "function") {
-      const bar = container.createDiv();
-      bar.style.cssText = "display:flex;justify-content:flex-end;margin-top:8px;";
-      const addBtn = bar.createEl("button");
-      addBtn.type = "button";
-      addBtn.addClass("dashboard-guide-icon-btn");
-      if (useTextPlus) addBtn.addClass("dashboard-guide-toolbar-plus");
-      addBtn.setAttr("title", homeMocT("runtime.home.moc.addTitle"));
-      addBtn.setAttr("aria-label", homeMocT("runtime.home.moc.add"));
-      if (useTextPlus) {
-        addBtn.textContent = "+";
-      } else if (!setSafeIcon(addBtn, "plus")) addBtn.textContent = "+";
-      addBtn.onclick = () => {
-        try {
-          input.onAddMoc();
-        } catch (_) {}
-      };
-    }
-    return;
-  }
-
   const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/^\/+/, "");
   const resolveMocTarget = (p) => {
     const lp = norm(p);
@@ -115,24 +70,32 @@
       visualFile: visualFile || null
     };
   };
-  const openMocTarget = async (p) => {
+  const openMocTarget = async (p, event, anchor) => {
     const target = resolveMocTarget(p);
     if (!target.file) {
-      notify(homeMocT("runtime.home.moc.noticeMissing", { path: target.lp }));
+      notify("runtime.home.moc.noticeMissing", { path: target.lp });
+      await bridgeRoot.runtime?.pickMocEntry?.({ replacePath: target.lp });
       return;
     }
-    await app.workspace.getLeaf(false).openFile(target.file);
+    try {
+      const result = await bridgeRoot.runtime.openHomeSource(p, { event, anchor });
+      if (!result.ok) notify("runtime.home.moc.noticeMissing", { path: p });
+    } catch (error) {
+      notify("runtime.home.moc.openFailed");
+    }
   };
   const labelFromPath = (p) => {
     const base = norm(p).split("/").pop() || p;
-    return base.replace(/\.(?:md|canvas)$/i, "") || base;
+    const name = base.replace(/\.(?:md|canvas)$/i, "");
+    return name.replace(/·MOC$/i, "") || name;
   };
 
   const row = container.createDiv();
   row.addClass("dashboard-moc-strip");
   if (input?.bareStrip) row.addClass("dashboard-moc-strip--bare");
 
-  const lead = row.createDiv();
+  const heading = row.createDiv({ cls: "dashboard-moc-heading" });
+  const lead = heading.createDiv();
   lead.addClass("dashboard-moc-strip__lead");
   const icWrap = lead.createDiv();
   icWrap.addClass("dashboard-moc-strip__lead-icon");
@@ -141,10 +104,27 @@
   lab.addClass("dashboard-moc-strip__label");
   lab.textContent = "MOC";
 
+  if (typeof input?.onAddMoc === "function") {
+    const tb = heading.createDiv({ cls: "dashboard-moc-strip__toolbar" });
+    const addBtn = tb.createEl("button", { cls: "clickable-icon dashboard-guide-icon-btn" });
+    addBtn.type = "button";
+    addBtn.setAttr("title", homeMocT("runtime.home.moc.chooseExisting"));
+    addBtn.setAttr("aria-label", homeMocT("runtime.home.moc.add"));
+    if (!setSafeIcon(addBtn, "plus")) addBtn.textContent = "+";
+    addBtn.onclick = () => { void input.onAddMoc(); };
+  }
+  const grid = row.createDiv({ cls: "dashboard-moc-grid" });
+  if (!entries.length) {
+    grid.createDiv({ cls: "dashboard-moc-empty", text: homeMocT("runtime.home.moc.emptyInline") });
+    return;
+  }
+  const labelCounts = new Map();
+  entries.forEach((entry) => { const label=labelFromPath(entry.path); labelCounts.set(label,(labelCounts.get(label)||0)+1); });
+
   for (const item of entries) {
     const target = resolveMocTarget(item.path);
     const { lp, targetPath, exists } = target;
-    const entry = row.createDiv();
+    const entry = grid.createDiv();
     entry.addClass("dashboard-moc-entry");
     const a = entry.createEl("a", { text: labelFromPath(lp) });
     a.addClass("internal-link");
@@ -153,15 +133,22 @@
     a.setAttr("data-href", targetPath);
     a.setAttr("href", targetPath);
     a.setAttr("title", exists ? targetPath : homeMocT("runtime.home.moc.missing", { path: lp }));
+    if (labelCounts.get(labelFromPath(lp)) > 1) {
+      const detail = entry.createSpan({ cls: "dashboard-moc-entry-path", text: lp.split("/").slice(0,-1).join("/") || lp });
+      a.setAttr("aria-label", `${labelFromPath(lp)} · ${detail.textContent}`);
+    }
     a.onclick = async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      await openMocTarget(lp);
+      await openMocTarget(lp, ev, a);
     };
+    a.onauxclick = async (ev) => { if (ev.button === 1) { ev.preventDefault(); ev.stopPropagation(); await openMocTarget(lp, ev, a); } };
+    a.onmouseenter = (ev) => { if (exists) bridgeRoot.runtime?.previewHomeSource?.(lp, ev, a); };
     if (item.color) a.style.setProperty("--moc-chip-accent", item.color);
     if (target.visualFile) {
       const visual = entry.createEl("button");
       visual.type = "button";
+      visual.addClass("clickable-icon");
       visual.addClass("dashboard-moc-visual-action");
       visual.setAttr("data-noria-moc-role", "visual");
       visual.setAttr("data-href", target.visualPath);
@@ -171,27 +158,10 @@
       visual.onclick = async (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        await app.workspace.getLeaf(false).openFile(target.visualFile);
+        await openMocTarget(target.visualPath, ev, visual);
       };
+      visual.onauxclick = async (ev) => { if (ev.button === 1) { ev.preventDefault(); ev.stopPropagation(); await openMocTarget(target.visualPath, ev, visual); } };
     }
   }
 
-  if (typeof input?.onAddMoc === "function") {
-    const tb = row.createDiv();
-    tb.addClass("dashboard-moc-strip__toolbar");
-    const addBtn = tb.createEl("button");
-    addBtn.type = "button";
-    addBtn.addClass("dashboard-guide-icon-btn");
-    if (useTextPlus) addBtn.addClass("dashboard-guide-toolbar-plus");
-    addBtn.setAttr("title", homeMocT("runtime.home.moc.addTitle"));
-    addBtn.setAttr("aria-label", homeMocT("runtime.home.moc.add"));
-    if (useTextPlus) {
-      addBtn.textContent = "+";
-    } else if (!setSafeIcon(addBtn, "plus")) addBtn.textContent = "+";
-    addBtn.onclick = () => {
-      try {
-        input.onAddMoc();
-      } catch (_) {}
-    };
-  }
 })();
