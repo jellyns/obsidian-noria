@@ -8,7 +8,7 @@ if (api?.version !== 1) throw new Error('Unsupported Noria API');
 const capabilities = api.capabilities();
 ```
 
-Reconnect after Noria reloads. Retained handles reject calls after unload with `code: "unsupported"`. `capabilities()` lists implemented operations, their inputs, outputs and read/write effects. Other methods below return promises. Failures reject with an Error carrying `code`: `invalid-input`, `not-found`, `conflict`, `unsupported` or `io-error`. No routine call returns the whole source document as a write receipt.
+Reconnect after Noria reloads. Retained handles reject calls after unload with `code: "unsupported"`. `capabilities()` lists implemented operations, their inputs, outputs and read/write effects. Other methods below return promises. Failures reject with an Error carrying `code`: `invalid-input`, `not-found`, `conflict`, `unsupported` or `io-error`; external lookup also distinguishes `network-error`, `source-error` and `rate-limited`. No routine call returns the whole source document as a write receipt.
 
 ## Connecting without another plugin
 
@@ -25,7 +25,7 @@ Noria owns its MCP connection and requires no separate connector plugin. Enable 
 
 ## MCP experience connection
 
-The desktop connection bundles MCP SDK 1.30.1 and exposes 18 tools: capability discovery, two task operations, three daily-record operations, two suggestion operations, four reply operations and six interaction operations. Use `noria_capabilities` and MCP tool discovery for the current schemas. This build requires an Obsidian installer with embedded Node.js 20+ for this optional connection (the SDK's resolved HTTP adapter requires it). Native checks used Electron 39.8.3 / Node.js 22.22.1; older installers have not been validated. Users do not install Node separately.
+The desktop connection bundles MCP SDK 1.30.1 and exposes capability discovery and media, task, daily-record, suggestion, reply and interaction operations. Use `noria_capabilities` and MCP tool discovery for the current schemas. This build requires an Obsidian installer with embedded Node.js 20+ for this optional connection (the SDK's resolved HTTP adapter requires it). Native checks used Electron 39.8.3 / Node.js 22.22.1; older installers have not been validated. Users do not install Node separately.
 
 The settings switch remembers permission to start with this vault on this device. A port is assigned on first enable and remembered locally; disable the connection to edit it under **Port and credential**. Port `0` requests a new automatic assignment. **Reset credential** invalidates copied configurations; copy the new one afterward. Search settings for `MCP` or `Agent` to find the entry.
 
@@ -67,6 +67,16 @@ const saved = await api.tasks.update({
 `tasks.update` supports only `start`, `due`, `scheduled` and `status`. Dates accept `YYYY-MM-DD`, optionally followed by ` HH:mm`; an empty string clears a date. Write status values follow the native editor: `todo`, `in_progress`, `done`, `cancelled`. The read Data API groups unfinished tasks under `status: "open"`; this is not a write status value. Completing a task uses the plugin's current local date for completion metadata.
 
 Use the returned ref for subsequent writes. Changed or ambiguous source lines produce a conflict; a removed source produces not-found. Repeating an unchanged patch with a current ref returns `changed: false`. A stale ref is not a durable idempotency key: after a lost reply, read again and compare the current result. Creating tasks, dependency edits, arbitrary patches and cross-file transactions are not exposed in this version.
+
+## External book lookup
+
+`media.lookup({kind:"book", query, limit?, offset?})` queries Open Library without reading vault notes or saving results. `query` accepts a title, checksum-valid ISBN-10/13 or Open Library work/edition/ISBN link. Title search uses the title parameter, including short Chinese names. Other providers and media types are not yet connected. MCP exposes `noria_media_lookup` with both read-only and open-world annotations.
+
+Results are `{provider, candidates, nextOffset}`. Each candidate includes `level` (`work` or `edition`), title and `source` (provider, ID and URL). Work candidates may show combined contributors, a representative cover and edition count; these do not identify the user's edition. Query a work's `source.url` to list its editions, then an edition URL to retrieve that version. Only edition data supplies `pagecount`, ISBNs, publishers, publication text, language codes and author IDs. Author IDs are references, not resolved names. No external rating, current status, progress or experience is generated.
+
+Queries are serialized at no more than one request per second per plugin instance, identical requests coalesce, and successful responses are cached in memory for 15 minutes (up to 50 entries). HTTP 429 respects Retry-After, or waits at least a minute before another request; it is not retried automatically. A missing record returns an empty candidate list; network and source failures remain errors. Reload clears this transient state. Only the supplied public query is sent to Open Library.
+
+This is a source-build API. Native acceptance and the card's candidate-selection / metadata-saving UI remain pending; `media.create` still accepts its documented manual fields only.
 
 ## Media catalog
 

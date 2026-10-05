@@ -33,3 +33,44 @@ test('shared data service aggregates cross-month task counts before computing co
  assert.equal(weekly[1].source.sources.done.length+weekly[1].source.sources.open.length,0);
  assert.equal(weekly.reduce((sum,r)=>sum+r.bar,0),daily.reduce((sum,r)=>sum+r.bar,0));
 });
+
+
+// Run the legacy view through the real task data service, capturing the chart boundary.
+async function legacyTaskHeatmap({failure}={}) {
+ const runtime={console,Date};runtime.globalThis=runtime;vm.createContext(runtime);
+ vm.runInContext(fs.readFileSync(require.resolve('../src/runtime/views/dashboard/core/data/data-service.js'),'utf8'),runtime);
+ const tasks=[
+  {path:'Projects/work.md',line:0,text:'Done [start:: 2026-10-01] [completion:: 2026-10-03]',completed:true},
+  {path:'Projects/work.md',line:1,text:'Still open [due:: 2026-10-02]',completed:false},
+  {path:'Projects/work.md',line:2,text:'No completion date',completed:true},
+  {path:'Projects/work.md',line:3,text:'Outside [completion:: 2026-09-30]',completed:true}
+ ];
+ let diaryReads=0,heat;
+ const bridge={runtimeBuildId:'legacy-heat-test',paths:{diaryRoot:'Diary'},tasks:require('../src/task-document.js'),
+  t:key=>key,runtime:{toArray:x=>Array.from(x||[]),pagesForScope:()=>[],pagesForManagedPath:()=>{diaryReads++;return [];},filesForScope:()=>[],filesForManagedPath:()=>[],tasksForScope:()=>tasks}};
+ if(failure)runtime.dashboardCore.data.dataService.createDataService=()=>({getSnapshot:async()=>{throw failure;}});
+ runtime.dashboardPeriodicStatsFallbackChartsFactory=()=>({renderDualAxis(){},renderDistCard(){}});
+ runtime.dashboardPeriodicStatsFallbackBoardsFactory=()=>({renderHeatmap:async(_,title,year,values)=>{heat={title,year,values};}});
+ // Only date enumeration is adapted; task parsing, date bucketing and view code are real.
+ function moment(value) {
+  let date=new Date(`${value}T00:00:00Z`);
+  return {startOf(){return this;},isValid(){return Number.isFinite(+date);},year(){return date.getUTCFullYear();},
+   valueOf(){return +date;},isBefore(other){return +date<+other;},isAfter(other){return +date>+other;},
+   clone(){return moment(this.format());},format(){return date.toISOString().slice(0,10);},add(n){date.setUTCDate(date.getUTCDate()+n);return this;}};
+ }
+ const element=()=>({style:{},clientWidth:1000,createDiv:element});
+ const input={scope:'monthly',mount:element(),noriaBridge:bridge,dateRange:{start:'2026-10-01',end:'2026-10-03'}};
+ const run=new (Object.getPrototypeOf(async()=>{}).constructor)('ctx','input','app','window','globalThis',fs.readFileSync(require.resolve('../src/runtime/views/dashboard/periodic-stats/impl-legacy/view.js'),'utf8'));
+ await run({current:()=>null},input,{}, {moment},runtime);
+ return {heat,diaryReads};
+}
+
+test('legacy task heatmap counts project tasks only on their actual completion dates',async()=>{
+ const {heat}=await legacyTaskHeatmap();
+ assert.deepEqual(heat.values,{'2026-10-01':0,'2026-10-02':0,'2026-10-03':1});
+ assert.equal(heat.title,'runtime.stats.taskCompletionHeatmap');
+});
+
+test('legacy statistics propagates source failure instead of substituting diary-only counts',async()=>{
+ await assert.rejects(legacyTaskHeatmap({failure:new Error('source unavailable')}),/source unavailable/);
+});

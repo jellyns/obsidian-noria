@@ -432,6 +432,7 @@ This chart shows total task activity, completed tasks, and completion rate. Comp
 
 - Habit heatmaps can show one selected habit or the aggregate.
 - Workload heatmaps normalize note, task, and word-count activity into relative intensity. They are not exact time tracking.
+- Task counts use the configured task scope and actual completion dates. The legacy **Open diary statistics** view uses the same basis in **Completed tasks heatmap**. Open tasks and completions without a date are not assigned to a day. Source failures show an error instead of substituting diary checkbox counts.
 
 ### 7.5 Note Distribution
 

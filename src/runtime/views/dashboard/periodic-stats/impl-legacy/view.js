@@ -30,20 +30,6 @@ function statsT(key, params = {}) {
 const diaryRoot = `"${String(bridge.paths?.diaryRoot || "06_Diary").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")}"`;
 const habitRegistryPath = String(bridge.paths?.habitRegistryPath || "Noria/Habits.md");
 
-function toPlainArray(value) {
-  if (bridge.runtime && typeof bridge.runtime.toArray === "function") return bridge.runtime.toArray(value);
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  try {
-    if (typeof value.array === "function") return value.array();
-  } catch (_) {}
-  try {
-    return Array.from(value || []);
-  } catch (_) {
-    return [];
-  }
-}
-
 const weatherDefs = [
   { key: "晴", emoji: "☀️" },
   { key: "暴晒", emoji: "🌞" },
@@ -146,80 +132,6 @@ function enumerateDates(start, end) {
   return out;
 }
 
-function normalizeDiaryName(raw) {
-  if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
-  return raw;
-}
-
-/** 与任务看板 bridge 的 taskTagFilter 对齐：统计日记内 `- [ ]` 行时应用相同包含/排除规则 */
-function escapeRegexZb(s) {
-  return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function normalizeTagTokenZb(raw) {
-  let t = String(raw || "").trim().toLowerCase();
-  if (!t) return "";
-  if (!t.startsWith("#")) t = `#${t.replace(/^#+/, "")}`;
-  return t;
-}
-function getBridgeTaskTagContextForStats() {
-  const b = globalThis.__noriaRuntimeBridge;
-  let includeTags = [];
-  let excludeTags = [];
-  const tq = b && b.taskQueryContext && typeof b.taskQueryContext === "object" ? b.taskQueryContext.taskTagFilter : null;
-  if (tq && Array.isArray(tq.includeTags) && Array.isArray(tq.excludeTags)) {
-    includeTags = tq.includeTags.map(normalizeTagTokenZb).filter(Boolean);
-    excludeTags = tq.excludeTags.map(normalizeTagTokenZb).filter(Boolean);
-  } else {
-    const tf = b && b.taskTagFilter ? b.taskTagFilter : {};
-    includeTags = (Array.isArray(tf.includeTags) ? tf.includeTags : []).map(normalizeTagTokenZb).filter(Boolean);
-    excludeTags = (Array.isArray(tf.excludeTags) ? tf.excludeTags : []).map(normalizeTagTokenZb).filter(Boolean);
-  }
-  /* 与 tasks-calendar runtime：主过滤器为空时继承 wrapperTaskFilter */
-  const wf = b && b.wrapperTaskFilter && typeof b.wrapperTaskFilter === "object" ? b.wrapperTaskFilter : null;
-  if (!includeTags.length && !excludeTags.length && wf) {
-    if (wf.useIncludeTags && Array.isArray(wf.taskIncludeTags)) {
-      includeTags = wf.taskIncludeTags.map(normalizeTagTokenZb).filter(Boolean);
-    }
-    if (wf.useExcludeTags && Array.isArray(wf.taskExcludeTags)) {
-      excludeTags = wf.taskExcludeTags.map(normalizeTagTokenZb).filter(Boolean);
-    }
-  }
-  return { includeTags, excludeTags };
-}
-function diaryTaskLinePassesBridgeTagPolicy(line) {
-  const { includeTags, excludeTags } = getBridgeTaskTagContextForStats();
-  const text = String(line || "").toLowerCase();
-  for (const tag of excludeTags) {
-    if (!tag) continue;
-    if (tag.endsWith("/")) {
-      if (text.includes(tag)) return false;
-    } else {
-      const re = new RegExp(`(^|\\s)${escapeRegexZb(tag)}(\\s|$)`, "i");
-      if (re.test(text)) return false;
-    }
-  }
-  if (includeTags.length) {
-    let ok = false;
-    for (const tag of includeTags) {
-      if (!tag) continue;
-      if (tag.endsWith("/")) {
-        if (text.includes(tag)) {
-          ok = true;
-          break;
-        }
-      } else {
-        const re = new RegExp(`(^|\\s)${escapeRegexZb(tag)}(\\s|$)`, "i");
-        if (re.test(text)) {
-          ok = true;
-          break;
-        }
-      }
-    }
-    if (!ok) return false;
-  }
-  return true;
-}
-
 const chartAdapter = globalThis.dashboardCore?.utils?.chartAdapter || {};
 const sharedDualAxisRenderer = chartAdapter.renderDualAxis;
 const habitParsing = globalThis.dashboardCore?.utils?.habitParsing || {};
@@ -235,21 +147,6 @@ async function loadText(path) {
   } catch (_) {
     return "";
   }
-}
-
-async function runPeriodicStatsDiaryReadQueue(queue, limit = 8) {
-  if (!Array.isArray(queue) || queue.length === 0) return;
-  let cursor = 0;
-  const workerCount = Math.min(limit, queue.length);
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (cursor < queue.length) {
-      const index = cursor++;
-      const job = queue[index];
-      if (typeof job !== "function") continue;
-      await job();
-    }
-  });
-  await Promise.all(workers);
 }
 
 async function ensureFallbackFactories() {
@@ -374,95 +271,31 @@ function normalizeHabit(raw) {
 }
 
 async function collectMetrics(dates) {
-  try {
-    const dataService = globalThis.dashboardCore?.data?.dataService;
-    const service = typeof dataService?.createDataService === "function"
-      ? dataService.createDataService({ bridge, ctx, app, momentApi: window.moment })
-      : null;
-    if (service) {
-      const snapshot = await service.getSnapshot({
-        preset: "periodic",
-        range: { mode: resolvedScope === "weekly" ? "week" : resolvedScope === "yearly" ? "year" : "month", start: dates[0], end: dates[dates.length - 1] },
-        granularity: "day"
-      });
-      const stats = snapshot?.domains || {};
-      const next = Object.fromEntries(dates.map((d) => [d, { notes: 0, words: 0, taskTotal: 0, taskDone: 0, weather: "", mood: "", energy: 0, focus: "" }]));
-      const noteRows = Array.isArray(stats?.notes?.trend?.series) ? stats.notes.trend.series : [];
-      const taskRows = Array.isArray(stats?.tasks?.completion?.series) ? stats.tasks.completion.series : [];
-      const stateRows = Array.isArray(stats?.dailyState?.series) ? stats.dailyState.series : [];
-      dates.forEach((d, idx) => {
-        if (!next[d]) return;
-        next[d].notes = Number(noteRows[idx]?.notes || 0);
-        next[d].words = Number(noteRows[idx]?.words || 0);
-        next[d].taskTotal = Number(taskRows[idx]?.planned || 0);
-        next[d].taskDone = Number(taskRows[idx]?.done || 0);
-        next[d].energy = Number(stateRows[idx]?.energy || 0);
-        next[d].focus = Number(stateRows[idx]?.focus || 0) ? String(stateRows[idx].focus) : "";
-        next[d].weather = String(stateRows[idx]?.weather || "");
-        next[d].mood = String(stateRows[idx]?.mood || "");
-      });
-      return next;
-    }
-  } catch (_) {}
-  const ttl = Math.max(0, Number(bridge.performance?.taskSnapshotTtlMs || 0));
-  const policy = getBridgeTaskTagContextForStats();
-  const cacheKey = JSON.stringify({
-    scope: resolvedScope,
-    start: dates[0] || "",
-    end: dates[dates.length - 1] || "",
-    diaryRoot,
-    include: policy.includeTags,
-    exclude: policy.excludeTags
+  const dataService = globalThis.dashboardCore?.data?.dataService;
+  if (typeof dataService?.createDataService !== "function") throw new Error(statsT("runtime.stats.dataUnavailable"));
+  const service = dataService.createDataService({ bridge, ctx, app, momentApi: window.moment });
+  const snapshot = await service.getSnapshot({
+    preset: "periodic",
+    range: { mode: resolvedScope === "weekly" ? "week" : resolvedScope === "yearly" ? "year" : "month", start: dates[0], end: dates[dates.length - 1] },
+    granularity: "day"
   });
-  const cacheState = (() => {
-    try {
-      const key = "__noria_periodic_stats_metrics_cache_v1";
-      if (!globalThis[key]) globalThis[key] = {};
-      return globalThis[key];
-    } catch (_) {
-      return {};
-    }
-  })();
-  const cached = cacheState[cacheKey];
-  if (ttl > 0 && cached && Date.now() - Number(cached.at || 0) < ttl && cached.metrics) {
-    return cached.metrics;
-  }
-  const metrics = Object.fromEntries(dates.map((d) => [d, { notes: 0, words: 0, taskTotal: 0, taskDone: 0, weather: "", mood: "", energy: 0, focus: "" }]));
-  const pageRows = bridge.runtime?.pagesForManagedPath?.("diaryRoot", ctx) || [];
-  const pages = toPlainArray(pageRows).filter((p) => p?.file?.name);
-  const periodicStatsDiaryReadJobs = [];
-  const periodicStatsDiaryRows = [];
-  for (const p of pages) {
-    const name = normalizeDiaryName(String(p.file.name || "").replace(".md", ""));
-    if (!metrics[name]) continue;
-    const row = { p, name, content: "" };
-    periodicStatsDiaryRows.push(row);
-    periodicStatsDiaryReadJobs.push(async () => {
-      let content = "";
-      try {
-        content = String(await ctx.io.load(p.file.path) || "");
-      } catch (_) {
-        content = String(p.file?.content || "");
-      }
-      row.content = content;
-    });
-  }
-  await runPeriodicStatsDiaryReadQueue(periodicStatsDiaryReadJobs);
-  for (const row of periodicStatsDiaryRows) {
-    const { p, name, content } = row;
-    metrics[name].notes += 1;
-    metrics[name].words += content.replace(/\s+/g, "").length;
-    const rawTaskLines = content.match(/^\s*-\s*\[[ xX]\]\s+.*$/gm) || [];
-    const taskLines = rawTaskLines.filter(diaryTaskLinePassesBridgeTagPolicy);
-    metrics[name].taskTotal += taskLines.length;
-    metrics[name].taskDone += taskLines.filter((ln) => /^\s*-\s*\[[xX]\]\s+/.test(ln)).length;
-    if (p.weather) metrics[name].weather = String(p.weather);
-    if (p.mood) metrics[name].mood = String(p.mood);
-    if (p.energy != null) metrics[name].energy = Number(p.energy) || 0;
-    if (p.focus) metrics[name].focus = String(p.focus);
-  }
-  cacheState[cacheKey] = { at: Date.now(), metrics };
-  return metrics;
+  const stats = snapshot?.domains || {};
+  const next = Object.fromEntries(dates.map((d) => [d, { notes: 0, words: 0, taskTotal: 0, taskDone: 0, weather: "", mood: "", energy: 0, focus: "" }]));
+  const noteRows = Array.isArray(stats?.notes?.trend?.series) ? stats.notes.trend.series : [];
+  const taskRows = Array.isArray(stats?.tasks?.completion?.series) ? stats.tasks.completion.series : [];
+  const stateRows = Array.isArray(stats?.dailyState?.series) ? stats.dailyState.series : [];
+  dates.forEach((d, idx) => {
+    if (!next[d]) return;
+    next[d].notes = Number(noteRows[idx]?.notes || 0);
+    next[d].words = Number(noteRows[idx]?.words || 0);
+    next[d].taskTotal = Number(taskRows[idx]?.planned || 0);
+    next[d].taskDone = Number(taskRows[idx]?.done || 0);
+    next[d].energy = Number(stateRows[idx]?.energy || 0);
+    next[d].focus = Number(stateRows[idx]?.focus || 0) ? String(stateRows[idx].focus) : "";
+    next[d].weather = String(stateRows[idx]?.weather || "");
+    next[d].mood = String(stateRows[idx]?.mood || "");
+  });
+  return next;
 }
 
 function buildDailySeries(dates, metrics, key) {
@@ -605,13 +438,13 @@ if ((root.clientWidth || 0) < 900) stateGrid.style.gridTemplateColumns = "1fr";
 chartKit.renderDistCard(stateGrid, statsT("runtime.stats.weatherDistribution"), weatherDefs, weatherCount);
 chartKit.renderDistCard(stateGrid, statsT("runtime.stats.moodDistribution"), moodDefs, moodCount);
 
-const taskHeat = Object.fromEntries(dates.map((d) => [d, Number(metrics[d].taskTotal || 0)]));
+const taskHeat = Object.fromEntries(dates.map((d) => [d, Number(metrics[d].taskDone || 0)]));
 const heatGrid = root.createDiv();
 heatGrid.style.cssText = "display:grid;grid-template-columns:1fr;gap:10px;";
 if ((root.clientWidth || 0) < 980) heatGrid.style.gridTemplateColumns = "1fr";
 await boardKit.renderHeatmap(
   heatGrid,
-  resolvedScope === "yearly" ? statsT("runtime.stats.taskActivityHeatmapYear") : statsT("runtime.stats.taskActivityHeatmap"),
+  resolvedScope === "yearly" ? statsT("runtime.stats.taskCompletionHeatmapYear") : statsT("runtime.stats.taskCompletionHeatmap"),
   range.year,
   taskHeat
 );

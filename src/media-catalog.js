@@ -5,7 +5,7 @@ const kinds = {
   movie: new Set(['movie', 'film', 'tv', 'anime', 'arts/film', 'arts/television', 'arts/animation']),
   game: new Set(['game', 'arts/games'])
 };
-const fields = ['status', 'rating', 'grade', 'description', 'cover', 'image', 'author', 'director', 'publish', 'year', 'releaseDate', 'isbn', 'country', 'platform', 'genre', 'pagecount', 'pageprogress', 'playtime', 'viewtime', 'finishedAt', 'created'];
+const fields = ['source', 'publisher', 'status', 'rating', 'grade', 'description', 'cover', 'image', 'author', 'director', 'publish', 'year', 'releaseDate', 'isbn', 'country', 'platform', 'genre', 'pagecount', 'pageprogress', 'playtime', 'viewtime', 'finishedAt', 'created'];
 const invalid = message => Object.assign(new Error(message), {code: 'invalid-input'});
 const clone = value => JSON.parse(JSON.stringify(value));
 function mediaTypes(fm, inlineTags = []) {

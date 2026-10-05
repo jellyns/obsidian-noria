@@ -30,7 +30,7 @@ function bodyText(markdown){
 function createPublicApi(plugin){
   const active=()=>{if(plugin._noriaPluginDisposed)throw fail('unsupported','Noria is unloaded; reconnect to the current plugin instance');};
   const run=async fn=>{active();try{return await fn();}catch(error){
-    if(['invalid-input','not-found','conflict','unsupported','io-error'].includes(error.code))throw error;
+    if(['invalid-input','not-found','conflict','unsupported','io-error','rate-limited','network-error','source-error'].includes(error.code))throw error;
     const reason=error.message;
     const code=['task-changed','task-not-found','ambiguous-task'].includes(reason)?'conflict':
       ['invalid-date','end-before-start','unsupported-task-status','missing-task-identity'].includes(reason)?'invalid-input':'io-error';
@@ -45,8 +45,9 @@ function createPublicApi(plugin){
       {name:'tasks.list',effect:'read',input:'Existing Data API getTasks request',output:'Existing task result with items[].ref; null ref means not writable'},
       {name:'tasks.update',effect:'write',input:{required:['ref','patch'],ref:{path:'vault-relative Markdown path',line:'zero-based hint',rawText:'exact original task line'},patch:{start:'YYYY-MM-DD[ HH:mm] or empty',due:'YYYY-MM-DD[ HH:mm] or empty',scheduled:'YYYY-MM-DD[ HH:mm] or empty',status:'todo | in_progress | done | cancelled'}},output:'{ok, changed, ref}'},
       {name:'records.fields',effect:'read',input:{},output:'{items}: configured field IDs, property names, types, choices, units and presentation; disabled fields remain readable'},
+      {name:'media.lookup',effect:'read',input:{required:['kind','query'],optional:['limit','offset']},output:'External Open Library candidates with work/edition identity and source URL; no vault reads or writes'},
       {name:'media.list',effect:'read',input:{required:['folder'],optional:['kind','status','query','recursive','offset','limit']},output:'{folder, items, total, unindexed, nextOffset}; existing tagged works and original media properties; no inferred rating source, progress or experience dates'},
-      {name:'media.create',effect:'write',input:{required:['folder','kind','title'],optional:['status','filename','searchFolder']},output:'{created:true,path,title,kinds} or {created:false,matches}; existing same-type titles are returned, files are never overwritten; no rating or experience generated'},
+      {name:'media.create',effect:'write',input:{required:['folder','kind','title'],optional:['status','filename','searchFolder','metadata','separate']},output:'{created:true,path,title,kinds} or {created:false,matches}; existing same-type titles are returned, files are never overwritten; no rating or experience generated'},
       {name:'media.read',effect:'read',input:{required:['path']},output:'Current media status and book page position with revision; reads one existing note'},
       {name:'media.update',effect:'write',input:{required:['path','revision','patch'],patch:'status: text|null; pageprogress: nonnegative integer|null (books)'},output:'{ok, changed, path, title, kinds, properties, revision}; no date, rating, reading volume or experience generated'},
       {name:'records.read',effect:'read',input:{required:['date'],date:'YYYY-MM-DD'},output:'{date, path, exists, items:[{fieldId, value, revision}]}; daily values, no note creation'},
@@ -59,7 +60,8 @@ function createPublicApi(plugin){
       {name:'suggestionReplies.claim',effect:'write',input:{required:['conversationId','replyId','replyRevision','sourceRevision','requestId','agent']},output:'Five-minute claim; renew with the same requestId while active. An expired claim needs outcome review and acknowledgeUncertain:true'},
       {name:'suggestionReplies.respond',effect:'write',input:{required:['conversationId','replyId','replyRevision','sourceRevision','claimId','requestId','markdown']},output:'Idempotent response to one claimed reply; not proof of business-operation success'}
     ].concat(['list','read','publish','submit','claim','respond'].map(name=>({name:'interactions.'+name,effect:['list','read'].includes(name)?'read':'write',input:'See docs/AGENT-API.md and noria_interactions_'+name+' MCP schema',output:'Stable interaction ID; definitions and submissions stored in Noria/Conversations Markdown. No implicit Agent invocation.'}))),errors:['invalid-input','not-found','conflict','unsupported','io-error'],requires:'Obsidian running with Noria loaded'};},
-    media:Object.freeze({create:request=>run(()=>require('./media-intake.js').createMedia(plugin,request)),list:request=>run(()=>require('./media-catalog.js').listMedia(plugin,request)),read:request=>run(()=>require('./media-record.js').readMedia(plugin,request)),update:request=>run(()=>require('./media-record.js').updateMedia(plugin,request))}),
+    media:Object.freeze({
+      lookup(request){return run(()=>require('./media-lookup.js').lookupMedia(plugin,request));},create:request=>run(()=>require('./media-intake.js').createMedia(plugin,request)),list:request=>run(()=>require('./media-catalog.js').listMedia(plugin,request)),read:request=>run(()=>require('./media-record.js').readMedia(plugin,request)),update:request=>run(()=>require('./media-record.js').updateMedia(plugin,request))}),
     tasks:Object.freeze({
       list(request={}){return run(async()=>{const service=await plugin.createDataService(),result=await service.getTasks(request);return {...result,items:result.items.map(item=>({...item,ref:refOf(item)}))};});},
       update(request){return run(async()=>{

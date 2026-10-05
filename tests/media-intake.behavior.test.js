@@ -3,7 +3,7 @@ const {createAgentConnection} = require('../src/agent-mcp.js');
 const {Client} = require('@modelcontextprotocol/sdk/client/index.js');
 const {StreamableHTTPClientTransport} = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const parse = raw => Object.fromEntries(raw.split('\n').filter(line => /^[a-z]+: /.test(line)).map(line => { const i = line.indexOf(': '); return [line.slice(0, i), JSON.parse(line.slice(i + 2))]; }));
-function load(name, stubs) { const filename = path.resolve(__dirname, '../src/' + name), module = {exports: {}}, local = createRequire(filename); vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {module, require: id => id in stubs ? stubs[id] : local(id)}); return module.exports; }
+function load(name, stubs) { const filename = path.resolve(__dirname, '../src/' + name), module = {exports: {}}, local = createRequire(filename); vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {module, URL, require: id => id in stubs ? stubs[id] : local(id)}); return module.exports; }
 const intake = load('media-intake.js', {obsidian: {parseYaml: parse}});
 const {createPublicApi} = load('public-api.js', {'./media-intake.js': intake});
 function fixture() {
@@ -56,4 +56,24 @@ test('actual MCP intake writes once and returns the existing source on replay', 
   const first = await client.callTool(request); assert.equal(first.structuredContent.created, true);
   const second = await client.callTool(request); assert.equal(second.structuredContent.created, false); assert.equal(second.structuredContent.matches[0].path, first.structuredContent.path);
   assert.equal(f.writes, 1); assert.equal(parse(f.contents.get(first.structuredContent.path)).status, '想玩');
+});
+
+
+test('metadata creates a version without personal history; ISBN-10/13 and source identity prevent renamed duplicates',async()=>{
+ const f=fixture(),metadata={source:'https://openlibrary.org/books/OL7353617M',isbn:['9780140328721'],publisher:['Puffin'],publish:'1988',pagecount:96};
+ const created=await f.api.media.create({folder:'Media',kind:'book',title:'Fantastic Mr. Fox',metadata});
+ const properties=parse(f.contents.get(created.path));assert.equal(properties.pagecount,96);assert.deepEqual(properties.publisher,['Puffin']);assert.equal(properties.source,metadata.source);assert.equal(properties.rating,undefined);assert.equal(properties.finishedAt,undefined);assert.equal(properties.status,undefined);
+ const duplicate=await f.api.media.create({folder:'Media',kind:'book',title:'A translated title',metadata:{isbn:'0140328726'},separate:true});assert.equal(duplicate.created,false);assert.equal(duplicate.matches[0].reason,'identity');assert.equal(duplicate.matches[0].path,created.path);
+ const linked=await f.api.media.create({folder:'Media',kind:'book',title:'Another title',metadata:{source:metadata.source}});assert.equal(linked.created,false);assert.equal(f.writes,1);
+});
+
+test('another edition requires an explicit separate choice and never overwrites the same filename',async()=>{
+ const f=fixture();f.add('Media/old.md','Same book','book');const previous=f.contents.get('Media/old.md');
+ const request={folder:'Media',kind:'book',title:'Same book',metadata:{isbn:'9780140328721'}};
+ assert.equal((await f.api.media.create(request)).created,false);
+ await assert.rejects(f.api.media.create({...request,separate:true,filename:'old.md'}),e=>e.code==='conflict');
+ assert.equal((await f.api.media.create({...request,separate:true,filename:'Another edition.md'})).created,true);assert.equal(f.contents.get('Media/old.md'),previous);
+ const before=f.writes;
+ for(const metadata of [{rating:5},{pagecount:0},{source:'javascript:alert(1)'},{isbn:'9780140328722'}])await assert.rejects(f.api.media.create({...request,title:'Invalid',metadata}),e=>e.code==='invalid-input');
+ assert.equal(f.writes,before);
 });

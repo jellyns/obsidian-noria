@@ -2531,30 +2531,7 @@ test("property statistics read source notes in bounded batches after applying th
   assert.match(provider,/index\+=24/);assert.match(provider,/Promise.all\(candidates.slice\(index,index\+24\)/);
 });
 
-test("periodic stats legacy fallback reads diary contents in bounded parallel before aggregation", () => {
-  const legacyStats = read("views/dashboard/periodic-stats/impl-legacy/view.js");
-  const loopStart = legacyStats.indexOf("for (const p of pages)");
-  const cacheWriteStart = legacyStats.indexOf("cacheState[cacheKey]", loopStart);
-  assert.ok(loopStart > 0 && cacheWriteStart > loopStart, "legacy stats fallback page loop should precede cache write");
-  const loopBlock = legacyStats.slice(loopStart, cacheWriteStart);
 
-  assert.match(legacyStats, /async function runPeriodicStatsDiaryReadQueue/);
-  assert.match(legacyStats, /Math\.min\(limit,\s*queue\.length\)/);
-  assert.match(legacyStats, /const periodicStatsDiaryReadJobs\s*=\s*\[\]/);
-  assert.match(legacyStats, /const periodicStatsDiaryRows\s*=\s*\[\]/);
-  assert.match(loopBlock, /periodicStatsDiaryReadJobs\.push\(async \(\) =>/);
-  assert.match(legacyStats, /await runPeriodicStatsDiaryReadQueue\(periodicStatsDiaryReadJobs\)/);
-  assert.match(legacyStats, /for \(const row of periodicStatsDiaryRows\)/);
-  assert.ok(
-    legacyStats.indexOf("await runPeriodicStatsDiaryReadQueue(periodicStatsDiaryReadJobs)") <
-      legacyStats.indexOf("for (const row of periodicStatsDiaryRows)"),
-    "legacy stats should aggregate diary rows only after queued reads complete"
-  );
-  assert.doesNotMatch(
-    loopBlock,
-    /\n\s{4}let content = "";\s*\n\s{4}try\s*\{\s*\n\s{6}content = String\(await ctx\.io\.load\(p\.file\.path\)/
-  );
-});
 
 test("home trends preserves the full habit history surface outside the overview strip", () => {
   const trends = read("views/dashboard/home/sections/trends-and-stats/view.js");
