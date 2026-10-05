@@ -18725,6 +18725,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         renderSuggestionReplies(host,source) { return require('./suggestion-reply-ui.js').renderSuggestionReplies(plugin,host,source); },
         attachHomeCardResize(host,id) { return plugin.cards.attachHomeResize(host,id); },
         renderDailyRecordSummary(host,range,options) { return plugin.propertyStats.renderDailySummary(host,range,options); },
+        openTrendSources(kind,point) { return plugin.propertyStats.openTrendSources(kind,point); },
         openRecordManager(options) { const {RecordManager}=require("./record-manager.js");const modal=new RecordManager(plugin,options);modal.open();return modal; },
         openWeatherDetails(anchor,payload,refresh) {
           const {recordPopover}=require("./record-popover.js"),{iconButton}=require("./card-controls.js"),text=(zh,en)=>plugin.getNoriaLocale()==="zh"?zh:en;

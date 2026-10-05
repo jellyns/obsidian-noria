@@ -29,6 +29,21 @@ function loadDataService(extra = {}) {
   return {...data,createDataService:options=>data.createDataService({...options,bridge:{tasks:require('../src/task-document.js'),...options.bridge}})};
 }
 
+test("trend sources retain every contributing task and distinguish note creation from diary characters", async () => {
+  const tasks=Array.from({length:85},(_,line)=>({path:'Projects/tasks.md',line,text:`Done ${line} [completion:: 2026-05-02]`,completed:true}));
+  tasks.push({path:'Projects/tasks.md',line:85,text:'Open [due:: 2026-05-02]',completed:false},{path:'Projects/tasks.md',line:86,text:'Cancelled [due:: 2026-05-02]',status:'-',completed:false});
+  const note={file:{path:'Resources/Article.md',name:'Article',ctime:'2026-05-02'}},diary={file:{path:'Diary/2026-05-02.md',name:'2026-05-02',ctime:'2026-05-03'}};
+  const service=loadDataService().createDataService({now:'2026-05-04',app:{},ctx:{readText:async()=> 'a b\n中'},bridge:{paths:{diaryRoot:'Diary'},runtime:{toArray:v=>Array.from(v||[]),pagesForScope:()=>[note,diary],pagesForManagedPath:()=>[diary],tasksForScope:()=>tasks}}});
+  const snapshot=await service.getSnapshot({preset:'home',include:['notes','tasks'],range:{mode:'custom',start:'2026-05-02',end:'2026-05-03'}});
+  const task=snapshot.domains.tasks.completion.series[0],notes=snapshot.domains.notes.trend.series;
+  assert.ok(task.sources,'Each task point needs its full source set');
+  assert.equal(task.done,85);assert.equal(task.planned,86);assert.equal(task.sources.done.length,85);assert.equal(task.sources.open.length,1);
+  assert.equal(task.sources.done[84].taskRef.line,84);assert.match(task.sources.done[84].taskRef.rawText,/Done 84/);
+  assert.equal(notes[0].notes,1);assert.equal(notes[0].words,3);
+  assert.equal(notes[0].sources.created[0].path,note.file.path);assert.equal(notes[0].sources.diary[0].path,diary.file.path);assert.equal(notes[0].sources.diary[0].value,3);
+  assert.equal(notes[1].sources.created[0].path,diary.file.path);assert.equal(notes[1].sources.diary.length,0);
+});
+
 test("data service derives review and snapshot cache paths from the runtime bridge", async () => {
   const data = loadDataService();
   const writes = [];

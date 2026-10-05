@@ -139,7 +139,7 @@ class CardCatalog extends Modal {
       this.previewBlocked=draft.type==='builtin'?false:!provider||(provider.pluginId!=="noria"&&!this.app.plugins.plugins[provider.pluginId]);
       this.applyButton.disabled=!!this.saving||this.previewBlocked;
       const selection=this.custom?{...this.context.selection,pageId:`preview:${draft.id}`,range:this.system.pages.get(this.context.pageId)?.trendsRange||this.plugin.settings.home?.trendsRange}:this.context.selection;
-      const cleanup=await this.system.render(draft,body,selection,this.context);
+      const cleanup=await this.system.render(draft,body,selection,{...this.context,preview:true});
       if(serial!==this.generation)cleanup();else this.cleanupPreview=cleanup;
     }else{
       const mount=body.createDiv({cls:"noria-card-builtin-preview"});mount.inert=true;
@@ -150,7 +150,7 @@ class CardCatalog extends Modal {
       await this.plugin.runNoriaView(".obsidian/plugins/noria/views/dashboard/home",{workbench:true,noriaBridge:bridge,previewWidget:{...draft,props:{...draft.props,lazy:false}}},mount);
       if(serial!==this.generation)cleanup();
     }
-    status.setText(this.text('预览 · 尚未应用','Preview · Not yet applied'));
+    status.setText(draft.source==='noria:statistics'?this.text('只读预览 · 尚未应用','Read-only preview · Not yet applied'):this.text('预览 · 尚未应用','Preview · Not yet applied'));
     }catch(error){
       if(serial!==this.generation)return;
       this.previewBlocked=true;body.empty();status.setText(this.text('无法预览','Preview unavailable'));

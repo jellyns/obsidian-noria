@@ -123,6 +123,7 @@ class PropertyStatCards{
     const result=summarize(filterNotes(rows,config),{...config,display:M.temporal.has(config.display)&&config.calculate!=='distribution'?'trend':config.display});return {...result,range,source,unreadable};
   }
   draw(host,result,config,viewState={},context={page:"home"}){
+    const openRows=(rows,sourceResult=result,title='',excluded=false)=>this.openRows(rows,sourceResult,title,excluded,{preview:!!context.preview});
     host.addClass('noria-property-stat');
     const field=this.plugin.records.definitions().find(f=>f.property===config.property);
     if(field)host.style.setProperty('--noria-record-color',this.plugin.records.color(field));
@@ -130,23 +131,24 @@ class PropertyStatCards{
     if(color)host.style.setProperty('--noria-record-color',color);host.dataset.statDensity=visual.density;host.dataset.statColored=String(!!color);
     const head=host.createDiv({cls:'noria-stat-toolbar'}),range=result.range;
     head.createSpan({cls:'noria-stat-range',text:range?formatStatRange(range,this.plugin.getNoriaLocale()):this.text('不限时间','All dates'),attr:range?{title:range.start+' – '+range.end}:{}});
-    iconButton(head,'list',this.text('汇总与来源','Summary & sources'),()=>this.openRows(result.rows,result));
+    iconButton(head,'list',this.text('汇总与来源','Summary & sources'),()=>openRows(result.rows,result));
     const number=value=>value==null?'—':new Intl.NumberFormat(this.plugin.getNoriaLocale(),{maximumFractionDigits:2}).format(value);
     const caption=({sum:this.text('合计','Sum'),mean:this.text('平均','Mean'),min:this.text('最小值','Minimum'),max:this.text('最大值','Maximum'),distribution:this.text('状态分布','State distribution'),rate:this.text('完成比例','Completion ratio')})[config.calculate]||this.text('数量','Count');
     const unit=statisticUnit(config,result,field),valueText=value=>number(value)+(value!=null&&unit?(unit==='%'?'%':' '+unit):'');
     host.createSpan({cls:'noria-stat-calculation',text:caption});
     if(!config.display||config.display==='metric'){
       host.addClass('noria-property-stat--metric');
-      const main=host.createEl('button',{cls:'noria-stat-result',attr:{'aria-label':valueText(result.value)}});main.createSpan({cls:'noria-stat-result-value',text:number(result.value)});if(result.value!=null&&unit)main.createSpan({cls:'noria-stat-result-unit',text:unit});main.onclick=()=>this.openRows(result.rows,result);
+      const main=host.createEl('button',{cls:'noria-stat-result',attr:{'aria-label':valueText(result.value)}});main.createSpan({cls:'noria-stat-result-value',text:number(result.value)});if(result.value!=null&&unit)main.createSpan({cls:'noria-stat-result-unit',text:unit});main.onclick=()=>openRows(result.rows,result);
       if(config.calculate==='rate')host.createSpan({cls:'noria-card-secondary',text:result.numerator+' / '+result.denominator});
     }
     if(!result.recorded&&config.display!=='comparison')host.createDiv({cls:'noria-card-empty',text:config.calculate==='rate'?config.source==='habits'?this.text('此范围没有应打卡次数。','No scheduled check-ins in this range.'):this.text('此范围没有纳入完成比例的任务。','No tasks in this completion cohort.'):this.text('此范围还没有可计算的记录。','No usable records in this range yet.')});
     const compactNumber=value=>new Intl.NumberFormat(this.plugin.getNoriaLocale(),{notation:'compact',maximumFractionDigits:1}).format(value);
-    require('./statistic-charts.js').renderChart(host,result,config,{text:(a,b)=>this.text(a,b),number,compactNumber,viewState,unit,today:this.plugin.getLocalYmd(),rangeText:range=>formatStatRange(range,this.plugin.getNoriaLocale()),field,display:(f,v)=>this.plugin.records.display(f,v),source:(rows,sourceResult=result)=>this.openRows(rows,sourceResult),activate:(anchor,rows,date)=>void this.editPoint(anchor,rows,config,date,result,context)});
-    if(result.invalid.length||result.unreadable?.length){const b=host.createEl('button',{cls:'noria-review-text-action',text:this.text('查看未纳入的记录','Excluded records')});b.onclick=()=>this.openRows([...result.invalid,...result.unreadable||[]],result,this.text('未纳入的记录','Excluded records'),true);}
+    require('./statistic-charts.js').renderChart(host,result,config,{text:(a,b)=>this.text(a,b),number,compactNumber,viewState,unit,readOnly:!!context.preview,today:this.plugin.getLocalYmd(),rangeText:range=>formatStatRange(range,this.plugin.getNoriaLocale()),field,display:(f,v)=>this.plugin.records.display(f,v),source:(rows,sourceResult=result)=>openRows(rows,sourceResult),activate:(anchor,rows,date)=>void this.editPoint(anchor,rows,config,date,result,context)});
+    if(result.invalid.length||result.unreadable?.length){const b=host.createEl('button',{cls:'noria-review-text-action',text:this.text('查看未纳入的记录','Excluded records')});b.onclick=()=>openRows([...result.invalid,...result.unreadable||[]],result,this.text('未纳入的记录','Excluded records'),true);}
   }
   async editPoint(anchor,rows,config,date,result,context={page:"home"}){
     if(!date&&rows.length===1)date=rows[0].date||'';
+    if(context.preview)return this.openRows(rows,result,date,false,{preview:true});
     const fail=message=>recordPopover(anchor,this.text('记录','Record'),pop=>pop.createDiv({cls:'noria-card-secondary',text:message}));
     if(!config.property||['tasks','habits'].includes(config.source))return this.openRows(rows,result,date);
     if(date&&date>this.plugin.getLocalYmd())return fail(this.text('未来日期不能填写实际记录','Actual records cannot be entered for a future date'));
@@ -183,16 +185,31 @@ class PropertyStatCards{
     }else opened=await this.plugin.openHomeSource(row.path);
     if(!opened?.ok)throw Error(this.text('无法打开来源，请检查笔记后重试。','Could not open the source. Check the note and try again.'));
   }
-  openRows(rows,result,title="",excluded=false){
-    const modal=new Modal(this.app);const untrack=this.plugin.cards.trackModal(modal);modal.onClose=untrack;modal.setTitle(title||this.text("参与统计的记录","Source records"));
+  openTrendSources(kind,point){
+    if(!point?.sources)return;
+    const s=point.sources;
+    const groups=kind==='tasks'?[
+      {label:this.text(`已完成 ${point.done}`,`Completed ${point.done}`),rows:s.done},
+      {label:this.text(`未完成 ${point.open}`,`Open ${point.open}`),rows:s.open}
+    ]:[
+      {label:this.text(`新建笔记 ${point.notes}`,`New notes ${point.notes}`),rows:s.created},
+      {label:this.text(`日记字符 ${point.words}`,`Diary characters ${point.words}`),rows:s.diary.map(row=>({...row,fieldName:this.text(`${row.value} 字符`,`${row.value} characters`)}))}
+    ];
+    const rows=groups.flatMap(group=>group.rows);
+    this.openRows(rows,{recorded:rows.length,sourceGroups:groups,summary:kind==='tasks'?this.text(`活动总量 ${point.planned}`,`Total activity ${point.planned}`):this.text('按创建日期统计笔记，按日记日期统计字符。','Notes use their creation date; characters use the diary date.')},point.key);
+  }
+  openRows(rows,result,title="",excluded=false,{preview=false}={}){
+    const modal=new Modal(this.app),label=title||this.text("参与统计的记录","Source records");const untrack=this.plugin.cards.trackModal(modal);modal.setTitle(label);
+    const contents=modal.contentEl.createDiv(),reader=preview?new (require("./statistic-source-reader.js").StatisticSourceReader)(this.plugin,modal,contents,label):null;
+    modal.onClose=()=>{reader?.dispose();untrack();};
     const daily=result.sourceNotes!=null;
     const summary=daily?this.text(`${result.sourceNotes} 篇日记已计入 · ${result.recorded} 项有效`,`${result.sourceNotes} diary notes included · ${result.recorded} usable values`):excluded?this.text(`${rows.length} 条未纳入 · 全部 ${result.recorded} 条有效`,`${rows.length} excluded · ${result.recorded} usable in total`):this.text(`当前 ${rows.length} 条 · 全部 ${result.recorded} 条有效`,`${rows.length} shown · ${result.recorded} usable in total`);
-    modal.contentEl.createDiv({cls:'noria-card-secondary',text:summary+(result.missing?this.text(` · ${result.missing} 项未填`,` · ${result.missing} missing values`):'')});
-    if(result.range)modal.contentEl.createDiv({cls:'noria-card-secondary',text:formatStatRange(result.range,this.plugin.getNoriaLocale())});
-    const list=modal.contentEl.createDiv({cls:"noria-record-list"});
-    const status=modal.contentEl.createDiv({cls:'noria-card-error',attr:{role:'alert'}});status.hidden=true;
+    contents.createDiv({cls:'noria-card-secondary',text:(result.summary??summary)+(result.missing?this.text(` · ${result.missing} 项未填`,` · ${result.missing} missing values`):'')});
+    if(result.range)contents.createDiv({cls:'noria-card-secondary',text:formatStatRange(result.range,this.plugin.getNoriaLocale())});
+    const list=contents.createDiv({cls:"noria-record-list"});
+    const status=contents.createDiv({cls:'noria-card-error',attr:{role:'alert'}});status.hidden=true;
     const renderRow=(parent,row)=>{const b=parent.createEl("button",{cls:"noria-record-open",text:(row.fieldName?row.fieldName+' · ':'')+(row.title||row.path||row.date),attr:{type:'button',title:row.path||''}});b.disabled=!row.path;
-      b.onclick=async()=>{b.disabled=true;status.hidden=true;try{await this.openSource(row);modal.close();}catch(error){status.setText(error.message);status.hidden=false;}finally{b.disabled=!row.path;}};
+      b.onclick=async()=>{b.disabled=true;status.hidden=true;try{if(reader)await reader.show(row,b);else{await this.openSource(row);modal.close();}}catch(error){status.setText(error.message);status.hidden=false;}finally{b.disabled=!row.path;}};
       const detail=[row.title&&row.date,row.taskRef&&row.path].filter(Boolean).join(' · ');if(detail)b.createSpan({cls:'noria-card-secondary',text:detail});
       const error=row.reason==='unsupported-category'?this.text('分类值需为文本、数字、开关或它们的列表','Categories need text, numbers, booleans or lists of these'):row.reason==='non-numeric'?this.text('该值不是有效数字','This value is not a valid number'):row.error;if(error)b.createSpan({cls:"noria-card-secondary",text:error});};
     if(daily&&(result.invalid.length||result.unreadable.length)){
@@ -202,7 +219,11 @@ class PropertyStatCards{
       for(const row of result.invalid)renderRow(details,row);
       for(const row of result.unreadable)renderRow(details,{...row,title:this.text('未读取 · ','Unread · ')+row.path});
     }
-    for(const row of rows)renderRow(list,row);modal.open();
+    if(result.sourceGroups)for(const group of result.sourceGroups){
+      list.createEl('h3',{cls:'noria-stat-source-heading',text:group.label});
+      if(!group.rows.length)list.createDiv({cls:'noria-card-secondary',text:this.text('无记录','No records')});
+      for(const row of group.rows)renderRow(list,row);
+    }else for(const row of rows)renderRow(list,row);modal.open();
   }
   addForField(field,context){
     const {CardCatalog}=require("./card-catalog.js"),modal=new CardCatalog(this.plugin.cards,context);

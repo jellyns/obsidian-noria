@@ -113,6 +113,7 @@ test('empty numeric series omits the plot and retains explicit historical diary 
  renderChart(host,result,config,{...options,today:'2026-01-05',activate:(anchor,rows,date)=>opened={rows,date}});
  assert.equal(host.children.some(el=>el.cls==='noria-stat-plot'),false);
  const row=host.children.find(el=>el.cls==='noria-stat-empty-entry'),date=row.children[0].children[1];assert.equal(date.value,'2026-01-05');date.value='2026-01-02';row.children[1].onclick();assert.deepEqual(opened,{rows:[],date:'2026-01-02'});
+ const preview=element();renderChart(preview,result,config,{...options,today:'2026-01-05',readOnly:true});assert.equal(preview.children.some(el=>el.cls==='noria-stat-empty-entry'),false);
 });
 
 test('refresh preserves the inspected date without making it a persisted statistic setting',()=>{

@@ -815,7 +815,7 @@
       const trend = {
         totalCreated: 0,
         totalDiaryWords: 0,
-        series: Array.from(buckets.values()).map((b) => ({ ...b, notes: 0, words: 0 }))
+        series: Array.from(buckets.values()).map((b) => ({ ...b, notes: 0, words: 0, sources: {created: [], diary: []} }))
       };
       const distribution = { total: 0, items: [] };
       const byFolder = new Map();
@@ -833,6 +833,7 @@
         const row = noteByBucket.get(bucket);
         if (row) {
           row.notes += 1;
+          row.sources.created.push({path:normalizePath(p?.file?.path || ""),title:String(p?.file?.name || "").replace(/\.md$/i,""),date:ds});
           trend.totalCreated += 1;
         }
         const pathText = normalizePath(p?.file?.path || "");
@@ -860,6 +861,7 @@
         const words = String(content || "").replace(/\s+/g, "").length;
         if (noteRow) {
           noteRow.words += words;
+          noteRow.sources.diary.push({path:normalizePath(p?.file?.path || ""),title:String(p?.file?.name || "").replace(/\.md$/i,""),date:ds,value:words});
           trend.totalDiaryWords += words;
         }
         const weather = String(p?.weather || "").trim();
@@ -1061,12 +1063,13 @@
 
     async function collectTaskCompletionDomain(resolved) {
       const buckets = buildEmptyBuckets(resolved.dates, resolved.granularity);
-      const rows = Array.from(buckets.values()).map((b) => ({ ...b, done: 0, planned: 0, open: 0, rate: 0 }));
+      const rows = Array.from(buckets.values()).map((b) => ({ ...b, done: 0, planned: 0, open: 0, rate: 0, sources: {done: [], open: []} }));
       const byBucket = new Map(rows.map((row) => [row.key, row]));
       const tasks = await getTasks({ range: resolved, bucketBy: "active", status: "all" });
       const completedItems = [];
       const completedByDate = new Map(resolved.dates.map(date => [date, 0]));
       const openItems = [];
+      const sourceRow = (item,date) => ({path:item.identity.sourcePath,title:item.title,date,taskRef:{path:item.identity.sourcePath,line:item.identity.line,rawText:item.text.raw}});
       for (const item of tasks.items) {
         if (item.completed) {
           const ds = item.dates.completion;
@@ -1075,6 +1078,7 @@
           if (row) {
             row.done += 1;
             row.planned += 1;
+            row.sources.done.push(sourceRow(item,ds));
           }
           completedItems.push(item);
         } else if (item.status !== "cancelled") {
@@ -1083,6 +1087,7 @@
           if (row) {
             row.open += 1;
             row.planned += 1;
+            row.sources.open.push(sourceRow(item,ds));
           }
           openItems.push(item);
         }

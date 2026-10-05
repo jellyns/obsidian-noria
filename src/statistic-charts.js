@@ -4,7 +4,7 @@ const {appearance}=require('./record-visual.js');
 const {renderLeaderDonutChart}=require('./runtime/views/dashboard/core/components/charts/leader-donut-chart.js');
 const A=require('./statistic-appearance.js');
 const {renderStackedDistributionBar}=require('./runtime/views/dashboard/core/components/charts/stacked-distribution-bar.js');
-function renderChart(host,result,config,{text,number,compactNumber=number,viewState={},unit='',today,rangeText=r=>`${r.start} – ${r.end}`,field,display,activate,source}){
+function renderChart(host,result,config,{text,number,compactNumber=number,viewState={},unit='',today,readOnly=false,rangeText=r=>`${r.start} – ${r.end}`,field,display,activate,source}){
  const visual=A.appearance(config.appearance),colorFor=key=>A.categoryColor(key,visual,appearance(field||{},field?.type==='toggle'?String(key)==='true':key).color);
  const numeric=value=>number(value)+(value!=null&&unit?(unit==='%'?'%':' '+unit):'');
  const style=config.display||'metric',format=value=>config.calculate==='distribution'?(field?display(field,value):String(value)):numeric(value);
@@ -52,7 +52,7 @@ function renderChart(host,result,config,{text,number,compactNumber=number,viewSt
  const categories=category?(field?require('./record-visual.js').choices(field).map(String):result.groups.map(g=>g.key)):[];
  if(['line','columns','trend'].includes(style)&&!values.length){
    // A missing series has no meaningful axis; retain explicit date-based entry.
-   if(config.source==='diary'&&config.property&&result.range){
+   if(!readOnly&&config.source==='diary'&&config.property&&result.range){
      const end=today&&today<result.range.end?today:result.range.end;
      if(result.range.start<=end){const row=host.createDiv({cls:'noria-stat-empty-entry'}),label=row.createEl('label');label.createSpan({text:text('补记日期','Record date')});const date=label.createEl('input',{attr:{type:'date',min:result.range.start,max:end,required:''}});date.value=end;
        button(row,text('填写记录','Add record'),anchor=>{if(date.value>=result.range.start&&date.value<=end&&/^\d{4}-\d{2}-\d{2}$/.test(date.value))activate(anchor,[],date.value);else date.reportValidity();});}
@@ -61,7 +61,7 @@ function renderChart(host,result,config,{text,number,compactNumber=number,viewSt
  const caption=host.createDiv({cls:'noria-stat-selection'});const retained=points.findIndex(p=>p.date===viewState.date);let selected=retained>=0?retained:Math.max(0,points.findLastIndex(p=>(!today||p.date<=today)&&p.value!=null)),updateSelection;
  const label=p=>`${p.date} · ${p.ambiguous?text('多份记录','Multiple records'):p.multiple?text('多个状态','Multiple states'):p.value==null?(['heatmap','strip','states'].includes(style)?text('未记录','No record'):'—'):format(p.value)}`;
  const pick=button(caption,'',b=>activate(b,points[selected].rows,points[selected].date));
- const select=i=>{selected=Math.max(0,Math.min(points.length-1,i));viewState.date=points[selected].date;pick.setText(label(points[selected]));pick.setAttribute('aria-label',`${label(points[selected])} · ${text('编辑或查看来源','Edit or view sources')}`);updateSelection?.();};select(selected);
+ const select=i=>{selected=Math.max(0,Math.min(points.length-1,i));viewState.date=points[selected].date;pick.setText(label(points[selected]));pick.setAttribute('aria-label',`${label(points[selected])} · ${readOnly?text('查看来源','View sources'):text('编辑或查看来源','Edit or view sources')}`);updateSelection?.();};select(selected);
  const colorMin=Math.min(0,...values),colorMax=Math.max(0,...values);
  const shade=p=>p.value==null?'var(--background-secondary)':category?colorFor(p.value):`color-mix(in srgb,var(--noria-record-color,var(--interactive-accent)) ${25+75*(p.value-colorMin)/(colorMax-colorMin||1)}%,var(--background-primary))`;
  if(['heatmap','strip','states'].includes(style)){

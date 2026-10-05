@@ -224,8 +224,9 @@ const announcement=chartWrap.createDiv({cls:"noria-trend-announcement",attr:{rol
 let inspecting=false;
 let selectedIndex = Math.max(0,dayList.findLastIndex((_,i)=>noteData[i]||wordData[i]));
 chartWrap.classList.add("noria-trend-interactive");
+if(noriaBridge.runtime?.openTrendSources&&snapshotRows.some(row=>row.sources))chartWrap.dataset.sourceDetails='true';
 chartWrap.setAttribute("tabindex","0");chartWrap.setAttribute("role","group");
-chartWrap.setAttribute("aria-label",/^zh/.test(noriaBridge.locale||"")?"趋势图：左右键选择日期，Home／End 到首尾，显示悬浮读数。":"Trend: arrow keys select dates; Home / End select first / last. Values appear in the tooltip.");
+chartWrap.setAttribute("aria-label",/^zh/.test(noriaBridge.locale||"")?"趋势图：左右键选择日期，Home／End 到首尾，点击或 Enter 查看来源。":"Trend: arrow keys select dates; Home / End select first / last. Click or Enter to inspect sources.");
 
 const renderChart = () => {
   const chartW = Math.max(240, Math.round(measure(chartWrap, 760)));
@@ -478,10 +479,12 @@ const renderChart = () => {
   const select=i=>{hideHover(selectedIndex);selectedIndex=Math.max(0,Math.min(days-1,i));chartWrap.dataset.index=String(selectedIndex);inspecting=true;showHover(selectedIndex);};
   chartWrap.onpointermove=event=>{const r=svg.getBoundingClientRect();if(!r.width)return;const i=Math.max(0,Math.min(days-1,Math.floor(((event.clientX-r.left)*chartW/r.width-padL)/plotW*days)));if(i!==selectedIndex||!inspecting)select(i);};
   chartWrap.onpointerdown=chartWrap.onpointermove;
+  const openSources=()=>noriaBridge.runtime?.openTrendSources?.("notes",snapshotRows[selectedIndex]);
+  chartWrap.onclick=event=>{if(event.detail)chartWrap.onpointermove(event);openSources();};
   chartWrap.onpointerleave=()=>{if(chartWrap.ownerDocument.activeElement!==chartWrap){hideHover(selectedIndex);inspecting=false;}};
   chartWrap.onfocus=()=>select(selectedIndex);
   chartWrap.onblur=()=>{hideHover(selectedIndex);inspecting=false;};
-  chartWrap.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();select(event.key==='Home'?0:event.key==='End'?days-1:selectedIndex+(event.key==='ArrowLeft'?-1:1));};
+  chartWrap.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openSources();return;}if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();select(event.key==='Home'?0:event.key==='End'?days-1:selectedIndex+(event.key==='ArrowLeft'?-1:1));};
   chartWrap.dataset.index=String(selectedIndex);if(inspecting)showHover(selectedIndex);
 };
 

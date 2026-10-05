@@ -412,6 +412,8 @@ All statistics cards share one range control:
 
 Note Trend shows newly created notes and the current non-whitespace character count of diary files. Character count describes current file content, not characters added that day.
 
+Click a date position in either built-in trend chart, or select it with the arrow keys and press Enter, to inspect its sources. Note Trend separates newly created notes from diary character sources. Task Trend separates completed and open tasks; together they make up total activity. Selecting a source opens the note, focusing the current task line for tasks. Returning preserves the chart selection.
+
 ### 7.3 Task Completion Trend
 
 This chart shows total task activity, completed tasks, and completion rate. Completed tasks without a completion date stay in an undated group instead of being forced into a day.
@@ -440,6 +442,10 @@ Values live in the date note’s native properties. Disabling a field preserves 
 ![Custom records and statistics](assets/en/daily-state.png)
 
 ### 7.7 Custom Statistics Cards
+
+The generic statistics configuration preview is read-only. Select dates and inspect values or sources; use the saved card or original note to enter or edit records. Canceling configuration does not save the card draft.
+
+Preview sources open for reading inside the details window, with expandable properties and read-only task checkboxes. Back to sources restores the list; closing details returns to the unapplied settings with the draft and edit position retained. Sources opened from a saved card still go directly to the original note.
 
 Choose “Add statistics card” from a record to prefill its property, or select Statistics in the card catalog and start from a record, folder, task or habit template. Configure Source → Field and calculation → Time range → Display, alongside a preview of actual data. Open matched counts and source details from the top-right chart button. Additional filters cover subfolders, tags, property conditions and grouping.
 

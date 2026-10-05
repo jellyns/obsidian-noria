@@ -13047,6 +13047,14 @@ button.noria-settings-tab {
 .noria-workbench-finish-layout[hidden]{display:none;}
 .noria-workbench-finish-layout:not([hidden])+.noria-workbench-layout{margin-inline-start:0;}
 
+.noria-record-list .noria-stat-source-heading { margin:16px 0 4px; font-size:var(--font-ui-small); font-weight:var(--font-semibold); }
+.noria-stat-source-reader > .noria-card-secondary { margin:8px 0 16px; overflow-wrap:anywhere; }
+.noria-stat-source-properties { margin-bottom:16px; }
+.noria-stat-source-properties summary { cursor:pointer; color:var(--text-muted); font-size:var(--font-ui-small); }
+.noria-stat-source-properties table { width:100%; margin-top:8px; font-size:var(--font-ui-small); }
+.noria-stat-source-properties :is(th,td) { text-align:start; vertical-align:top; padding:4px 8px; overflow-wrap:anywhere; }
+.noria-stat-source-properties th { color:var(--text-muted); font-weight:var(--font-normal); }
+.noria-trend-interactive[data-source-details] { cursor:pointer; }
 .noria-diary-statistic { width:100%; min-width:0; }
 .noria-diary-statistic .noria-daily-record-card { border:0; border-radius:0; padding:0; height:auto; }
 .noria-diary-statistic .dashboard-home-root { display:block; padding:0; }

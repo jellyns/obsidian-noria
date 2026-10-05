@@ -39,3 +39,10 @@ test('invalid custom dates stop the preview before rendering and recover after c
  await m.preview();assert.equal(renders,0);assert.equal(m.applyButton.disabled,true);
  m.draft.props.statsRange.end='2026-10-03';await m.preview();assert.equal(renders,1);assert.equal(m.applyButton.disabled,false);
 });
+
+test('preview context is transient and retains the page that owns the draft',async()=>{
+ const m=editor();m.context={page:'diary',mode:'monthly',selection:{mode:'monthly',anchorDate:'2026-10-06'}};let received;
+ m.system.render=async(draft,body,selection,context)=>{received=context;return ()=>{};};
+ await m.preview();assert.equal(received.preview,true);assert.equal(received.page,'diary');assert.equal(received.mode,'monthly');
+ assert.equal(m.context.preview,undefined);assert.equal(m.draft.preview,undefined);assert.equal(m.draft.props.preview,undefined);
+});

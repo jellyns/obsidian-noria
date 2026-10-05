@@ -1,8 +1,15 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),{createRequire}=require('node:module');
 const parseYaml=text=>Object.fromEntries(text.split('\n').filter(l=>l.includes(':')).map(l=>{const i=l.indexOf(':'),key=l.slice(0,i).trim().replaceAll('"',''),v=l.slice(i+1).trim();return [key,v==='null'?null:!isNaN(Number(v))?Number(v):v];}));
-function load(){const file=path.resolve(__dirname,'../src/property-stat-cards.js'),local=createRequire(file),module={exports:{}};
- vm.runInNewContext(fs.readFileSync(file,'utf8'),{module,require:id=>id==='obsidian'?{parseYaml}:id==='./card-controls.js'?{}:id==='./record-popover.js'?{recordPopover:()=>{throw Error('Unexpected error popover');}}:local(id)});return module.exports.PropertyStatCards;}
+function load(obsidian={}){const file=path.resolve(__dirname,'../src/property-stat-cards.js'),local=createRequire(file),module={exports:{}};
+ vm.runInNewContext(fs.readFileSync(file,'utf8'),{module,require:id=>id==='obsidian'?{parseYaml,...obsidian}:id==='./card-controls.js'?{}:id==='./record-popover.js'?{recordPopover:()=>{throw Error('Unexpected error popover');}}:local(id)});return module.exports.PropertyStatCards;}
 function plugin(){return {app:{vault:{getAbstractFileByPath:()=>({})}},records:{definitions:()=>[]},getNoriaLocale:()=> 'en',getLocalYmd:()=> '2026-09-23'};}
+
+test('ordinary source lists retain their rows regardless of chart aggregation groups',()=>{
+ const elements=[];function el(tag,options={}){const e={tag,options,createDiv:o=>el('div',o),createEl:el,createSpan:o=>el('span',o)};elements.push(e);return e;}
+ class Modal{constructor(){this.contentEl=el('div');}setTitle(){}open(){}}
+ const p=plugin();p.cards={trackModal:()=>()=>{}};const stats=new (load({Modal}))(p),rows=[{path:'A.md',title:'Source A'},{path:'B.md',title:'Source B'}];
+ for(const groups of [[],[{key:'category',value:2,rows}]]){elements.length=0;stats.openRows(rows,{recorded:2,groups});assert.deepEqual(elements.filter(e=>e.tag==='button').map(e=>e.options.text),['Source A','Source B']);}
+});
 
 test('composition rejects non-additive statistics and follows daily, weekly, monthly and yearly diary ranges',async()=>{
  const p=plugin(),stats=new (load())(p),config={source:'diary',property:'mood',calculate:'distribution',display:'composition',scope:'follow'};
@@ -47,6 +54,15 @@ test('statistics source navigation reuses ordinary notes and refuses missing sou
  p.app.vault.getAbstractFileByPath=()=>null;
  await assert.rejects(()=>stats.openSource({path:'Missing.md'}),/Source note/);assert.equal(opened.length,1);
 });
+test('preview activation inspects sources without entering record editing or creating date notes',async()=>{
+ const p=plugin(),stats=new (load())(p),opened=[];
+ p.records.edit=()=>{throw Error('Preview must not edit records');};
+ p.resolveCalendarNoteSpecAsync=()=>{throw Error('Preview must not resolve a new diary');};
+ stats.openRows=(rows,result,title)=>opened.push({rows,result,title});
+ for(const rows of [[],[{path:'Diary/2026-09-20.md',date:'2026-09-20'}]])await stats.editPoint({},rows,{source:'diary',property:'v'},'2026-09-20',{rows},{page:'diary',preview:true});
+ assert.equal(opened.length,2);assert.equal(opened[0].rows.length,0);assert.equal(opened[1].rows[0].path,'Diary/2026-09-20.md');
+});
+
 test('arbitrary property editing writes its source and rejects stale values',async()=>{
  const p=plugin(),field={property:'v',name:'Value',type:'number'};let raw='---\nv: 2\nother: keep\n---\n\nBody',editor,writePath;
  p.records={definitions:()=>[field],read:(text)=>parseYaml(text).v,edit:(anchor,f,options)=>{editor=options;}};
