@@ -3218,6 +3218,9 @@
 .noria-media-editor .noria-card-field{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:12px;}
 .noria-media-editor input{width:100%;min-width:0;}
 .noria-media-editor .noria-record-actions{justify-content:flex-end;margin-top:16px;}
+.noria-media-matches{display:flex;flex-direction:column;gap:8px;}
+.noria-media-match{display:flex;flex-direction:column;align-items:flex-start;gap:3px;height:auto;padding:8px;text-align:left;white-space:normal;overflow-wrap:anywhere;}
+.noria-media-editor [hidden]{display:none;}
 .noria-media [hidden]{display:none;}
 .noria-activity-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--font-ui-smaller);color:var(--text-muted);font-variant-numeric:tabular-nums;}
 .noria-activity-day>h3{font-size:var(--font-ui-small);font-weight:600;margin:18px 0 10px;color:var(--text-muted);font-variant-numeric:tabular-nums;}

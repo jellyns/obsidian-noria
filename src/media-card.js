@@ -4,6 +4,7 @@ const {iconButton} = require('./card-controls.js');
 const {listMedia} = require('./media-catalog.js');
 const {readMedia} = require('./media-record.js');
 const {mediaEditor} = require('./media-editor.js');
+const {mediaIntake} = require('./media-intake-ui.js');
 
 function bookPosition(item, text) {
   if (!item.kinds.includes('book')) return '';
@@ -61,6 +62,17 @@ function registerMediaCard(system) {
       const viewport = container.createDiv({cls: 'noria-media-viewport'});
       const shelf = viewport.createDiv({cls: 'noria-media-shelf'}); shelf.dataset.display = config.display === 'list' ? 'list' : 'covers';
       const more = container.createEl('button', {cls: 'noria-media-more', text: text('显示更多', 'Show more'), attr: {type: 'button'}});
+      const finishEditing = (focus, changed = false) => {
+        editing = false; closeEditor = null;
+        const refresh = () => { if (disposed || editing) return; if (refreshPending) { refreshPending = false; reload(); } else if (changed) paint(); };
+        if (focus) refresh();
+        else if (!disposed && (refreshPending || changed)) {
+          // Let the outside click reach its target before rebuilding the shelf.
+          const clicked = () => queueMicrotask(refresh), doc = container.ownerDocument;
+          doc.addEventListener('click', clicked, {once: true});
+          component.register(() => doc.removeEventListener('click', clicked));
+        }
+      };
       const paint = () => {
         if (disposed) return;
         const scroll = viewport.scrollTop, focusedPath = shelf.contains(container.ownerDocument.activeElement) ? container.ownerDocument.activeElement.dataset.path : null;
@@ -106,17 +118,7 @@ function registerMediaCard(system) {
                 if (disposed || !position.isConnected) { editing = false; return; }
                 closeEditor = mediaEditor(plugin, position, state, {statuses: items.map(row => row.properties.status),
                   onSaved: result => { changed = result.changed; const row = items.find(row => row.path === result.path); if (row) Object.assign(row.properties, result.properties); if (!editing && !disposed) paint(); },
-                  onClose: focus => {
-                    editing = false; closeEditor = null;
-                    const refresh = () => { if (disposed || editing) return; if (refreshPending) { refreshPending = false; reload(); } else if (changed) paint(); };
-                    if (focus) refresh();
-                    else if (!disposed && (refreshPending || changed)) {
-                      // Finish the outside click before rebuilding its target. A new editor takes over the pending refresh.
-                      const clicked = () => queueMicrotask(refresh), doc = container.ownerDocument;
-                      doc.addEventListener('click', clicked, {once: true});
-                      component.register(() => doc.removeEventListener('click', clicked));
-                    }
-                  }
+                  onClose: focus => finishEditing(focus, changed)
                 });
               } catch (error) { editing = false; new Notice(error.message); }
               finally { position.disabled = false; }
@@ -158,6 +160,24 @@ function registerMediaCard(system) {
         }
       };
       iconButton(filters, 'refresh-cw', text('刷新作品', 'Refresh works'), reload);
+      const intakeDraft = {title: '', kind: kind || 'book', folder: plugin.normalizePath(config.folder.trim()).replace(/\/$/, '')};
+      if (!context.preview) {
+        const add = iconButton(filters, 'plus', text('添加作品', 'Add a work'), () => {
+          if (editing) return;
+          editing = true;
+          if (!intakeDraft.title) intakeDraft.title = search.value;
+          closeEditor = mediaIntake(plugin, add, {root: plugin.normalizePath(config.folder.trim()).replace(/\/$/, ''), draft: intakeDraft, openSource,
+            onClose: finishEditing,
+            onCreated: (result, reveal) => {
+              if (disposed) return;
+              if (reveal) { kind = status = ''; typeSelect.value = statusSelect.value = ''; search.value = result.title; limit = 24; viewport.scrollTop = 0; }
+              reload();
+              if (reveal && !items.some(item => item.path === result.path)) { items.unshift({...result, tags: result.kinds, properties: {}}); paint(); }
+            }
+          });
+        });
+      }
+
       search.oninput = () => { limit = 24; viewport.scrollTop = 0; paint(); };
       typeSelect.onchange = () => { kind = typeSelect.value; limit = 24; viewport.scrollTop = 0; paint(); };
       statusSelect.onchange = () => { status = statusSelect.value; limit = 24; viewport.scrollTop = 0; paint(); };

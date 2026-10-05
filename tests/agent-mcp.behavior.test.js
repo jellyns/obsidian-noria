@@ -27,7 +27,7 @@ test('real MCP client discovers public tools, forwards inputs and preserves busi
   const endpoint=await connection.start(),client=await connect(endpoint);
   t.after(()=>client.close());
   const listed=await client.listTools();
-  assert.deepEqual(listed.tools.map(x=>x.name).sort(),['noria_capabilities','noria_media_list','noria_media_read','noria_media_update','noria_tasks_list','noria_tasks_update','noria_suggestions_read','noria_suggestions_update','noria_replies_list','noria_replies_read','noria_replies_claim','noria_replies_respond',...['fields','read','update'].map(n=>'noria_records_'+n),...['list','read','publish','submit','claim','respond'].map(n=>'noria_interactions_'+n)].sort());
+  assert.deepEqual(listed.tools.map(x=>x.name).sort(),['noria_capabilities','noria_media_list','noria_media_create','noria_media_read','noria_media_update','noria_tasks_list','noria_tasks_update','noria_suggestions_read','noria_suggestions_update','noria_replies_list','noria_replies_read','noria_replies_claim','noria_replies_respond',...['fields','read','update'].map(n=>'noria_records_'+n),...['list','read','publish','submit','claim','respond'].map(n=>'noria_interactions_'+n)].sort());
   const call=(name,args={})=>client.callTool({name,arguments:args});
   assert.equal((await call('noria_capabilities')).structuredContent.version,1);
   const query={range:{mode:'custom',start:'2026-09-21',end:'2026-09-27'},status:'open'};

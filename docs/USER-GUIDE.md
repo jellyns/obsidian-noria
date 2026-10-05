@@ -160,7 +160,9 @@ Choose **Add a card → Media library**, select the folder containing your works
 
 Search titles or creators, filter by type and stored status, and click a work to open its original note. The card retains its current filters when opening a source; metadata changes refresh the collection. Choose covers or a compact list in card settings. Local and existing HTTP(S) cover links are supported, with `image` taking precedence over `cover`. Missing images retain the title and type icon. Book pages are a current position, not reading volume; ratings and experience dates are not inferred. Click the status or page position to edit the current status and, for books, the current page. Save changes explicitly; competing status or page edits require reopening the editor. Configuration previews remain read-only. Dated experiences remain planned.
 
-This development batch has isolated browser checks using existing metadata and covers. Native Obsidian acceptance is pending; it has not yet been installed in NoriaTest.
+Use **＋ Add a work** on the right to enter its title, type and an existing destination folder. Choose a subfolder within the card scope; duplicate lookup covers the whole card folder. Matching works show their original paths and open directly. A filename collision reveals a filename field. After creation the card reveals the new work; an omitted status does not become “in progress.” Dismissing or cancelling retains temporary input in the current card; it is not a persistent draft across page changes.
+
+This development batch passed 60 isolated browser checks. Native Obsidian acceptance is pending; it has not yet been installed in NoriaTest.
 
 ## 3. Task Board
 
