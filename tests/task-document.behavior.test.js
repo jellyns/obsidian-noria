@@ -1,6 +1,14 @@
 const test=require("node:test"),assert=require("node:assert/strict");
-const {parseTaskLine,editTaskDocument,appendProjectTask}=require("../src/task-document.js");
+const {parseTaskLine,patchTaskDates,editTaskDocument,appendProjectTask}=require("../src/task-document.js");
 const edit=(source,rawText,patch)=>editTaskDocument(source,{rawText},patch,"2099-01-02");
+
+test("date updates preserve field syntax and literal examples while synchronizing date aliases",()=>{
+ const raw='  - [ ] Read `[due:: 2099-01-01]` [[note|📅 2099-01-02]] <!-- 📅 2099-01-03 --> [DATE:: 2099-02-01 09:00] 🗓️ 2099-02-01 09:00 ^read';
+ const after=patchTaskDates(raw,{due:'2099-02-02 10:00'});
+ assert.equal(after,raw.replaceAll('2099-02-01 09:00','2099-02-02 10:00'));
+ assert.equal(parseTaskLine(after).due,'2099-02-02 10:00');
+ assert.throws(()=>patchTaskDates(raw,{due:'2099-02-30'}),/invalid-date/);
+});
 test("title-only edits keep an undated task undated and preserve source Markdown",()=>{
   const raw="  - [ ] Read [[Notes|notes]] #read [custom:: [[Book]]] ^stable  ";
   const source="---\r\nx: 1\r\n---\r\n"+raw+"\r\nAfter  \r\n";

@@ -1733,81 +1733,16 @@ function getMeta(tasks) {
 		var taskPathForMeta = tasks[i].path || (tasks[i].link && tasks[i].link.path) || "";
 		var diaryDate = taskDiaryDateFromPath(taskPathForMeta);
 		if (diaryDate) tasks[i].dailyNote = diaryDate;
-		var dueMatch = getLastRegexMatch(lineText, /\📅\W(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
-		if (!dueMatch) {
-			dueMatch = getLastRegexMatch(lineText, /\uD83D\uDDD3\uFE0F?\s*(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
-		}
-		if (dueMatch && !tasks[i].due) {
-			tasks[i].due = dueMatch[1];
-			if (dueMatch[2]) { tasks[i].dueTime = normalizeTimeStr(dueMatch[2]); };
-			lineText = lineText.replace(dueMatch[0], "");
-		};
-		var startMatch = getLastRegexMatch(lineText, /\🛫\W(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
-		if (startMatch && !tasks[i].start) {
-			tasks[i].start = startMatch[1];
-			if (startMatch[2]) { tasks[i].startTime = normalizeTimeStr(startMatch[2]); };
-			lineText = lineText.replace(startMatch[0], "");
-		};
-		var scheduledMatch = getLastRegexMatch(lineText, /\⏳\W(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
-		if (scheduledMatch && !tasks[i].scheduled) {
-			tasks[i].scheduled = scheduledMatch[1];
-			if (scheduledMatch[2]) { tasks[i].scheduledTime = normalizeTimeStr(scheduledMatch[2]); };
-			lineText = lineText.replace(scheduledMatch[0], "");
-		};
-		var completionMatch = getLastRegexMatch(lineText, /\✅\W(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
-		if (completionMatch && !tasks[i].completion) {
-			tasks[i].completion = completionMatch[1];
-			if (completionMatch[2]) { tasks[i].completionTime = normalizeTimeStr(completionMatch[2]); };
-			lineText = lineText.replace(completionMatch[0], "");
-		};
-		var cancelledEmojiMatch = getLastRegexMatch(lineText, /\❌\W(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
-		if (cancelledEmojiMatch && !tasks[i].cancelled) {
-			tasks[i].cancelled = cancelledEmojiMatch[1];
-			if (cancelledEmojiMatch[2]) { tasks[i].cancelledTime = normalizeTimeStr(cancelledEmojiMatch[2]); };
-			lineText = lineText.replace(cancelledEmojiMatch[0], "");
-		};
-		var inlineStartMatch = getLastRegexMatch(lineText, /\[start::\s*([^\]]+)\]/ig);
-		if (inlineStartMatch) {
-			var parsedStart = parseDateTimeValue(inlineStartMatch[1]);
-			if (parsedStart.date && !tasks[i].start) { tasks[i].start = parsedStart.date; };
-			if (parsedStart.time && !tasks[i].startTime) { tasks[i].startTime = parsedStart.time; };
-			lineText = lineText.replace(inlineStartMatch[0], "");
-		};
-		var inlineDueMatch = getLastRegexMatch(lineText, /\[due::\s*([^\]]+)\]/ig);
-		if (inlineDueMatch) {
-			var parsedDue = parseDateTimeValue(inlineDueMatch[1]);
-			if (parsedDue.date && !tasks[i].due) { tasks[i].due = parsedDue.date; };
-			if (parsedDue.time && !tasks[i].dueTime) { tasks[i].dueTime = parsedDue.time; };
-			lineText = lineText.replace(inlineDueMatch[0], "");
-		};
-		var inlineScheduledMatch = getLastRegexMatch(lineText, /\[scheduled::\s*([^\]]+)\]/ig);
-		if (inlineScheduledMatch) {
-			var parsedScheduled = parseDateTimeValue(inlineScheduledMatch[1]);
-			if (parsedScheduled.date && !tasks[i].scheduled) { tasks[i].scheduled = parsedScheduled.date; };
-			if (parsedScheduled.time && !tasks[i].scheduledTime) { tasks[i].scheduledTime = parsedScheduled.time; };
-			lineText = lineText.replace(inlineScheduledMatch[0], "");
-		};
-		var inlineCompletionMatch = getLastRegexMatch(lineText, /\[(?:completion|done)::\s*([^\]]+)\]/ig);
-		if (inlineCompletionMatch) {
-			var parsedCompletion = parseDateTimeValue(inlineCompletionMatch[1]);
-			if (parsedCompletion.date && !tasks[i].completion) { tasks[i].completion = parsedCompletion.date; };
-			if (parsedCompletion.time && !tasks[i].completionTime) { tasks[i].completionTime = parsedCompletion.time; };
-			lineText = lineText.replace(inlineCompletionMatch[0], "");
-		};
-		var inlineCreatedMatch = getLastRegexMatch(lineText, /\[created::\s*([^\]]+)\]/ig);
-		if (inlineCreatedMatch) {
-			var parsedCreated = parseDateTimeValue(inlineCreatedMatch[1]);
-			if (parsedCreated.date && !tasks[i].created) { tasks[i].created = parsedCreated.date; };
-			if (parsedCreated.time && !tasks[i].createdTime) { tasks[i].createdTime = parsedCreated.time; };
-			lineText = lineText.replace(inlineCreatedMatch[0], "");
-		};
-		var inlineCancelledMatch = getLastRegexMatch(lineText, /\[cancelled::\s*([^\]]+)\]/ig);
-		if (inlineCancelledMatch) {
-			var parsedCancelled = parseDateTimeValue(inlineCancelledMatch[1]);
-			if (parsedCancelled.date && !tasks[i].cancelled) { tasks[i].cancelled = parsedCancelled.date; };
-			if (parsedCancelled.time && !tasks[i].cancelledTime) { tasks[i].cancelledTime = parsedCancelled.time; };
-			lineText = lineText.replace(inlineCancelledMatch[0], "");
-		};
+		var dateSource = /^[ \t]*[-*+]\s+\[[^\]]\]/.test(lineText) ? lineText : "- [ ] "+lineText;
+		var parsedDates = noriaBridge.tasks.parseTaskLine(dateSource);
+		["start", "due", "scheduled", "completion", "created", "cancelled"].forEach(function(key) {
+			var value = parseDateTimeValue(parsedDates[key]);
+			if (value.date || ["start", "due", "scheduled"].includes(key)) {
+				tasks[i][key] = value.date || "";
+				tasks[i][key+"Time"] = value.time || "";
+			}
+		});
+		lineText = noriaBridge.tasks.patchTaskDates(dateSource, {start:"",due:"",scheduled:"",completion:"",created:"",cancelled:""}).slice(parsedDates.prefix.length);
 		var inlineRepeatMatch = getLastRegexMatch(lineText, /\[(?:repeat|recurrence|every)::\s*([^\]]+)\]/ig);
 		if (inlineRepeatMatch) {
 			tasks[i].recurrence = true;
@@ -3530,8 +3465,10 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 			line = applyTaskPriorityMarker(line, options.taskPriority);
 		}
 		line = line.trimEnd();
-		line = upsertInlineField(line, "start", formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
-		line = upsertInlineField(line, "due", formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString));
+	line = noriaBridge.tasks.patchTaskDates(line, {
+		start: formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString),
+		due: formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString)
+	});
 		}
 		if (options && options.taskAdvanced && typeof options.taskAdvanced === "object") {
 			line = applyTaskEditorMetadataToLine(line, options.taskAdvanced);
@@ -3740,9 +3677,8 @@ function showCalendarDragUndo(receipt) {
 }
 
 function resizeTaskCalendarDate(line, key, date) {
-	var symbol=key==="start"?"🛫":"📅",pattern=new RegExp("(\\["+key+"::\\s*|"+symbol+"\\s*)(\\d{4}-\\d{2}-\\d{2})","g"),found=false;
-	var next=line.replace(pattern,function(all,prefix){found=true;return prefix+date;});
-	if(!found)throw Error("The task has no "+key+" date to resize");return next;
+	if (!readTaskCalendarDate(line,key).date) throw Error("The task has no "+key+" date to resize");
+	return noriaBridge.tasks.patchTaskDates(line, { [key]: value => date + value.slice(10) });
 }
 
 function getMonthGridCellFromPoint(clientX, clientY) {
@@ -3771,17 +3707,18 @@ function shiftTaskCalendarDates(line, deltaDays, fallbackDate) {
 	if (fallbackDate && !["start", "due", "scheduled"].some(function(key) { return readTaskCalendarDate(line,key).date; })) {
 		return upsertInlineField(line, "scheduled", fallbackDate);
 	}
-	return line.replace(/(\[(?:start|due|scheduled)::\s*|(?:📅|🛫|⏳)\s*)(\d{4}-\d{2}-\d{2})/g, function(all, prefix, date) {
-		var value=moment(date,"YYYY-MM-DD",true);
-		if (!value.isValid()) throw new Error("Invalid task date: "+date);
-		return prefix+value.add(deltaDays,"days").format("YYYY-MM-DD");
-	});
+	var shift = function(raw) {
+		var value=moment(raw.slice(0,10),"YYYY-MM-DD",true);
+		if (!value.isValid()) throw new Error("Invalid task date: "+raw);
+		return value.add(deltaDays,"days").format("YYYY-MM-DD")+raw.slice(10);
+	};
+	return noriaBridge.tasks.patchTaskDates(line, {start:shift,due:shift,scheduled:shift});
 }
 
 function readTaskCalendarDate(line, key) {
-	var value=getInlineFieldValue(line,key),symbol={start:"🛫",due:"📅",scheduled:"⏳"}[key];
-	if (!value && symbol) value=(String(line).match(new RegExp(symbol+"\\s*(\\d{4}-\\d{2}-\\d{2})"))||[])[1]||"";
-	return parseDateTimeValue(value);
+	var raw = String(line || "");
+	var parsed = noriaBridge.tasks.parseTaskLine(/^[ \t]*[-*+]\s+\[[^\]]\]/.test(raw) ? raw : "- [ ] "+raw);
+	return parseDateTimeValue(parsed[key]);
 }
 
 function buildTaskTemporalMomentsFromEl(taskEl, fallbackDateStr) {

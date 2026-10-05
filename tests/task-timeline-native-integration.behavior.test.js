@@ -616,23 +616,6 @@ test("formal task timeline derives trace range from the current event extent", (
   assert.match(body, /getTimelineTraces\(\{[\s\S]*source:\s*\{ pages: taskTimelinePages \}/);
 });
 
-test("formal task timeline rejects stale Markdown before drag writeback", () => {
-  const view = fs.readFileSync(sourcePath("views/task-timeline/view.js"), "utf8");
-  const start = view.indexOf("async function taskTimelineCommitDrag");
-  const end = view.indexOf("\n}\n\nfunction taskTimelineNormalizeRange", start);
-  const body = view.slice(start, end);
-  const staleCheck = body.indexOf("snapshot.replace");
-  const conflictState = body.indexOf('"stale-source"');
-  const writeback = body.indexOf("app.vault.modify");
-
-  assert.ok(staleCheck >= 0 && conflictState > staleCheck, "source identity must be checked before conflict feedback");
-  assert.ok(writeback > conflictState, "a stale source must be rejected before vault.modify");
-  assert.match(body, /if \(typeof app\.vault\.process === "function"\)/);
-  assert.match(body, /await app\.vault\.process\(file, applyDrag\)/);
-  assert.doesNotMatch(body, /const text = await app\.vault\.read\(file\)/);
-  assert.match(body, /requestRefresh\?\.\("timeline", "task-timeline-drag-conflict"\)/);
-});
-
 test("native range previews and annotation drafts cancel without changing canonical events", async () => {
   const modes = [];
   const harness = createHarness({ settings: { markMode: true }, context: { onMarkModeChange: value => modes.push(value) } });

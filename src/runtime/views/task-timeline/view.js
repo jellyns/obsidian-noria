@@ -169,6 +169,7 @@ function taskTimelineRequireModule(key, method) {
 }
 
 async function taskTimelineEnsureRuntime(options = {}) {
+  (globalThis.noriaTaskTimeline || (globalThis.noriaTaskTimeline = {})).taskDocument = taskTimelineBridge.tasks;
   const sharedSpecs = [
     ["event-model", TASK_TIMELINE_EVENT_MODEL_PATH],
     ["task-adapter", TASK_TIMELINE_TASK_ADAPTER_PATH],
@@ -390,23 +391,7 @@ function taskTimelineEventLine(event) {
 function taskTimelineEventRawLine(event) {
   const noria = taskTimelineEventNoria(event);
   const task = noria.task || event?.payload?.task || {};
-  return String(task.rawLine || task.lineText || task.text || task.visual || event?.title || "");
-}
-
-function taskTimelineNormalizeTaskLine(line) {
-  return String(line || "")
-    .replace(/^\s*[-*]\s*\[[^\]]*\]\s*/, "")
-    .replace(/\s*\[[a-zA-Z_][a-zA-Z0-9_-]*::\s*[^\]]*\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function taskTimelineFindLine(lines, event) {
-  const hint = taskTimelineEventLine(event);
-  if (hint >= 0 && hint < lines.length && /^\s*[-*]\s*\[[^\]]*\]/.test(lines[hint])) return hint;
-  const wanted = taskTimelineNormalizeTaskLine(taskTimelineEventRawLine(event));
-  if (!wanted) return -1;
-  return lines.findIndex((line) => /^\s*[-*]\s*\[[^\]]*\]/.test(line) && taskTimelineNormalizeTaskLine(line).includes(wanted));
+  return String(task.rawLine || task.lineText || task.source?.rawLine || task.text || task.visual || event?.title || "");
 }
 
 function taskTimelinePickMarkdownLeaf() {
@@ -479,18 +464,19 @@ async function taskTimelineCommitDrag(taskEdit, payload) {
   const file = path ? app?.vault?.getAbstractFileByPath?.(path) : null;
   if (!file || file.extension !== "md") return false;
   let outcome = "unchanged";
-  let fallbackText = "";
   const applyDrag = (current) => {
     const source = String(current || "");
-    const lines = source.split(/\r?\n/);
-    const index = taskTimelineFindLine(lines, event);
-    if (index < 0) {
-      outcome = "missing";
+    const snapshot = taskTimelineEventRawLine(event);
+    let row;
+    try {
+      row = taskTimelineBridge.tasks.locateSource(source, { rawText: snapshot });
+    } catch (error) {
+      if (!["missing-task-identity", "task-not-found", "ambiguous-task", "task-changed"].includes(error.message)) throw error;
+      outcome = "conflict";
       return source;
     }
-    const oldLine = String(lines[index] || "");
-    const snapshot = taskTimelineEventRawLine(event);
-    if (/^\s*[-*]\s*\[[^\]]*\]/.test(snapshot) && snapshot.replace(/\s+/g, " ").trim() !== oldLine.replace(/\s+/g, " ").trim()) {
+    const oldLine = row.text;
+    if (snapshot !== oldLine) {
       outcome = "conflict";
       return source;
     }
@@ -506,27 +492,18 @@ async function taskTimelineCommitDrag(taskEdit, payload) {
       outcome = "unchanged";
       return source;
     }
-    lines[index] = nextLine;
     outcome = "changed";
-    return lines.join(source.includes("\r\n") ? "\r\n" : "\n");
+    return source.slice(0, row.start) + nextLine + source.slice(row.start + oldLine.length);
   };
-  if (typeof app.vault.process === "function") {
-    await app.vault.process(file, applyDrag);
-  } else {
-    const current = await app.vault.read(file);
-    fallbackText = applyDrag(current);
-  }
+  await app.vault.process(file, applyDrag);
   if (outcome === "conflict") {
     payload?.node?.setAttribute?.("data-noria-drag-conflict-state", "stale-source");
     payload?.timelineEl?.setAttribute?.("data-noria-last-drag-conflict-state", "stale-source");
-    taskTimelineNotifyFailure("source line changed before drag write");
+    taskTimelineNotifyFailure(taskTimelineRuntimeMessage("runtime.timeline.sourceChanged", "The task changed or could not be uniquely located. Refresh and try again."));
     taskTimelineBridge.refresh?.requestRefresh?.("timeline", "task-timeline-drag-conflict");
     return false;
   }
   if (outcome !== "changed") return false;
-  if (typeof app.vault.process !== "function") {
-    await app.vault.modify(file, fallbackText);
-  }
   taskTimelineBridge.refresh?.requestRefresh?.("timeline", "task-timeline-drag-write");
   return true;
 }

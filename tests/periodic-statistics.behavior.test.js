@@ -18,6 +18,7 @@ test('shared data service aggregates cross-month task counts before computing co
  vm.runInContext(fs.readFileSync(require.resolve('../src/runtime/views/dashboard/core/data/data-service.js'),'utf8'),context);
  const tasks=[{path:'Tasks/a.md',line:0,text:'Done [completion:: 2026-09-28]',completed:true},...Array.from({length:9},(_,i)=>({path:'Tasks/a.md',line:i+1,text:'Open [due:: 2026-09-29]',completed:false})),{path:'Tasks/a.md',line:11,text:'October [completion:: 2026-10-01]',completed:true}];
  const bridge={runtimeBuildId:'periodic-test',paths:{diaryRoot:'Diary'},runtime:{toArray:x=>Array.from(x||[]),pagesForScope:()=>[],pagesForManagedPath:()=>[],filesForScope:()=>[],filesForManagedPath:()=>[],tasksForScope:()=>tasks}};
+ bridge.tasks=require('../src/task-document.js');
  const service=context.dashboardCore.data.dataService.createDataService({bridge,now:'2026-10-02'});
  const range={mode:'custom',start:'2026-09-28',end:'2026-10-11'};
  const daily=M.series(await service.getSnapshot({preset:'periodic',range,granularity:'day'}),'tasks');

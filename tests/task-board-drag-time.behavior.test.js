@@ -1,5 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../src/runtime/views/tasks-calendar/runtime-core.js'),'utf8');
+const taskDocument=require('../src/task-document.js');
 function moment(value){
  const d=new Date(value?.valueOf?.() instanceof Number?+value:value instanceof Object?+value:String(value).replace(' ','T')+'Z');
  return {valueOf:()=>+d,isValid:()=>Number.isFinite(+d),clone(){return moment(this)},add(n,u){d.setTime(+d+n*(u==='days'?86400000:60000));return this},subtract(n,u){return this.add(-n,u)},diff(o,u){return (+d-+o)/(u==='days'?86400000:60000)},isBefore:o=>+d<+o,isAfter:o=>+d>+o,hours:()=>d.getUTCHours(),minutes:()=>d.getUTCMinutes(),format(f){const s=d.toISOString();return f==='YYYY-MM-DD'?s.slice(0,10):f==='HH:mm'?s.slice(11,16):s.slice(0,16).replace('T',' ')}};
@@ -39,13 +40,14 @@ test('sub-threshold movement does not snap or write; Escape and invalid drops re
  }
 });
 test('month date shifts preserve field shape, times, and unrelated completion dates',()=>{
- const context=vm.createContext({moment});const start=source.indexOf('function shiftTaskCalendarDates(');assert.notEqual(start,-1);
+ const context=vm.createContext({moment,noriaBridge:{tasks:taskDocument}});const start=source.indexOf('function shiftTaskCalendarDates(');assert.notEqual(start,-1);
  vm.runInContext(source.slice(start,source.indexOf('\nfunction ',start+10)),context);
  const cases=[
   ['- [ ] Due [due:: 2026-09-26]','- [ ] Due [due:: 2026-09-28]'],
   ['- [ ] Scheduled [scheduled:: 2026-09-26 08:15]','- [ ] Scheduled [scheduled:: 2026-09-28 08:15]'],
   ['- [x] Overnight [start:: 2026-09-26 23:55] [due:: 2026-09-27 00:05] [completion:: 2026-09-27] ^id','- [x] Overnight [start:: 2026-09-28 23:55] [due:: 2026-09-29 00:05] [completion:: 2026-09-27] ^id'],
   ['- [ ] Emoji 📅 2026-09-26','- [ ] Emoji 📅 2026-09-28'],
+  ['- [ ] Read `[due:: 2020-01-01]` [DATE:: 2026-09-26 08:15] 🗓️ 2026-09-26 08:15','- [ ] Read `[due:: 2020-01-01]` [DATE:: 2026-09-28 08:15] 🗓️ 2026-09-28 08:15'],
   ['- [ ] Diary task','- [ ] Diary task']];
  for(const [before,after] of cases)assert.equal(context.shiftTaskCalendarDates(before,2),after);
 });
@@ -60,7 +62,7 @@ test('month drag edits the original note, preserves children and block links, an
    pickTaskLineIndex:lines=>lines.findIndex(l=>l===before),patchGlobalTasksFromSavedLine(){},
    normalizeVaultRelPath:p=>p,getConfiguredDailyNoteYmdFromPath:()=> '2026-09-26',buildDailyNotePath:d=>`Diary/${d}.md`,
    saveTaskDateTimeRelocateBetweenDailyNotes:()=>{throw Error('must not relocate the task')},
-   rootNode:null,noriaBridge:{data:{invalidate:async()=>{cached=files.get(path)}}},scheduleTasksCalendarSoftRefresh(){},tasksCalendarRuntimeLocale:()=> 'en'});
+   rootNode:null,noriaBridge:{tasks:taskDocument,data:{invalidate:async()=>{cached=files.get(path)}}},scheduleTasksCalendarSoftRefresh(){},tasksCalendarRuntimeLocale:()=> 'en'});
   for(const name of ['shiftTaskCalendarDates','readTaskCalendarDate','getInlineFieldValue','parseDateTimeValue','upsertInlineField','calendarMonthDrop']){
    const i=source.indexOf('function '+name+'(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);
   }
@@ -105,15 +107,15 @@ test('calendar uses the diary date only until an explicit task date is assigned'
 
 test('calendar time save preserves nested task indentation and places new fields before its block reference',async()=>{
  const before='    - [ ] Compare `a  b` ^child-task';let text=before+'\n';
- const c=vm.createContext({moment,noriaBridge:null,processTaskMarkdownFile:async(p,fn)=>{text=fn(text)},pickTaskLineIndex:()=>0,patchGlobalTasksFromSavedLine(){},stripTaskTemplateOnlyFields:s=>s,formatTaskDateTimeForSave:m=>m.format('YYYY-MM-DD HH:mm')});
+ const c=vm.createContext({moment,noriaBridge:{tasks:taskDocument},processTaskMarkdownFile:async(p,fn)=>{text=fn(text)},pickTaskLineIndex:()=>0,patchGlobalTasksFromSavedLine(){},stripTaskTemplateOnlyFields:s=>s,formatTaskDateTimeForSave:m=>m.format('YYYY-MM-DD HH:mm')});
  for(const name of ['upsertInlineField','stripInlineField']){const i=source.indexOf('function '+name+'(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);}
  const i=source.indexOf('async function saveTaskDateTimeLines(');vm.runInContext(source.slice(i,source.indexOf('\nfunction isPlannerChromeActive',i)),c);
  await c.saveTaskDateTimeLines({filePath:'Task.md',lineIndex:0,rawText:before},moment('2026-10-06 09:00'),moment('2026-10-06 10:00'),{silentNotice:true,suppressRefresh:true});
- assert.equal(text,'    - [ ] Compare `a  b`  [start:: 2026-10-06 09:00]  [due:: 2026-10-06 10:00] ^child-task\n');
+ assert.equal(text,'    - [ ] Compare `a  b` [start:: 2026-10-06 09:00] [due:: 2026-10-06 10:00] ^child-task\n');
 });
 
 test('month endpoints preserve the opposite endpoint and reject inverted ranges',()=>{
- const c=vm.createContext({moment});for(const name of ['calendarMonthDrop','resizeTaskCalendarDate']){const i=source.indexOf('function '+name+'(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);}
+ const c=vm.createContext({moment,noriaBridge:{tasks:taskDocument}});for(const name of ['calendarMonthDrop','resizeTaskCalendarDate','readTaskCalendarDate','parseDateTimeValue']){const i=source.indexOf('function '+name+'(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);}
  const original={startM:moment('2026-09-26 09:00'),endM:moment('2026-09-30 18:00')};
  const drop=c.calendarMonthDrop(original,'2026-10-02','2026-09-30','due');
  assert.equal(drop.start.format('YYYY-MM-DD HH:mm'),'2026-09-26 09:00');assert.equal(drop.end.format('YYYY-MM-DD HH:mm'),'2026-10-02 18:00');
@@ -124,6 +126,7 @@ test('month endpoints preserve the opposite endpoint and reject inverted ranges'
  const startOnly=c.calendarMonthDrop({...original,hasDue:false},'2026-10-02','2026-09-26','start');
  assert.equal(startOnly.start.format('YYYY-MM-DD'),'2026-10-02');
  assert.equal(c.resizeTaskCalendarDate('- [ ] Range [start:: 2026-09-26] [due:: 2026-09-30 18:00]','due','2026-10-02'),'- [ ] Range [start:: 2026-09-26] [due:: 2026-10-02 18:00]');
+ assert.equal(c.resizeTaskCalendarDate('- [ ] Read `[due:: 2020-01-01]` 🗓️ 2026-09-30 18:00','due','2026-10-02'),'- [ ] Read `[due:: 2020-01-01]` 🗓️ 2026-10-02 18:00');
 });
 
 test('undo restores only the saved task and keeps unrelated edits; newer task edits conflict',async()=>{

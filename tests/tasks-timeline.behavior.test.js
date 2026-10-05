@@ -86,6 +86,7 @@ function loadTaskTimelineEventModel() {
 function loadTaskTimelineTaskAdapter() {
   const code = fs.readFileSync(pluginPath("views/task-timeline/task-adapter.js"), "utf8");
   const context = {
+    noriaTaskTimeline: {taskDocument: require('../src/task-document.js')},
     globalThis: null,
     __NORIA_TASK_TIMELINE_TEST__: true
   };
@@ -99,6 +100,7 @@ function loadTaskTimelineTaskPipeline() {
   const eventModelCode = fs.readFileSync(pluginPath("views/task-timeline/event-model.js"), "utf8");
   const taskAdapterCode = fs.readFileSync(pluginPath("views/task-timeline/task-adapter.js"), "utf8");
   const context = {
+    noriaTaskTimeline: {taskDocument: require('../src/task-document.js')},
     globalThis: null,
     __NORIA_TASK_TIMELINE_TEST__: true
   };
@@ -172,6 +174,7 @@ function loadTaskTimelineTraceProvider() {
 function loadTaskTimelineTaskEdit() {
   const code = fs.readFileSync(pluginPath("views/task-timeline/task-edit.js"), "utf8");
   const context = {
+    noriaTaskTimeline: {taskDocument: require('../src/task-document.js')},
     globalThis: null,
     __NORIA_TASK_TIMELINE_TEST__: true
   };
@@ -1794,15 +1797,55 @@ test("timeline drag retains nested task indentation, title spacing and the trail
   assert.equal(moved,"    - [ ] Compare `a  b` #work [start:: 2026-10-06 11:00] [due:: 2026-10-06 12:00] ^child-task");
 });
 
+test("timeline reads and moves date aliases without altering code examples or leaving stale dates",()=>{
+ const adapter=loadTaskTimelineTaskAdapter(),edit=loadTaskTimelineTaskEdit();
+ const exampleOnly=adapter.tasksToTimelineEvents([{rawLine:'- [ ] Explain `[due:: 2020-01-01]`',dates:{due:'2020-01-01'},path:'P.md',line:0}]);
+ assert.equal(exampleOnly.events.length,0);
+ for(const field of ['📅 2026-10-06 09:00','📆 2026-10-06 09:00','🗓️ 2026-10-06 09:00','[date:: 2026-10-06 09:00]','[DUE:: 2026-10-06 09:00]']){
+  const raw='- [ ] Read `[due:: 2020-01-01]` '+field+' ^read';
+  const event=adapter.tasksToTimelineJson([{rawLine:raw,path:'P.md',line:0}]).events[0];
+  assert.ok(event,field);assert.match(event.start,/2026-10-06T09:00/);
+  const actual=edit.buildDraggedTaskLine(raw,event,{role:'move',start:new Date('2026-10-07T11:00:00')});
+  assert.equal(actual,raw.replace('2026-10-06 09:00','2026-10-07 11:00'));
+ }
+});
+
+function timelineDragFixture(initial, snapshot, line = 1) {
+ const view=fs.readFileSync(pluginPath('views/task-timeline/view.js'),'utf8');
+ let text=initial;const notices=[],refreshes=[];
+ const c=vm.createContext({app:{vault:{getAbstractFileByPath:()=>({extension:'md'}),process:async(f,fn)=>{text=fn(text)}}},
+   taskTimelineNotifyFailure:message=>notices.push(message),taskTimelineRuntimeMessage:(key,fallback)=>fallback,
+   taskTimelineBridge:{tasks:{locateSource:require('../src/task-document.js').locateTask},refresh:{requestRefresh:(...args)=>refreshes.push(args)}}});
+ let i=view.indexOf('function taskTimelineEventNoria(');vm.runInContext(view.slice(i,view.indexOf('\nfunction taskTimelinePickMarkdownLeaf',i)),c);
+ i=view.indexOf('async function taskTimelineCommitDrag(');vm.runInContext(view.slice(i,view.indexOf('\nfunction taskTimelineNormalizeRange',i)),c);
+ return {get text(){return text;},notices,refreshes,commit:()=>c.taskTimelineCommitDrag(loadTaskTimelineTaskEdit(),{
+   event:{source:{path:'P.md',line},noria:{kind:'duration',task:{rawLine:snapshot}},start:'2026-10-06T09:00:00',end:'2026-10-06T10:00:00'},
+   role:'move',dates:{start:new Date('2026-10-06T11:00:00'),end:new Date('2026-10-06T12:00:00')}})};
+}
+
 test("timeline drag writeback preserves surrounding Markdown and CRLF",async()=>{
  const line="  - [ ] Child [start:: 2026-10-06 09:00] [due:: 2026-10-06 10:00] ^child";
- let text=`- [ ] Parent\r\n${line}\r\n    Attached paragraph\r\n`;
- const before=text,view=fs.readFileSync(pluginPath('views/task-timeline/view.js'),'utf8');
- const c=vm.createContext({app:{vault:{getAbstractFileByPath:()=>({extension:'md'}),process:async(f,fn)=>{text=fn(text)}}},
-   taskTimelineEventPath:e=>e.source.path,taskTimelineFindLine:()=>1,taskTimelineEventRawLine:()=>line,taskTimelineEventNoria:()=>({kind:'duration'}),taskTimelineBridge:{}});
- const i=view.indexOf('async function taskTimelineCommitDrag(');vm.runInContext(view.slice(i,view.indexOf('\nfunction taskTimelineNormalizeRange',i)),c);
- const saved=await c.taskTimelineCommitDrag(loadTaskTimelineTaskEdit(),{event:{source:{path:'P.md'},start:'2026-10-06T09:00:00',end:'2026-10-06T10:00:00'},role:'move',dates:{start:new Date('2026-10-06T11:00:00'),end:new Date('2026-10-06T12:00:00')}});
- assert.equal(saved,true);assert.equal(text,before.replace('09:00','11:00').replace('10:00','12:00'));
+ const before=`- [ ] Parent\r\n${line}\r\n    Attached paragraph\r\n`,f=timelineDragFixture(before,line);
+ assert.equal(await f.commit(),true);assert.equal(f.text,before.replace('09:00','11:00').replace('10:00','12:00'));
+});
+
+test("timeline drag follows an unchanged source past inserted rows and ignores code copies",async()=>{
+ const line='+ [ ] Compare `a  b` [start:: 2026-10-06 09:00] [due:: 2026-10-06 10:00]';
+ const before=`## Tasks\n- [ ] Other task\n\n\`\`\`md\n${line}\n\`\`\`\n\n${line}\n`;
+ const f=timelineDragFixture(before,line),offset=before.lastIndexOf(line);
+ assert.equal(await f.commit(),true);
+ assert.equal(f.text,before.slice(0,offset)+line.replace('09:00','11:00').replace('10:00','12:00')+'\n');
+ assert.equal(f.notices.length,0);
+});
+
+test("timeline drag rejects changed, ambiguous or non-task source without rewriting Markdown",async()=>{
+ const line='- [ ] Compare `a  b` [start:: 2026-10-06 09:00] [due:: 2026-10-06 10:00]';
+ for(const current of [line.replace('a  b','a b'),line.replace('[ ]','[x]'),line.replace('09:00','08:00'),
+   `- [ ] Parent\n  ${line}`,`${line}\n${line}`,`\`\`\`md\n${line}\n\`\`\``,`%%\n${line}\n%%`]){
+  const before=`## Tasks\n${current}\n`,f=timelineDragFixture(before,line);
+  assert.equal(await f.commit(),false,current);assert.equal(f.text,before);
+  assert.equal(f.notices.length,1,'conflict must be visible');assert.equal(f.refreshes.length,1,'refresh stale events');
+ }
 });
 
 test("formal native task timeline cleanup is pane-owned and released before remounting", () => {

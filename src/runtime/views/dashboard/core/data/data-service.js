@@ -213,57 +213,6 @@
     return m ? m[0] : "";
   }
 
-  function parseTaskCompletionDate(task) {
-    const direct = normalizeDateValue(task?.completion)
-      || normalizeDateValue(task?.done)
-      || normalizeDateValue(task?.completedDate);
-    if (direct) return direct;
-    const text = taskText(task);
-    const inline = text.match(/\[(?:completion|done)::\s*(\d{4}-\d{2}-\d{2})[^\]]*\]/i);
-    if (inline) return inline[1];
-    const tasksPlugin = text.match(/✅\s*(\d{4}-\d{2}-\d{2})/);
-    if (tasksPlugin) return tasksPlugin[1];
-    if (task?.completed) {
-      const diaryDate = diaryDateFromPath(task?.path || task?.file?.path || task?.sourcePath || "");
-      if (diaryDate) return diaryDate;
-    }
-    return "";
-  }
-
-  function parseTaskPlanDate(task) {
-    for (const key of ["due", "scheduled", "start"]) {
-      const direct = normalizeDateValue(task?.[key]);
-      if (direct) return direct;
-    }
-    const text = taskText(task);
-    const inline = text.match(/\[(?:due|scheduled|start)::\s*(\d{4}-\d{2}-\d{2})[^\]]*\]/i)
-      || text.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
-    return inline ? inline[1] : "";
-  }
-
-  function parseTaskDateRoles(task) {
-    return {
-      completion: parseTaskCompletionDate(task),
-      due: normalizeDateValue(task?.due) || inlineDate(task, "due") || emojiDate(task, "📅"),
-      scheduled: normalizeDateValue(task?.scheduled) || inlineDate(task, "scheduled") || emojiDate(task, "⏳"),
-      start: normalizeDateValue(task?.start) || inlineDate(task, "start") || emojiDate(task, "🛫"),
-      created: normalizeDateValue(task?.created) || normalizeDateValue(task?.ctime),
-      diaryFallback: diaryDateFromPath(task?.path || task?.file?.path || task?.sourcePath || "")
-    };
-  }
-
-  function inlineDate(task, key) {
-    const text = taskText(task);
-    const match = text.match(new RegExp(`\\[${key}::\\s*(\\d{4}-\\d{2}-\\d{2})[^\\]]*\\]`, "i"));
-    return match ? match[1] : "";
-  }
-
-  function emojiDate(task, emoji) {
-    const text = String(task?.text || task?.line || "");
-    const match = text.match(new RegExp(`${emoji}\\s*(\\d{4}-\\d{2}-\\d{2})`));
-    return match ? match[1] : "";
-  }
-
   function bucketForDate(dateText, granularity) {
     const d = toDate(dateText);
     if (!d) return "";
@@ -555,6 +504,23 @@
 
   function createDataService({ bridge, ctx, app, now } = {}) {
     const runtimeBridge = bridge || globalThis.__noriaRuntimeBridge || {};
+    function parseTaskDateRoles(task) {
+      const rawLine = String(task?.rawLine || task?.source?.rawLine || "");
+      const text = rawLine || taskText(task);
+      const parsed = runtimeBridge.tasks.parseTaskLine(/^[ \t]*[-*+]\s+\[[^\]]\]/.test(text) ? text : "- [ ] "+text);
+      const read = (key, aliases = []) => normalizeDateValue(parsed[key]) || (!rawLine
+        ? [key, ...aliases].map(name => normalizeDateValue(task?.[name])).find(Boolean) || ""
+        : "");
+      const diaryFallback = diaryDateFromPath(task?.path || task?.file?.path || task?.sourcePath || "");
+      return {
+        completion: read("completion", ["done", "completedDate"]) || (task?.completed ? diaryFallback : ""),
+        due: read("due", ["date"]),
+        scheduled: read("scheduled"),
+        start: read("start"),
+        created: read("created") || normalizeDateValue(task?.ctime),
+        diaryFallback
+      };
+    }
     ensureCacheStoreBuild(runtimeBridge.runtimeBuildId || "dev");
     const storagePaths = runtimeBridge.storagePaths && typeof runtimeBridge.storagePaths === "object"
       ? runtimeBridge.storagePaths
@@ -696,14 +662,8 @@
     };
     const parseRawMarkdownTasks = (pathText, markdown) => {
       const out = [];
-      let inFence = false;
-      String(markdown || "").split(/\r?\n/).forEach((lineText, index) => {
-        if (/^\s*(```|~~~)/.test(lineText)) {
-          inFence = !inFence;
-          return;
-        }
-        if (inFence) return;
-        const match = String(lineText || "").match(/^\s*[-*]\s*\[([ xX\/-])\]\s+(.+)$/);
+      runtimeBridge.tasks.readTaskLines(markdown).forEach(({text: lineText, line: index}) => {
+        const match = String(lineText || "").match(/^\s*[-*+]\s*\[([ xX\/-])\]\s+(.+)$/);
         if (!match) return;
         const text = String(match[2] || "").trim();
         if (!text || !taskPassesTagPolicy(text, runtimeBridge)) return;
@@ -1543,14 +1503,8 @@
 
     function parseRawHabitTasks(pathText, markdown) {
       const out = [];
-      let inFence = false;
-      String(markdown || "").split(/\r?\n/).forEach((lineText, index) => {
-        if (/^\s*(```|~~~)/.test(lineText)) {
-          inFence = !inFence;
-          return;
-        }
-        if (inFence) return;
-        const match = String(lineText || "").match(/^\s*[-*]\s*\[([ xX\/-])\]\s+(.+)$/);
+      runtimeBridge.tasks.readTaskLines(markdown).forEach(({text: lineText, line: index}) => {
+        const match = String(lineText || "").match(/^\s*[-*+]\s*\[([ xX\/-])\]\s+(.+)$/);
         if (!match) return;
         const text = String(match[2] || "").trim();
         if (!hasHabitTag(text, "habit")) return;
@@ -2340,17 +2294,13 @@
       getPeriods,
       getReviewEvidence,
       export: exportData,
-      invalidate,
-      parseTaskCompletionDate,
-      parseTaskPlanDate
+      invalidate
     };
   }
 
   root.data.dataService = {
     createDataService,
     resolveRange,
-    parseTaskCompletionDate,
-    parseTaskPlanDate,
     enumerateDates,
     bucketForDate,
     PRESETS,

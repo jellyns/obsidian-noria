@@ -2,23 +2,6 @@
   const root = globalThis.noriaTaskTimeline || (globalThis.noriaTaskTimeline = {});
   const MINUTE = 60 * 1000;
 
-  function escapeRegExp(text) {
-    return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-
-  function stripInlineField(line, key) {
-    const re = new RegExp(`\\s*\\[\\s*${escapeRegExp(key)}\\s*::\\s*[^\\]]*\\]`, "gi");
-    return String(line || "").replace(re, "");
-  }
-
-  function upsertInlineField(line, key, value) {
-    const normalized = String(line || "").trimEnd();
-    const field = `[${key}:: ${String(value || "").trim()}]`;
-    if (!normalized) return field;
-    const block = normalized.match(/([ \t]+\^[A-Za-z0-9-]+)$/);
-    return `${block ? normalized.slice(0, block.index) : normalized} ${field}${block ? block[0] : ""}`;
-  }
-
   function coerceDate(raw) {
     if (!raw) return null;
     if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
@@ -129,17 +112,14 @@
     if (!startText) return String(line || "");
 
     if (eventIsDuration(event)) {
-      let next = stripInlineField(line, "start");
-      next = stripInlineField(next, "due");
-      next = upsertInlineField(next, "start", startText);
-      next = upsertInlineField(next, "due", endText || formatDateTime(addMinutes(dates.start, options.minDurationMin || 5)));
-      return next.trimEnd();
+      return root.taskDocument.patchTaskDates(line, {
+        start: startText,
+        due: endText || formatDateTime(addMinutes(dates.start, options.minDurationMin || 5))
+      });
     }
 
     const key = instantFieldForEvent(event);
-    let next = stripInlineField(line, key);
-    next = upsertInlineField(next, key, startText);
-    return next.trimEnd();
+    return root.taskDocument.patchTaskDates(line, { [key]: startText });
   }
 
   root.taskEdit = {

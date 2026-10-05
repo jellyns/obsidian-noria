@@ -2247,6 +2247,7 @@ function makeTaskInvalidationFixture() {
     now: "2026-09-09",
     bridge: {
       runtimeBuildId: "task-invalidation-test",
+      tasks: require('../src/task-document.js'),
       paths: { projectsRoot: "Noria/Projects" },
       runtime: { filesForScope: () => [file] }
     }

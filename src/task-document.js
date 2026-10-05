@@ -22,7 +22,7 @@ function parseTaskLine(raw) {
     const field=/^\[([^\[\]:]+?)\s*::\s*/.exec(rest);
     if(field){let depth=1,end=cursor+field[0].length;for(;end<body.length;end++){if(body[end]==="[")depth++;if(body[end]==="]"&&!--depth)break;}
       if(depth===0){token(end+1,field[1].toLowerCase(),body.slice(cursor+field[0].length,end).trim());continue;}}
-    const emoji=/^(🛫|📅|📆|🗓|⏳|⌛|✅|❌|➕)\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?)/u.exec(rest);
+    const emoji=/^(🛫|📅|📆|🗓|⏳|⌛|✅|❌|➕)\uFE0F?\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?)/u.exec(rest);
     if(emoji){token(cursor+emoji[0].length,dateEmojis[emoji[1]],emoji[2]);continue;}
     const priority=/^(🔺|⏫|🔼|🔽|⏬)/u.exec(rest);
     if(priority){token(cursor+priority[0].length,"priority",priorityEmojis[priority[0]]);continue;}
@@ -40,10 +40,13 @@ function parseTaskLine(raw) {
 }
 
 function taskIdentity(value){return String(value||"").replace(/^[ \t]*[-*+][ \t]*\[[^\]]*\][ \t]*/,"").trim();}
+function readTaskLines(source) {
+  return scanMarkdownLines(source,{listContent:true}).filter(row=>row.eligible&&/^[ \t]*[-*+]\s+\[[^\]]\]/.test(row.visible));
+}
 function locateTask(source, request) {
   const identity=taskIdentity(request.rawText||request.text);
   if(!identity)throw new Error("missing-task-identity");
-  const rows=scanMarkdownLines(source,{listContent:true}).filter(row=>row.eligible&&/^[ \t]*[-*+]\s+\[[^\]]\]/.test(row.visible));
+  const rows=readTaskLines(source);
   const matches=rows.filter(row=>taskIdentity(row.text)===identity);
   if(matches.length!==1)throw new Error(matches.length?"ambiguous-task":"task-not-found");
   if(request.rawText&&/^[ \t]*[-*+]\s+\[[^\]]\]/.test(request.rawText)&&parseTaskLine(request.rawText).mark!==parseTaskLine(matches[0].text).mark)throw new Error("task-changed");
@@ -61,6 +64,24 @@ function setTaskField(raw,key,value,render=value=>`[${key}:: ${value}]`){
   for(const t of matches.slice().reverse())body=body.slice(0,t.start)+(t===matches[0]&&value?render(value):"")+body.slice(t.end);
   if(!matches.length&&value){const tail=/(?:[ \t]+\^[A-Za-z0-9-]+)?[ \t]*$/.exec(body)[0];body=body.slice(0,body.length-tail.length)+" "+render(value)+tail;}
   return p.prefix+body;
+}
+// Date operations edit only parsed field values, retaining aliases and emoji syntax.
+function patchTaskDates(raw, patch) {
+  let next=raw;
+  for(const key of ["start","due","scheduled","completion","cancelled","created"]){
+    if(!Object.hasOwn(patch,key))continue;
+    const p=parseTaskLine(next),matches=p.tokens.filter(t=>(dateAliases[key]||[key]).includes(t.key));
+    const change=patch[key];let body=p.body;
+    for(const t of matches.slice().reverse()){
+      const value=validateTaskDate(typeof change==="function"?change(t.value):change);
+      const token=body.slice(t.start,t.end),field=/^(\[[^\]]*?::[ \t]*)([\s\S]*?)([ \t]*\])$/.exec(token);
+      const updated=!value?"":field?field[1]+value+field[3]:token.replace(/\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?/,value);
+      body=body.slice(0,t.start)+updated+body.slice(t.end);
+    }
+    next=p.prefix+body;
+    if(!matches.length&&typeof change!=="function"&&change)next=setTaskField(next,key,validateTaskDate(change));
+  }
+  return next;
 }
 function patchTaskLine(raw,patch,today){
   let next=raw,p=parseTaskLine(raw);
@@ -113,4 +134,4 @@ function appendProjectTask(source,line,heading=""){
   const text=prefix+line+eol+(after?eol:"")+after;
   return {text,line:prefix.split(/\r?\n/).length-1,rawText:line,changed:true};
 }
-module.exports={parseTaskLine,locateTask,patchTaskLine,editTaskDocument,appendProjectTask};
+module.exports={parseTaskLine,readTaskLines,locateTask,patchTaskLine,patchTaskDates,editTaskDocument,appendProjectTask};

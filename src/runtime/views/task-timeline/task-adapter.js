@@ -112,8 +112,10 @@
 
   function readTaskField(task, key) {
     const line = taskRawLine(task);
-    const inline = extractInlineField(line, key);
+    const parsed = root.taskDocument.parseTaskLine(/^[ \t]*[-*+]\s+\[[^\]]\]/.test(line) ? line : `- [ ] ${line}`);
+    const inline = parsed[key];
     if (inline) return inline;
+    if (task && (task.rawLine || task.source?.rawLine)) return "";
     if (task && task[key] != null && task[key] !== "") return task[key];
     if (task && task.dates && task.dates[key] != null && task.dates[key] !== "") return task.dates[key];
     return "";

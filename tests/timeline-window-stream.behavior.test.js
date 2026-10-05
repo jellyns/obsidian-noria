@@ -78,7 +78,7 @@ test("native task DTO retains editable source identity and readable raw text",()
 });
 
 test("vertical structured task filters retain adapter status, tags, kind and undated sources",()=>{
- const context={globalThis:null};context.globalThis=context;
+ const context={globalThis:null,noriaTaskTimeline:{taskDocument:require('../src/task-document.js')}};context.globalThis=context;
  for(const name of ["event-model","task-adapter"])vm.runInNewContext(fs.readFileSync(require.resolve(`../src/runtime/views/task-timeline/${name}.js`),"utf8"),context);
  const tasks=[
   {path:"Projects/research.md",line:1,text:"Read paper #research [start:: 2026-09-23 09:00]",completed:false},

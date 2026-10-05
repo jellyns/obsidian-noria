@@ -2910,6 +2910,7 @@ const NORIA_I18N = {
     "runtime.timeline.task.toggleDone": "Mark complete",
     "runtime.timeline.task.toggleOpen": "Mark incomplete",
     "runtime.timeline.taskActionFailed": "Task timeline action failed: {message}",
+    "runtime.timeline.sourceChanged": "The task changed or could not be uniquely located. Refresh and try again.",
     "runtime.timeline.task.lineMissing": "Cannot locate source line",
     "runtime.timeline.task.durationDrag": "Drag vertically to adjust duration",
     "runtime.timeline.task.openLine": "Open note and jump to this task line",
@@ -5026,6 +5027,7 @@ const NORIA_I18N = {
     "runtime.timeline.task.toggleDone": "标记完成",
     "runtime.timeline.task.toggleOpen": "撤销完成",
     "runtime.timeline.taskActionFailed": "任务时间轴操作失败：{message}",
+    "runtime.timeline.sourceChanged": "任务已变化或无法唯一定位，请刷新后重试。",
     "runtime.timeline.task.lineMissing": "无法定位行号",
     "runtime.timeline.task.durationDrag": "上下拖动调整时长",
     "runtime.timeline.task.openLine": "打开笔记并定位到本任务所在行",
@@ -18618,6 +18620,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         }
       },
       tasks: {
+        parseTaskLine: taskDocument.parseTaskLine,
+        readTaskLines: taskDocument.readTaskLines,
+        patchTaskDates: taskDocument.patchTaskDates,
+        locateSource(source, request) { return taskDocument.locateTask(source, request); },
         async updateStatus(request = {}) {
           return plugin.updateTaskCheckboxStatus(request || {});
         },

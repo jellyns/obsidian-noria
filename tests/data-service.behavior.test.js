@@ -25,7 +25,8 @@ function loadDataService(extra = {}) {
   context.globalThis = context;
   vm.createContext(context);
   vm.runInContext(code, context, { filename: "data-service.js" });
-  return context.dashboardCore.data.dataService;
+  const data=context.dashboardCore.data.dataService;
+  return {...data,createDataService:options=>data.createDataService({...options,bridge:{tasks:require('../src/task-document.js'),...options.bridge}})};
 }
 
 test("data service derives review and snapshot cache paths from the runtime bridge", async () => {
@@ -1013,6 +1014,33 @@ test("data service resolves homeCurrent range from synced home settings before l
   assert.equal(resolved.start, "2026-01-01");
   assert.equal(resolved.end, "2026-12-31");
   assert.equal(resolved.granularity, "month");
+});
+
+test("task statistics and date filters use real Markdown dates and ignore examples", async () => {
+ const data=loadDataService(),path='01_Projects/date-facts.md';
+ const markdown=[
+  '- [ ] Alias `[due:: 2020-01-01]` [DATE:: 2026-10-06 08:15]',
+  '- [x] Finished [DONE:: 2026-10-06]',
+  '- [x] Example only `✅ 2026-10-06`',
+  '- [ ] Scheduled ⌛ 2026-10-06',
+  '+ [ ] Plus task 🗓️ 2026-10-06',
+  '%%','- [x] Hidden ✅ 2026-10-06','%%',
+  '````md','```','- [x] Code example ✅ 2026-10-06','```','````'
+ ].join('\n');
+ const bridge={runtimeBuildId:'date-facts',paths:{diaryRoot:'06_Diary'},runtime:{filesForScope:()=>[{path}],pagesForScope:()=>[],pagesForManagedPath:()=>[],tasksForScope:()=>[]}};
+ const service=data.createDataService({bridge,app:{vault:{adapter:{read:async()=>markdown}}},now:'2026-10-06'}),range={mode:'custom',start:'2026-10-06',end:'2026-10-06'};
+ const all=await service.getTasks({range,rangePolicy:'allFacts',status:'all'});
+ assert.equal(all.items.length,5,'comments and nested fence examples are not tasks');
+ const byName=name=>all.items.find(item=>item.text.raw.startsWith(name));
+ assert.equal(byName('Alias').dates.due,'2026-10-06');
+ assert.equal(byName('Finished').dates.completion,'2026-10-06');
+ assert.equal(byName('Example only').dates.completion,'');
+ assert.equal(byName('Scheduled').dates.scheduled,'2026-10-06');
+ assert.equal(byName('Plus task').dates.due,'2026-10-06');
+ const filtered=await service.getTasks({range,bucketBy:'due',status:'all'});
+ assert.deepEqual(Array.from(filtered.items,item=>item.source.line),[0,4]);
+ const snapshot=await service.getSnapshot({include:['tasks'],range}),counts=snapshot.domains.tasks.completion;
+ assert.equal(counts.completed,1);assert.equal(counts.open,3);assert.equal(counts.undatedCompleted,1);
 });
 
 test("data service reads fresh markdown task facts from vault files without external index rows", async () => {
