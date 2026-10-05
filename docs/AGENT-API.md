@@ -68,6 +68,16 @@ const saved = await api.tasks.update({
 
 Use the returned ref for subsequent writes. Changed or ambiguous source lines produce a conflict; a removed source produces not-found. Repeating an unchanged patch with a current ref returns `changed: false`. A stale ref is not a durable idempotency key: after a lost reply, read again and compare the current result. Creating tasks, dependency edits, arbitrary patches and cross-file transactions are not exposed in this version.
 
+## Media catalog
+
+`media.list({folder, kind?, status?, query?, recursive?, offset?, limit?})` reads existing tagged works from Obsidian's metadata index within an explicit vault-relative folder. `kind` is `book`, `movie` (including TV and animation), or `game`; omitting it includes all three. `status` matches the stored text exactly. `query` searches titles, authors, directors and aliases. Subfolders are included by default; `recursive: false` limits the query to the selected folder. No note bodies or external services are read.
+
+The result is `{folder, items, total, unindexed, nextOffset}`. Each item has `{path, title, kinds, tags, properties}`. Properties retain the existing media fields, including `rating`, `grade`, `pagecount`, `pageprogress`, `playtime`, `viewtime` and `finishedAt`. Numeric rating origin and scale remain unspecified; template zero values are not evidence of a personal zero rating. Current page is not reading volume, and a stored status without a date is not a dated experience. The API does not calculate these interpretations or migrate fields.
+
+Results use stable path order, a default limit of 50, and a maximum of 100. Pass `nextOffset` to continue; it is `null` at the end. Pagination is a fresh query, so changes between requests can affect results. `unindexed` counts scoped notes whose metadata was unavailable; such results are incomplete, not evidence that those notes contain no works. Existing Library list and template names beginning with `清单-` or `模板-` are excluded. Missing folders return `not-found`.
+
+MCP exposes the same operation as the read-only `noria_media_list` tool. It does not add a library page, start SI, change status, record an experience or download artwork. The query has local API and actual MCP transport checks; native Obsidian acceptance and shelf UI integration are still pending for this development batch.
+
 ## Daily records
 
 `records.fields()` lists configured field IDs, property names, input types, choices, units and appearance. `enabled: false` hides a field in the recording UI; it does not discard its history or forbid an explicit API update. Use the stable ID rather than its display name.
