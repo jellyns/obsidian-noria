@@ -67,13 +67,15 @@ class DiaryHabitStore {
   constructor(plugin){this.plugin=plugin;}
   async history(configs){
     const p=this.plugin,result=Object.fromEntries(configs.map(c=>[c.name,{}]));
+    const sources=new Map();
+    const read=async path=>{if(!sources.has(path))sources.set(path,await p.loadTextFromVault(path));return sources.get(path);};
     const registry=p.getManagedPath("habitRegistry");
-    const source=await p.loadTextFromVault(registry),tasks=scanMarkdownLines(source).filter(row=>row.eligible).flatMap(row=>{const m=/^\s*[-*+]\s*\[([ xX])\]\s+(.+)$/.exec(row.text);return m?[{path:registry,text:m[2],completed:/[xX]/.test(m[1])}]:[];});
+    const source=await read(registry),tasks=scanMarkdownLines(source).filter(row=>row.eligible).flatMap(row=>{const m=/^\s*[-*+]\s*\[([ xX])\]\s+(.+)$/.exec(row.text);return m?[{path:registry,text:m[2],completed:/[xX]/.test(m[1])}]:[];});
     // Native metadata task entries carry positions/status, not the source text.
     // Read the scoped notes so history is independent of the visible date window.
     for(const page of p.pagesForManagedPath("diaryRoot")){
       const path=page.file?.path;if(!path)continue;
-      const raw=await p.loadTextFromVault(path);
+      const raw=await read(path);
       for(const row of scanMarkdownLines(raw).filter(row=>row.eligible)){
         const m=/^\s*[-*+]\s*\[([ xX])\]\s+(.+)$/.exec(row.text);
         if(m)tasks.push({path,text:m[2],completed:/[xX]/.test(m[1])});
@@ -83,14 +85,24 @@ class DiaryHabitStore {
       const fields=H.parseInlineFields(text),name=H.canonicalHabitName(text),config=configs.find(c=>c.id&&c.id===fields["habit-id"]||c.name===name||String(c.aliases||"").split(";").includes(name));
       const date=H.extractTaskDate(text);if(!config||!date||date>p.getLocalYmd())continue;
       const previous=result[config.name][date],path=task.path||task.from;if(previous?.path!==registry&&path===registry&&previous)continue;
-      result[config.name][date]={done:!!task.completed,path,target:fields.target,value:fields.value};
+      result[config.name][date]={done:!!task.completed,path,target:fields.target,value:fields.value,type:fields.type,unit:fields.unit};
     }
     for(const task of tasks){const text=task.text||task.rawText||"";if(!/(^|\s)#tl\/sleep\b/.test(text))continue;
       const config=configs.find(c=>c.type==="sleep"),fields=H.parseInlineFields(text),date=H.getSleepHabitDate(fields.start);
       if(!config||!date||date>p.getLocalYmd()||result[config.name][date])continue;
       const value=fields.start?.match(/\d{1,2}:\d{2}/)?.[0],target=fields.target||config.target;
       if(value)result[config.name][date]={done:H.isSleepBeforeTarget(value,target),path:task.path||task.from,value,target};
-    }return result;
+    }
+    // Bound habits store their value in the dated note property. The checkbox is
+    // only a projection and can be stale after editing that property directly.
+    for(const config of configs.filter(config=>config.recordField)){
+      const field=p.records?.definitions().find(field=>field.property===config.recordField);if(!field)continue;
+      for(const [date,record] of Object.entries(result[config.name])){
+        const spec=await p.resolveCalendarNoteSpecAsync("daily",date),value=p.records.read(await read(spec.path),field);
+        result[config.name][date]={...record,path:spec.path,value:value??"",done:typeof value==="number"&&value>=Number(record.target||config.target),source:"property",recordField:config.recordField};
+      }
+    }
+    return result;
   }
   async load(date,{registryPath="",registryText}={}){
     const p=this.plugin,spec=await p.resolveCalendarNoteSpecAsync("daily",date);

@@ -12563,7 +12563,12 @@ button.noria-settings-tab {
 .noria-daily-record-card{border:1px solid var(--background-modifier-border);border-radius:14px;padding:12px;width:100%;min-width:0;height:100%;--noria-card-accent:var(--color-cyan);}
 .noria-daily-record-card .dashboard-panel-title{justify-content:flex-start;}
 .noria-daily-series,.noria-daily-series-axis{display:grid;grid-template-columns:var(--noria-record-label-width) minmax(0,1fr);gap:12px;align-items:center;}
-.noria-daily-series-label{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font-size:var(--font-ui-small);}
+.noria-daily-record-card button.noria-daily-series-label{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:center;gap:2px 6px;min-width:0;min-height:34px;height:auto;padding:3px 4px;text-align:start;font-size:var(--font-ui-small);font-weight:var(--font-normal);border:0;box-shadow:none;background:transparent;}
+.noria-daily-series-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.noria-daily-series-label .noria-daily-series-value{grid-column:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.noria-daily-record-card button.noria-daily-series-label:hover:not(:disabled){background:var(--background-modifier-hover);}
+.noria-daily-record-card button.noria-daily-record-date{flex:none;min-height:28px;height:auto;padding:4px 6px;box-shadow:none;border:0;background:transparent;color:var(--text-muted);font-size:var(--font-ui-smaller);font-weight:var(--font-normal);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.noria-daily-record-card button.noria-daily-record-date:hover{color:var(--text-normal);background:var(--background-modifier-hover);}
 .noria-daily-series-value{width:100%;padding-left:22px;color:var(--text-muted);font-size:var(--font-ui-smaller);font-variant-numeric:tabular-nums;}
 .noria-daily-record-card button.noria-daily-series-chart{position:relative;display:block;min-width:0;width:100%;height:38px;box-shadow:none;border:0;padding:0;border-radius:4px;background:transparent;}
 .noria-daily-record-card button.noria-daily-series-chart.is-numeric{height:68px;}
@@ -12586,8 +12591,6 @@ button.noria-settings-tab {
 .noria-daily-series-axis>div>span{position:absolute;transform:translateX(-50%);white-space:nowrap;}
 .noria-daily-series-axis>div>span:first-child{transform:none;}
 .noria-daily-series-axis>div>span:last-child{transform:translateX(-100%);}
-.noria-daily-record-footer{display:flex;align-items:center;justify-content:flex-end;margin-block:4px 8px;}
-.noria-daily-record-footer button{font-size:var(--font-ui-smaller);font-variant-numeric:tabular-nums;}
 .noria-daily-record-details{font-size:var(--font-ui-smaller);color:var(--text-muted);}
 .noria-daily-record-details>summary{cursor:pointer;width:fit-content;}
 .noria-daily-record-detail{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;padding:8px 0;}
@@ -12697,7 +12700,6 @@ button.noria-settings-tab {
 .noria-diary-range-context{text-align:center;color:var(--text-muted);font-size:var(--font-ui-smaller);font-variant-numeric:tabular-nums;}
 .noria-diary-period-controls .noria-diary-periods{display:flex;}
 .noria-daily-record-summary{gap:6px;padding:8px 0 2px;}
-.noria-daily-series-label{gap:3px 5px;}
 .noria-daily-series-value{width:auto;padding:0;font-variant-numeric:tabular-nums;}
 .noria-daily-record-card button.noria-daily-series-chart{height:32px;}
 .noria-daily-record-card button.noria-daily-series-chart.is-numeric{height:48px;}
@@ -12760,10 +12762,18 @@ button.noria-settings-tab {
 /* One time window, two presentations. Controls retain the existing toolbar size. */
 .noria-tl-range-panel { position:fixed;z-index:var(--layer-popover,1000);box-sizing:border-box;width:284px;max-width:calc(100vw - 16px);max-height:calc(100vh - 24px);overflow:auto;padding:14px;display:grid;gap:12px;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;color:var(--text-normal); }
 .noria-tl-range-panel strong {font-size:var(--font-ui-small);}
+.noria-tl-range-panel [hidden]{display:none;}
 .noria-tl-scale-list {display:grid;gap:4px;}
+.noria-tl-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.noria-tl-panel-heading>.noria-tl-toolbar-icon-btn{border:0;background:transparent;box-shadow:none;}
 .noria-tl-scale-row {display:flex;align-items:center;gap:4px;}
-.noria-tl-scale-row>button:first-child {flex:1;text-align:left;box-shadow:none;}
+.noria-tl-scale-row>button:first-child {flex:1;justify-content:flex-start;text-align:left;box-shadow:none;border:0;background:transparent;padding:7px 10px;min-height:32px;}
+.noria-tl-scale-row>button:first-child:hover{background:var(--background-modifier-hover);}
+.noria-tl-scale-row>button[aria-pressed="true"]:first-child{background:var(--background-modifier-hover);color:var(--interactive-accent);font-weight:var(--font-semibold);}
 .noria-tl-scale-edit {justify-self:start;font-size:var(--font-ui-smaller);box-shadow:none;}
+.noria-tl-scale-details>.noria-tl-scale-custom{margin-block:8px;}
+.noria-tl-scale-details>.noria-task-row-error:empty{display:none;}
+.noria-tl-scale-details>.noria-task-row-error{margin-block:8px;}
 .noria-tl-scale-custom,.noria-tl-scale-actions {display:flex;gap:8px;}
 .noria-tl-scale-custom input {width:96px;min-width:0;}
 .noria-tl-scale-custom select {flex:1;min-width:0;}

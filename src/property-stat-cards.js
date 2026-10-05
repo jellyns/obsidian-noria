@@ -200,8 +200,9 @@ class PropertyStatCards{
       const selected=widget?.props?.dailyRecordFields??configuredFields,chosen=Array.isArray(selected)?available.filter(f=>selected.includes(f.id)):available;
       const fields=(chosen.length?chosen:available).slice(0,3);
       const results=await Promise.all(fields.map(field=>this.query({source:"diary",property:field.property,calculate:["number","level"].includes(field.type)?"mean":"distribution",display:["number","level"].includes(field.type)?"trend":"bars",...(range?{scope:"fixed",start:range.start,end:range.end}:{scope:"follow"})})));
-      if(serial!==generation)return;const active=host.ownerDocument.activeElement,focused=host.contains(active)?active?.dataset?.recordField:null;host.empty();
+      if(serial!==generation)return;const active=host.ownerDocument.activeElement,focused=host.contains(active)?active?.dataset?.recordField:null,focusedLabel=active?.classList.contains("noria-daily-series-label");host.empty();
       const head=host.createDiv({cls:"noria-card-heading"});const title=head.createDiv({cls:"dashboard-panel-title"});setIcon(title.createSpan({cls:"dashboard-card-heading-icon"}),"chart-no-axes-combined");title.createSpan({text:this.text("日常记录","Daily records")});
+      const dateControl=head.createEl("button",{cls:"noria-daily-record-date",attr:{type:"button","data-record-field":"selected-date","aria-haspopup":"dialog"}});
       const picker=widget?iconButton(head,"sliders-horizontal",this.text("选择显示项目","Choose displayed fields"),()=>recordPopover(picker,this.text("显示项目 · 最多三项","Display up to three fields"),(pop,close)=>{
         const ids=new Set(fields.map(f=>f.id)),choices=[];
         for(const field of available){const label=pop.createEl("label",{cls:"noria-record-field-choice"}),input=label.createEl("input",{attr:{type:"checkbox"}});input.checked=ids.has(field.id);label.createSpan({text:field.name});choices.push(input);input.onchange=()=>{if(input.checked)ids.add(field.id);else ids.delete(field.id);choices.forEach(c=>c.disabled=!c.checked&&ids.size>=3);};}
@@ -212,28 +213,36 @@ class PropertyStatCards{
       })):null;
       if(fields.length){const period=range||results[0].range,summary=dailySources(results,fields),issues=summary.invalid.length||summary.unreadable.length;
         const source=iconButton(head,'list',issues?this.text('汇总与来源 · 有未纳入的记录','Summary & sources · Some records were excluded'):this.text('汇总与来源','Summary & sources'),()=>this.openRows(summary.rows,{...summary,range:period},this.text('汇总与来源','Summary & sources')));
-        source.classList.toggle('has-source-issues',!!issues);this.drawDailySeries(host,fields,results,period,viewState);if(focused)[...host.querySelectorAll("[data-record-field]")].find(el=>el.dataset.recordField===focused)?.focus({preventScroll:true});}
+        source.classList.toggle('has-source-issues',!!issues);this.drawDailySeries(host,fields,results,period,viewState,dateControl);if(focused)[...host.querySelectorAll("[data-record-field]")].find(el=>el.dataset.recordField===focused&&el.classList.contains("noria-daily-series-label")===focusedLabel)?.focus({preventScroll:true});}
+      dateControl.hidden=!fields.length;
       if(!fields.length)host.createDiv({cls:"noria-card-empty",text:this.text("选择想记录和回看的项目。","Choose the fields you want to record and review.")});
       if(shell)shell._noriaConfigureWidget=()=>this.plugin.records.manage();
     };const safePaint=()=>paint().catch(e=>{host.empty();host.createDiv({cls:"noria-card-empty",text:e.message});});await safePaint();const refresh=()=>{clearTimeout(timer);timer=setTimeout(()=>void safePaint(),180);};
     component.registerEvent(this.app.metadataCache.on("changed",refresh));component.registerEvent(this.app.vault.on("delete",refresh));component.register(()=>{++generation;clearTimeout(timer);});return ()=>component.unload();
   }
-  drawDailySeries(host,fields,results,range,viewState={}){
+  drawDailySeries(host,fields,results,range,viewState={},dateControl){
     const {dates,series}=alignDailyRecords(results,range),count=dates.length;
     if(!count)return;
     const grid=host.createDiv({cls:"noria-daily-record-summary"}),previews=[];
     const number=value=>new Intl.NumberFormat(this.plugin.getNoriaLocale(),{maximumFractionDigits:2}).format(value);
     const open=(anchor,field,index)=>this.editPoint(anchor,series[index][selected].rows,{source:'diary',property:field.property},dates[selected],results[index]);
-    let selected=dates.includes(viewState.date)?dates.indexOf(viewState.date):count-1;
-    const footer=host.createDiv({cls:"noria-daily-record-footer"}),dateButton=footer.createSpan({cls:"noria-stat-selected-date"});
-    const select=index=>{selected=Math.max(0,Math.min(count-1,index));viewState.date=dates[selected];grid.style.setProperty("--noria-record-cursor",`${(selected+.5)/count*100}%`);dateButton.setText(new Intl.DateTimeFormat(this.plugin.getNoriaLocale(),{year:'numeric',month:'short',day:'numeric',weekday:'short'}).format(new Date(dates[selected]+'T12:00:00')));dateButton.title=dates[selected];previews.forEach(({field,el,chart},i)=>{const point=series[i][selected],value=point.ambiguous?this.text(`${point.rows.length} 份记录`,`${point.rows.length} records`):point.multiple?this.text("多个状态","Multiple states"):point.value==null?this.text("未填写","Not recorded"):this.plugin.records.display(field,point.value);el.setText(point.ambiguous||point.multiple?value:point.value==null?"—":value);chart.setAttribute("aria-label",`${field.name} · ${dates[selected]} · ${value} · ${this.text("左右键选择日期，回车编辑","Arrow keys select a date; Enter edits")}`);});};
+    const today=this.plugin.getLocalYmd();
+    let selected=dates.includes(viewState.date)?dates.indexOf(viewState.date):dates.includes(today)?dates.indexOf(today):count-1;
+    const select=index=>{selected=Math.max(0,Math.min(count-1,index));viewState.date=dates[selected];grid.style.setProperty("--noria-record-cursor",`${(selected+.5)/count*100}%`);
+      const date=new Date(dates[selected]+'T12:00:00'),locale=this.plugin.getNoriaLocale();
+      if(dateControl){dateControl.setText(dates[selected]===today?this.text("今天","Today"):new Intl.DateTimeFormat(locale,{...(dates[selected].slice(0,4)!==today.slice(0,4)?{year:'numeric'}:{}),month:'short',day:'numeric'}).format(date));dateControl.title=new Intl.DateTimeFormat(locale,{year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(date);dateControl.setAttribute("aria-label",this.text("选择日期","Choose date")+' · '+dateControl.title);}
+      previews.forEach(({field,el,chart,label},i)=>{const point=series[i][selected],value=point.ambiguous?this.text(`${point.rows.length} 份记录`,`${point.rows.length} records`):point.multiple?this.text("多个状态","Multiple states"):point.value==null?this.text("未填写","Not recorded"):this.plugin.records.display(field,point.value);el.setText(point.ambiguous||point.multiple?value:point.value==null?"—":value);const description=`${field.name} · ${dates[selected]} · ${value}`;label.setAttribute("aria-label",description+' · '+this.text("编辑记录","Edit record"));label.title=description;label.disabled=dates[selected]>today;chart.setAttribute("aria-label",`${description} · ${this.text("左右键选择日期，回车编辑","Arrow keys select a date; Enter edits")}`);});};
+    if(dateControl)dateControl.onclick=()=>recordPopover(dateControl,this.text("选择日期","Choose date"),(pop,close)=>{
+      const input=pop.createEl("input",{attr:{type:"date",min:dates[0],max:dates[count-1],"aria-label":this.text("日期","Date")}});input.value=dates[selected];input.onchange=()=>{const index=dates.indexOf(input.value);if(index>=0){select(index);close();}};
+      if(dates.includes(today)){const now=pop.createEl("button",{text:this.text("今天","Today"),attr:{type:"button"}});now.onclick=()=>{select(dates.indexOf(today));close();};}
+    });
     fields.forEach((field,index)=>{
       const points=series[index],numeric=field.type==="number",row=grid.createDiv({cls:"noria-daily-series"});
       row.style.setProperty("--noria-record-color",this.plugin.records.color(field));
-      const label=row.createDiv({cls:"noria-daily-series-label"});require("./picture-picker.js").renderPicture(this.plugin,label.createSpan({cls:"noria-record-field-icon"}),fieldPicture(field));label.createSpan({text:field.name});
+      const label=row.createEl("button",{cls:"noria-daily-series-label",attr:{type:"button","data-record-field":field.id}});require("./picture-picker.js").renderPicture(this.plugin,label.createSpan({cls:"noria-record-field-icon"}),fieldPicture(field));label.createSpan({cls:"noria-daily-series-name",text:field.name});label.onclick=()=>open(label,field,index);
       const preview=label.createSpan({cls:"noria-daily-series-value"});
       const chart=row.createEl("button",{cls:"noria-daily-series-chart"+(numeric?" is-numeric":""),attr:{type:"button","aria-label":`${field.name} · ${this.text("左右键选择日期，回车编辑","Arrow keys select a date; Enter edits")}`}});
-      chart.dataset.recordField=field.id;previews.push({field,el:preview,chart});
+      chart.dataset.recordField=field.id;previews.push({field,el:preview,chart,label});
       const pointDate=event=>{const r=chart.getBoundingClientRect();select(Math.floor((event.clientX-r.left)/r.width*count));};
       chart.onpointermove=pointDate;chart.onpointerdown=pointDate;chart.onclick=()=>open(chart,field,index);
       chart.onkeydown=event=>{if(event.key==="ArrowLeft"||event.key==="ArrowRight"){event.preventDefault();select(selected+(event.key==="ArrowLeft"?-1:1));}else if(event.key==="Home"||event.key==="End"){event.preventDefault();select(event.key==="Home"?0:count-1);}};

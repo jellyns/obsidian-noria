@@ -46,9 +46,13 @@ class TimelineWorkspace {
     if(!this.scaleButton)return;
     const window=this.backend?.getWindow()||this.settings().timeWindow,zh=this.plugin.getNoriaLocale()==="zh",label=windows.label(window,zh);
     const spec=windows.normalize(window)?.scale;
-    this.scaleButton.textContent=zh?label.replace(/\s+/g,""):spec?`${spec.amount}${{hour:"h",day:"d",week:"w",month:"mo",year:"y"}[spec.unit]}`:label.replace(/^Custom · /,"");
+    this.scaleButton.textContent=spec?this.scaleName(spec):zh?label.replace(/\s+/g,""):label.replace(/^Custom · /,"");
     this.scaleButton.title=this.text("显示范围 · ","Visible range · ")+label;
     this.scaleButton.setAttribute("aria-label",this.scaleButton.title);
+  }
+  scaleName(spec){
+    if(spec.amount===1&&["day","week","month"].includes(spec.unit))return this.text({day:"天",week:"周",month:"月"}[spec.unit],{day:"Day",week:"Week",month:"Month"}[spec.unit]);
+    const label=windows.label(windows.at(Date.now(),spec),this.plugin.getNoriaLocale()==="zh");return this.plugin.getNoriaLocale()==="zh"?label.replace(/\s+/g,""):label;
   }
   updateFilterState(){const f=normalizeFilter(this.settings().verticalFilter),active=!f.tasks||!f.records||!f.showDone||f.ctime||f.mtime||!!f.query;this.filterButton?.classList.toggle("noria-tl-toolbar-link--on",active);this.filterButton?.setAttribute("data-filter-active",String(active));}
   morePanel(anchor,tools){
@@ -84,36 +88,37 @@ class TimelineWorkspace {
     anchor.setAttribute("aria-expanded","true");
     const close=focus=>{doc.removeEventListener("pointerdown",outside,true);doc.removeEventListener("keydown",keys,true);win.removeEventListener("resize",position);panel.remove();anchor.setAttribute("aria-expanded","false");if(focus)anchor.focus();if(this.closePanel===close)this.closePanel=null;};
     const outside=e=>{if(!panel.contains(e.target)&&!anchor.contains(e.target))close(false);};
-    const keys=e=>{if(e.key==="Escape"){e.preventDefault();close(true);}else if(e.key==="Tab"){const nodes=[...panel.querySelectorAll("button:not(:disabled),input,select")];if(e.shiftKey&&doc.activeElement===nodes[0]){e.preventDefault();nodes.at(-1)?.focus();}else if(!e.shiftKey&&doc.activeElement===nodes.at(-1)){e.preventDefault();nodes[0]?.focus();}}};
+    const keys=e=>{if(e.key==="Escape"){e.preventDefault();close(true);}else if(e.key==="Tab"){const nodes=[...panel.querySelectorAll("button,input,select,summary")].filter(el=>!el.disabled&&el.checkVisibility({checkVisibilityCSS:true}));if(e.shiftKey&&doc.activeElement===nodes[0]){e.preventDefault();nodes.at(-1)?.focus();}else if(!e.shiftKey&&doc.activeElement===nodes.at(-1)){e.preventDefault();nodes[0]?.focus();}}};
     const position=()=>{
       const r=anchor.getBoundingClientRect(),bounds=this.view.appChromeEl.getBoundingClientRect();
       const left=Math.max(8,bounds.left),right=Math.min(win.innerWidth-8,bounds.right),width=Math.max(0,Math.min(300,right-left));
       panel.style.width=`${width}px`;panel.style.left=`${Math.max(left,Math.min(r.left,right-width))}px`;
       panel.style.top=`${Math.max(8,Math.min(r.bottom+6,win.innerHeight-panel.offsetHeight-8))}px`;
     };
-    doc.addEventListener("pointerdown",outside,true);doc.addEventListener("keydown",keys,true);win.addEventListener("resize",position);this.closePanel=close;
+    doc.addEventListener("pointerdown",outside,true);doc.addEventListener("keydown",keys,true);win.addEventListener("resize",position);panel.addEventListener("toggle",position,true);this.closePanel=close;
     panel.createEl("strong",{text:title});queueMicrotask(()=>{if(panel.isConnected){position();panel.querySelector("button,input,select")?.focus();}});return panel;
   }
   scalePanel(anchor){
-    const panel=this.panel(anchor,this.text("显示范围","Visible range")),list=panel.createDiv({cls:"noria-tl-scale-list"});let editing=false;
+    const panel=this.panel(anchor,this.text("一屏时长","Visible duration")),heading=panel.createDiv({cls:"noria-tl-panel-heading"});heading.append(panel.querySelector("strong"));
+    const list=panel.createDiv({cls:"noria-tl-scale-list"});let editing=false;
     const paint=()=>{list.empty();const favorites=windows.favorites(this.settings().scaleFavorites);
-      favorites.forEach((s,i)=>{const row=list.createDiv({cls:"noria-tl-scale-row"});const b=row.createEl("button",{text:windows.label(windows.at(Date.now(),s),this.plugin.getNoriaLocale()==="zh")});const current=this.backend?.getWindow()?.scale;b.setAttribute("aria-pressed",String(current?.amount===s.amount&&current?.unit===s.unit));b.onclick=()=>{this.setScale(s);this.closePanel?.(true);};
+      favorites.forEach((s,i)=>{const row=list.createDiv({cls:"noria-tl-scale-row"});const b=row.createEl("button",{text:this.scaleName(s)});const current=this.backend?.getWindow()?.scale;b.setAttribute("aria-pressed",String(current?.amount===s.amount&&current?.unit===s.unit));b.onclick=()=>{this.setScale(s);this.closePanel?.(true);};
         if(editing){const up=this.button(row,"arrow-up",this.text("上移","Move up"),()=>this.panelSave(panel,async()=>{const next=favorites.slice();[next[i-1],next[i]]=[next[i],next[i-1]];await this.save({scaleFavorites:next});paint();}));up.disabled=i===0;
           this.button(row,"x",this.text("移除快捷尺度","Remove favorite"),()=>this.panelSave(panel,async()=>{await this.save({scaleFavorites:favorites.filter((_,index)=>index!==i)});paint();}));}
       });
       if(!favorites.length)list.createDiv({cls:"noria-card-secondary",text:this.text("添加常用尺度，或临时指定范围。","Save favorite scales or choose a temporary range.")});
     };paint();
-    const edit=panel.createEl("button",{cls:"noria-tl-scale-edit",text:this.text("编辑常用尺度","Edit favorites")});edit.onclick=()=>{editing=!editing;edit.textContent=editing?this.text("完成","Done"):this.text("编辑常用尺度","Edit favorites");paint();};
-    const restore=panel.createEl("button",{cls:"noria-tl-scale-edit",text:this.text("补回默认项","Restore defaults")});restore.onclick=()=>this.panelSave(panel,async()=>{await this.save({scaleFavorites:windows.favorites([...this.settings().scaleFavorites,...windows.defaults])});paint();});
-    const custom=panel.createDiv({cls:"noria-tl-scale-custom"}),amount=custom.createEl("input",{attr:{type:"number",min:"1",max:"999",value:"1","aria-label":this.text("数量","Amount")}}),unit=custom.createEl("select",{attr:{"aria-label":this.text("时间单位","Time unit")}});
+    const edit=this.button(heading,"pencil",this.text("编辑常用尺度","Edit favorites"),()=>{editing=!editing;edit.setAttribute("aria-pressed",String(editing));edit.title=editing?this.text("完成编辑","Finish editing"):this.text("编辑常用尺度","Edit favorites");edit.setAttribute("aria-label",edit.title);setIcon(edit,editing?"check":"pencil");restore.hidden=!editing;paint();});edit.setAttribute("aria-pressed","false");
+    const restore=panel.createEl("button",{cls:"noria-tl-scale-edit",text:this.text("补回默认项","Restore defaults")});restore.hidden=true;restore.onclick=()=>this.panelSave(panel,async()=>{await this.save({scaleFavorites:windows.favorites([...this.settings().scaleFavorites,...windows.defaults])});paint();});
+    const details=panel.createEl("details",{cls:"noria-tl-scale-details"});details.createEl("summary",{text:this.text("自定义时长","Custom duration")});
+    const custom=details.createDiv({cls:"noria-tl-scale-custom"}),amount=custom.createEl("input",{attr:{type:"number",min:"1",max:"999",value:"1","aria-label":this.text("数量","Amount")}}),unit=custom.createEl("select",{attr:{"aria-label":this.text("时间单位","Time unit")}});
     windows.units.forEach((u,i)=>unit.createEl("option",{value:u,text:this.text(["小时","天","周","月","年"][i],u)}));unit.value="day";
     unit.onchange=()=>{amount.max=String({month:120,year:10}[unit.value]||999);};
     const current=this.backend?.getWindow()?.scale;if(current){amount.value=String(current.amount);unit.value=current.unit;}
-    const error=panel.createDiv({cls:"noria-task-row-error",attr:{role:"status"}});
+    const error=details.createDiv({cls:"noria-task-row-error",attr:{role:"status"}});
     const chosen=()=>{const s=windows.scale({amount:amount.value,unit:unit.value});if(!s){error.textContent=this.text("请输入有效的正整数。","Enter a valid positive whole number.");amount.focus();}return s;};
-    const actions=panel.createDiv({cls:"noria-tl-scale-actions"});const apply=actions.createEl("button",{text:this.text("应用","Apply")});apply.onclick=()=>{const s=chosen();if(s){this.setScale(s);this.closePanel?.(true);}};
+    const actions=details.createDiv({cls:"noria-tl-scale-actions"});const apply=actions.createEl("button",{text:this.text("应用","Apply")});apply.onclick=()=>{const s=chosen();if(s){this.setScale(s);this.closePanel?.(true);}};
     const save=actions.createEl("button",{text:this.text("存为常用","Save favorite")});save.onclick=()=>{const s=chosen();if(s)return this.panelSave(panel,async()=>{await this.save({scaleFavorites:windows.favorites([...this.settings().scaleFavorites,s])});paint();});};
-    panel.createDiv({cls:"noria-card-secondary",text:this.text("设置横版一屏显示的时长。","Set the duration shown on one horizontal screen.")});
   }
   filterPanel(anchor){const panel=this.panel(anchor,this.text("竖版内容","Vertical contents")),f=normalizeFilter(this.settings().verticalFilter);
     const apply=patch=>this.panelSave(panel,async()=>{const next=normalizeFilter({...f,...patch});await this.save({verticalFilter:next});Object.assign(f,next);this.updateFilterState();this.remember();this.resetReader();void this.renderStream();});
