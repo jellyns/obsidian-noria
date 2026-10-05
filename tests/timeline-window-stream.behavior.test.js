@@ -41,7 +41,9 @@ test("actual window fits compressed and magnified zones at several widths",()=>{
   for(const width of [960,360,1440]){vp=api.fitRange(vp,start,end,width);const range=api.visibleRange(vp);assert.ok(Math.abs(range.startMs-start)<2);assert.ok(Math.abs(range.endMs-end)<2);}
 });
 test("runtime module does not replace Obsidian ambient exports",()=>{
-  const context={globalThis:null,module:{exports:{keep:true}}};context.globalThis=context;vm.runInNewContext(fs.readFileSync(require.resolve("../src/runtime/views/task-timeline/time-window.js"),"utf8"),context);assert.equal(context.module.exports.keep,true);assert.equal(typeof context.noriaTaskTimeline.timeWindow.at,"function");
+  const context={globalThis:null,module:{exports:{keep:true}}};context.globalThis=context;
+  for(const name of ["time-window","event-model"])vm.runInNewContext(fs.readFileSync(require.resolve(`../src/runtime/views/task-timeline/${name}.js`),"utf8"),context);
+  assert.equal(context.module.exports.keep,true);assert.equal(typeof context.noriaTaskTimeline.timeWindow.at,"function");assert.equal(typeof context.noriaTaskTimeline.eventModel.createTimelineMatcher,"function");
 });
 function event(id,time,done=false){return {id,layer:"task",title:id,start:`2026-09-23T${time}:00`,source:{path:"tasks.md",line:id},payload:{task:{path:"tasks.md",line:id,text:id,completed:done},noria:{startYmd:"2026-09-23",startTime:time}}};}
 test("overnight tasks show continuation at the window boundary with original times intact",()=>{
@@ -73,4 +75,35 @@ test("vertical source filters are independent and note timestamps default off",(
 test("native task DTO retains editable source identity and readable raw text",()=>{
   const {taskRequest}=require("../src/timeline-stream-model.js");const dto={source:{path:"tasks.md",line:8,rawLine:"- [ ] Task [start:: 2026-09-23]"},text:{clean:"Task",raw:"Task [start:: 2026-09-23]"},completed:false};
   const req=taskRequest(dto);assert.equal(req.path,"tasks.md");assert.equal(req.line,8);assert.equal(req.text,"Task [start:: 2026-09-23]");assert.equal(req.rawText,dto.source.rawLine);
+});
+
+test("vertical structured task filters retain adapter status, tags, kind and undated sources",()=>{
+ const context={globalThis:null};context.globalThis=context;
+ for(const name of ["event-model","task-adapter"])vm.runInNewContext(fs.readFileSync(require.resolve(`../src/runtime/views/task-timeline/${name}.js`),"utf8"),context);
+ const tasks=[
+  {path:"Projects/research.md",line:1,text:"Read paper #research [start:: 2026-09-23 09:00]",completed:false},
+  {path:"Projects/research.md",line:2,text:"Read archive #research [start:: 2026-09-23 10:00]",completed:true},
+  {path:"Projects/research.md",line:3,text:"Read later #research",completed:false},
+  {path:"Personal/list.md",line:4,text:"Read novel #leisure [start:: 2026-09-23 11:00]",completed:false}
+ ];
+ const api=context.noriaTaskTimeline,model=api.taskAdapter.tasksToTimelineEvents(tasks),window=at("2026-09-23T00:00:00",1,"day");
+ for(const [query,expected] of [["tag:#research path:Projects -status:done Read",[1]],["provider:tasks status:done",[2]],["kind:start -tag:#leisure",[1,2]]]){
+  assert.deepEqual(Array.from(api.eventModel.filterTimelineEvents(model.events,{text:query}),e=>e.source.line),expected,query);
+  assert.deepEqual(buildStream(model,[],window,{query}).items.map(e=>e.source.line),expected,query);
+ }
+ const pending=buildStream(model,[],window,{query:"tag:#research path:Projects status:open"}).unscheduled;
+ assert.equal(pending.length,1);assert.equal(pending[0].task.line,3);assert.equal(pending[0].start,undefined);
+ assert.equal(buildStream(model,[],window,{query:"-tag:#research"}).unscheduled.length,0);
+ assert.deepEqual(buildStream(model,[],window,{query:"status:done",showDone:false}).items,[]);
+});
+
+test("vertical source queries search record bodies without changing content or inventing task status",()=>{
+ const record={id:"r",kind:"record",path:"Diary/2026-09-23.md",date:"2026-09-23",markdown:"## Inbox\n- [09:30] Compare the new paper\n\n## Notes\nA separate observation"};
+ const window=at("2026-09-23T00:00:00",1,"day");
+ const selected=buildStream({},[record],window,{query:"path:diary Compare the new paper"}).items;
+ assert.equal(selected.length,1);assert.equal(selected[0].kind,"capture");assert.equal(selected[0].markdown,"Compare the new paper");
+ assert.equal(buildStream({},[record],window,{query:"status:open"}).items.length,0);
+ assert.equal(buildStream({},[record],window,{query:"separate observation"}).items[0].kind,"record");
+ const activity={id:"created",kind:"note-created",date:"2026-09-23",path:"Projects/paper.md",title:"paper"};
+ assert.deepEqual(buildStream({},[activity],window,{ctime:true,query:"source:filesystem path:Projects"}).items.map(e=>e.id),["created"]);
 });

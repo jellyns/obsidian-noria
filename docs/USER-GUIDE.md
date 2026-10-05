@@ -263,7 +263,7 @@ Before writing, Noria checks the source fingerprint and rejects an overwrite whe
 
 ### 4.4 Layers And Filters
 
-Available layers include tasks, marks, notes, Git, Noria, and Pomodoro. Pomodoro is off by default.
+Horizontal layers include tasks, marks, notes, Git, Noria, and Pomodoro. Pomodoro is off by default.
 
 Filters support:
 
@@ -274,16 +274,13 @@ Filters support:
 
 Filters change only the view and do not modify tasks.
 
+Both orientations use the same task query syntax: `tag:#tag`, `path:folder`, and `status:open` / `status:done`. Combine these with ordinary text, or exclude tags and statuses with `-tag:` and `-status:`. Unscheduled tasks support the same conditions. Vertical records can be searched by body text and `path:`; task status conditions do not treat records as tasks. Filter settings are currently retained separately for each orientation and are not copied when switching.
+
 ### 4.5 Named Views
 
-A frequently used timeline state can be saved with a custom name. It includes:
+In either orientation, open **Filter → Saved views → Save or manage views** to save the current setup. Horizontal views retain layers, completion state, query, included/excluded tags, time range and zoom. Vertical views retain tasks, records, note activity, completion state, query and task source display, while continuing at the current date.
 
-```text
-name, time center, scale, layers, completion state, query,
-include tags, exclude tags, mark mode
-```
-
-When the current state differs from a saved view, Noria marks it as modified. Only an explicit update overwrites the saved view.
+Selecting a view restores its orientation and conditions; existing views are treated as horizontal. Changed conditions are marked as modified and replace the saved view only when you click **Update**. A failed save retains your input and the original view for retry. Renaming preserves conditions; deleting a view keeps the current filters and source records. Ordinary horizontal filters and the selected view are also restored with the Obsidian workspace.
 
 ### 4.6 Time Annotations
 

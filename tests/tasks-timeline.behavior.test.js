@@ -2227,18 +2227,12 @@ test("formal task timeline exposes mode presets through the same filter popover"
   assert.match(main, /\{\s*id:\s*"record",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.record"\),\s*layers:\s*\["note", "git", "noria"\],\s*showDone:\s*true,\s*query:\s*""\s*\}/);
   assert.match(main, /\{\s*id:\s*"combined",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.combined"\),\s*layers:\s*\["task", "annotation", "pomodoro", "note", "git", "noria"\],\s*showDone:\s*true,\s*query:\s*""\s*\}/);
   assert.doesNotMatch(main, /\{\s*id:\s*"project",\s*label:\s*this\.plugin\.t\("timeline\.filter\.mode\.project"\)/);
-  const filterStart = main.indexOf("renderTimelineFilterPanel(anchorEl)");
-  const filterBody = main.slice(filterStart, main.indexOf("const search = panel.createEl", filterStart));
-  assert.ok(
-    filterBody.indexOf("noria-tl-filter-saved-views") < filterBody.indexOf("data-noria-timeline-mode-preset"),
-    "named saved views should be the first section inside the existing filter popover"
-  );
   assert.doesNotMatch(main, /noria-tl-mode-strip/);
 });
 
 test("formal task timeline manages named saved views without adding another toolbar button", () => {
   const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
-  const panelStart = main.indexOf("  renderTimelineFilterPanel(anchorEl) {");
+  const panelStart = main.indexOf("  renderTimelineSavedViews(panel) {");
   const panelEnd = main.indexOf("  /** ItemView", panelStart);
   const panel = main.slice(panelStart, panelEnd);
   assert.ok(panelStart > 0 && panelEnd > panelStart, "timeline filter panel should be found");

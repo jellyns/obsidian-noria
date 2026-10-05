@@ -92,6 +92,41 @@ function makePlugin(input = {}) {
   return plugin;
 }
 
+test("vertical saved views retain their own filters and metadata across settings reload and rename",()=>{
+ const plugin=makePlugin(),verticalFilter={tasks:true,records:false,showDone:false,ctime:false,mtime:true,query:"path:Projects status:open"};
+ const saved=plugin.addTimelinePresetInSettings({label:"Review queue",orientation:"vertical",verticalFilter,verticalMetadata:"tags"});
+ const renamed=plugin.updateTimelinePresetInSettings(saved.id,{label:"Project queue"});
+ const restored=plugin.normalizeSettings(JSON.parse(JSON.stringify(plugin.settings))).timelineView.presets[0];
+ assert.equal(restored.orientation,"vertical");assert.equal(restored.verticalMetadata,"tags");assert.equal(restored.label,renamed.label);
+ assert.deepEqual(JSON.parse(JSON.stringify(restored.verticalFilter)),verticalFilter);
+});
+
+test("saved timeline views restore their orientation and survive failed writes without losing the previous view",async()=>{
+ const plugin=makePlugin(),source=readPluginSource(),start=source.indexOf("class NoriaTaskTimelineView"),end=source.indexOf("function noriaElementIsVisibleEnough",start);
+ const tags=source.slice(source.indexOf("function normalizeTaskFilterTag("),source.indexOf("function getTaskQueryContext("));
+ const constants=source.slice(source.indexOf("const NORIA_DEFAULT_TIMELINE_VIEW ="),source.indexOf("const NORIA_TIMELINE_MANUAL_CENTER_STALE_DAYS = 45;")+"const NORIA_TIMELINE_MANUAL_CENTER_STALE_DAYS = 45;".length);
+ const View=vm.runInNewContext(`${tags}\n${constants}\n${source.slice(start,end)};NoriaTaskTimelineView`,{require:id=>require(path.resolve(ROOT,"src",id)),structuredClone,console,timelineWindows:require("../src/runtime/views/task-timeline/time-window.js"),NoriaPaneView:class{constructor(_,p){this.plugin=p;this.app=p.app;}async setState(){}}});
+ const makeView=()=>{const view=new View({},plugin);view.renderTimelineAppChrome=()=>{};view.refreshTimelinePresetControls=()=>{};view.refreshTimelineRuntimeFromChrome=async()=>{};view.closeTimelineFilterPanel=()=>{};return view;};
+ const view=makeView(),initial=JSON.parse(JSON.stringify(plugin.settings.timelineView));plugin.saveSettings=async()=>{};
+ plugin.settings.timelineView.orientation="vertical";plugin.settings.timelineView.verticalFilter={tasks:true,records:false,showDone:false,ctime:false,mtime:false,query:"tag:#research"};plugin.settings.timelineView.verticalMetadata="both";
+ const saved=await view.saveTimelineNamedView("Research");assert.equal(view.timelinePresetIsModified(saved),false);
+ plugin.settings.timelineView.verticalFilter.query="another";assert.equal(view.timelinePresetIsModified(saved),true);
+ plugin.settings.timelineView.orientation="horizontal";
+ await view.applyTimelinePreset(saved.id);
+ assert.equal(plugin.settings.timelineView.orientation,"vertical");assert.equal(plugin.settings.timelineView.verticalFilter.query,"tag:#research");assert.equal(plugin.settings.timelineView.verticalMetadata,"both");
+ assert.equal(view.timelinePresetIsModified(saved),false);assert.deepEqual(plugin.settings.timelineView.timeWindow,initial.timeWindow);
+ const before=JSON.stringify(plugin.settings.timelineView),active=view._timelineActivePresetId;
+ plugin.saveSettings=async()=>{throw Error("disk full");};
+ await assert.rejects(view.saveTimelineNamedView("Failed copy"),/disk full/);
+ assert.equal(JSON.stringify(plugin.settings.timelineView),before);assert.equal(view._timelineActivePresetId,active);
+ await assert.rejects(view.deleteTimelinePreset(saved.id),/disk full/);assert.equal(JSON.stringify(plugin.settings.timelineView),before);
+ await assert.rejects(view.applyTimelinePreset({id:"legacy",layers:["task"],query:"old"}),/disk full/);assert.equal(JSON.stringify(plugin.settings.timelineView),before);assert.equal(view._timelineActivePresetId,active);
+ plugin.saveSettings=async()=>{};await view.applyTimelinePreset({id:"legacy",layers:["task"],query:"old",showDone:false});
+ assert.equal(plugin.settings.timelineView.orientation,"horizontal");assert.equal(view._timelineFilterState.query,"old");
+ const snapshot=JSON.parse(JSON.stringify(view.getState())),reopened=makeView();await reopened.setState(snapshot);
+ assert.equal(reopened._timelineFilterState.query,"old");assert.equal(reopened._timelineFilterState.showDone,false);assert.equal(reopened._timelineActivePresetId,"legacy");
+});
+
 test("settings overview owns data source paths without a separate data sources tab", () => {
   const source = readPluginSource();
   assert.match(source, /id:\s*"overview"/);
@@ -662,7 +697,7 @@ test("task timeline filter chrome localizes the focused filter hierarchy", () =>
   assert.match(modes, /this\.plugin\.t\("timeline\.filter\.mode\.task"\)/);
   assert.match(summary, /timeline\.filter\.summary/);
   assert.match(panel, /timeline\.filter\.layer\.\$\{layer\}/);
-  assert.match(panel, /timeline\.filter\.manageViews/);
+  assert.match(extractBody(source,"renderTimelineSavedViews"), /timeline\.filter\.manageViews/);
   assert.match(panel, /timeline\.filter\.moreFilters/);
   assert.match(panel, /timeline\.filter\.openOnly/);
   assert.match(panel, /timeline\.filter\.includeDone/);

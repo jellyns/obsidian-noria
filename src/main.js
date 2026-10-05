@@ -5654,13 +5654,16 @@ class NoriaTasksView extends NoriaPaneView {
  * 任务时间轴 Tab：正式入口挂载 Noria 原生任务时间轴，不再承载内嵌日表面板。
  */
 class NoriaTaskTimelineView extends NoriaPaneView {
-  getState() { return {verticalTimeline:this.timelineWorkspace?.savedAnchor||this._verticalTimelineState||null,expandedRecords:[...(this.timelineWorkspace?.expandedRecords||this._timelineExpandedRecords||[])].slice(-100)}; }
+  getState() { return {verticalTimeline:this.timelineWorkspace?.savedAnchor||this._verticalTimelineState||null,expandedRecords:[...(this.timelineWorkspace?.expandedRecords||this._timelineExpandedRecords||[])].slice(-100),timelineFilter:this.normalizeTimelineChromeFilterState(),activeTimelinePreset:this._timelineActivePresetId||""}; }
   async setState(state,result) {
+    if(state?.timelineFilter)this._timelineFilterState=this.normalizeTimelineChromeFilterState(state.timelineFilter);
+    if(typeof state?.activeTimelinePreset==="string")this._timelineActivePresetId=state.activeTimelinePreset;
     const a=state?.verticalTimeline;
     this._verticalTimelineState=a&&/^\d{4}-\d{2}-\d{2}$/.test(a.date)?{date:a.date,id:String(a.id||'day:'+a.date),offset:Number(a.offset)||0}:null;
     this._timelineExpandedRecords=Array.isArray(state?.expandedRecords)?state.expandedRecords.filter(id=>typeof id==='string').slice(-100):[];
     if(this.timelineWorkspace){this.timelineWorkspace.savedAnchor=this._verticalTimelineState;this.timelineWorkspace.expandedRecords=new Set(this._timelineExpandedRecords);this.timelineWorkspace.resetReader();this.timelineWorkspace.present();}
     await super.setState(state,result);
+    if(state?.timelineFilter&&this.bucketHostEl?.isConnected)await this.refreshTimelineRuntimeFromChrome();
   }
   constructor(leaf, plugin) {
     super(leaf, plugin);
@@ -5955,8 +5958,11 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       .filter(Boolean);
   }
   timelinePresetStateFromFilterState(rawState = this._timelineFilterState) {
+    const settings=this.plugin.settings.timelineView;
+    if(settings.orientation==="vertical")return {orientation:"vertical",verticalFilter:require("./timeline-stream-model.js").normalizeFilter(settings.verticalFilter),verticalMetadata:settings.verticalMetadata||"folder"};
     const state = this.normalizeTimelineChromeFilterState(rawState);
     const preset = {
+      orientation: "horizontal",
       layers: [...state.layers],
       showDone: state.showDone,
       query: state.query,
@@ -5972,15 +5978,29 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     preset.focusMagnification=this.plugin.settings.timelineView.focusMagnification!==false;
     return preset;
   }
-  applyTimelinePreset(presetOrId) {
+  async applyTimelinePreset(presetOrId) {
     const preset = typeof presetOrId === "string"
       ? this.getTimelinePresetList().find((item) => item.id === presetOrId)
       : presetOrId;
     if (!preset || typeof preset !== "object") return;
+    this.timelineWorkspace?.backend?.flushWindow();
+    await require('./settings-change.js').commitSettingsChange(this.plugin,['timelineView'],()=>{
+      const settings=this.plugin.settings.timelineView;
+      settings.orientation=preset.orientation==="vertical"?"vertical":"horizontal";
+      if(settings.orientation==="vertical"){
+        settings.verticalFilter=require("./timeline-stream-model.js").normalizeFilter(preset.verticalFilter);
+        settings.verticalMetadata=preset.verticalMetadata||"folder";
+      }else{
+        settings.timeWindow=timelineWindows.normalize(preset.timeWindow);
+        settings.focusMagnification=preset.focusMagnification!==false;
+      }
+    });
     this._timelineActivePresetId = String(preset.id || "").trim();
-    this.plugin.settings.timelineView.timeWindow = timelineWindows.normalize(preset.timeWindow);
-    this.plugin.settings.timelineView.focusMagnification=preset.focusMagnification!==false;
-    this.setTimelineChromeFilterState({
+    this.closeTimelineFilterPanel();this.timelineWorkspace?.closePanel?.(false);
+    if(preset.orientation==="vertical"){
+      this.renderTimelineAppChrome();this.timelineWorkspace?.resetReader();this.timelineWorkspace?.present();
+    }else{
+    this._timelineFilterState=this.normalizeTimelineChromeFilterState({
       layers: preset.layers,
       showDone: preset.showDone,
       query: preset.query,
@@ -5991,6 +6011,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       manualZoomIndex: preset.manualZoomIndex,
       manualOverviewZoomIndex: preset.manualOverviewZoomIndex
     });
+    await this.refreshTimelineRuntimeFromChrome();
+    }
+    this.app.workspace.requestSaveLayout?.();
   }
   timelinePresetStateSignature(rawState) {
     const state = this.normalizeTimelineChromeFilterState(rawState);
@@ -6014,58 +6037,56 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       ? this.getTimelinePresetList().find((item) => item.id === presetOrId)
       : presetOrId;
     if (!preset) return false;
+    const current=this.timelinePresetStateFromFilterState();
+    if(current.orientation!== (preset.orientation||"horizontal"))return true;
+    if(current.orientation==="vertical")return JSON.stringify(current)!==JSON.stringify({orientation:"vertical",verticalFilter:require("./timeline-stream-model.js").normalizeFilter(preset.verticalFilter),verticalMetadata:preset.verticalMetadata||"folder"});
     return this.timelinePresetStateSignature(this._timelineFilterState)
       !== this.timelinePresetStateSignature(preset);
   }
   async saveTimelineNamedView(label = "") {
     const name = String(label || "").trim();
     if (!name || typeof this.plugin?.addTimelinePresetInSettings !== "function") return null;
-    const preset = this.plugin.addTimelinePresetInSettings({
+    const preset = await require('./settings-change.js').commitSettingsChange(this.plugin,['timelineView'],()=>this.plugin.addTimelinePresetInSettings({
       label: name,
       ...this.timelinePresetStateFromFilterState(this._timelineFilterState)
-    });
+    }));
     if (!preset) return null;
     this._timelineActivePresetId = preset.id;
-    await this.plugin.saveSettings();
-    this._timelineFilterPanelOpen = true;
-    this.renderTimelineAppChrome();
+    this.refreshTimelinePresetControls();
     return preset;
   }
   async updateTimelineActivePreset() {
     const id = String(this._timelineActivePresetId || "").trim();
     if (!id || typeof this.plugin?.updateTimelinePresetInSettings !== "function") return null;
-    const preset = this.plugin.updateTimelinePresetInSettings(id, this.timelinePresetStateFromFilterState(this._timelineFilterState));
+    const preset = await require('./settings-change.js').commitSettingsChange(this.plugin,['timelineView'],()=>this.plugin.updateTimelinePresetInSettings(id, this.timelinePresetStateFromFilterState(this._timelineFilterState)));
     if (!preset) return null;
-    await this.plugin.saveSettings();
-    this._timelineFilterPanelOpen = true;
-    this.renderTimelineAppChrome();
+    this.refreshTimelinePresetControls();
     return preset;
   }
   async renameTimelineActivePreset(label = "") {
     const id = String(this._timelineActivePresetId || "").trim();
     const name = String(label || "").trim();
     if (!id || !name || typeof this.plugin?.updateTimelinePresetInSettings !== "function") return null;
-    const preset = this.plugin.updateTimelinePresetInSettings(id, { label: name });
+    const preset = await require('./settings-change.js').commitSettingsChange(this.plugin,['timelineView'],()=>this.plugin.updateTimelinePresetInSettings(id, { label: name }));
     if (!preset) return null;
-    await this.plugin.saveSettings();
-    this._timelineFilterPanelOpen = true;
-    this.renderTimelineAppChrome();
+    this.refreshTimelinePresetControls();
     return preset;
   }
   async deleteTimelinePreset(id = this._timelineActivePresetId) {
     if (!this.plugin || typeof this.plugin.getTimelineViewSettings !== "function") return;
     const key = String(id || "").trim();
     if (!key) return;
-    const view = this.plugin.getTimelineViewSettings();
-    this.plugin.settings.timelineView = {
-      ...view,
-      presets: this.getTimelinePresetList().filter((item) => item.id !== key)
-    };
-    this.plugin.settings = this.plugin.normalizeSettings(this.plugin.settings);
-    await this.plugin.saveSettings();
+    await require('./settings-change.js').commitSettingsChange(this.plugin,['timelineView'],()=>this.plugin.removeTimelinePresetInSettings(key));
     if (this._timelineActivePresetId === key) this._timelineActivePresetId = "";
-    this._timelineFilterPanelOpen = true;
-    this.renderTimelineAppChrome();
+    this.refreshTimelinePresetControls();
+  }
+  refreshTimelinePresetControls(){
+    const vertical=this.plugin.settings.timelineView.orientation==="vertical";
+    this._timelineFilterPanelOpen=!vertical;this.renderTimelineAppChrome();
+    if(vertical)this.timelineWorkspace.filterPanel(this.timelineWorkspace.filterButton);
+    const panel=vertical?this.timelineWorkspace.filterButton.ownerDocument.querySelector('.noria-tl-range-panel'):this._timelineFilterPopoverEl;
+    const saved=panel?.querySelector('.noria-tl-filter-saved-views');if(saved)saved.open=true;
+    this.app.workspace.requestSaveLayout?.();
   }
   timelineChromeFilterIsActive(raw = this._timelineFilterState) {
     const state = this.normalizeTimelineChromeFilterState(raw);
@@ -6135,6 +6156,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     this._timelineFilterState = this.normalizeTimelineChromeFilterState(nextState);
     this._timelineFilterPanelOpen = true;
     void this.refreshTimelineRuntimeFromChrome();
+    this.app.workspace.requestSaveLayout?.();
   }
   setTimelineManualScaleState(manualState = {}) {
     if (manualState.timeWindow) this.plugin.settings.timelineView.timeWindow = timelineWindows.normalize(manualState.timeWindow);
@@ -6158,6 +6180,121 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       void this.plugin.saveSettings();
     }, 250);
     this.timelineWorkspace?.windowChanged();
+  }
+  renderTimelineSavedViews(panel) {
+    const previous=panel.querySelector('.noria-tl-filter-saved-views'),wasOpen=previous?.open,wasEditing=previous?.querySelector('.noria-tl-filter-saved-view-editor')?.open,draft=previous?.querySelector('input')?.value||"";previous?.remove();
+    const createChip=(parent,key,label,pressed,onClick,extraAttr={})=>{
+      const chip=parent.createEl("button",{cls:"noria-tl-filter-chip",text:label,attr:{type:"button","aria-pressed":String(pressed),...extraAttr}});
+      chip.onclick=event=>{event.preventDefault();event.stopPropagation();void this.timelineWorkspace.panelSave(panel,onClick);};
+      return chip;
+    };
+    const presetList = this.getTimelinePresetList();
+    const activePreset = presetList.find((preset) => preset.id === this._timelineActivePresetId) || null;
+    if (!activePreset) this._timelineActivePresetId = "";
+    const activePresetModified = activePreset ? this.timelinePresetIsModified(activePreset) : false;
+    const savedViews = panel.createEl("details", { cls: "noria-tl-filter-saved-views" });
+    savedViews.open=!!wasOpen;
+    savedViews.createEl("summary", { text: this.plugin.t("timeline.filter.savedViews") + (activePreset ? ` · ${activePreset.label || activePreset.id}${activePresetModified ? " *" : ""}` : "") });
+    const presetRow = savedViews.createDiv({ cls: "noria-tl-filter-chip-row noria-tl-filter-preset-row" });
+    presetList.forEach((preset) => {
+      const active = preset.id === this._timelineActivePresetId;
+      const modified = active && activePresetModified;
+      const label = `${preset.label || preset.id}${modified ? ` · ${this.plugin.t("timeline.filter.modified")}` : ""}`;
+      createChip(
+        presetRow,
+        `preset-${preset.id}`,
+        label,
+        active,
+        () => this.applyTimelinePreset(preset.id),
+        {
+          "data-noria-timeline-preset": preset.id,
+          title: this.plugin.getNoriaLocale()==="zh"?(preset.orientation==="vertical"?"竖版":"横版"):(preset.orientation==="vertical"?"Vertical":"Horizontal"),
+          "data-noria-timeline-saved-view-state": modified ? "modified" : (active ? "active" : "idle")
+        }
+      );
+    });
+    const savedViewEditor = savedViews.createEl("details", { cls: "noria-tl-filter-saved-view-editor" });
+    savedViewEditor.open = !!wasEditing;
+    savedViewEditor.createEl("summary", { text: this.plugin.t("timeline.filter.manageViews") });
+    const savedViewActions = savedViewEditor.createDiv({ cls: "noria-tl-filter-saved-view-actions" });
+    const savedViewName = savedViewActions.createEl("input", {
+      cls: "noria-tl-filter-saved-view-name",
+      attr: {
+        type: "text",
+        placeholder: this.plugin.t("timeline.filter.savedViewNamePlaceholder"),
+        "aria-label": this.plugin.t("timeline.filter.savedViewNamePlaceholder"),
+        "data-noria-timeline-saved-view-name": ""
+      }
+    });
+    const saveNew = createChip(
+      savedViewActions,
+      "preset-save-new",
+      this.plugin.t("timeline.filter.saveAsView"),
+      false,
+      () => this.saveTimelineNamedView(savedViewName.value),
+      {
+        "data-noria-timeline-preset-action": "save-new",
+        "data-noria-action-source": "timeline-filter-preset",
+        "data-noria-action-kind": "save-named-view"
+      }
+    );
+    savedViewName.value=draft;
+    let renameActive = null;
+    if (activePreset) {
+      const updateActive = createChip(
+        savedViewActions,
+        "preset-update-active",
+        this.plugin.t("timeline.filter.updateView"),
+        activePresetModified,
+        () => this.updateTimelineActivePreset(),
+        {
+          "data-noria-timeline-preset-action": "update-active",
+          "data-noria-action-source": "timeline-filter-preset",
+          "data-noria-action-kind": "update-active-view"
+        }
+      );
+      updateActive.disabled=!activePresetModified;
+      renameActive = createChip(
+        savedViewActions,
+        "preset-rename-active",
+        this.plugin.t("timeline.filter.renameView"),
+        false,
+        () => this.renameTimelineActivePreset(savedViewName.value),
+        {
+          "data-noria-timeline-preset-action": "rename-active",
+          "data-noria-action-source": "timeline-filter-preset",
+          "data-noria-action-kind": "rename-active-view"
+        }
+      );
+      createChip(
+        savedViewActions,
+        "preset-delete-active",
+        this.plugin.t("timeline.filter.deleteView"),
+        false,
+        () => this.deleteTimelinePreset(activePreset.id),
+        {
+          "data-noria-timeline-preset-action": "delete-active",
+          "data-noria-action-source": "timeline-filter-preset",
+          "data-noria-action-kind": "delete-active-view"
+        }
+      );
+    }
+    const syncSavedViewNameActions = () => {
+      const hasName = !!String(savedViewName.value || "").trim();
+      saveNew.disabled = !hasName;
+      if (renameActive) renameActive.disabled = !hasName;
+      savedViewName.setAttribute("data-noria-timeline-saved-view-name", hasName ? "ready" : "empty");
+    };
+    savedViewName.addEventListener("input", syncSavedViewNameActions);
+    savedViewName.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && String(savedViewName.value || "").trim()) {
+        ev.preventDefault();
+        saveNew.click();
+      }
+    });
+    syncSavedViewNameActions();
+
+    return savedViews;
   }
   renderTimelineFilterPanel(anchorEl) {
     if (!this.appChromeEl || !anchorEl) return;
@@ -6199,107 +6336,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       });
       return chip;
     };
-    const presetList = this.getTimelinePresetList();
-    const activePreset = presetList.find((preset) => preset.id === this._timelineActivePresetId) || null;
-    if (!activePreset) this._timelineActivePresetId = "";
-    const activePresetModified = activePreset ? this.timelinePresetIsModified(activePreset) : false;
-    const savedViews = panel.createEl("details", { cls: "noria-tl-filter-saved-views" });
-    savedViews.createEl("summary", { text: this.plugin.t("timeline.filter.savedViews") + (activePreset ? ` · ${activePreset.label || activePreset.id}${activePresetModified ? " *" : ""}` : "") });
-    const presetRow = savedViews.createDiv({ cls: "noria-tl-filter-chip-row noria-tl-filter-preset-row" });
-    presetList.forEach((preset) => {
-      const active = preset.id === this._timelineActivePresetId;
-      const modified = active && activePresetModified;
-      const label = `${preset.label || preset.id}${modified ? ` · ${this.plugin.t("timeline.filter.modified")}` : ""}`;
-      createChip(
-        presetRow,
-        `preset-${preset.id}`,
-        label,
-        active,
-        () => this.applyTimelinePreset(preset.id),
-        {
-          "data-noria-timeline-preset": preset.id,
-          "data-noria-timeline-saved-view-state": modified ? "modified" : (active ? "active" : "idle")
-        }
-      );
-    });
-    const savedViewEditor = savedViews.createEl("details", { cls: "noria-tl-filter-saved-view-editor" });
-    savedViewEditor.open = false;
-    savedViewEditor.createEl("summary", { text: this.plugin.t("timeline.filter.manageViews") });
-    const savedViewActions = savedViewEditor.createDiv({ cls: "noria-tl-filter-saved-view-actions" });
-    const savedViewName = savedViewActions.createEl("input", {
-      cls: "noria-tl-filter-saved-view-name",
-      attr: {
-        type: "text",
-        placeholder: this.plugin.t("timeline.filter.savedViewNamePlaceholder"),
-        "aria-label": this.plugin.t("timeline.filter.savedViewNamePlaceholder"),
-        "data-noria-timeline-saved-view-name": ""
-      }
-    });
-    const saveNew = createChip(
-      savedViewActions,
-      "preset-save-new",
-      this.plugin.t("timeline.filter.saveAsView"),
-      false,
-      () => { void this.saveTimelineNamedView(savedViewName.value); },
-      {
-        "data-noria-timeline-preset-action": "save-new",
-        "data-noria-action-source": "timeline-filter-preset",
-        "data-noria-action-kind": "save-named-view"
-      }
-    );
-    let renameActive = null;
-    if (activePreset) {
-      createChip(
-        savedViewActions,
-        "preset-update-active",
-        this.plugin.t("timeline.filter.updateView"),
-        activePresetModified,
-        () => { void this.updateTimelineActivePreset(); },
-        {
-          "data-noria-timeline-preset-action": "update-active",
-          "data-noria-action-source": "timeline-filter-preset",
-          "data-noria-action-kind": "update-active-view"
-        }
-      );
-      renameActive = createChip(
-        savedViewActions,
-        "preset-rename-active",
-        this.plugin.t("timeline.filter.renameView"),
-        false,
-        () => { void this.renameTimelineActivePreset(savedViewName.value); },
-        {
-          "data-noria-timeline-preset-action": "rename-active",
-          "data-noria-action-source": "timeline-filter-preset",
-          "data-noria-action-kind": "rename-active-view"
-        }
-      );
-      createChip(
-        savedViewActions,
-        "preset-delete-active",
-        this.plugin.t("timeline.filter.deleteView"),
-        false,
-        () => { void this.deleteTimelinePreset(activePreset.id); },
-        {
-          "data-noria-timeline-preset-action": "delete-active",
-          "data-noria-action-source": "timeline-filter-preset",
-          "data-noria-action-kind": "delete-active-view"
-        }
-      );
-    }
-    const syncSavedViewNameActions = () => {
-      const hasName = !!String(savedViewName.value || "").trim();
-      saveNew.disabled = !hasName;
-      if (renameActive) renameActive.disabled = !hasName;
-      savedViewName.setAttribute("data-noria-timeline-saved-view-name", hasName ? "ready" : "empty");
-    };
-    savedViewName.addEventListener("input", syncSavedViewNameActions);
-    savedViewName.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" && String(savedViewName.value || "").trim()) {
-        ev.preventDefault();
-        void this.saveTimelineNamedView(savedViewName.value);
-      }
-    });
-    syncSavedViewNameActions();
+    const savedViews = this.renderTimelineSavedViews(panel);
 
     const summary = panel.createDiv({ cls: "noria-tl-filter-summary", text: filterSummary.summary });
     summary.setAttribute("data-noria-timeline-filter-summary", filterSummary.summary);
@@ -11327,6 +11364,10 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
   }
 
   getTimelinePresetSettingSummary(preset = {}) {
+    if(preset.orientation==="vertical"){
+      const f=require("./timeline-stream-model.js").normalizeFilter(preset.verticalFilter),zh=this.plugin.getNoriaLocale()==="zh";
+      return [zh?"竖版":"Vertical",f.tasks?(zh?"任务":"Tasks"):"",f.records?(zh?"记录":"Records"):"",f.showDone?"":this.t("settings.timeline.presetOpenOnly"),f.query].filter(Boolean).join(" · ");
+    }
     const layerLabelById = new Map(this.getTimelineLayerSettingOptions().map((item) => [item.id, item.label]));
     const layers = (preset.layers || [])
       .map((id) => layerLabelById.get(id) || id)
@@ -11512,6 +11553,28 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
             await persist("settings:timeline-preset-name");
           });
         });
+      if(preset.orientation==="vertical"){
+        const f=require("./timeline-stream-model.js").normalizeFilter(preset.verticalFilter),zh=this.plugin.getNoriaLocale()==="zh";
+        const save=async patch=>{
+          const updated=await require('./settings-change.js').commitSettingsChange(this.plugin,['timelineView'],()=>{
+            const current=this.plugin.getTimelineViewSettings().presets.find(p=>p.id===preset.id);
+            return this.plugin.updateTimelinePresetInSettings(preset.id,patch.verticalFilter?{...patch,verticalFilter:{...current.verticalFilter,...patch.verticalFilter}}:patch);
+          });
+          Object.assign(f,updated.verticalFilter);
+          updateRow(updated);this.plugin.requestNoriaRefresh("timeline","settings:timeline-vertical-preset",{reloadViews:true});
+        };
+        for(const [key,cn,en] of [["tasks","任务","Tasks"],["records","记录与闪念","Notes and captures"],["showDone","保留已完成任务","Keep completed tasks"],["ctime","笔记创建","Note creation"],["mtime","最后修改（非历史）","Last modification (not history)"]]){
+          new obsidian.Setting(editor).setName(zh?cn:en).addToggle(toggle=>{
+            require('./settings-change.js').bindSettingToggle(toggle,()=>f[key],async value=>{try{await save({verticalFilter:{[key]:value}});return true;}catch(error){new obsidian.Notice(error.message);return false;}});
+          });
+        }
+        new obsidian.Setting(editor).setName(this.t("settings.timeline.presetQuery")).addText(text=>text.setValue(f.query).onChange(async value=>{try{await save({verticalFilter:{query:value}});}catch(error){new obsidian.Notice(error.message);}}));
+        new obsidian.Setting(editor).setName(zh?"任务来源信息":"Task source details").addDropdown(dropdown=>{
+          for(const [value,cn,en] of [["none","不显示","None"],["folder","目录","Folder"],["tags","标签","Tags"],["both","目录与标签","Folder and tags"]])dropdown.addOption(value,zh?cn:en);
+          dropdown.setValue(preset.verticalMetadata||"folder").onChange(async value=>{try{await save({verticalMetadata:value});}catch(error){dropdown.setValue(this.plugin.getTimelineViewSettings().presets.find(p=>p.id===preset.id)?.verticalMetadata||"folder");new obsidian.Notice(error.message);}});
+        });
+        return;
+      }
       const layerSetting = new obsidian.Setting(editor).setName(this.t("settings.timeline.presetLayers"));
       this.renderTimelineLayerSelector(layerSetting.controlEl, preset.layers, async (layers) => {
         const updated = this.plugin.updateTimelinePresetInSettings(preset.id, { layers });
@@ -15847,6 +15910,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
           const manualZoomIndex = normalizeTimelineViewManualIndex(rawPreset.manualZoomIndex);
           const manualOverviewZoomIndex = normalizeTimelineViewManualIndex(rawPreset.manualOverviewZoomIndex);
           const preset = {
+            ...(["horizontal","vertical"].includes(rawPreset.orientation)?{orientation:rawPreset.orientation}:{}),
+            ...(rawPreset.orientation==="vertical"?{verticalFilter:require("./timeline-stream-model.js").normalizeFilter(rawPreset.verticalFilter),verticalMetadata:["none","folder","tags","both"].includes(rawPreset.verticalMetadata)?rawPreset.verticalMetadata:"folder"}:{}),
             ...(timelineWindows.normalize(rawPreset.timeWindow) ? {timeWindow:timelineWindows.normalize(rawPreset.timeWindow)} : {}),
             ...(typeof rawPreset.focusMagnification==="boolean"?{focusMagnification:rawPreset.focusMagnification}:{}),
             id,
@@ -16301,6 +16366,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     const id = `preset-${sequence}`;
     const draft = {
       id,
+      ...(["horizontal","vertical"].includes(options.orientation)?{orientation:options.orientation}:{}),
+      ...(options.orientation==="vertical"?{verticalFilter:options.verticalFilter,verticalMetadata:options.verticalMetadata}:{}),
       label: String(options.label || id).trim() || id,
       ...(timelineWindows.normalize(options.timeWindow) ? {timeWindow:timelineWindows.normalize(options.timeWindow)} : {}),
       ...(typeof options.focusMagnification==="boolean"?{focusMagnification:options.focusMagnification}:{}),

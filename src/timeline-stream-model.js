@@ -1,5 +1,6 @@
 "use strict";
 const {scanMarkdownLines}=require("./runtime/views/dashboard/core/utils/diary-day-blocks.js");
+const {createTimelineMatcher}=require("./runtime/views/task-timeline/event-model.js");
 function normalizeFilter(value={}) {
   value=value||{};
   return {tasks:value.tasks!==false,records:value.records!==false,showDone:value.showDone!==false,ctime:value.ctime===true,mtime:value.mtime===true,query:String(value.query||"").slice(0,500)};
@@ -26,12 +27,12 @@ function splitRecord(item) {
 }
 function buildStream(model,activities,window,filter) {
   const f=normalizeFilter(filter),startDate=dateKey(window.startMs),endDate=dateKey(window.endMs-1),items=[],unscheduled=[],seen=new Set();
-  const matches=e=>!f.query||[e.title,e.markdown,e.path,(e.tags||[]).join(" ")].join(" ").toLowerCase().includes(f.query.toLowerCase());
+  const matches=createTimelineMatcher({text:f.query});
   if(f.tasks){
     for(const e of model.events||[]){
       const raw=e.payload?.task;if(!raw||!f.showDone&&raw.completed)continue;const task=taskRequest(raw);
       const item={...e,kind:"task",task,path:e.source?.path,time:e.payload?.noria?.startTime||"",date:e.payload?.noria?.startYmd||dateKey(Date.parse(e.start))};
-      const key=`${item.path}:${e.source?.line}`;if(seen.has(key)||!matches(item))continue;seen.add(key);
+      const key=`${item.path}:${e.source?.line}`;if(seen.has(key)||!matches(e))continue;seen.add(key);
       if(e.payload?.noria?.fallbackDateSource){unscheduled.push(item);continue;}
       const a=Date.parse(e.start),b=e.end?Date.parse(e.end):a;
       const included=item.time? a<window.endMs&&(b>a?b>window.startMs:a>=window.startMs):item.date<=endDate&&(e.payload?.noria?.endYmd||item.date)>=startDate;
@@ -41,12 +42,13 @@ function buildStream(model,activities,window,filter) {
         items.push(item);
       }
     }
-    for(const e of model.unplaced||[]){const task=taskRequest(e.task),key=`${task.path}:${task.line}`;if(seen.has(key)||!f.showDone&&task.completed)continue;const item={...e,task,kind:"task",path:task.path};if(matches(item)){seen.add(key);unscheduled.push(item);}}
+    for(const e of model.unplaced||[]){const task=taskRequest(e.task),key=`${task.path}:${task.line}`;if(seen.has(key)||!f.showDone&&task.completed)continue;const item={...e,task,kind:"task",path:task.path};if(matches(e)){seen.add(key);unscheduled.push(item);}}
   }
   for(const e of activities||[]){
     if(e.kind==="record"&&!f.records||e.kind==="note-created"&&!f.ctime||e.kind==="note-modified"&&!f.mtime)continue;
     for(const item of e.kind==="record"?splitRecord(e):[e]){
-      if(!matches(item)||item.date<startDate||item.date>endDate)continue;
+      const source={type:["note-created","note-modified"].includes(item.kind)?"filesystem":"markdown",path:item.path};
+      if(!matches({...item,source},item.markdown)||item.date<startDate||item.date>endDate)continue;
       const ms=item.time?+new Date(`${item.date}T${item.time}:00`):NaN;
       if(item.time&&(ms<window.startMs||ms>=window.endMs))continue;
       items.push(item);

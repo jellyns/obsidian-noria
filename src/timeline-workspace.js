@@ -121,7 +121,7 @@ class TimelineWorkspace {
     const save=actions.createEl("button",{text:this.text("存为常用","Save favorite")});save.onclick=()=>{const s=chosen();if(s)return this.panelSave(panel,async()=>{await this.save({scaleFavorites:windows.favorites([...this.settings().scaleFavorites,s])});paint();});};
   }
   filterPanel(anchor){const panel=this.panel(anchor,this.text("竖版内容","Vertical contents")),f=normalizeFilter(this.settings().verticalFilter);
-    const apply=patch=>this.panelSave(panel,async()=>{const next=normalizeFilter({...f,...patch});await this.save({verticalFilter:next});Object.assign(f,next);this.updateFilterState();this.remember();this.resetReader();void this.renderStream();});
+    const apply=patch=>this.panelSave(panel,async()=>{const next=normalizeFilter({...f,...patch});await this.save({verticalFilter:next});Object.assign(f,next);this.updateFilterState();this.remember();this.resetReader();void this.renderStream();this.view.renderTimelineSavedViews(panel);});
     const pending=panel.createEl('button',{text:this.text('查看未安排任务','View unscheduled tasks')});pending.onclick=()=>{this.closePanel?.(false);this.showUnscheduled=true;void this.renderStream();};
     const search=panel.createEl("input",{attr:{type:"search",placeholder:this.text("搜索内容或标签","Search text or tags"),"aria-label":this.text("搜索内容或标签","Search text or tags")}});search.value=f.query;search.onchange=()=>apply({query:search.value});search.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();void apply({query:search.value});}};
     const advanced=panel.createEl("details");advanced.createEl("summary",{text:this.text("笔记活动","Note activity")});advanced.open=!!(f.ctime||f.mtime);
@@ -132,9 +132,10 @@ class TimelineWorkspace {
     for(const [value,zh,en] of [['none','不显示','None'],['folder','目录','Folder'],['tags','标签','Tags'],['both','目录与标签','Folder and tags']])meta.createEl('option',{value,text:this.text(zh,en)});
     meta.value=this.settings().verticalMetadata||'folder';meta.onchange=async()=>{
       const value=meta.value;
-      if(!await this.panelSave(panel,async()=>{await this.save({verticalMetadata:value});void this.renderStream();}))meta.value=this.settings().verticalMetadata||'folder';
+      if(!await this.panelSave(panel,async()=>{await this.save({verticalMetadata:value});void this.renderStream();this.view.renderTimelineSavedViews(panel);}))meta.value=this.settings().verticalMetadata||'folder';
     };
     const reset=panel.createEl("button",{text:this.text("清除筛选","Clear filters")});reset.onclick=async()=>{if(await apply(normalizeFilter({})))this.filterPanel(anchor);};
+    this.view.renderTimelineSavedViews(panel);
   }
   captureAnchor(){
     const host=this.stream;if(!host||host.hidden||!host.isConnected)return this.savedAnchor;

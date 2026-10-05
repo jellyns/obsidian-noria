@@ -182,8 +182,7 @@
       .join(" ");
   }
 
-  function filterTimelineEvents(events, query = {}) {
-    const normalized = normalizeTimelineEvents(events);
+  function createTimelineMatcher(query = {}) {
     const parsed = parseTimelineFilterQuery(query.text || query.query || "");
     const layers = normalizeList(query.layers || query.layer);
     const statuses = normalizeList(query.statuses || query.status);
@@ -191,7 +190,7 @@
     const tags = normalizeList(query.includeTags || query.tags || query.tag);
     const excludedTags = normalizeList(query.excludeTags || query.excludedTags);
     const needle = parsed.text;
-    return normalized.filter((event) => {
+    return (event, additionalText = "") => {
       if (layers.length && !layers.includes(event.layer)) return false;
       if (parsed.layers.length && !parsed.layers.includes(event.layer)) return false;
       if (parsed.excludedLayers.length && parsed.excludedLayers.includes(event.layer)) return false;
@@ -216,9 +215,14 @@
         if (parsed.tags.length && !parsed.tags.every((tag) => eventTags.includes(tag))) return false;
         if (parsed.excludedTags.length && parsed.excludedTags.some((tag) => eventTags.includes(tag))) return false;
       }
-      if (needle && !eventSearchText(event).includes(needle)) return false;
+      if (needle && ![eventSearchText(event), text(additionalText).toLowerCase()].filter(Boolean).join(" ").includes(needle)) return false;
       return true;
-    });
+    };
+  }
+
+  function filterTimelineEvents(events, query = {}) {
+    const matches = createTimelineMatcher(query);
+    return normalizeTimelineEvents(events).filter(event => matches(event));
   }
 
   function providerResultEvents(result) {
@@ -326,11 +330,14 @@
     normalizeTimelineEvent,
     normalizeTimelineEvents,
     parseTimelineFilterQuery,
+    createTimelineMatcher,
     filterTimelineEvents,
     collectProviderEvents,
     timelineEventToJsonEvent,
     timelineEventsToJson
   };
+
+  if (typeof module !== "undefined" && module.exports && module !== globalThis.module) module.exports = root.eventModel;
 
   if (globalThis.__NORIA_TASK_TIMELINE_TEST__) {
     globalThis.__noriaTaskTimelineEventModelTestHooks = root.eventModel;

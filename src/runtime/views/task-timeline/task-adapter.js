@@ -510,6 +510,11 @@
         event: null,
         unplaced: {
           task,
+          layer: "task",
+          provider: "tasks",
+          status,
+          tags,
+          source: { type: "markdown", path, line },
           reason: strictTimelineTagPlacement ? "timeline-tag-missing-start-or-due" : "missing-date-and-modified-time",
           id,
           title
