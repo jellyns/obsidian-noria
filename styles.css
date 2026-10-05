@@ -12219,6 +12219,7 @@ button.noria-settings-tab {
 .noria-card-menu-action{display:flex;align-items:center;gap:9px;width:100%;min-height:34px;padding:7px 9px;border:0;box-shadow:none;background:transparent;justify-content:flex-start;font-weight:400;}
 .noria-card-menu-action:hover{background:var(--background-modifier-hover);}
 .noria-card-menu-action svg,.noria-card-heading-icon svg{width:16px;height:16px;}
+.noria-card-menu-explanation{padding:4px 9px 10px;font-size:var(--font-ui-small);line-height:1.6;color:var(--text-muted);overflow-wrap:anywhere;}
 .noria-card-menu-layout{border-top:1px solid var(--background-modifier-border);margin-top:5px;padding-top:8px;}
 .noria-card-menu-content:empty+.noria-card-menu-layout{border:0;margin:0;padding-top:2px;}
  .noria-card-width-slider{display:flex;align-items:center;gap:10px;padding:4px 8px 8px;font-size:var(--font-ui-small);}
@@ -12538,9 +12539,6 @@ button.noria-settings-tab {
 .noria-home-heatmap-card{container-type:inline-size;container-name:noria-home-heatmap;}
 .noria-home-heatmap-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 100%;min-width:0;width:100%;}
 .noria-home-heatmap-modes{display:flex;gap:4px;flex-wrap:wrap;align-items:center;justify-content:flex-end;margin-left:auto;flex:1 1 260px;min-width:0;}
-.noria-heatmap-definition{margin-top:8px;font-size:var(--font-ui-small);color:var(--text-muted);line-height:1.6;}
-.noria-heatmap-definition>summary{cursor:pointer;}
-.noria-heatmap-definition>div{padding-top:5px;overflow-wrap:anywhere;}
 @container noria-home-heatmap (max-width:440px){
   .noria-home-heatmap-heading{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;}
   .noria-home-heatmap-heading>.dashboard-panel-title{grid-column:1;grid-row:1;}
@@ -12741,9 +12739,6 @@ button.noria-settings-tab {
 .noria-card-reorder-header:active{cursor:grabbing;}
 .noria-card-reorder-header :is(span,a,input,button,svg){cursor:auto;}
 .noria-card-reorder-header :is(button,a){cursor:pointer;}
-.noria-card-fold{opacity:0;order:98;}
-.dashboard-home-widget-shell:hover .noria-card-fold,.noria-diary-card:hover .noria-card-fold,.noria-card-fold:focus-visible,.noria-card-fold[data-collapsed=true]{opacity:1;}
-.noria-diary-card-tools:focus-within .noria-card-fold,.dashboard-home-widget-shell-actions:focus-within .noria-card-fold{opacity:1;}
 .noria-card-width-edge{position:absolute;right:-4px;top:calc(50% - 20px);width:8px;min-width:8px;height:40px;min-height:40px;padding:0;cursor:ew-resize;touch-action:none;opacity:0;z-index:3;border-radius:4px;}
 .noria-card-width-edge svg{width:8px;height:20px;pointer-events:none;}
 .dashboard-home-widget-shell:hover>.noria-card-width-edge,.noria-diary-card:hover>.noria-card-width-edge,.noria-card-width-edge:focus-visible{opacity:1;}
@@ -12754,7 +12749,7 @@ button.noria-settings-tab {
 .noria-card-width-hint{padding:3px 7px;border-radius:var(--radius-s);background:var(--background-primary);border:1px solid var(--interactive-accent);color:var(--text-normal);font-size:var(--font-ui-small);}
 .noria-card-width-hint:empty{display:none;}
 .noria-card-drop-line{background:var(--interactive-accent);border-radius:2px;}
-@media(hover:none){.noria-card-fold,.noria-card-width-edge{opacity:1;}.noria-card-menu .noria-card-layout-actions button{min-height:36px;}}
+@media(hover:none){.noria-card-width-edge{opacity:1;}.noria-card-menu .noria-card-layout-actions button{min-height:36px;}}
 .noria-record-value[data-recorded=false] .noria-record-field-icon{opacity:.6;}
 /* One time window, two presentations. Controls retain the existing toolbar size. */
 .noria-tl-range-panel { position:fixed;z-index:var(--layer-popover,1000);box-sizing:border-box;width:284px;max-width:calc(100vw - 16px);max-height:calc(100vh - 24px);overflow:auto;padding:14px;display:grid;gap:12px;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;color:var(--text-normal); }
@@ -12900,11 +12895,12 @@ button.noria-settings-tab {
 .noria-agent-status.is-error { color: var(--text-error); }
 
 /* Custom workspaces reuse the card grid and native navigation controls. */
-.noria-workbench-nav{max-width:calc(100% - 24px);min-width:0;}
-.noria-workbench-tabs{min-width:0;flex-wrap:wrap;}
-.noria-workbench-tabs button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;max-width:180px;}
-.noria-workbench-tabs button>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.noria-workbench-tabs .noria-picture{width:16px;height:16px;flex:none;}
+.noria-workbench-nav{position:relative;max-width:calc(100% - 24px);min-width:0;align-items:center;}
+.noria-workbench-tabs{min-width:0;flex-wrap:nowrap;gap:2px;}
+.noria-workbench-nav .noria-workbench-tabs>button{display:inline-flex;align-items:center;justify-content:center;width:36px;min-width:36px;height:32px;padding:7px;flex:none;}
+.noria-workbench-tabs .noria-picture{width:18px;height:18px;flex:none;}
+.noria-workbench-tabs svg{width:18px;height:18px;}
+.noria-workbench-nav-hint{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:var(--layer-popover);max-width:280px;width:max-content;padding:5px 9px;border-radius:6px;background:var(--background-secondary);border:1px solid var(--background-modifier-border);color:var(--text-normal);font-size:var(--font-ui-small);line-height:1.4;overflow-wrap:anywhere;pointer-events:none;}
 .noria-custom-page-empty{padding:32px 16px;}
 .modal.noria-page-settings{width:640px;max-width:calc(100vw - 24px);}
 .noria-page-settings-list{display:flex;flex-direction:column;}
@@ -13091,8 +13087,8 @@ button.noria-settings-tab {
 .noria-inbox-card.is-inbox-choosing > .dashboard-workbench-panel__head { visibility:hidden; }
 @container (max-width:340px) {
   .noria-inbox-card .dashboard-workbench-panel__head { gap:4px; }
-  .noria-inbox-card .dashboard-workbench-panel__tools { gap:1px !important; }
-  .noria-inbox-card .dashboard-workbench-panel__tools :is(.dashboard-guide-icon-btn,.noria-card-fold,.dashboard-home-widget-shell-action) { width:24px; min-width:24px; height:26px; padding:3px; }
+  .dashboard-home-root .noria-inbox-card .dashboard-workbench-panel__tools { gap:1px; }
+  .noria-inbox-card .dashboard-workbench-panel__tools :is(.dashboard-guide-icon-btn,.dashboard-home-widget-shell-action) { width:24px; min-width:24px; height:26px; padding:3px; }
   .noria-inbox-card .dashboard-home-widget-shell-actions { gap:0; }
   .noria-inbox-filters { gap:1px; }
   .noria-inbox-card button.noria-inbox-filter { min-width:22px; padding-inline:3px; }

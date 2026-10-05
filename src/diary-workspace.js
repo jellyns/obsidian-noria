@@ -50,8 +50,8 @@ class DiaryWorkspace {
     recordHeading.createSpan({text:this.t("record")});
     this.recordTools=this.recordHeader.createDiv({cls:"noria-diary-module-tools"});
     this.recordEditButton=this.button(this.recordTools,this.t("editDiary"),()=>this.toggleEditing(),"","pencil");
-    this.recordFold=this.button(this.recordHeader,this.cards.system.t("collapse"),()=>this.toggleModule("record"),"","chevron-up");
-    this.recordFold.setAttribute("aria-expanded","true");
+    this.recordMenuButton=this.button(this.recordHeader,this.cards.system.text("更多操作","More actions"),button=>this.openModuleMenu("record",button),"","ellipsis");
+    this.recordMenuButton.setAttribute("aria-haspopup","menu");
     this.recordBody=this.recordSection.createDiv({cls:"noria-diary-record-body"});
     this.summaryHost = this.recordBody.createDiv({cls:"noria-diary-period-summary"});
     this.statsHost = this.recordBody.createDiv({cls:"noria-diary-statistics"});
@@ -70,21 +70,29 @@ class DiaryWorkspace {
     obsidian.setIcon(reviewHeading.createSpan({attr:{"aria-hidden":"true"}}),"book-open");
     reviewHeading.createSpan({text:this.t("review")});
     this.reviewTools=this.reviewHeader.createDiv({cls:"noria-diary-review-tools"});
-    this.reviewFold=this.button(this.reviewHeader,this.cards.system.t("collapse"),()=>this.toggleModule("review"),"","chevron-up");
-    this.reviewFold.setAttribute("aria-expanded","true");
+    this.reviewMenuButton=this.button(this.reviewHeader,this.cards.system.text("更多操作","More actions"),button=>this.openModuleMenu("review",button),"","ellipsis");
+    this.reviewMenuButton.setAttribute("aria-haspopup","menu");
     this.reviewHost = this.reviewSection.createDiv({cls:"noria-diary-review"});
 
   }
   t(key, params) { return this.plugin.t("workbench." + key, params); }
+  openModuleMenu(kind,button) {
+    this.moduleMenu?.hide();
+    const menu=this.moduleMenu=new obsidian.Menu();
+    const body=kind==="record"?this.recordBody:this.reviewHost;
+    menu.addItem(item=>item.setTitle(this.cards.system.t(body.hidden?"expand":"collapse"))
+      .setIcon(body.hidden?"chevron-right":"chevron-down")
+      .onClick(()=>this.toggleModule(kind).catch(error=>this.report(error))));
+    button.setAttribute("aria-expanded","true");
+    menu.onHide(()=>{button.setAttribute("aria-expanded","false");button.focus({preventScroll:true});if(this.moduleMenu===menu)this.moduleMenu=null;});
+    const rect=button.getBoundingClientRect();menu.showAtPosition({x:rect.right,y:rect.bottom,left:true},button.ownerDocument);
+  }
   setModuleCollapsed(kind, collapsed) {
     const body=kind==="record"?this.recordBody:this.reviewHost;
     const section=kind==="record"?this.recordSection:this.reviewSection;
     const tools=kind==="record"?this.recordTools:this.reviewTools;
-    const fold=kind==="record"?this.recordFold:this.reviewFold;
     if(!section)return;
     body.hidden=collapsed;tools.hidden=collapsed;section.dataset.collapsed=String(collapsed);
-    fold.setAttribute("aria-expanded",String(!collapsed));
-    setActionIcon(fold,collapsed?"chevron-down":"chevron-up",this.cards.system.t(collapsed?"expand":"collapse"));
   }
   async toggleModule(kind) {
     const body=kind==="record"?this.recordBody:this.reviewHost;
@@ -585,6 +593,7 @@ class DiaryWorkspace {
     });
   }
   dispose() {
+    this.moduleMenu?.hide();
     this.cards.dispose();
     this.captureComposer?.dispose();
     this.taskAdoption.dispose();

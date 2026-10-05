@@ -45,7 +45,7 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
 
   function collect() {
     const previous = new Map(items.map(item => [item.path, item]));
-    items = app.vault.getMarkdownFiles().filter(file => file.path.startsWith(rootPath)).map(file => ({
+    items = plugin.filesUnderRoots([rootPath], [".md"]).map(file => ({
       path: file.path, name: file.basename, mtime: file.stat.mtime,
       work: parseWork(app.metadataCache.getFileCache(file)?.frontmatter?.[FIELD]).value,
       preview: previous.get(file.path)?.preview ?? null

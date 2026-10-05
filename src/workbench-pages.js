@@ -3,6 +3,7 @@ const {commitSettingsChange}=require("./settings-change.js");
 const {insertCard}=require("./card-layout-model.js");
 const clone=value=>JSON.parse(JSON.stringify(value));
 const BUILTINS=["home","diary","day","calendar"];
+const pagePicture=page=>page.picture||({home:'house',diary:'book-open',day:'calendar-days',calendar:'calendar'})[page.id]||'panels-top-left';
 const internal=page=>page&&!['day','calendar'].includes(page.id);
 const validId=id=>BUILTINS.includes(id)||typeof id==='string'&&/^page-[a-zA-Z0-9-]+$/.test(id);
 
@@ -57,4 +58,4 @@ class WorkbenchPages {
     for(const widget of widgets)widget.order=order.indexOf(widget.id)*10;
   });}
 }
-module.exports={WorkbenchPages,normalizePages,BUILTINS,internal};
+module.exports={WorkbenchPages,normalizePages,BUILTINS,internal,pagePicture};

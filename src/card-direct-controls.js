@@ -1,5 +1,5 @@
 "use strict";
-const {setIcon,setTooltip,Notice}=require("obsidian");
+const {Notice}=require("obsidian");
 const {iconButton}=require("./card-controls.js");
 const SIZES=["small","medium","wide","full"], SPANS=[3,4,6,12];
 function nearestSize(width,total,gap=0,spans=SPANS,preferred="small"){
@@ -13,15 +13,13 @@ function isHeaderBlank(header,target){
 }
 
 // One gesture owner per card. Previews are transient; only pointer-up persists.
-function attachCardDirect(host,{state,header,menu,size,collapse,reorder,t,spans=()=>SPANS}){
+function attachCardDirect(host,{state,header,menu,size,reorder,t,spans=()=>SPANS}){
   const doc=host.ownerDocument,win=doc.defaultView;
-  const holder=doc.createElement("span");
-  const fold=iconButton(holder,"chevron-down",t("collapse"));fold.classList.add("noria-card-fold");
   const edge=iconButton(host,"grip-vertical",t("resizeWidth"));edge.classList.add("noria-card-width-edge");
   let drag=null,busy=false,disposed=false,frame=0,boundHeader=null,headerAbort=null;
   const place=()=>{
     const target=header(),anchor=menu?.();
-    if(anchor&&fold.nextElementSibling!==anchor)anchor.before(fold);
+    if(anchor?.nextElementSibling)anchor.parentElement.appendChild(anchor);
     if(target&&target!==boundHeader){
       headerAbort?.abort();boundHeader?.classList.remove("noria-card-reorder-header");boundHeader=target;
       target.classList.add("noria-card-reorder-header");headerAbort=new win.AbortController();const options={signal:headerAbort.signal};
@@ -29,14 +27,12 @@ function attachCardDirect(host,{state,header,menu,size,collapse,reorder,t,spans=
       target.addEventListener("pointermove",e=>move(e),options);target.addEventListener("pointerup",()=>finish(),options);
       target.addEventListener("pointercancel",()=>clear(),options);target.addEventListener("lostpointercapture",()=>clear(),options);
     }
-    const collapsed=!!state()?.collapsed;
-    if(fold.dataset.collapsed!==String(collapsed)){fold.dataset.collapsed=String(collapsed);setIcon(fold,collapsed?"chevron-right":"chevron-down");fold.setAttribute("aria-label",t(collapsed?"expand":"collapse"));fold.setAttribute("aria-expanded",String(!collapsed));setTooltip(fold,t(collapsed?"expand":"collapse"));}
   };
   const observer=new win.MutationObserver(place);observer.observe(host,{childList:true,subtree:true});place();
   const responsive=new win.ResizeObserver(()=>{if(!drag)edge.hidden=win.getComputedStyle(host).gridColumn==="1 / -1";});responsive.observe(host.parentElement);
   const save=async action=>{
     if(busy||disposed)return;busy=true;host.setAttribute("aria-busy","true");
-    const active=doc.activeElement,control=active===edge?".noria-card-width-edge":active===fold?".noria-card-fold":null;
+    const active=doc.activeElement,control=active===edge?".noria-card-width-edge":null;
     const scope=host.closest(".workspace-leaf-content")||doc,id=host.dataset.diaryCard||host.dataset.noriaWidgetId;
     try{await action();}catch(e){new Notice(e.message||String(e));}finally{
       busy=false;host.removeAttribute("aria-busy");if(!disposed)place();
@@ -46,7 +42,6 @@ function attachCardDirect(host,{state,header,menu,size,collapse,reorder,t,spans=
       }
     }
   };
-  fold.onclick=e=>{e.stopPropagation();void save(()=>collapse(!state().collapsed));};
   const clear=()=>{
     if(!drag)return null;const old=drag;drag=null;win.cancelAnimationFrame(frame);
     host.style.gridColumn=old.column;host.classList.remove("noria-card-adjusting","noria-card-moving");
@@ -89,7 +84,7 @@ function attachCardDirect(host,{state,header,menu,size,collapse,reorder,t,spans=
   edge.onkeydown=e=>{if(!["ArrowLeft","ArrowRight","Home","End"].includes(e.key))return;e.preventDefault();const at=SIZES.indexOf(state().size),index=e.key==="Home"?0:e.key==="End"?3:Math.max(0,Math.min(3,at+(e.key==="ArrowRight"?1:-1)));void save(()=>size(SIZES[index]));};
   const cancel=e=>{if(e.key==="Escape"&&drag){e.preventDefault();e.stopPropagation();clear();}};
   doc.addEventListener("keydown",cancel,true);
-  return()=>{disposed=true;clear();observer.disconnect();responsive.disconnect();headerAbort?.abort();boundHeader?.classList.remove("noria-card-reorder-header");doc.removeEventListener("keydown",cancel,true);fold.remove();edge.remove();};
+  return()=>{disposed=true;clear();observer.disconnect();responsive.disconnect();headerAbort?.abort();boundHeader?.classList.remove("noria-card-reorder-header");doc.removeEventListener("keydown",cancel,true);edge.remove();};
 }
 
 function notifyHidden(doc,label,undo,undoLabel){

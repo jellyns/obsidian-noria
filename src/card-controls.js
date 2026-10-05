@@ -54,6 +54,14 @@ function openCardMenu({anchor, title, state, actions=[], move, size, collapse, h
     setIcon(button.createSpan(),action.icon||"settings-2");button.createSpan({text:action.label});
     button.addEventListener("click",()=>{close(false);Promise.resolve().then(action.run).catch(e=>new Notice(e.message||String(e)));});
   }
+  const card=anchor.closest('.noria-diary-card,.dashboard-home-widget-shell');
+  for(const source of card?.querySelectorAll('[data-noria-card-explanation]')||[]){
+    const label=source.dataset.noriaCardExplanation;
+    const button=contents.createEl('button',{cls:'noria-card-menu-action',attr:{type:'button','aria-expanded':'false'}});
+    setIcon(button.createSpan(),'info');button.createSpan({text:label});
+    const explanation=contents.createDiv({cls:'noria-card-menu-explanation',attr:{role:'region','aria-label':label}});explanation.hidden=true;
+    button.addEventListener('click',()=>{explanation.textContent=source.textContent;explanation.hidden=!explanation.hidden;button.setAttribute('aria-expanded',String(!explanation.hidden));position();});
+  }
   const layout=root.createDiv({cls:"noria-card-menu-layout"});
   function paintLayout(){
     const value=state();layout.empty();

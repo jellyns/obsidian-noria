@@ -1,7 +1,7 @@
 "use strict";
 const {Modal,Menu}=require('obsidian');
 const {iconButton}=require('./card-controls.js');
-const {BUILTINS,internal}=require('./workbench-pages.js');
+const {BUILTINS,internal,pagePicture}=require('./workbench-pages.js');
 const {PicturePicker,renderPicture}=require('./picture-picker.js');
 
 class PageSettings extends Modal {
@@ -14,7 +14,7 @@ class PageSettings extends Modal {
     for(const [index,page] of this.draft.pages.entries()){
       const row=list.createDiv({cls:'noria-page-settings-row',attr:{'data-page-id':page.id}});
       const picture=iconButton(row,'image',this.text('更换图样','Change picture'),()=>new PicturePicker(this.plugin,page.picture,value=>{page.picture=value;this.dirty=true;this.paint();}).open());
-      renderPicture(this.plugin,picture.createSpan(),page.picture||({home:'house',diary:'book-open',day:'calendar-days',calendar:'calendar'})[page.id]||'panels-top-left');picture.querySelector(':scope > svg')?.remove();
+      renderPicture(this.plugin,picture.createSpan(),pagePicture(page));picture.querySelector(':scope > svg')?.remove();
       const name=row.createEl('input',{attr:{type:'text',maxlength:'40','aria-label':this.text('页面名称','Page name'),placeholder:this.store.label({...page,title:''})}});name.value=page.title;
       name.oninput=()=>{page.title=name.value;this.dirty=true;};
       const controls=row.createDiv({cls:'noria-page-settings-actions'});
@@ -38,7 +38,7 @@ class PageSettings extends Modal {
     create.onsubmit=event=>{event.preventDefault();if(!name.value.trim()){name.focus();return;}
       const ids=['task-trend-card','habit-history-card','note-trend-card','daily-state-card'];
       const widgets=template.value==='trends'?(this.plugin.buildRuntimeBridgeConfig().homeWidgetDefaults||[]).filter(w=>ids.includes(w.id)).map((w,i)=>({...structuredClone(w),id:`card-${crypto.randomUUID()}`,builtinId:w.id,enabled:true,order:i*10})):[];
-      const id=`page-${crypto.randomUUID()}`;this.draft.pages.push({id,title:name.value.trim(),hidden:false,widgets});this.created=id;this.dirty=true;this.paint();};
+      const id=`page-${crypto.randomUUID()}`;this.draft.pages.push({id,title:name.value.trim(),picture:template.value==='trends'?'chart-no-axes-combined':'panels-top-left',hidden:false,widgets});this.created=id;this.dirty=true;this.paint();};
     this.error=this.contentEl.createDiv({cls:'noria-card-error',attr:{role:'alert'}});
     const footer=this.contentEl.createDiv({cls:'noria-card-form-footer'});
     const cancel=footer.createEl('button',{text:this.text('取消','Cancel')});cancel.onclick=()=>this.close();

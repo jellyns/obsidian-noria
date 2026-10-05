@@ -40,6 +40,17 @@ const files = includeRoots
   .filter((file) => !retiredEmbeddedKeys.has(toEmbeddedKey(file)))
   .sort((a, b) => toEmbeddedKey(a).localeCompare(toEmbeddedKey(b)));
 
+const declaredKeys = new Set(JSON.parse(fs.readFileSync(
+  path.join(__dirname, "public-runtime-files.json"), "utf8"
+)));
+const discoveredKeys = new Set(files.map(toEmbeddedKey));
+const undeclared = [...discoveredKeys].filter((key) => !declaredKeys.has(key));
+const missing = [...declaredKeys].filter((key) => !discoveredKeys.has(key));
+const errors = [];
+if (undeclared.length) errors.push(`Runtime files not declared for public embedding:\n${undeclared.join("\n")}`);
+if (missing.length) errors.push(`The declared public runtime files are missing:\n${missing.join("\n")}`);
+if (errors.length) throw new Error(errors.join("\n\n"));
+
 const sourceRecords = files.map((file) => {
   const key = toEmbeddedKey(file);
   const content = fs.readFileSync(file, "utf8");

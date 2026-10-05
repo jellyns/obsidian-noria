@@ -53,7 +53,7 @@ async function renderCardPage(workbench,pageId,panel){
     const resize=attachCardResize(host,()=>card(id)?.props?.cardHeight,value=>edit(id,{props:{...card(id)?.props,cardHeight:value}}),store.text('调整卡片高度','Resize card height'));
     const direct=attachCardDirect(host,{state:()=>card(id)||{},t:key=>system.t(key),
       header:()=>host.querySelector('.dashboard-guide-card__head,.dashboard-workbench-panel__head,.noria-card-heading,.callout-title,.dashboard-home-widget-native-title-actions,.dashboard-home-trends-habit-history__head,.dashboard-moc-heading'),
-      menu:()=>host.querySelector('[data-noria-widget-shell-action="menu"]'),size:value=>setSize(id,value),collapse:value=>edit(id,{collapsed:value}),reorder:(target,after)=>store.reorder(pageId,id,target,after)});
+      menu:()=>host.querySelector('[data-noria-widget-shell-action="menu"]'),size:value=>setSize(id,value),reorder:(target,after)=>store.reorder(pageId,id,target,after)});
     return()=>{resize();direct();observer.disconnect();};
   };
   await plugin.runNoriaView('dashboardHome',{workbench:true,noriaBridge:bridge},panel);

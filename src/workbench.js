@@ -1,7 +1,7 @@
 "use strict";
 const { DiaryWorkspace } = require("./diary-workspace.js");
 const {Menu,setIcon,setTooltip}=require("obsidian");
-const {internal}=require("./workbench-pages.js");
+const {internal,pagePicture}=require("./workbench-pages.js");
 const renderCardPage=(...args)=>require("./workbench-page-view.js").renderCardPage(...args);
 
 // The workbench keeps one quiet navigation row above independent scroll areas.
@@ -47,15 +47,17 @@ class NoriaWorkbench {
         if(current?.widgets&&this.loads.has(page.id)&&this.customVersions.get(page.id)!==this.cardVersion(current))void this.refreshCustom(page.id).catch(e=>this.error(e));
       }));
     }
-    const visible=config.pages.filter(p=>!p.hidden||p.id===this.active),capacity=Math.max(2,Math.min(8,Math.floor((this.host.clientWidth-100)/100)));
+    const visible=config.pages.filter(p=>!p.hidden||p.id===this.active),capacity=Math.max(2,Math.floor((this.host.clientWidth-132)/38));
     const shown=visible.slice(0,capacity);if(!shown.some(p=>p.id===this.active)){const active=visible.find(p=>p.id===this.active);if(active)shown[shown.length-1]=active;}
     const signature=JSON.stringify([shown,visible,this.active]);if(signature===this.navSignature)return;this.navSignature=signature;
-    this.tabs.empty();
+    this.navHint?.remove();this.navHint=null;this.tabs.empty();
     const choose=page=>void this.show(page.id).catch(e=>this.error(e));
     for(const page of shown){
       const button=this.tabs.createEl('button',{attr:{type:'button','data-noria-page':page.id,'aria-label':this.store.label(page)}});
-      if(page.picture)require('./picture-picker.js').renderPicture(this.plugin,button.createSpan(),page.picture);
-      button.createSpan({text:this.store.label(page)});
+      require('./picture-picker.js').renderPicture(this.plugin,button.createSpan({attr:{'aria-hidden':'true'}}),pagePicture(page));
+      const name=this.store.label(page);setTooltip(button,name);
+      button.onfocus=()=>{this.navHint?.remove();this.navHint=this.nav.createDiv({cls:'noria-workbench-nav-hint',text:name,attr:{'aria-hidden':'true'}});};
+      button.onblur=()=>{this.navHint?.remove();this.navHint=null;};
       if(internal(page)){
         button.setAttribute('role','tab');button.setAttribute('aria-selected',String(page.id===this.active));
         button.setAttribute('aria-controls',`${this.navigationId}-${page.id}`);
@@ -68,8 +70,9 @@ class NoriaWorkbench {
         this.tabs.querySelectorAll('[data-noria-page]')[next]?.focus();};
     }
     const overflow=visible.filter(p=>!shown.includes(p));
-    if(overflow.length){const more=this.tabs.createEl('button',{text:this.text('更多','More'),attr:{type:'button','aria-haspopup':'menu'}});
-      more.onclick=()=>{const menu=new Menu();for(const page of overflow)menu.addItem(item=>item.setTitle(this.store.label(page)).onClick(()=>choose(page)));const r=more.getBoundingClientRect();menu.showAtPosition({x:r.left,y:r.bottom});};}
+    if(overflow.length){const more=this.tabs.createEl('button',{attr:{type:'button','aria-label':this.text('更多页面','More pages'),'aria-haspopup':'menu'}});
+      setIcon(more,'ellipsis');setTooltip(more,this.text('更多页面','More pages'));
+      more.onclick=()=>{const menu=new Menu();for(const page of overflow)menu.addItem(item=>item.setTitle(this.store.label(page)).onClick(()=>choose(page)));const r=more.getBoundingClientRect();menu.onHide(()=>more.focus({preventScroll:true}));menu.showAtPosition({x:r.left,y:r.bottom});};}
     if(focused)this.tabs.querySelector(`[data-noria-page="${focused}"]`)?.focus({preventScroll:true});
   }
   async syncPages(){

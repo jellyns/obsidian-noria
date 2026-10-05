@@ -224,7 +224,8 @@ test("managed note seeds are minimal and parseable by current views", () => {
   assert.doesNotMatch(plugin.getManagedNoteSeed("templateLibrary"), /\|\s*Name\s*\|\s*Start\s*\|\s*Duration\s*\|\s*Tag\s*\|/);
   assert.match(plugin.getManagedNoteSeed("inboxWorkflow"), /Inbox|inbox/);
   assert.match(plugin.getManagedNoteSeed("inboxQueue"), /views:\n\s+- type: table/);
-  assert.match(plugin.getManagedNoteSeed("inboxQueue"), /inbox-action/);
+  assert.match(plugin.getManagedNoteSeed("inboxQueue"), /note\.inbox-work/);
+  assert.doesNotMatch(plugin.getManagedNoteSeed("inboxQueue"), /inbox-(?:status|action|shape|next|review)/);
   assert.throws(() => plugin.getManagedNoteSeed("entryNote"), /retired|unknown|unsupported/i);
 });
 

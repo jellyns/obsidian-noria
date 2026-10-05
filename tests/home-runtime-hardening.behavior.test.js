@@ -6671,8 +6671,8 @@ test('workload task cells use completion daily series rather than diary checkbox
   globals:{dashboardCore:{components:{charts:{yearHeatmapCalendar:{renderYearHeatmapCalendar:(_host,options)=>{draws.push(options);return {};}}}}}}
  });
  const button=key=>flattenElements(mount).find(el=>el.tagName==='button'&&el.textContent===`runtime.home.trends.${key}`);
- const definition=flattenElements(mount).find(el=>el.tagName==='details');
- assert.ok(!definition.open, 'metric explanation stays collapsed by default');
+ const definition=flattenElements(mount).find(el=>el.attrs['data-noria-card-explanation']);
+ assert.equal(definition.hidden,true, 'metric explanation is available to the card menu without a row below the chart');
  button('tasks').onclick();
  assert.deepEqual(draws.at(-1).entries.map(e=>[e.date,e.rawValue]),[['2026-01-02',3],['2026-01-05',91]]);
  assert.match(definition.children.at(-1).textContent,/completedDefinition.*undatedDefinition:7/);

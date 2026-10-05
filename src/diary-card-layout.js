@@ -29,7 +29,7 @@ class DiaryCardLayout {
     card.directCleanup=require("./card-direct-controls.js").attachCardDirect(card.host,{
       state:()=>this.layout.cards[id],header:()=>head,menu:()=>menu,t:key=>this.system.t(key),
       spans:()=>card.host.closest(".noria-diary")?.clientWidth<=980?[6,6,6,12]:[3,Math.max(4,12/Math.min(this.visibleIds().length||1,3)),6,12],
-      size:value=>this.change(id,"size",value),collapse:value=>this.change(id,"collapsed",value),
+      size:value=>this.change(id,"size",value),
       reorder:(target,after)=>this.change(id,"reorder",{target,after})
     });
     this.apply();return {body:card.body,tools};

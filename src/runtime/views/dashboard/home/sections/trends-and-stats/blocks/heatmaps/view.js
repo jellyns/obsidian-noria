@@ -553,8 +553,8 @@ const bar = workHeadLeft.createDiv();
 bar.addClass('noria-home-heatmap-modes');
 const { host: chart } = createChartRow(workCard);
 const workBottomStats = workCard.createDiv();
-const definition = workCard.createEl('details', { cls: 'noria-heatmap-definition' });
-definition.createEl('summary', { text: heatmapT('runtime.home.trends.metricDefinition') });
+const definition = workCard.createDiv({ attr: {'data-noria-card-explanation':heatmapT('runtime.home.trends.metricDefinition')} });
+definition.hidden = true;
 const definitionText = definition.createDiv();
 const definitions = {
   [MODE_ACTIVITY]: heatmapT('runtime.home.trends.activityDefinition'),

@@ -36,6 +36,21 @@ finishes. Writing a trace into the watched vault can trigger its own invalidatio
 Historical tool runtimes and acceptance artifacts in NoriaTest also make it an unsuitable
 small-vault performance baseline; record that limitation rather than delete old evidence.
 
+## Public embedded runtime
+
+`scripts/public-runtime-files.json` declares the runtime files shipped in the public
+bundle. When adding, renaming or removing a public runtime file, update this inventory
+with the code change. Do not regenerate it from the runtime directory during a build:
+new files must be explicitly reviewed for inclusion. A missing or undeclared file
+stops embedding before replacing the last successful generated runtime.
+
+Run `node --test tests/embedded-release-scope.behavior.test.js` to check declared code
+and configuration, accidental inclusion, and missing release content in temporary
+fixtures. Then run `npm run release:check` against the actual package.
+
+This inventory covers embedded runtime sources only. It does not yet establish a
+separate self-use build or check the main entry's imports, documentation and resources.
+
 ## Reusable installed Timeline smoke
 
 `scripts/check-timeline-runtime.js` exercises the installed plugin in **NoriaTest**:

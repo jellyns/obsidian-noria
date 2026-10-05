@@ -117,7 +117,7 @@ class CardSystem {
       },
       menu:()=>host.querySelector('[data-noria-widget-shell-action="menu"]'),
       size:value=>this.saveHome({...widget(),size:value,layout:{...widget().layout,...this.plugin.getHomeWidgetSizeLayout(value)}}),
-      collapse:value=>this.plugin.setHomeWidgetCollapsed(id,value),reorder:(target,after)=>this.reorderHome(id,target,after)
+      reorder:(target,after)=>this.reorderHome(id,target,after)
     });
     const cleanup=attachCardResize(host,()=>widget()?.props?.cardHeight,save,this.text("调整卡片高度","Resize card height"));return()=>{observer.disconnect();direct();cleanup();};
   }

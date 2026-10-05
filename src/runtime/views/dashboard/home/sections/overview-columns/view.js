@@ -503,7 +503,7 @@
     if (renderToolbar) {
       const tool = headRow.createDiv();
       tool.addClass("dashboard-workbench-panel__tools");
-      tool.style.cssText = "display:flex;align-items:center;gap:3px;flex-shrink:0;";
+      tool.style.cssText = "display:flex;align-items:center;flex-shrink:0;";
       renderToolbar(tool);
     }
 
