@@ -4,6 +4,7 @@ const {readProperty,writeProperty,validateValue}=require("./record-properties.js
 const {RecordManager}=require("./record-manager.js");
 const {recordPopover}=require("./record-popover.js");
 const {iconButton}=require("./card-controls.js");
+const {createHash}=require("node:crypto");
 const V=require("./record-visual.js");
 const clone=value=>JSON.parse(JSON.stringify(value));
 class RecordFields{
@@ -17,6 +18,11 @@ class RecordFields{
     ]).map(field=>({...field,icon:V.fieldPicture(field)}));
   }
   read(raw,field){return readProperty(raw,field,parseYaml);}
+  snapshot(date,path,raw,field){
+    const value=this.read(raw,field),meaning=[field.id,field.property,field.type,field.unit||"",field.min,field.max,field.options,field.legacy];
+    const revision="record-v1-"+createHash("sha256").update(JSON.stringify([date,path,meaning,value])).digest("hex");
+    return {fieldId:field.id,value,revision};
+  }
   display(field,value){if(value==null)return "—";const label=V.appearance(field,value).label;if(label){if(field.legacy==="energy"&&!field.states?.[String(value)]?.label&&this.plugin.getNoriaLocale()!=="zh")return ["","Very low","Low","Moderate","High","Full"][value]||label;return label;}if(field.type==="toggle")return value?this.text("是","Yes"):this.text("否","No");
     if(field.type==="option"&&field.options?.includes(value)){
       if(this.plugin.getNoriaLocale()==="zh"||!field.legacy)return String(value);
@@ -36,7 +42,10 @@ class RecordFields{
     const bindings=readHabitDefinitions(await p.loadTextFromVault(p.getManagedPath("habitRegistry"))).filter(config=>config.recordField===field.property);
     let previousText,text;
     await p.processTextAtVaultPath(spec.path,current=>{previousText=current;const source=current||(file?"":seed);
-      if(expected&&JSON.stringify(this.read(source,field))!==JSON.stringify(expected.value))throw Error(this.text("记录已在别处修改，请重新打开后编辑。","This record changed elsewhere. Reopen it before editing."));
+      if(p._noriaPluginDisposed)throw Object.assign(Error("Noria is unloaded; reconnect to the current plugin instance"),{code:"unsupported"});
+      if(expected){const definition=expected.revision?this.definitions().find(f=>f.id===field.id):field;
+        const changed=expected.revision?(!definition||this.snapshot(date,spec.path,current,definition).revision!==expected.revision):JSON.stringify(this.read(source,field))!==JSON.stringify(expected.value);
+        if(changed)throw Object.assign(Error(this.text("记录已在别处修改，请重新打开后编辑。","This record changed elsewhere. Reopen it before editing.")),{code:"conflict"});}
       if(increment){const old=this.read(source,field);if(old!=null&&typeof old!=="number")throw Error(this.text("原值不是数值","The existing value is not a number"));value=(old??0)+value;}
       text=writeProperty(source,field,value,parseYaml);
       const existing=habitRecords(source,date,spec.path);
@@ -59,7 +68,7 @@ class RecordFields{
       if(value!=null){const current=b.createSpan({cls:"noria-record-current"});if(field.type==="level"&&!state.icon.startsWith("noria-energy"))this.scale(current,field,value);else current.setText(this.display(field,value));}
       b.setAttribute("aria-label",`${field.name} · ${value==null?this.text("未填写","Not recorded"):this.display(field,value)}`);
       b.disabled=date>this.plugin.getLocalYmd();
-      b.onclick=()=>this.edit(b,field,{value,onSave:(next,options)=>save(field,next,options),report,context});
+      b.onclick=()=>this.edit(b,field,{value,onSave:(next,options)=>save(field,next,{...options,expected:{value}}),report,context});
     }
     iconButton(host,"settings-2",this.text("设置记录项目","Configure records"),()=>this.manage(false,context));
   }

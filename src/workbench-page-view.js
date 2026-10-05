@@ -27,7 +27,7 @@ async function renderCardPage(workbench,pageId,panel){
   const card= id=>store.get(pageId)?.widgets.find(w=>w.id===id);
   const edit=(id,patch)=>store.editCard(pageId,id,patch);
   bridge.runtime.renderExtensionCard=(widget,mount,selection)=>system.render(widget,mount,{...selection,pageId,range:bridge.getHomeTrendsRange()});
-  bridge.runtime.renderDailyRecordSummary=(host,range,options)=>plugin.propertyStats.renderDailySummary(host,range,{...options,getWidget:card,saveWidget:widget=>store.saveCard(pageId,widget)});
+  bridge.runtime.renderDailyRecordSummary=(host,range,options)=>plugin.propertyStats.renderDailySummary(host,range,{...options,context:{page:'custom',pageId},getWidget:card,saveWidget:widget=>store.saveCard(pageId,widget)});
   const setSize=(id,size)=>edit(id,{size,layout:{...card(id)?.layout,...plugin.getHomeWidgetSizeLayout(size)}});
   const context={page:'custom',pageId};
   bridge.runtime.openHomeWidgetSettings=id=>system.catalog(context,id);

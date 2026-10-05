@@ -19,7 +19,7 @@ class RecordManager extends Modal {
     for(const item of this.options.filters||[]){const button=tabs.createEl("button",{text:item.label,attr:{role:"tab","aria-selected":String(item.value===this.filter)}});button.onclick=()=>{this.query=search.value;this.filter=item.value;this.listTop=0;this.list();};}
     const list=this.contentEl.createDiv({cls:"noria-record-list"});
     const paint=()=>{
-      list.empty();const matching=this.rows.filter(row=>(!this.filter||row.stage===this.filter)&&(`${row.name} ${row.path||""}`).toLowerCase().includes(this.query.toLowerCase()));
+      list.empty();const matching=this.rows.filter(row=>(!this.filter||row.stage===this.filter)&&(`${row.name} ${row.path||""} ${this.options.summary?.(row)||""}`).toLowerCase().includes(this.query.trim().toLowerCase()));
       for(const row of matching){
         const line=list.createDiv({cls:"noria-record-row"});
         const button=line.createEl("button",{cls:"noria-record-open"});button.createEl("strong",{text:this.options.label?.(row)||row.name});
@@ -31,7 +31,7 @@ class RecordManager extends Modal {
           const r=more.getBoundingClientRect();menu.showAtPosition({x:r.right,y:r.bottom,left:true},more.ownerDocument);
         });}
       }
-      if(!matching.length)list.createDiv({cls:"noria-card-empty",text:this.text("这里还没有记录","No records here yet")});list.scrollTop=this.listTop;
+      if(!matching.length)list.createDiv({cls:"noria-card-empty",text:this.query.trim()?this.text("没有匹配的记录","No matching records"):this.text("这里还没有记录","No records here yet")});list.scrollTop=this.listTop;
     };
     search.oninput=()=>{this.query=search.value;this.listTop=0;paint();};paint();
     this.errorEl=this.contentEl.createDiv({cls:"noria-card-error",attr:{role:"alert"}});this.errorEl.hidden=true;

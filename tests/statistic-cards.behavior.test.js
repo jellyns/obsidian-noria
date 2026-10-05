@@ -32,7 +32,8 @@ test('arbitrary property editing writes its source and rejects stale values',asy
  const p=plugin(),field={property:'v',name:'Value',type:'number'};let raw='---\nv: 2\nother: keep\n---\n\nBody',editor,writePath;
  p.records={definitions:()=>[field],read:(text)=>parseYaml(text).v,edit:(anchor,f,options)=>{editor=options;}};
  p.app.vault.read=async()=>raw;p.processTextAtVaultPath=async(path,fn)=>{writePath=path;raw=fn(raw);};p.requestNoriaRefresh=()=>{};
- const stats=new (load())(p);await stats.editPoint({},[{path:'Research/A.md',date:'2026-09-20'}],{source:'notes',property:'v'},'2026-09-20',{rows:[]});
+ const stats=new (load())(p),context={page:'custom',pageId:'reading'};await stats.editPoint({},[{path:'Research/A.md',date:'2026-09-20'}],{source:'notes',property:'v'},'2026-09-20',{rows:[]},context);
+ assert.deepEqual(editor.context,context);
  await editor.onSave(3);assert.equal(writePath,'Research/A.md');assert.match(raw,/"v": 3/);assert.match(raw,/other: keep/);assert.match(raw,/Body/);
  await assert.rejects(()=>editor.onSave(4),/changed elsewhere/);assert.match(raw,/"v": 3/);
 });

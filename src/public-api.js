@@ -44,6 +44,9 @@ function createPublicApi(plugin){
     capabilities(){active();return {version:1,operations:[
       {name:'tasks.list',effect:'read',input:'Existing Data API getTasks request',output:'Existing task result with items[].ref; null ref means not writable'},
       {name:'tasks.update',effect:'write',input:{required:['ref','patch'],ref:{path:'vault-relative Markdown path',line:'zero-based hint',rawText:'exact original task line'},patch:{start:'YYYY-MM-DD[ HH:mm] or empty',due:'YYYY-MM-DD[ HH:mm] or empty',scheduled:'YYYY-MM-DD[ HH:mm] or empty',status:'todo | in_progress | done | cancelled'}},output:'{ok, changed, ref}'},
+      {name:'records.fields',effect:'read',input:{},output:'{items}: configured field IDs, property names, types, choices, units and presentation; disabled fields remain readable'},
+      {name:'records.read',effect:'read',input:{required:['date'],date:'YYYY-MM-DD'},output:'{date, path, exists, items:[{fieldId, value, revision}]}; daily values, no note creation'},
+      {name:'records.update',effect:'write',input:{required:['date','fieldId','revision','value'],value:'number | string | boolean | null; must match the field type'},output:'{ok, changed, date, path, fieldId, value, revision}; replaces one actual daily value through the UI write path, including bound habits; no invented entries or Agent execution'},
       {name:'suggestions.read',effect:'read',input:{required:['date'],date:'YYYY-MM-DD'},output:'{path, date, exists, markdown, revision}'},
       {name:'suggestions.update',effect:'write',input:{required:['date','revision','markdown'],date:'YYYY-MM-DD',revision:'from suggestions.read',markdown:'body of the level-2 建议 section'},output:'{ok, changed, path, date, exists, markdown, revision}'},
       {name:'suggestionReplies.read',effect:'read',input:{required:['date']},output:'Readable saved replies for this exact suggestion source; does not create a note'},
@@ -64,6 +67,26 @@ function createPublicApi(plugin){
         const result=await saveTaskEditor({identity:ref,patch,today:plugin.getLocalYmd(),read:async path=>{const text=await plugin.loadTextFromVault(path);exact(text);return text;},process:(path,transform)=>plugin.processTextAtVaultPath(path,text=>{active();exists();return transform(text);})});
         if(result.changed)plugin.requestNoriaRefresh('tasks','api:task-update');
         return {ok:true,changed:result.changed,ref:{path:result.path,line:result.line,rawText:result.rawText}};
+      });}
+    }),
+    records:Object.freeze({
+      fields(){return run(async()=>({items:JSON.parse(JSON.stringify(plugin.records.definitions()))}));},
+      read(request){return run(async()=>{
+        const {date,path}=await notePath(request),raw=await plugin.loadTextFromVault(path);
+        return {date,path,exists:!!plugin.app.vault.getAbstractFileByPath(path),items:plugin.records.definitions().map(field=>plugin.records.snapshot(date,path,raw,field))};
+      });},
+      update(request){return run(async()=>{
+        const date=dateOf(request);
+        if(date>plugin.getLocalYmd())throw fail('invalid-input','Actual records cannot be entered for a future date');
+        if(typeof request.fieldId!=='string'||typeof request.revision!=='string'||!request.revision||!Object.hasOwn(request,'value')||request.value===undefined)throw fail('invalid-input','Supply a fieldId, revision and value from records.read; use null to clear');
+        const field=plugin.records.definitions().find(field=>field.id===request.fieldId);
+        if(!field)throw fail('not-found','Record field no longer exists; read records.fields again');
+        try{require('./record-properties.js').validateValue(field,request.value);}catch(error){throw fail('invalid-input',error.message);}
+        const current=await api.records.read({date}),item=current.items.find(row=>row.fieldId===field.id);
+        if(!item||item.revision!==request.revision)throw fail('conflict','Record or field definition changed; read it again');
+        if(JSON.stringify(item.value)===JSON.stringify(request.value))return {ok:true,changed:false,date,path:current.path,...item};
+        const result=await plugin.records.save(date,field,request.value,{expected:{revision:request.revision}});
+        return {ok:true,changed:result.write.text!==result.write.previousText,date,path:result.path,...plugin.records.snapshot(date,result.path,result.write.text,field)};
       });}
     }),
     suggestions:Object.freeze({

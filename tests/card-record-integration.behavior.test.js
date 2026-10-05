@@ -27,6 +27,37 @@ test("saving a bound daily property preserves historical target and other habits
  assert.match(raw,/"reading_minutes": 10/);assert.match(raw,/Keep this paragraph/);assert.doesNotMatch(raw,/\[value::/);
  const rows=habitRecords(raw,"2026-09-16","");assert.equal(rows[0].name,"散步");assert.equal(rows[0].done,true);assert.equal(rows[1].done,true);assert.equal(rows[1].target,"10");
 });
+test("card actions retain the owning page in diary, custom pages and previews",async()=>{
+ const {CardSystem}=load("card-system.js",{"obsidian":{Component},"./card-controls.js":{}}),system=Object.create(CardSystem.prototype);
+ Object.assign(system,{providers:new Map(),mounted:new Set(),listeners:new Set(),app:{plugins:{plugins:{example:{}}}},plugin:{getNoriaLocale:()=>"en"}});
+ let received;
+ system.register({id:"example:record",title:"Record",supportsDate:true,render:args=>{received=args.context;}});
+ const widget={source:"example:record",props:{}};
+ for(const [selection,explicit,expected] of [[undefined,undefined,{page:"home"}],[{mode:"daily",anchorDate:"2026-10-06"},undefined,{page:"diary",mode:"daily",selection:{mode:"daily",anchorDate:"2026-10-06"}}],[{pageId:"health"},undefined,{page:"custom",pageId:"health"}],[{pageId:"preview:record"},{page:"custom",pageId:"health"},{page:"custom",pageId:"health"}]]){
+  const dispose=await system.render(widget,new Element(),selection,explicit);assert.deepEqual(received&&JSON.parse(JSON.stringify(received)),expected);dispose();
+ }
+});
+test("direct daily controls detect a changed value while allowing unrelated edits and exact increments",async()=>{
+ const {RecordFields}=load("record-fields.js",{"obsidian":{parseYaml:parse},"./record-manager.js":{},"./record-popover.js":{},"./card-controls.js":{iconButton(){}},"./picture-picker.js":{renderPicture(){}}});
+ class Control{
+  constructor(){this.children=[];this.style={setProperty(){}};this.dataset={};}
+  addClass(){}setAttribute(){}setText(){}focus(){}
+  createEl(){const child=new Control();this.children.push(child);return child;}
+  createSpan(){return this.createEl();}querySelectorAll(){return [];}
+ }
+ const field={id:"reading",name:"Reading",property:"minutes",type:"number",unit:"min",icon:"book-open"};
+ let raw='---\nminutes: 10\n---\nKeep my notes.\n',refreshes=0,editor;
+ const p={app:{vault:{getAbstractFileByPath:()=>({})}},settings:{recordFields:[field]},getNoriaLocale:()=>"en",getLocalYmd:()=>"2026-10-06",getManagedPath:()=>"Habits.md",resolveCalendarNoteSpecAsync:async()=>({path:"Diary.md"}),loadTextFromVault:async()=>"",processTextAtVaultPath:async(_,mutate)=>{raw=mutate(raw);},requestNoriaRefresh(){refreshes++;}};
+ const records=new RecordFields(p);records.edit=(_,__,options)=>{editor=options;};
+ const open=()=>{const host=new Control();records.render({host,date:"2026-10-06",raw});host.children[0].onclick();};
+ open();raw=raw.replace("minutes: 10","minutes: 15");const changed=raw;
+ await assert.rejects(()=>editor.onSave(20),/changed elsewhere/);assert.equal(raw,changed);assert.equal(refreshes,0);
+ await assert.rejects(()=>editor.onSave(null),/changed elsewhere/);assert.equal(raw,changed);
+ open();raw+='An independent note.\n';await editor.onSave(5,{increment:true});
+ assert.equal(records.read(raw,field),20);assert.ok(raw.endsWith('Keep my notes.\nAn independent note.\n'));assert.equal(refreshes,1);
+ open();await editor.onSave(0);assert.equal(records.read(raw,field),0);
+ open();await editor.onSave(null);assert.equal(records.read(raw,field),null);
+});
 test("sleep after midnight belongs to the previous day and an explicit record wins",async()=>{
  let diary="",registry="## Active habits\n- Bedtime [type:: sleep] [target:: 00:30]\n";
  const p={resolveCalendarNoteSpecAsync:async(_,date)=>({path:date+".md"}),buildRuntimeBridgeConfig:()=>({paths:{habitRegistryPath:"Habits.md"}}),getLocalYmd:()=>"2026-09-17",loadTextFromVault:async path=>path==="Habits.md"?registry:path==="2026-09-16.md"?diary:'- [ ] Sleep #tl/sleep [start:: 2026-09-17 00:15]\n'};

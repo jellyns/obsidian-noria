@@ -17,7 +17,7 @@ const showCard=`const p=app.plugins.plugins.noria,s=globalThis.__replyExchangeCh
   evaluate(`${showCard}return true;`);await until(`return ${ui}?.textContent.includes('已保存 · 待领取');`);
   const endpoint=evaluate(`const s=globalThis.__replyExchangeCheck;s.events=[];s.eventRef=app.vault.on('modify',file=>{if(file.path===s.record)s.events.push({time:Date.now(),size:file.stat.size});});return await app.plugins.plugins.noria.agentConnection.start();`);client=new Client({name:'noria-exchange-check',version:'1'});await client.connect(new StreamableHTTPClientTransport(new URL(endpoint.url),{requestInit:{headers:{Authorization:'Bearer '+endpoint.token}}}));
   const call=async(name,args)=>client.callTool({name,arguments:args});const data=async(name,args)=>{const r=await call(name,args);assert.ok(!r.isError,r.structuredContent?.error?.message);return r.structuredContent;};
-  check('real external MCP client discovers fifteen operations',(await client.listTools()).tools.length===15);
+  check('real external MCP client discovers eighteen operations',(await client.listTools()).tools.length===18);
   const queue=await data('noria_replies_list',{start:'2099-12-19',end:'2099-12-19'}),item=queue.items[0],read=await data('noria_replies_read',{date:item.date,sourcePath:item.sourcePath});
   const ref={conversationId:read.id,replyId:read.replies[0].id,replyRevision:read.replies[0].revision,sourceRevision:read.source.revision};
   const claim=await data('noria_replies_claim',{...ref,requestId:'exchange-claim-first',agent:'外部客户端'});

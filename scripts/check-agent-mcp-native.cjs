@@ -30,7 +30,7 @@ async function clientFor(endpoint) {
     const endpoint=evaluate('return await app.plugins.plugins.noria.agentConnection.start();');
     ownedConnection=true;
     client=await clientFor(endpoint);
-    const tools=await client.listTools();check('bundled Obsidian endpoint advertises fifteen tools',tools.tools.length===15);
+    const tools=await client.listTools();check('bundled Obsidian endpoint advertises eighteen tools',tools.tools.length===18);
     const call=(name,args={})=>client.callTool({name,arguments:args});
     check('capability discovery uses live API',(await call('noria_capabilities')).structuredContent.version===1);
     const result=await call('noria_tasks_list',{range:{mode:'custom',start:'2099-12-28',end:'2099-12-29'},status:'open'});
@@ -51,7 +51,7 @@ async function clientFor(endpoint) {
     check('plugin reload leaves connection stopped',evaluate('return app.plugins.plugins.noria.agentConnection.status();').state==='stopped');
     await assert.rejects(fetch(endpoint.url));check('plugin reload releases previous listener',true);
     const next=evaluate('return await app.plugins.plugins.noria.agentConnection.start();');
-    client=await clientFor(next);check('new plugin instance accepts reconnection',(await client.listTools()).tools.length===15&&next.token!==endpoint.token);
+    client=await clientFor(next);check('new plugin instance accepts reconnection',(await client.listTools()).tools.length===18&&next.token!==endpoint.token);
   } finally {
     try {if(client)await client.close();} finally {
       try {if(ownedConnection)evaluate('await app.plugins.plugins.noria.agentConnection.stop();return {ok:true};');} finally {

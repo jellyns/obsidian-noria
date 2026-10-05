@@ -20,14 +20,14 @@ function request(endpoint, patch={}) {
 test('real MCP client discovers public tools, forwards inputs and preserves business errors', async t => {
   const calls=[];
   const invoke=name=>async args=>{calls.push({name,args});return {ok:true,name};};
-  const api={version:1,capabilities:()=>({version:1}),tasks:{list:invoke('list'),update:invoke('update')},suggestions:{read:invoke('read'),update:async()=>{throw Object.assign(Error('Source changed'),{code:'conflict'});}},suggestionReplies:{list:invoke('replies-list'),read:invoke('replies-read'),claim:invoke('claim'),respond:invoke('respond')}};
+  const api={version:1,capabilities:()=>({version:1}),records:{fields:invoke('record-fields'),read:invoke('record-read'),update:invoke('record-update')},tasks:{list:invoke('list'),update:invoke('update')},suggestions:{read:invoke('read'),update:async()=>{throw Object.assign(Error('Source changed'),{code:'conflict'});}},suggestionReplies:{list:invoke('replies-list'),read:invoke('replies-read'),claim:invoke('claim'),respond:invoke('respond')}};
   const connection=createAgentConnection({getApi:()=>api,version:'0.4.6'});
   t.after(()=>connection.dispose());
   assert.equal(connection.status().state,'stopped');
   const endpoint=await connection.start(),client=await connect(endpoint);
   t.after(()=>client.close());
   const listed=await client.listTools();
-  assert.deepEqual(listed.tools.map(x=>x.name).sort(),['noria_capabilities','noria_tasks_list','noria_tasks_update','noria_suggestions_read','noria_suggestions_update','noria_replies_list','noria_replies_read','noria_replies_claim','noria_replies_respond',...['list','read','publish','submit','claim','respond'].map(n=>'noria_interactions_'+n)].sort());
+  assert.deepEqual(listed.tools.map(x=>x.name).sort(),['noria_capabilities','noria_tasks_list','noria_tasks_update','noria_suggestions_read','noria_suggestions_update','noria_replies_list','noria_replies_read','noria_replies_claim','noria_replies_respond',...['fields','read','update'].map(n=>'noria_records_'+n),...['list','read','publish','submit','claim','respond'].map(n=>'noria_interactions_'+n)].sort());
   const call=(name,args={})=>client.callTool({name,arguments:args});
   assert.equal((await call('noria_capabilities')).structuredContent.version,1);
   const query={range:{mode:'custom',start:'2026-09-21',end:'2026-09-27'},status:'open'};
@@ -46,6 +46,11 @@ test('real MCP client discovers public tools, forwards inputs and preserves busi
   const ref={conversationId:'conversation-id',replyId:'reply-id-one',replyRevision:'reply-version',sourceRevision:'source-version',requestId:'claim-id-one'};
   await call('noria_replies_claim',{...ref,agent:'Native client'});await call('noria_replies_respond',{...ref,claimId:'claim-id-one',requestId:'response-id-one',markdown:'Done reading.'});
   assert.deepEqual(calls.slice(before).map(c=>c.name),['replies-list','replies-read','claim','respond']);
+  await call('noria_records_fields');await call('noria_records_read',{date:'2026-10-06'});
+  const record={date:'2026-10-06',fieldId:'exercise',revision:'record-version',value:false};await call('noria_records_update',record);
+  assert.deepEqual(calls.slice(-3),[{name:'record-fields',args:undefined},{name:'record-read',args:{date:'2026-10-06'}},{name:'record-update',args:record}]);
+  await call('noria_records_update',{...record,value:null});assert.equal(calls.at(-1).args.value,null);
+  const recordCalls=calls.length;assert.equal((await call('noria_records_update',{...record,value:[]})).isError,true);assert.equal(calls.length,recordCalls);
 });
 
 test('local connection enforces credentials and origin, releases port, rotates credentials on restart', async t => {

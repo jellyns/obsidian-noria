@@ -23,8 +23,21 @@ test('diary renderer isolates page identity, groups long periods and cleans up l
  let finish,cleanup,disposed=0,removed=0,input;
  const mount={dataset:{},__noriaHomeCleanup:()=>disposed++,remove:()=>removed++};
  const container={createDiv:()=>mount};
- const plugin={buildRuntimeBridgeConfig:()=>({homeEditMode:true,homeSettings:{trendsRange:{mode:'last30'}}}),createDataService:async()=>({resolveRange:r=>r}),runNoriaView:async(path,value)=>{input=value;await new Promise(r=>finish=r);}};
+ const plugin={buildRuntimeBridgeConfig:()=>({runtime:{},homeEditMode:true,homeSettings:{trendsRange:{mode:'last30'}}}),createDataService:async()=>({resolveRange:r=>r}),runNoriaView:async(path,value)=>{input=value;await new Promise(r=>finish=r);}};
  const job=renderDiaryStatistic(plugin,{id:'a',builtinId:'note-trend-card',props:{}},container,{mode:'yearly',anchorDate:'2024-02-29'},{register:fn=>cleanup=fn});
  await new Promise(r=>setImmediate(r));assert.equal(input.previewWidget.props.statsGranularity,'month');assert.equal(input.noriaBridge.homeEditMode,false);assert.match(input.noriaBridge.statisticsPageId,/^diary:/);assert.equal(input.noriaBridge.homeSettings.trendsRange.mode,'last30');
  cleanup();finish();await job;assert.equal(removed,1);assert.equal(disposed,2);
+});
+
+test('embedded diary record controls read and update their own period layout',async()=>{
+ const widget={id:'records',builtinId:'daily-state-card',props:{}},layout={widgets:[widget]},selection={mode:'daily',anchorDate:'2026-10-06'};
+ let bridge,received,savedMode;
+ const plugin={buildRuntimeBridgeConfig:()=>({runtime:{}}),createDataService:async()=>({resolveRange:r=>r}),
+  runNoriaView:async(_,input)=>{bridge=input.noriaBridge;},
+  propertyStats:{renderDailySummary:async(_,__,options)=>{received=options;}},
+  cards:{layout:()=>layout,updateLayout:async(mode,change)=>{savedMode=mode;change(layout);}}};
+ await renderDiaryStatistic(plugin,widget,{createDiv:()=>({dataset:{}})},selection,{register(){}});
+ await bridge.runtime.renderDailyRecordSummary({},null,{widgetId:widget.id});
+ assert.deepEqual(received.context,{page:'diary',mode:'daily',selection});assert.equal(received.getWidget(widget.id),widget);
+ await received.saveWidget({...widget,props:{dailyRecordFields:['sleep']}});assert.equal(savedMode,'daily');assert.deepEqual(layout.widgets[0].props.dailyRecordFields,['sleep']);
 });

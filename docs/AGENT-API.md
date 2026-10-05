@@ -25,7 +25,7 @@ Noria owns its MCP connection and requires no separate connector plugin. Enable 
 
 ## MCP experience connection
 
-The desktop connection bundles MCP SDK 1.30.1 and exposes nine tools: `noria_capabilities`, `noria_tasks_list`, `noria_tasks_update`, `noria_suggestions_read`, `noria_suggestions_update`, `noria_replies_list`, `noria_replies_read`, `noria_replies_claim`, `noria_replies_respond`. This build requires an Obsidian installer with embedded Node.js 20+ for this optional connection (the SDK's resolved HTTP adapter requires it). Native checks used Electron 39.8.3 / Node.js 22.22.1; older installers have not been validated. Users do not install Node separately.
+The desktop connection bundles MCP SDK 1.30.1 and exposes 18 tools: capability discovery, two task operations, three daily-record operations, two suggestion operations, four reply operations and six interaction operations. Use `noria_capabilities` and MCP tool discovery for the current schemas. This build requires an Obsidian installer with embedded Node.js 20+ for this optional connection (the SDK's resolved HTTP adapter requires it). Native checks used Electron 39.8.3 / Node.js 22.22.1; older installers have not been validated. Users do not install Node separately.
 
 The settings switch remembers permission to start with this vault on this device. A port is assigned on first enable and remembered locally; disable the connection to edit it under **Port and credential**. Port `0` requests a new automatic assignment. **Reset credential** invalidates copied configurations; copy the new one afterward. Search settings for `MCP` or `Agent` to find the entry.
 
@@ -33,7 +33,7 @@ Choose **MCP JSON** for clients accepting the `mcpServers` shape, or **Codex · 
 
 For Codex, add the copied `[mcp_servers.noria]` section to its user `config.toml`; replace that section if it already exists, preserving unrelated settings. Open a new client session after saving. Keep the credential out of repositories and shared notes. This follows the [official Codex MCP configuration](https://developers.openai.com/codex/mcp). There is no OAuth login step for Noria's local token.
 
-The installed Codex CLI 0.130.0 parsed the exact configuration copied from native settings and authenticated through its app-server to discover all five tools. That check used a separate local configuration, with no model turn and no changes to the user's existing Codex setup. It verifies this client version's configuration and discovery, not an existing desktop conversation's tool refresh or model-driven edits. Other Agent clients have not been validated.
+An earlier Codex CLI 0.130.0 check parsed the configuration copied from native settings and authenticated through its app-server to discover the original task/suggestion tools. That check used a separate local configuration, with no model turn and no changes to the user's existing Codex setup. It verifies that client version's configuration and discovery, not the current full tool set, an existing desktop conversation's tool refresh or model-driven edits. Other Agent clients have not been validated.
 
 If a client cannot connect, first confirm that Noria shows **Available** and that both run on the same host. After a port change or credential reset, replace the copied client section. A connection refusal generally means the listener is closed or the endpoint changed; HTTP 401 means the credential was rejected. If copying fails, retry from Noria settings; a clipboard failure does not stop the connection.
 
@@ -43,7 +43,7 @@ For isolated developer tests only, `plugin.agentConnection.start()` / `stop()` r
 
 The managed credential is stored in Obsidian's vault-scoped local SecretStorage under `noria-agent-connection`; enabled state and port use the app's local storage key `noria-agent-connection-v1`. None is written to plugin `data.json` or notes. There is no plaintext fallback if SecretStorage is unavailable. The enabled connection restarts after plugin reload with the same port and credential; disabling stops it and prevents subsequent automatic startup. Resetting rotates the credential. This local storage arrangement is not a claim that other trusted plugins or software running as the same user cannot access it. Disconnecting does not undo a write already accepted by the business API: after a lost reply, read and compare before retrying. Each business failure returns an MCP `isError` result with `structuredContent.error.code` and `message`; transport/authentication failures use HTTP errors. Tool schemas reject unsupported fields before calling the API. MCP task queries currently expose range, status, bucketBy and optional `rangePolicy: "allFacts"`; they are not an unrestricted Data API proxy.
 
-Verified in NoriaTest with the SDK client: real MCP discovery, all five calls, task and suggestion writes to a temporary note, preserved surrounding text, stale-ref conflict, reload/reconnect, settings switch, actual copied configuration, credential reset, and automatic update of a visible suggestion card after an external write. Codex configuration/discovery is separately verified above. Daily-section cards bypass the runtime-source text cache so a successful refresh does not show old advice. Validation restores local preferences and test content and leaves the connection disabled. Dark themes, remote access and a message/reply workflow remain outside this acceptance.
+Earlier NoriaTest acceptance covered the original task/suggestion calls through the SDK client, temporary-note writes, surrounding text, stale-ref conflicts, reload/reconnect, settings, copied configuration, credential reset and visible suggestion-card refresh. Codex configuration/discovery is separately described above. These checks do not establish acceptance of later tools; their contracts and current validation are tracked below and in the project acceptance records.
 
 ## Tasks
 
@@ -67,6 +67,26 @@ const saved = await api.tasks.update({
 `tasks.update` supports only `start`, `due`, `scheduled` and `status`. Dates accept `YYYY-MM-DD`, optionally followed by ` HH:mm`; an empty string clears a date. Write status values follow the native editor: `todo`, `in_progress`, `done`, `cancelled`. The read Data API groups unfinished tasks under `status: "open"`; this is not a write status value. Completing a task uses the plugin's current local date for completion metadata.
 
 Use the returned ref for subsequent writes. Changed or ambiguous source lines produce a conflict; a removed source produces not-found. Repeating an unchanged patch with a current ref returns `changed: false`. A stale ref is not a durable idempotency key: after a lost reply, read again and compare the current result. Creating tasks, dependency edits, arbitrary patches and cross-file transactions are not exposed in this version.
+
+## Daily records
+
+`records.fields()` lists configured field IDs, property names, input types, choices, units and appearance. `enabled: false` hides a field in the recording UI; it does not discard its history or forbid an explicit API update. Use the stable ID rather than its display name.
+
+`records.read({date})` returns `{date, path, exists, items}` without creating a diary. Each item contains `{fieldId, value, revision}`. It reads the same selected-date property or legacy value as the recording UI. `null` is unrecorded; `0` and `false` are actual values. Reads return values as stored; updates validate them against the configured type.
+
+`records.update({date, fieldId, revision, value})` replaces one daily value, using a revision from `records.read`. Use `null` to clear. Numbers, booleans, available option strings and integer levels must match the field definition. Future actual records are rejected. The update uses the UI's atomic save, preserves other properties and prose, updates bound habits and requests refresh. A changed value, field meaning or target note returns `conflict`; read again before deciding what to write. Independent edits to other fields or the body do not conflict. A matching unchanged value returns `changed: false`, including clearing an absent value without creating a note.
+
+The result is `{ok, changed, date, path, fieldId, value, revision}`; it does not include the full source document. If a reply is lost, read the record before retrying. There is no increment operation that could silently run twice, and no implied intraday entry. Record actual supplied or measured information; suggestions and inferred personal states are not recorded facts.
+
+```js
+const {items: fields} = await api.records.fields();
+const day = await api.records.read({date: '2026-10-06'});
+// Choose a field and a value from the user's actual input.
+const item = day.items.find(row => row.fieldId === fieldId);
+const result = await api.records.update({date: day.date, fieldId, revision: item.revision, value});
+```
+
+MCP equivalents: `noria_records_fields`, `noria_records_read`, `noria_records_update`. Field-definition editing and timed intraday entries are not yet public operations. The existing external connection switch controls MCP access; adding these tools does not start a listener or SI work.
 
 ## Daily suggestions
 

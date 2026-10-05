@@ -41,7 +41,7 @@ async function until(code){for(let i=0;i<25;i++){if(evaluate(code))return;await 
   proc.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
   const status=await rpc('mcpServerStatus/list',{detail:'toolsAndAuthOnly'});
   const server=status.data.find(item=>item.name==='noria');
-  check('real Codex authenticates and discovers all fifteen Noria tools',!!server&&Object.keys(server.tools).length===15&&['noria_capabilities','noria_tasks_list','noria_tasks_update','noria_suggestions_read','noria_suggestions_update'].every(key=>server.tools[key]));
+  check('real Codex authenticates and discovers all eighteen Noria tools',!!server&&Object.keys(server.tools).length===18&&['noria_capabilities','noria_tasks_list','noria_tasks_update','noria_suggestions_read','noria_suggestions_update'].every(key=>server.tools[key]));
   evaluate(`const tab=app.setting.pluginTabs.find(t=>t.id==="noria"),s=globalThis.__noriaCodexCheck;s.width=tab.containerEl.style.width;s.settingsWin=require("@electron/remote").BrowserWindow.getAllWindows().find(w=>w.webContents.getURL()==="about:blank"&&w.getTitle().includes("NoriaTest"));s.throttle=s.settingsWin.webContents.getBackgroundThrottling();s.settingsWin.webContents.setBackgroundThrottling(false);tab.containerEl.querySelector(".noria-agent-settings").scrollIntoView({block:"center"});return true;`);
   await wait(150);
   evaluate(`require("fs").writeFileSync("${dir}/wide.png",(await globalThis.__noriaCodexCheck.settingsWin.webContents.capturePage()).toPNG());return true;`);

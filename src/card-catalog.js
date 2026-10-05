@@ -139,7 +139,7 @@ class CardCatalog extends Modal {
       this.previewBlocked=draft.type==='builtin'?false:!provider||(provider.pluginId!=="noria"&&!this.app.plugins.plugins[provider.pluginId]);
       this.applyButton.disabled=!!this.saving||this.previewBlocked;
       const selection=this.custom?{...this.context.selection,pageId:`preview:${draft.id}`,range:this.system.pages.get(this.context.pageId)?.trendsRange||this.plugin.settings.home?.trendsRange}:this.context.selection;
-      const cleanup=await this.system.render(draft,body,selection);
+      const cleanup=await this.system.render(draft,body,selection,this.context);
       if(serial!==this.generation)cleanup();else this.cleanupPreview=cleanup;
     }else{
       const mount=body.createDiv({cls:"noria-card-builtin-preview"});mount.inert=true;

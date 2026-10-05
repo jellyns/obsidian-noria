@@ -16,6 +16,10 @@ async function renderDiaryStatistic(plugin,widget,container,selection,component)
   const resolved=diaryStatisticInput(widget,selection),bridge=plugin.buildRuntimeBridgeConfig();
   bridge.statisticsPageId=`diary:${globalThis.crypto.randomUUID()}`;
   bridge.homeEditMode=false;
+  bridge.runtime.renderDailyRecordSummary=(host,range,options)=>plugin.propertyStats.renderDailySummary(host,range,{...options,
+    context:{page:'diary',mode:selection.mode,selection},
+    getWidget:id=>plugin.cards.layout(selection.mode).widgets.find(item=>item.id===id),
+    saveWidget:next=>plugin.cards.updateLayout(selection.mode,layout=>{const index=layout.widgets.findIndex(item=>item.id===next.id);if(index<0)throw Error('Card no longer exists');layout.widgets[index]=next;return layout;})});
   const requested=resolved.widget.props.statsRange;
   const range=requested.mode==='all'?null:await (await plugin.createDataService()).resolveRange(requested);
   if(range)resolved.widget.props.statsGranularity=require('./periodic-stat-model.js').granularity({},range);

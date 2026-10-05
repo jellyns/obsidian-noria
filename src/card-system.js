@@ -170,11 +170,13 @@ class CardSystem {
     this.plugin.propertyStats?.register(this);
     require('./periodic-stat-cards.js').registerPeriodicStats(this,this.plugin);
     this.register({id:"noria:records",title:this.text("每日记录","Daily records"),icon:"notebook-pen",supportsDate:true,description:this.text("填写所选日期的记录项目。","Edit record fields for the selected date."),fields:[],
-      render:async({container,selection,component})=>{
+      render:async({container,selection,component,context})=>{
         if(selection?.mode&&selection.mode!=="daily"){container.createSpan({text:this.text("每日记录在日记中填写，周期回顾可添加统计卡。","Enter records in a daily note; use a statistics card for period summaries.")});return;}
         const date=selection?.anchorDate||this.plugin.getLocalYmd(),spec=await this.plugin.resolveCalendarNoteSpecAsync("daily",date);let generation=0;
-        const paint=async()=>{const serial=++generation,raw=await this.plugin.loadTextFromVault(spec.path);if(serial!==generation)return;container.empty();container.createDiv({cls:"noria-card-secondary",text:date});this.plugin.records.render({host:container,date,raw,onSaved:paint});};
-        await paint();component.registerEvent(this.app.metadataCache.on("changed",file=>{if(file.path===spec.path)void paint();}));component.register(()=>++generation);
+        const paint=async()=>{const serial=++generation,raw=await this.plugin.loadTextFromVault(spec.path);if(serial!==generation)return;container.empty();container.createDiv({cls:"noria-card-secondary",text:date});this.plugin.records.render({host:container,date,raw,onSaved:paint,context});};
+        await paint();let definitionsSignature=JSON.stringify(this.plugin.records.definitions());
+        component.register(this.subscribe(()=>{const next=JSON.stringify(this.plugin.records.definitions());if(next!==definitionsSignature){definitionsSignature=next;void paint();}}));
+        component.registerEvent(this.app.metadataCache.on("changed",file=>{if(file.path===spec.path)void paint();}));component.register(()=>++generation);
       }});
     this.register({id:"noria:countdown",title:this.text("倒计时","Countdowns"),icon:"calendar-clock",description:this.text("重要日期、到期提醒与归档。","Important dates, deadlines and archives."),fields:[],render:({container})=>this.plugin.countdowns.render(container)});
     this.register({id:"noria:note",title:this.text("笔记与 Base","Note or Base"),icon:"file-text",description:this.text("嵌入已有笔记、查询或 Base。","Embed an existing note, query or Base."),fields:[{key:"path",label:this.text("源文件","Source file"),type:"file",required:true}],
@@ -193,7 +195,8 @@ class CardSystem {
         render:context=>this.providers.get("noria:note").render(context)});
     }
   }
-  async render(widget,container,selection){
+  async render(widget,container,selection,context){
+    context=context|| (selection?.pageId?{page:"custom",pageId:selection.pageId}:selection?.mode?{page:"diary",mode:selection.mode,selection}:{page:"home"});
     const component=new Component();component.load();let disposed=false;
     const provider=this.providers.get(widget.source);
     const instance={provider,dispose:()=>{if(disposed)return;disposed=true;component.unload();this.mounted.delete(instance);}};
@@ -210,7 +213,7 @@ class CardSystem {
         const button=mount.createEl("button",{text:this.text("安装或启用","Install or enable")});button.onclick=()=>this.openPlugin(provider.pluginId);return instance.dispose;
       }
       const config=clone(widget.props||{});
-      const cleanup=await provider.render({app:this.app,container:mount,component,config,selection:provider.supportsDate?clone(selection||{}):null,
+      const cleanup=await provider.render({app:this.app,container:mount,component,config,context:clone(context),selection:provider.supportsDate?clone(selection||{}):null,
         openSource:path=>this.app.workspace.openLinkText(path,"",true)});
       if(typeof cleanup==="function"){if(disposed)cleanup();else component.register(cleanup);}
       if(disposed)mount.remove();
