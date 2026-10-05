@@ -111,24 +111,3 @@ test("timeline IO updates health frontmatter against the latest daily-note conte
   assert.match(harness.files.get(pathValue), /^energy: 4$/m);
   assert.match(harness.files.get(pathValue), /^focus: 3$/m);
 });
-
-test("timeline IO removes one exact relocated line from the latest target text", async () => {
-  const adapter = loadAdapter();
-  const pathValue = "Diary/2026-06-09.md";
-  const targetLine = "- [ ] Move me [start:: 2026-06-09] [due:: 2026-06-09]";
-  const harness = createVaultHarness({
-    [pathValue]: `### 今日任务\n\n${targetLine}\n`
-  });
-
-  const removed = await adapter.removeExactTaskLineFromDaily({
-    app: harness.app,
-    filePath: pathValue,
-    lineText: targetLine
-  });
-
-  assert.equal(removed, true);
-  assert.equal(harness.processCalls, 1);
-  assert.equal(harness.modifyCalls, 0);
-  assert.match(harness.files.get(pathValue), /<!-- concurrent edit -->/);
-  assert.doesNotMatch(harness.files.get(pathValue), /Move me/);
-});

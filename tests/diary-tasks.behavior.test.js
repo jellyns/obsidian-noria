@@ -33,6 +33,14 @@ test("projection deduplicates source lines, keeps local undated and dated comple
   assert.equal(p.total,3);assert.equal(p.done[0].title,"Finished");
   assert(!p.focus.some(r=>r.task.path==="Habits.md"));
 });
+
+test("rescheduling a diary task retains its source but removes it from the earlier day's work",()=>{
+ const source="Diary/2026-09-26.md",task={path:source,line:2,text:"Read [scheduled:: 2026-09-28]",scheduled:"2026-09-28"};
+ const old=projectDiaryTasks([task],{mode:"daily",anchorDate:"2026-09-26"},source,"2026-09-26");
+ assert.equal(old.total,0);
+ const next=projectDiaryTasks([task],{mode:"daily",anchorDate:"2026-09-28"},"Diary/2026-09-28.md","2026-09-28");
+ assert.equal(next.focus.length,1);assert.equal(next.focus[0].task.path,source);
+});
 test("ISO week, leap day and month boundaries use the selected period", () => {
   assert.deepEqual(diaryRange({mode:"weekly",anchorDate:"2027-01-01"}),{start:"2026-12-28",end:"2027-01-03"});
   assert.deepEqual(diaryRange({mode:"monthly",anchorDate:"2028-02-05"}),{start:"2028-02-01",end:"2028-02-29"});

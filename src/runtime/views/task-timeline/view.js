@@ -508,7 +508,7 @@ async function taskTimelineCommitDrag(taskEdit, payload) {
     }
     lines[index] = nextLine;
     outcome = "changed";
-    return lines.join("\n");
+    return lines.join(source.includes("\r\n") ? "\r\n" : "\n");
   };
   if (typeof app.vault.process === "function") {
     await app.vault.process(file, applyDrag);

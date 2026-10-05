@@ -179,19 +179,6 @@ test("task editor single-file mutations share the latest-text processor", () => 
   }
 });
 
-test("cross-daily task relocation removes the source transactionally and rolls back its own target append", () => {
-  const runtime = read("views/tasks-calendar/runtime-core.js");
-  const start = runtime.indexOf("async function saveTaskDateTimeRelocateBetweenDailyNotes");
-  const end = runtime.indexOf("\nasync function saveTaskDateTimeLines", start);
-  assert.ok(start >= 0 && end > start, "expected cross-daily relocation body");
-  const body = runtime.slice(start, end);
-
-  assert.match(body, /var appended = await adapter\.appendTaskLineToDaily/);
-  assert.match(body, /processTaskMarkdownFile\(sourceNorm/);
-  assert.match(body, /if \(appended && typeof adapter\.removeExactTaskLineFromDaily === "function"\)/);
-  assert.doesNotMatch(body, /vault\.cachedRead\(srcFile\)|vault\.modify\(srcFile/);
-});
-
 test("conversion mode protects ordinary text from accidental delete", () => {
   const runtime = read("views/tasks-calendar/runtime-core.js");
 

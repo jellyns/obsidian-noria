@@ -636,7 +636,7 @@ function scheduleStartupTaskRecovery() {
 }
 
 // Variables
-var done, doneWithoutCompletionDate, due, recurrence, overdue, start, scheduled, process, cancelled, dailyNote, dailyNoteRegEx;
+var done, doneWithoutCompletionDate, due, recurrence, overdue, start, scheduled, process, cancelled, dailyNote;
 var timelineQuickStrategy = "daily-only";
 /** 四象限数据范围：日 / 周 / 月 / 年（默认周）；持久化便于下次打开 */
 var eisenhowerGranularity = getTasksCalendarGranularityPreference("eisenhowerGranularity", "week", "noria.eisen.granularity");
@@ -1102,22 +1102,6 @@ function taskPassesRuntimeTagFilter(taskObj) {
 	return true;
 }
 if (!dailyNoteFormat) { dailyNoteFormat = "YYYY-MM-DD" };
-var dailyNoteRegEx = momentToRegex(dailyNoteFormat);
-function dailyNoteRegExStringToRegExp(fromMomentToRegex) {
-	var s = String(fromMomentToRegex || "").trim();
-	if (s.length >= 2 && s.charAt(0) === "/") {
-		var last = s.lastIndexOf("/");
-		if (last > 0) {
-			try {
-				return new RegExp(s.slice(1, last), s.slice(last + 1) || "");
-			} catch (e) {
-				console.warn("[noria tasksCalendar] dailyNote filename pattern invalid:", s, e);
-			}
-		}
-	}
-	return /^$/;
-}
-var dailyNoteFilenameRx = dailyNoteRegExStringToRegExp(dailyNoteRegEx);
 var tToday = moment().format("YYYY-MM-DD");
 var tMonth = moment().format("M");
 var tDay = moment().format("d");
@@ -1453,7 +1437,7 @@ var taskQueryAdapter = {
 			cancelled: queryPolicy.includeCancelled
 				? sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && !t.completed && t.checked && t.due && taskDateSameDay(t.due, date)), "due")
 				: [],
-			dailyNote: sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.dailyNote && taskDateSameDay(t.dailyNote, date)), "dailyNote")
+			dailyNote: sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && taskUsesDiaryDate(t) && t.dailyNote && taskDateSameDay(t.dailyNote, date)), "dailyNote")
 		};
 	}
 };
@@ -1747,14 +1731,8 @@ function getMeta(tasks) {
 		normalizeTaskTemporal(tasks[i], "scheduled", "scheduledTime");
 		normalizeTaskTemporal(tasks[i], "completion", "completionTime");
 		var taskPathForMeta = tasks[i].path || (tasks[i].link && tasks[i].link.path) || "";
-		var taskFile = getFilename(taskPathForMeta);
-		var dailyNoteMatch = taskFile.match(dailyNoteFilenameRx);
-		var dailyTaskMatch = lineText.match(/(\d{4}\-\d{2}\-\d{2})/);
-		if (dailyNoteMatch) {
-			if(!dailyTaskMatch) {
-				tasks[i].dailyNote = moment(dailyNoteMatch[1], dailyNoteFormat).format("YYYY-MM-DD")
-			};
-		};
+		var diaryDate = taskDiaryDateFromPath(taskPathForMeta);
+		if (diaryDate) tasks[i].dailyNote = diaryDate;
 		var dueMatch = getLastRegexMatch(lineText, /\📅\W(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
 		if (!dueMatch) {
 			dueMatch = getLastRegexMatch(lineText, /\uD83D\uDDD3\uFE0F?\s*(\d{4}\-\d{2}\-\d{2})(?:[ T]([0-2]?\d:[0-5]\d))?/g);
@@ -1946,6 +1924,18 @@ function parseDateTimeValue(rawValue) {
 		time: hasTime ? parsed.format("HH:mm") : ""
 	};
 };
+
+function taskDiaryDateFromPath(path) {
+	var format = String(dailyNoteFormat || "YYYY-MM-DD").replace(/\\/g, "/");
+	var parts = String(path || "").replace(/\\/g, "/").replace(/\.md$/i, "").split("/");
+	var candidate = parts.slice(-format.split("/").length).join("/");
+	var parsed = moment(candidate, format, true);
+	return parsed.isValid() ? parsed.format("YYYY-MM-DD") : "";
+}
+
+function taskUsesDiaryDate(task) {
+	return !["start", "due", "scheduled"].some(function(key) { return coerceTemporalToYmd(task[key]); });
+}
 
 function coerceTemporalToYmd(v) {
 	if (v == null || v === "") return "";
@@ -2564,12 +2554,14 @@ function toDayMoment(dayStr, mins) {
 };
 
 function upsertInlineField(lineText, fieldName, value) {
-	var re = new RegExp("\\["+fieldName+"::\\s*[^\\]]*\\]", "i");
+	var re = new RegExp("\\["+fieldName+"::\\s*[^\\]]*\\]", "ig");
 	var block = "["+fieldName+":: "+value+"]";
 	if (re.test(lineText)) {
-		return lineText.replace(re, block);
+		var replaced = false;
+		return lineText.replace(re, function () { if (replaced) return ""; replaced = true; return block; });
 	}
-	return lineText + "  " + block;
+	var reference = String(lineText).match(/([ \t]+\^[A-Za-z0-9-]+)[ \t]*$/);
+	return (reference ? lineText.slice(0, reference.index) : lineText) + "  " + block + (reference ? reference[0] : "");
 };
 
 function stripInlineField(lineText, fieldName) {
@@ -3496,197 +3488,6 @@ function normalizeVaultRelPath(p) {
 	return String(p || "").replace(/\\/g, "/").replace(/^\/+/, "").trim();
 }
 
-/**
- * 若 filePath 正是当前日历配置下的「某日日记」笔记（文件名匹配 dailyNoteFormat 且路径等于 buildDailyNotePath(该日)），
- * 返回其 YYYY-MM-DD；否则返回 ""（非日记或自定义路径不在配置规则内时不在此列）。
- */
-function getConfiguredDailyNoteYmdFromPath(filePath) {
-	var norm = normalizeVaultRelPath(filePath);
-	if (!norm) return "";
-	var base = getFilename(norm);
-	if (!base) return "";
-	var dm = base.match(dailyNoteFilenameRx);
-	if (!dm || !dm[1]) return "";
-	var parsed = moment(dm[1], dailyNoteFormat, true);
-	if (!parsed.isValid()) return "";
-	var ymd = parsed.format("YYYY-MM-DD");
-	var expected = normalizeVaultRelPath(buildDailyNotePath(ymd));
-	if (norm !== expected) return "";
-	return ymd;
-}
-
-/** 搬迁后按新笔记路径重算 dailyNote，否则仍匹配源日「日记任务」桶 */
-function patchGlobalTaskDailyNoteFromPath(row) {
-	if (!row) return;
-	var taskPathForMeta = String(row.path || (row.link && row.link.path) || "").replace(/\\/g, "/");
-	if (!taskPathForMeta) {
-		try {
-			delete row.dailyNote;
-		} catch (_) {
-			row.dailyNote = undefined;
-		}
-		return;
-	}
-	var taskFile = getFilename(taskPathForMeta);
-	var dm = taskFile.match(dailyNoteFilenameRx);
-	if (dm && dm[1]) {
-		var parsed = moment(dm[1], dailyNoteFormat, true);
-		if (parsed.isValid()) {
-			row.dailyNote = parsed.format("YYYY-MM-DD");
-			return;
-		}
-	}
-	try {
-		delete row.dailyNote;
-	} catch (_) {
-		row.dailyNote = undefined;
-	}
-}
-
-function patchGlobalTaskPathAfterRelocate(meta, newFilePath) {
-	var row = findTaskRowForSaveMeta(meta);
-	if (!row) return;
-	var p = normalizeVaultRelPath(newFilePath);
-	if (!p) return;
-	row.path = p;
-	try {
-		if (row.link && typeof row.link === "object") {
-			row.link.path = p;
-		}
-	} catch (_) {}
-	patchGlobalTaskDailyNoteFromPath(row);
-}
-
-function updateTaskElPathsAfterDailyRelocate(elOut, targetNorm) {
-	if (!elOut) return;
-	var tgt = normalizeVaultRelPath(targetNorm);
-	if (!tgt) return;
-	var nav = String(elOut.getAttribute("data-nav-href") || "");
-	var hash = "";
-	var hix = nav.indexOf("#");
-	if (hix >= 0) {
-		hash = nav.slice(hix);
-	}
-	elOut.setAttribute("data-tc-path", tgt);
-	elOut.setAttribute("data-nav-href", tgt + hash);
-	try {
-		var a = elOut.querySelector("a.internal-link");
-		if (a) {
-			a.setAttribute("href", tgt + hash);
-			a.setAttribute("data-href", tgt + hash);
-		}
-	} catch (_) {}
-}
-
-/**
- * 月表拖拽：任务原在「配置日记」中且目标日为另一天时，将整行写入目标日日记（### 今日任务）并从源日记删除。
- * 先 append 再删源，避免中途失败丢行。
- */
-async function saveTaskDateTimeRelocateBetweenDailyNotes(meta, newStartMoment, newEndMoment, options, sourceNorm, targetNorm) {
-	var lineIndex = meta.lineIndex;
-	var rawSig = meta.rawSig;
-	var rawText = meta.rawText;
-	var oldStartDate = meta.oldStartDate;
-	var oldStartTime = meta.oldStartTime;
-	var oldDueDate = meta.oldDueDate;
-	var oldDueTime = meta.oldDueTime;
-	var oldStartNeedle = oldStartDate ? "[start:: " + oldStartDate + (oldStartTime ? " " + oldStartTime : "") + "]" : "";
-	var oldDueNeedle = oldDueDate ? "[due:: " + oldDueDate + (oldDueTime ? " " + oldDueTime : "") + "]" : "";
-	var line = "";
-	await processTaskMarkdownFile(sourceNorm, function (content) {
-		var lines = content.split(/\r?\n/);
-		var idx = pickTaskLineIndex(lines, lineIndex, rawText, rawSig, oldStartNeedle, oldDueNeedle);
-		if (idx < 0) {
-			throw new Error("task line not found: " + sourceNorm + " @" + lineIndex);
-		}
-		line = lines[idx];
-		if (Number.isFinite(options.calendarDayShift)) {
-			line = shiftTaskCalendarDates(line, options.calendarDayShift);
-		} else {
-		line = stripInlineField(line, "start");
-		line = stripInlineField(line, "due");
-		line = stripInlineField(line, "scheduled");
-		line = stripTaskTemplateOnlyFields(line);
-		if (options && (typeof options.taskTitle === "string" || typeof options.taskTags === "string")) {
-			line = rebuildTaskLineMainText(line, options.taskTitle, options.taskTags);
-		}
-		if (options && typeof options.taskPriority === "string") {
-			line = applyTaskPriorityMarker(line, options.taskPriority);
-		}
-		line = line.replace(/\s{2,}/g, " ").trimEnd();
-		line = upsertInlineField(line, "start", formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
-		line = upsertInlineField(line, "due", formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString));
-		}
-		return content;
-	});
-	var adapter = await ensureTimelineIoAdapterLoaded();
-	if (!adapter || typeof adapter.appendTaskLineToDaily !== "function") {
-		throw new Error("timeline io adapter unavailable");
-	}
-	var dateStr = moment(newStartMoment).format("YYYY-MM-DD");
-	var appended = await adapter.appendTaskLineToDaily({
-		app,
-		buildDailyNotePath,
-		dateStr,
-		lineText: line,
-		sectionHeading: "### 今日任务"
-	});
-	try {
-		await processTaskMarkdownFile(sourceNorm, function (content) {
-			var lines = content.split(/\r?\n/);
-			var idx = pickTaskLineIndex(lines, lineIndex, rawText, rawSig, oldStartNeedle, oldDueNeedle);
-			if (idx < 0) {
-				throw new Error("task line not found after relocate append: " + sourceNorm);
-			}
-			lines.splice(idx, 1);
-			return lines.join("\n").replace(/\n{3,}/g, "\n\n");
-		});
-	} catch (error) {
-		if (appended && typeof adapter.removeExactTaskLineFromDaily === "function") {
-			try {
-				var rolledBack = await adapter.removeExactTaskLineFromDaily({ app: app, filePath: targetNorm, lineText: line });
-				if (!rolledBack) error.noriaRollbackIncomplete = true;
-			} catch (rollbackError) {
-				error.noriaRollbackError = rollbackError;
-			}
-		}
-		throw error;
-	}
-	patchGlobalTasksFromSavedLine(meta, line);
-	patchGlobalTaskPathAfterRelocate(meta, targetNorm);
-	var elOut = meta.taskEl;
-	if (elOut) {
-		var savedStartParts = parseDateTimeValue(formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
-		var savedDueParts = parseDateTimeValue(formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString));
-		elOut.setAttribute("data-start-date", moment(newStartMoment).format("YYYY-MM-DD"));
-		elOut.setAttribute("data-start-time", savedStartParts.time || "");
-		elOut.setAttribute("data-due-date", moment(newEndMoment).format("YYYY-MM-DD"));
-		elOut.setAttribute("data-due-time", savedDueParts.time || "");
-		if (Number.isFinite(options.calendarDayShift) || options.calendarResize) {
-			["start","due"].forEach(function(key) { var part=readTaskCalendarDate(line,key);elOut.setAttribute("data-"+key+"-date",part.date||"");elOut.setAttribute("data-"+key+"-time",part.time||""); });
-		}
-		updateTaskElPathsAfterDailyRelocate(elOut, targetNorm);
-		try {
-			var cell = elOut.closest(".cell[data-date]");
-			var d = cell ? cell.getAttribute("data-date") : "";
-			var sd = moment(newStartMoment).format("YYYY-MM-DD");
-			var ed = moment(newEndMoment).format("YYYY-MM-DD");
-			if (d && sd === d) {
-				elOut.setAttribute("data-start-min", String(moment(newStartMoment).hours() * 60 + moment(newStartMoment).minutes()));
-			}
-			if (d && ed === d) {
-				elOut.setAttribute("data-end-min", String(moment(newEndMoment).hours() * 60 + moment(newEndMoment).minutes()));
-			}
-		} catch (_) {}
-	}
-	if (!options.silentNotice) {
-		showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.movedToDiary", { file: getFilename(targetNorm) }));
-	}
-	if (!options.suppressRefresh) {
-		triggerTaskFreshRefresh();
-	}
-}
-
 async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options) {
 	options = options || {};
 	var filePath = meta.filePath;
@@ -3697,15 +3498,6 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 	var oldDueDate = meta.oldDueDate;
 	var oldDueTime = meta.oldDueTime;
 	var rawText = meta.rawText;
-	if (options.monthDailyRelocate) {
-		var srcNorm = normalizeVaultRelPath(filePath);
-		if (getConfiguredDailyNoteYmdFromPath(filePath)) {
-			var tgtNorm = normalizeVaultRelPath(buildDailyNotePath(moment(newStartMoment).format("YYYY-MM-DD")));
-			if (srcNorm && tgtNorm && srcNorm !== tgtNorm) {
-				return saveTaskDateTimeRelocateBetweenDailyNotes(meta, newStartMoment, newEndMoment, options, srcNorm, tgtNorm);
-			}
-		}
-	}
 	var oldStartNeedle = oldStartDate ? "[start:: "+oldStartDate+(oldStartTime ? " "+oldStartTime : "")+"]" : "";
 	var oldDueNeedle = oldDueDate ? "[due:: "+oldDueDate+(oldDueTime ? " "+oldDueTime : "")+"]" : "";
 	var sourceWasTask = meta.sourceWasTask !== false;
@@ -3724,14 +3516,12 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 			var conversionStatus = options && options.taskAdvanced ? options.taskAdvanced.status : "todo";
 			line = buildTaskLineFromMarkdownConversion(line, conversionStatus);
 		}
-		// Keep only one pair of temporal fields on each save.
+		// Calendar moves retain the source fields and surrounding task text.
 		if (Number.isFinite(options.calendarDayShift)) {
-			line = shiftTaskCalendarDates(line, options.calendarDayShift);
+			line = shiftTaskCalendarDates(line, options.calendarDayShift, moment(newStartMoment).format("YYYY-MM-DD"));
 		} else if (options.calendarResize) {
 			line=resizeTaskCalendarDate(line,options.calendarResize.key,options.calendarResize.date);
 		} else {
-		line = stripInlineField(line, "start");
-		line = stripInlineField(line, "due");
 		line = stripTaskTemplateOnlyFields(line);
 		if (options && (typeof options.taskTitle === "string" || typeof options.taskTags === "string")) {
 			line = rebuildTaskLineMainText(line, options.taskTitle, options.taskTags);
@@ -3739,7 +3529,7 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 		if (options && typeof options.taskPriority === "string") {
 			line = applyTaskPriorityMarker(line, options.taskPriority);
 		}
-		line = line.replace(/\s{2,}/g, " ").trimEnd();
+		line = line.trimEnd();
 		line = upsertInlineField(line, "start", formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
 		line = upsertInlineField(line, "due", formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString));
 		}
@@ -3747,9 +3537,12 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 			line = applyTaskEditorMetadataToLine(line, options.taskAdvanced);
 		}
 		lines[idx] = line;
-		return lines.join("\n");
+		return lines.join(content.includes("\r\n") ? "\r\n" : "\n");
 	});
 	patchGlobalTasksFromSavedLine(meta, line);
+	// A vault event may arrive after the next paint. Refresh from this write.
+	if (noriaBridge && noriaBridge.taskSnapshots) noriaBridge.taskSnapshots.invalidate("tasks");
+	if (noriaBridge && noriaBridge.data) await noriaBridge.data.invalidate("calendar-write:" + filePath, "tasks");
 	var elOut = meta.taskEl;
 	if (elOut) {
 		var savedStartParts = parseDateTimeValue(formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
@@ -3974,7 +3767,10 @@ function getMonthGridCellFromPoint(clientX, clientY) {
 	}) || null;
 }
 
-function shiftTaskCalendarDates(line, deltaDays) {
+function shiftTaskCalendarDates(line, deltaDays, fallbackDate) {
+	if (fallbackDate && !["start", "due", "scheduled"].some(function(key) { return readTaskCalendarDate(line,key).date; })) {
+		return upsertInlineField(line, "scheduled", fallbackDate);
+	}
 	return line.replace(/(\[(?:start|due|scheduled)::\s*|(?:📅|🛫|⏳)\s*)(\d{4}-\d{2}-\d{2})/g, function(all, prefix, date) {
 		var value=moment(date,"YYYY-MM-DD",true);
 		if (!value.isValid()) throw new Error("Invalid task date: "+date);
@@ -4043,7 +3839,7 @@ function calendarMonthDrop(temporal, targetDate, srcDate, edge) {
 		return {start,end,options:{calendarResize:{key:edge,date:targetDate}}};
 	}
 	var delta=moment(targetDate,"YYYY-MM-DD",true).diff(moment(srcDate,"YYYY-MM-DD",true),"days");
-	return {start:start.add(delta,"days"),end:end.add(delta,"days"),options:{monthDailyRelocate:true,calendarDayShift:delta}};
+	return {start:start.add(delta,"days"),end:end.add(delta,"days"),options:{calendarDayShift:delta}};
 }
 
 function onMonthTaskPointerDown(ev) {
@@ -4893,37 +4689,6 @@ function transColor(color, percent) {
 	return "#" + (0x1000000 + R * 0x10000 + B * 0x100 + G).toString(16).slice(1);
 }
 
-function momentToRegex(momentFormat) {
-	momentFormat = momentFormat.replaceAll(".", "\\.");
-	momentFormat = momentFormat.replaceAll(",", "\\,");
-	momentFormat = momentFormat.replaceAll("-", "\\-");
-	momentFormat = momentFormat.replaceAll(":", "\\:");
-	momentFormat = momentFormat.replaceAll(" ", "\\s");
-
-	momentFormat = momentFormat.replace("dddd", "\\w{1,}");
-	momentFormat = momentFormat.replace("ddd", "\\w{1,3}");
-	momentFormat = momentFormat.replace("dd", "\\w{2}");
-	momentFormat = momentFormat.replace("d", "\\d{1}");
-
-	momentFormat = momentFormat.replace("YYYY", "\\d{4}");
-	momentFormat = momentFormat.replace("YY", "\\d{2}");
-
-	momentFormat = momentFormat.replace("MMMM", "\\w{1,}");
-	momentFormat = momentFormat.replace("MMM", "\\w{3}");
-	momentFormat = momentFormat.replace("MM", "\\d{2}");
-
-	momentFormat = momentFormat.replace("DDDD", "\\d{3}");
-	momentFormat = momentFormat.replace("DDD", "\\d{1,3}");
-	momentFormat = momentFormat.replace("DD", "\\d{2}");
-	momentFormat = momentFormat.replace("D", "\\d{1,2}");
-
-	momentFormat = momentFormat.replace("ww", "\\d{1,2}");
-
-	regEx = "/^(" + momentFormat + ")$/";
-
-	return regEx;
-};
-
 function buildDailyNotePath(dateStr) {
 	var m = moment(dateStr, "YYYY-MM-DD", true);
 	if (!m.isValid()) return dateStr;
@@ -5149,7 +4914,7 @@ function getTasks(date) {
 	scheduled = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.scheduled && taskDateSameDay(t.scheduled, date)), "scheduled");
 	process = tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.due && t.start && taskDateAfterDay(t.due, date) && taskDateBeforeDay(t.start, date) );
 	cancelled = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && !t.completed && t.checked && t.due && taskDateSameDay(t.due, date)), "due");
-	dailyNote = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.dailyNote && taskDateSameDay(t.dailyNote, date)), "dailyNote");
+	dailyNote = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && taskUsesDiaryDate(t) && t.dailyNote && taskDateSameDay(t.dailyNote, date)), "dailyNote");
 }
 
 function getTasksViaAdapter(date) {

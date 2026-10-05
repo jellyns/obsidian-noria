@@ -192,9 +192,11 @@ Hover over a time block to read its full title and actual time range in the nati
 
 Dragging in Month preserves the task's existing date fields and times; a date-only deadline stays date-only. Moving a block in Week or Day preserves its actual duration, even when a short task has a larger visual height. Small pointer movements do not reschedule. Press Escape or release outside a valid date cell to cancel.
 
+Rescheduling keeps the task, child tasks and attached paragraphs in the original note; it does not create the destination day's note. Dragging an undated diary task adds a `scheduled` date without inventing start or end times. Month shows the new date, while opening the source returns to the original note. Diary cards also respect a future arrangement instead of displaying it early merely because its source is an older diary.
+
 Week and Day show the full interval on one line when it fits, such as `09:00–11:30`. Narrow blocks may use two lines. When space is insufficient, the label shows only the start time or is hidden; the full interval remains available in the task tooltip and editor.
 
-A floating preview shows the proposed interval. Drag near the top or bottom of a scrollable region to scroll automatically. Month range bars expose handles at their real endpoints; these change only the selected date, keeping its time. Middle segments across weeks have no endpoint handles. Rescheduling a regular task within one file offers **Undo** for about 12 seconds, extended while hovered or focused. Undo restores only that task line and refuses to overwrite subsequent changes to it. This shortcut does not yet cover daily-note moves between files or batch editing.
+A floating preview shows the proposed interval. Drag near the top or bottom of a scrollable region to scroll automatically. Month range bars expose handles at their real endpoints; these change only the selected date, keeping its time. Middle segments across weeks have no endpoint handles. Rescheduling one task, including a diary task, offers **Undo** for about 12 seconds, extended while hovered or focused. Undo restores only that task line and refuses to overwrite subsequent changes to it. This shortcut does not yet cover batch editing.
 
 The task editor supports:
 

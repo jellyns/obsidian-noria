@@ -1786,6 +1786,25 @@ test("presentation task edit turns fallback instants into explicit start times",
   assert.doesNotMatch(moved, /\[due::/);
 });
 
+test("timeline drag retains nested task indentation, title spacing and the trailing block reference",()=>{
+  const edit=loadTaskTimelineTaskEdit();
+  const moved=edit.buildDraggedTaskLine("    - [ ] Compare `a  b` #work [start:: 2026-10-06 09:00] [due:: 2026-10-06 10:00] ^child-task",{
+    start:"2026-10-06T09:00:00",end:"2026-10-06T10:00:00",noria:{kind:"duration"}
+  },{role:"move",start:new Date("2026-10-06T11:00:00"),end:new Date("2026-10-06T12:00:00")});
+  assert.equal(moved,"    - [ ] Compare `a  b` #work [start:: 2026-10-06 11:00] [due:: 2026-10-06 12:00] ^child-task");
+});
+
+test("timeline drag writeback preserves surrounding Markdown and CRLF",async()=>{
+ const line="  - [ ] Child [start:: 2026-10-06 09:00] [due:: 2026-10-06 10:00] ^child";
+ let text=`- [ ] Parent\r\n${line}\r\n    Attached paragraph\r\n`;
+ const before=text,view=fs.readFileSync(pluginPath('views/task-timeline/view.js'),'utf8');
+ const c=vm.createContext({app:{vault:{getAbstractFileByPath:()=>({extension:'md'}),process:async(f,fn)=>{text=fn(text)}}},
+   taskTimelineEventPath:e=>e.source.path,taskTimelineFindLine:()=>1,taskTimelineEventRawLine:()=>line,taskTimelineEventNoria:()=>({kind:'duration'}),taskTimelineBridge:{}});
+ const i=view.indexOf('async function taskTimelineCommitDrag(');vm.runInContext(view.slice(i,view.indexOf('\nfunction taskTimelineNormalizeRange',i)),c);
+ const saved=await c.taskTimelineCommitDrag(loadTaskTimelineTaskEdit(),{event:{source:{path:'P.md'},start:'2026-10-06T09:00:00',end:'2026-10-06T10:00:00'},role:'move',dates:{start:new Date('2026-10-06T11:00:00'),end:new Date('2026-10-06T12:00:00')}});
+ assert.equal(saved,true);assert.equal(text,before.replace('09:00','11:00').replace('10:00','12:00'));
+});
+
 test("formal native task timeline cleanup is pane-owned and released before remounting", () => {
   const view = fs.readFileSync(pluginPath("views/task-timeline/view.js"), "utf8");
   const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");

@@ -87,31 +87,6 @@
     return outcome?.changed === true;
   }
 
-  async function removeExactTaskLineFromDaily({ app, filePath, lineText }) {
-    const normalizedPath = String(filePath || "").replace(/[\\]+/g, "/").trim();
-    const needle = String(lineText || "");
-    if (!normalizedPath || !needle) return false;
-    const file = app.vault.getAbstractFileByPath(normalizedPath);
-    if (!file) return false;
-    const outcome = await processExistingFile(app, file, (oldContent) => {
-      const lines = String(oldContent || "").split(/\r?\n/);
-      const matches = [];
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i] === needle) matches.push(i);
-      }
-      if (matches.length !== 1) {
-        return { changed: false, removed: false, text: oldContent };
-      }
-      lines.splice(matches[0], 1);
-      return {
-        changed: true,
-        removed: true,
-        text: lines.join("\n").replace(/\n{3,}/g, "\n\n")
-      };
-    });
-    return outcome?.removed === true;
-  }
-
   async function appendTemplateToLibrary({
     app,
     libPath,
@@ -197,7 +172,6 @@
   root.adapters.timelineIoAdapter = {
     ensureParentFolder,
     appendTaskLineToDaily,
-    removeExactTaskLineFromDaily,
     appendTemplateToLibrary,
     upsertFrontmatterLine,
     appendHealthMetricsToDaily

@@ -43,7 +43,7 @@ function projectDiaryTasks(tasks, selection, notePath, today) {
     const completed = task.completed === true;
     const included = completed
       ? completion ? completion >= range.start && completion <= range.end : own || (s.mode === "daily" && dated)
-      : own || dated;
+      : (own && !dates.length) || dated;
     if (!included) continue;
     seen.add(key);
     const priorities={highest:5,high:4,medium:3,low:2,lowest:1};

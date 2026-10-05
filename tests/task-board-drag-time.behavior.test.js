@@ -49,6 +49,31 @@ test('month date shifts preserve field shape, times, and unrelated completion da
   ['- [ ] Diary task','- [ ] Diary task']];
  for(const [before,after] of cases)assert.equal(context.shiftTaskCalendarDates(before,2),after);
 });
+
+test('month drag edits the original note, preserves children and block links, and can undo',async()=>{
+ for(const [before,after] of [
+  ['- [ ] Read ^reading','- [ ] Read  [scheduled:: 2026-09-28] ^reading'],
+  ['- [ ] Read [scheduled:: 2026-09-26 08:15]','- [ ] Read [scheduled:: 2026-09-28 08:15]']]){
+  const path='Diary/2026-09-26.md',original=`## Tasks\r\n${before}\r\n  - [ ] Child\r\n  Attached paragraph\r\n`,files=new Map([[path,original]]),writes=[];
+  let cached=original;
+  const c=vm.createContext({moment,processTaskMarkdownFile:async(p,fn)=>{writes.push(p);files.set(p,fn(files.get(p)))},
+   pickTaskLineIndex:lines=>lines.findIndex(l=>l===before),patchGlobalTasksFromSavedLine(){},
+   normalizeVaultRelPath:p=>p,getConfiguredDailyNoteYmdFromPath:()=> '2026-09-26',buildDailyNotePath:d=>`Diary/${d}.md`,
+   saveTaskDateTimeRelocateBetweenDailyNotes:()=>{throw Error('must not relocate the task')},
+   rootNode:null,noriaBridge:{data:{invalidate:async()=>{cached=files.get(path)}}},scheduleTasksCalendarSoftRefresh(){},tasksCalendarRuntimeLocale:()=> 'en'});
+  for(const name of ['shiftTaskCalendarDates','readTaskCalendarDate','getInlineFieldValue','parseDateTimeValue','upsertInlineField','calendarMonthDrop']){
+   const i=source.indexOf('function '+name+'(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);
+  }
+  const i=source.indexOf('async function saveTaskDateTimeLines(');vm.runInContext(source.slice(i,source.indexOf('\nfunction isPlannerChromeActive',i)),c);
+  const u=source.indexOf('async function restoreCalendarDragLine(');vm.runInContext(source.slice(u,source.indexOf('\nfunction ',u)),c);
+  const drop=c.calendarMonthDrop({startM:moment('2026-09-26 09:00'),endM:moment('2026-09-26 10:00')},'2026-09-28','2026-09-26','');
+  const receipt=await c.saveTaskDateTimeLines({filePath:path,lineIndex:1,rawText:before},drop.start,drop.end,{...drop.options,silentNotice:true,suppressRefresh:true});
+  assert.deepEqual([...files.keys()],[path]);assert.deepEqual(writes,[path]);
+  assert.equal(files.get(path),original.replace(before,after));assert.equal(receipt.path,path);
+  assert.equal(cached,files.get(path),'successful writes must invalidate cached dates before refresh, without relying on vault events');
+  await c.restoreCalendarDragLine(receipt);assert.equal(files.get(path),original);
+ }
+});
 test('drag keeps refresh frozen until the write settles, including a failed write',async()=>{
  for(const fail of [false,true]){
   const f=dragFixture();let settle;
@@ -61,6 +86,30 @@ test('drag keeps refresh frozen until the write settles, including a failed writ
   assert.equal(f.context.plannerChromeInteractionActive,false,'both success and failure must release');
   if(fail)assert.equal(f.task.style.top,'37.5%');
  }
+});
+
+test('calendar uses the diary date only until an explicit task date is assigned',()=>{
+ const tasks=[{id:'undated',dailyNote:'2026-09-26'},{id:'moved',dailyNote:'2026-09-26',scheduled:'2026-09-28'}];
+ const c=vm.createContext({tasks,rootNode:{getAttribute:()=> 'month'},runtimeTaskQueryPolicy:{},
+  getTaskKey:t=>t.id,sortTasksByYmdField:t=>t,taskIsOpenForCalendar:t=>!t.completed,isTimelineTaggedTask:()=>false,
+  coerceTemporalToYmd:v=>v||'',taskDateSameDay:(a,b)=>a===b,taskDateBeforeDay:(a,b)=>a<b,taskDateAfterDay:(a,b)=>a>b});
+ let i=source.indexOf('function taskUsesDiaryDate(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);
+ i=source.indexOf('var taskQueryAdapter =');vm.runInContext(source.slice(i,source.indexOf('\nawait initialize();',i)),c);
+ i=source.indexOf('function getTasks(date)');vm.runInContext(source.slice(i,source.indexOf('\nfunction getTasksViaAdapter',i)),c);
+ for(const date of ['2026-09-26','2026-09-28']){
+  const expected=date.endsWith('26')?['undated']:[],scheduled=date.endsWith('28')?['moved']:[];
+  const actual=c.taskQueryAdapter.collectForDate(date);c.getTasks(date);
+  for(const result of [actual,c]){assert.deepEqual(Array.from(result.dailyNote,t=>t.id),expected);assert.deepEqual(Array.from(result.scheduled,t=>t.id),scheduled);}
+ }
+});
+
+test('calendar time save preserves nested task indentation and places new fields before its block reference',async()=>{
+ const before='    - [ ] Compare `a  b` ^child-task';let text=before+'\n';
+ const c=vm.createContext({moment,noriaBridge:null,processTaskMarkdownFile:async(p,fn)=>{text=fn(text)},pickTaskLineIndex:()=>0,patchGlobalTasksFromSavedLine(){},stripTaskTemplateOnlyFields:s=>s,formatTaskDateTimeForSave:m=>m.format('YYYY-MM-DD HH:mm')});
+ for(const name of ['upsertInlineField','stripInlineField']){const i=source.indexOf('function '+name+'(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);}
+ const i=source.indexOf('async function saveTaskDateTimeLines(');vm.runInContext(source.slice(i,source.indexOf('\nfunction isPlannerChromeActive',i)),c);
+ await c.saveTaskDateTimeLines({filePath:'Task.md',lineIndex:0,rawText:before},moment('2026-10-06 09:00'),moment('2026-10-06 10:00'),{silentNotice:true,suppressRefresh:true});
+ assert.equal(text,'    - [ ] Compare `a  b`  [start:: 2026-10-06 09:00]  [due:: 2026-10-06 10:00] ^child-task\n');
 });
 
 test('month endpoints preserve the opposite endpoint and reject inverted ranges',()=>{

@@ -556,7 +556,6 @@ test("remaining high-frequency runtime actions avoid ordinary Chinese UI literal
   ].join("\n");
 
   for (const key of [
-    "runtime.tasksCalendar.notice.movedToDiary",
     "runtime.tasksCalendar.notice.savedLine",
     "runtime.tasksCalendar.notice.rescheduleStaged",
     "runtime.tasksCalendar.notice.rescheduled",

@@ -8,14 +8,15 @@
 
   function stripInlineField(line, key) {
     const re = new RegExp(`\\s*\\[\\s*${escapeRegExp(key)}\\s*::\\s*[^\\]]*\\]`, "gi");
-    return String(line || "").replace(re, " ");
+    return String(line || "").replace(re, "");
   }
 
   function upsertInlineField(line, key, value) {
-    const normalized = String(line || "").replace(/\s{2,}/g, " ").trimEnd();
+    const normalized = String(line || "").trimEnd();
     const field = `[${key}:: ${String(value || "").trim()}]`;
     if (!normalized) return field;
-    return `${normalized} ${field}`.replace(/\s{2,}/g, " ").trimEnd();
+    const block = normalized.match(/([ \t]+\^[A-Za-z0-9-]+)$/);
+    return `${block ? normalized.slice(0, block.index) : normalized} ${field}${block ? block[0] : ""}`;
   }
 
   function coerceDate(raw) {
@@ -132,13 +133,13 @@
       next = stripInlineField(next, "due");
       next = upsertInlineField(next, "start", startText);
       next = upsertInlineField(next, "due", endText || formatDateTime(addMinutes(dates.start, options.minDurationMin || 5)));
-      return next.replace(/\s{2,}/g, " ").trimEnd();
+      return next.trimEnd();
     }
 
     const key = instantFieldForEvent(event);
     let next = stripInlineField(line, key);
     next = upsertInlineField(next, key, startText);
-    return next.replace(/\s{2,}/g, " ").trimEnd();
+    return next.trimEnd();
   }
 
   root.taskEdit = {
