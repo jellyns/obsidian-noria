@@ -8,6 +8,12 @@ const kinds = {
 const fields = ['status', 'rating', 'grade', 'description', 'cover', 'image', 'author', 'director', 'publish', 'year', 'releaseDate', 'isbn', 'country', 'platform', 'genre', 'pagecount', 'pageprogress', 'playtime', 'viewtime', 'finishedAt', 'created'];
 const invalid = message => Object.assign(new Error(message), {code: 'invalid-input'});
 const clone = value => JSON.parse(JSON.stringify(value));
+function mediaTypes(fm, inlineTags = []) {
+  const raw = Array.isArray(fm.tags) ? fm.tags : typeof fm.tags === 'string' ? fm.tags.split(/[\s,]+/) : [];
+  const tags = [...new Set([...raw, ...inlineTags].filter(tag => typeof tag === 'string').map(tag => tag.replace(/^#/, '')))];
+  const normalized = tags.map(tag => tag.toLowerCase());
+  return {tags, types: Object.entries(kinds).filter(([, aliases]) => normalized.some(tag => aliases.has(tag))).map(([type]) => type)};
+}
 
 // Read the native metadata index. Original field values and note locations remain authoritative.
 function listMedia(plugin, request = {}) {
@@ -28,10 +34,7 @@ function listMedia(plugin, request = {}) {
     if (/^(?:模板-|清单-)/.test(name)) continue;
     const cache = plugin.app.metadataCache.getFileCache(file);
     if (!cache) { unindexed++; continue; }
-    const fm = cache.frontmatter || {}, rawTags = Array.isArray(fm.tags) ? fm.tags : typeof fm.tags === 'string' ? fm.tags.split(/[\s,]+/) : [];
-    const tags = [...new Set([...rawTags, ...(cache.tags || []).map(row => row.tag)].filter(tag => typeof tag === 'string').map(tag => tag.replace(/^#/, '')))];
-    const normalized = tags.map(tag => tag.toLowerCase());
-    const types = Object.entries(kinds).filter(([, aliases]) => normalized.some(tag => aliases.has(tag))).map(([type]) => type);
+    const fm = cache.frontmatter || {}, {tags, types} = mediaTypes(fm, (cache.tags || []).map(row => row.tag));
     if (!types.length || kind && !types.includes(kind) || status != null && fm.status !== status) continue;
     const title = typeof fm.title === 'string' && fm.title.trim() ? fm.title : name;
     if (needle && ![title, fm.author, fm.director, fm.aliases].flat().filter(value => typeof value === 'string').join('\n').toLocaleLowerCase().includes(needle)) continue;
@@ -42,4 +45,4 @@ function listMedia(plugin, request = {}) {
   return {folder: scope, items: page, total: items.length, unindexed, nextOffset: offset + page.length < items.length ? offset + page.length : null};
 }
 
-module.exports = {listMedia};
+module.exports = {listMedia, mediaTypes};

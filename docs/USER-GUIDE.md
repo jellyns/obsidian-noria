@@ -154,6 +154,14 @@ A Dataview card uses a note containing a query. Its dependency opens in Obsidian
 
 Markdown widgets can read daily briefings, current suggestions, weekly reviews, and project-monitor files produced by external agents, RSS workflows, or other scripts. Noria displays the content, source handoff, and freshness state; the external workflow remains responsible for generating it.
 
+### Media library card
+
+Choose **Add a card → Media library**, select the folder containing your works, and apply. Subfolders are included by default. Works use existing `book`, `movie` / `tv` / `anime`, or `game` tags; list and template notes beginning with `清单-` or `模板-` are excluded. The default status is `进行中`, matching the current Library records; change it to your own stored status, or leave it empty for all works.
+
+Search titles or creators, filter by type and stored status, and click a work to open its original note. The card retains its current filters when opening a source; metadata changes refresh the collection. Choose covers or a compact list in card settings. Local and existing HTTP(S) cover links are supported, with `image` taking precedence over `cover`. Missing images retain the title and type icon. Book pages are a current position, not reading volume; ratings and experience dates are not inferred. Click the status or page position to edit the current status and, for books, the current page. Save changes explicitly; competing status or page edits require reopening the editor. Configuration previews remain read-only. Dated experiences remain planned.
+
+This development batch has isolated browser checks using existing metadata and covers. Native Obsidian acceptance is pending; it has not yet been installed in NoriaTest.
+
 ## 3. Task Board
 
 Task Board organizes Markdown tasks from diary, project, and regular notes into four complementary views. Tasks remain in their source files.

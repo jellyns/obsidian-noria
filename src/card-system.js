@@ -167,6 +167,7 @@ class CardSystem {
   registerBuiltins(){
     require("./interaction-card.js").registerInteractionCard(this);
     require("./activity-card.js").registerActivityCard(this);
+    require("./media-card.js").registerMediaCard(this);
     this.plugin.propertyStats?.register(this);
     require('./periodic-stat-cards.js').registerPeriodicStats(this,this.plugin);
     this.register({id:"noria:records",title:this.text("每日记录","Daily records"),icon:"notebook-pen",supportsDate:true,description:this.text("填写所选日期的记录项目。","Edit record fields for the selected date."),fields:[],

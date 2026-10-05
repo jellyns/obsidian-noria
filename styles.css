@@ -3186,6 +3186,39 @@
 .noria-diary-review .noria-review-chapter-head { margin-block-end:8px; }
 .noria-diary-review .noria-review-chapter-head h3 { font-size:var(--font-text-size); font-weight:600; }
 .noria-diary-review .noria-review-chapter .noria-review-prose { max-width:none; }
+.noria-media{display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0;}
+.noria-media-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
+.noria-media-toolbar input[type="search"]{flex:1 1 160px;min-width:0;width:100%;}
+.noria-media-filters{display:flex;align-items:center;gap:6px;margin-left:auto;max-width:100%;}
+.noria-media-filters select{min-width:0;max-width:140px;font-size:var(--font-ui-small);}
+.noria-media-feedback{font-size:var(--font-ui-smaller);overflow-wrap:anywhere;}
+.noria-media-viewport{min-height:0;max-height:360px;overflow:auto;overscroll-behavior:contain;}
+.noria-media-shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,110px),1fr));gap:18px 12px;align-items:start;padding:3px;}
+.noria-media-work{display:flex;flex-direction:column;gap:4px;min-width:0;padding:4px;border-radius:var(--radius-s);}
+.noria-media-work:hover{background:var(--background-modifier-hover);}
+.noria-media button.noria-media-open{display:flex;flex-direction:column;align-items:stretch;gap:9px;width:100%;height:auto;min-width:0;padding:0;box-shadow:none;background:transparent;border:0;border-radius:var(--radius-s);color:var(--text-normal);text-align:left;white-space:normal;font-size:var(--font-ui-small);font-weight:400;}
+.noria-media button.noria-media-open:focus-visible,.noria-media button.noria-media-position:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:1px;}
+.noria-media button.noria-media-position{align-self:flex-start;min-height:24px;height:auto;max-width:100%;padding:2px 0;box-shadow:none;border:0;background:transparent;white-space:normal;text-align:left;}
+.noria-media button.noria-media-position:hover{color:var(--text-accent);}
+.noria-media-cover{position:relative;display:flex;align-items:center;justify-content:center;aspect-ratio:3/4;width:100%;max-height:176px;background:var(--background-secondary);border-radius:var(--radius-s);overflow:hidden;color:var(--text-muted);}
+.noria-media-cover>svg{width:28px;height:28px;stroke-width:1.3;}
+.noria-media-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:var(--background-secondary);}
+.noria-media-work-body{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.noria-media-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;line-height:1.45;font-weight:var(--font-medium);}
+.noria-media-detail{font-size:var(--font-ui-smaller);line-height:1.4;color:var(--text-muted);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+.noria-media-shelf[data-display="list"]{grid-template-columns:1fr;gap:6px;}
+.noria-media-shelf[data-display="list"] .noria-media-work{display:grid;grid-template-columns:minmax(0,1fr) minmax(60px,110px);align-items:center;gap:12px;}
+.noria-media-shelf[data-display="list"] .noria-media-open{flex-direction:row;align-items:center;gap:12px;}
+.noria-media-pages{white-space:nowrap;}
+.noria-media-shelf[data-display="list"] .noria-media-position{display:flex;flex-direction:column;gap:2px;}
+.noria-media-shelf[data-display="list"] .noria-media-position-separator{display:none;}
+.noria-media-shelf[data-display="list"] .noria-media-cover{width:40px;height:52px;flex-shrink:0;}
+.noria-media-empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:20px 4px;color:var(--text-muted);font-size:var(--font-ui-small);}
+.noria-media-more{align-self:center;font-size:var(--font-ui-small);}
+.noria-media-editor .noria-card-field{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:12px;}
+.noria-media-editor input{width:100%;min-width:0;}
+.noria-media-editor .noria-record-actions{justify-content:flex-end;margin-top:16px;}
+.noria-media [hidden]{display:none;}
 .noria-activity-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--font-ui-smaller);color:var(--text-muted);font-variant-numeric:tabular-nums;}
 .noria-activity-day>h3{font-size:var(--font-ui-small);font-weight:600;margin:18px 0 10px;color:var(--text-muted);font-variant-numeric:tabular-nums;}
 .noria-activity-day+.noria-activity-day{border-top:1px solid var(--background-modifier-border);margin-top:16px;}
@@ -12485,7 +12518,7 @@ button.noria-settings-tab {
 .noria-weather-feedback button{border:0;box-shadow:none;background:transparent;color:var(--text-accent);font-size:inherit;padding:2px 4px;height:auto;}
 
 /* Shared record controls keep history legible without using the cell as an editor. */
-.noria-record-popover{position:fixed;display:flex;flex-direction:column;align-items:stretch;z-index:var(--layer-popover,70);width:min(320px,calc(100vw - 24px));padding:16px;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:var(--radius-l);box-shadow:var(--shadow-s);}
+.noria-record-popover{position:fixed;display:flex;flex-direction:column;align-items:stretch;z-index:var(--layer-popover,70);width:min(320px,calc(100vw - 24px));max-height:calc(100vh - 16px);overflow:auto;padding:16px;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:var(--radius-l);box-shadow:var(--shadow-s);}
 .noria-record-popover .noria-card-error:empty{display:none;}
 .noria-record-popover>strong{display:block;margin-bottom:12px;font-size:var(--font-ui-small);}
 .noria-record-actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end;}

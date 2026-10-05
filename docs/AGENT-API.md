@@ -76,7 +76,9 @@ The result is `{folder, items, total, unindexed, nextOffset}`. Each item has `{p
 
 Results use stable path order, a default limit of 50, and a maximum of 100. Pass `nextOffset` to continue; it is `null` at the end. Pagination is a fresh query, so changes between requests can affect results. `unindexed` counts scoped notes whose metadata was unavailable; such results are incomplete, not evidence that those notes contain no works. Existing Library list and template names beginning with `清单-` or `模板-` are excluded. Missing folders return `not-found`.
 
-MCP exposes the same operation as the read-only `noria_media_list` tool. It does not add a library page, start SI, change status, record an experience or download artwork. The query has local API and actual MCP transport checks; native Obsidian acceptance and shelf UI integration are still pending for this development batch.
+MCP exposes the same operation as the read-only `noria_media_list` tool. It does not add a library page, start SI, change status, record an experience or download artwork. The query has local API and actual MCP transport checks. The separate `noria:media` card uses the same catalog for browsing and offers the explicit update below. Native Obsidian acceptance remains pending for this development batch.
+
+`media.read({path})` reads one existing work and returns `{path, title, kinds, properties, revision}`. `media.update({path, revision, patch})` accepts only `status` (nonempty single-line text) and `pageprogress` (nonnegative integer, books only); `null` clears a property. It checks the current status/page revision inside the vault write and preserves unrelated properties and body text. A changed revision returns `conflict`; read again and compare before retrying. It does not create works, ratings or dated experiences. MCP exposes these operations as `noria_media_read` and `noria_media_update`.
 
 ## Daily records
 
