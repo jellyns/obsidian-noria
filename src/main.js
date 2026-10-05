@@ -18565,14 +18565,16 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         today(){return plugin.getLocalYmd();},
         assertToday(date){require("./day-clock.js").assertCurrentDay(plugin,date);},
         renderPicture(host,value){return require("./picture-picker.js").renderPicture(plugin,host,value);},
-        decorateHistory(cells,config,records,today){
-          const plan=require("./habit-plan.js"),ends=plan.streakEnds(config,records,today);
+        historyViewState: plugin._habitHistoryViewState || (plugin._habitHistoryViewState = new Map()),
+        decorateHistory(cells,config,records,today,expanded=false){
+          const plan=require("./habit-plan.js"),ends=expanded?plan.streakEnds(config,records,today):{};
           cells.forEach(({date,parent},i)=>{const done=!!records[date]?.done&&plan.due(config,date),prev=cells[i-1],next=cells[i+1];
-            parent.dataset.connectedBefore=String(done&&!!prev&&prev.parent.parentElement===parent.parentElement&&!!records[prev.date]?.done&&plan.due(config,prev.date));
-            parent.dataset.connectedAfter=String(done&&!!next&&next.parent.parentElement===parent.parentElement&&!!records[next.date]?.done&&plan.due(config,next.date));
+            if(date===today)return;
+            parent.dataset.connectedBefore=String(expanded&&done&&!!prev&&prev.parent.parentElement===parent.parentElement&&!!records[prev.date]?.done&&plan.due(config,prev.date));
+            parent.dataset.connectedAfter=String(expanded&&done&&!!next&&next.parent.parentElement===parent.parentElement&&!!records[next.date]?.done&&plan.due(config,next.date));
             const status=parent.querySelector(".noria-habit-status"),button=parent.querySelector("button");
             if(status){status.classList.toggle("has-streak-count",!!ends[date]);status.setText(ends[date]?(ends[date]>999?"999+":String(ends[date])):records[date]?.done?"✓":"");}
-            if(button&&ends[date]){const detail=plugin.getNoriaLocale()==="zh"?`连续 ${ends[date]}${plan.daysAt(config,date)==="1234567"?" 天":" 次"}`:`${ends[date]} consecutive ${plan.daysAt(config,date)==="1234567"?"days":"scheduled entries"}`;const title=button.title.split(" · 连续 ")[0].split(" · consecutive ")[0];button.title=title+" · "+detail;button.setAttribute("aria-label",button.title);}
+            if(button){const detail=ends[date]?(plugin.getNoriaLocale()==="zh"?`连续 ${ends[date]}${plan.daysAt(config,date)==="1234567"?" 天":" 次"}`:`${ends[date]} consecutive ${plan.daysAt(config,date)==="1234567"?"days":"scheduled entries"}`):"";const title=button.title.split(" · 连续 ")[0].split(" · consecutive ")[0];button.title=title+(detail?" · "+detail:"");button.setAttribute("aria-label",button.title);}
           });
         },
         history(configs) {return new DiaryHabitStore(plugin).history(configs);},

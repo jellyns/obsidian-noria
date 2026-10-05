@@ -63,6 +63,8 @@ Use **Add card → Interaction** to select existing content or create questions.
 
 Open **Page settings → Manage pages** to rename, reorder, show or hide navigation entries, choose their pictures, or set the default entry. Create a blank page or start with the trends template, then use **Add a card** to compose it. Each page keeps its own layout while cards read the original notes and tasks. Restore hidden cards from the catalog; removing a custom page does not delete source notes. Diary and Day retain their dedicated features. The default applies to new workbenches; existing workspaces restore their saved page.
 
+Page entries use icons, with names on hover or keyboard focus and a selected background for the current page. Tab into navigation, move focus with the arrow keys, and press Enter or Space to open a page; Home / End move to the first / last entry. On narrow windows, open remaining pages from **More pages**. Change an icon in **Page settings → Manage pages**.
+
 Home is Noria's central workbench, not a fixed collection of features. It organizes current state, next actions, knowledge entrances, and longer-term observations on one configurable page.
 
 ![Noria Home](assets/en/home-dashboard.png)
@@ -104,7 +106,7 @@ An unfinished task can continue the next day. Noria does not treat rollover as p
 
 The Inbox card shows the current queue, workflow groups, and a small set of actionable items. Its header keeps view switching, queue opening, and add actions. The guide area does not duplicate a second Inbox card.
 
-Today's check-ins and history stay in the Habit card. It shows the last 21 days by default; **… → Card settings → History days** offers 7, 14, 21, 30, 60, or 90 days. Narrow cards scroll horizontally, keep names fixed, and start at today. Click a date cell to backfill a check-in, or a habit name to edit its parameters.
+The Habit card starts with today and separate recent date cells, showing up to seven days on wide cards. Narrow cards reduce historical columns while keeping names and today's controls visible. Numeric habits show today's actual value and unit, including zero. Use the history icon to expand the longer, horizontally scrollable range; click again to return to recent days. The expanded range defaults to 21 days and can be changed in **… → Card settings → History days**. Click a date cell to backfill a check-in, or a habit name to edit its parameters.
 
 ![Home habit history](assets/en/home-habits.png)
 
@@ -383,7 +385,7 @@ Supported behavior includes:
 
 ### 6.3 History And Heatmaps
 
-Home keeps names and today’s controls fixed, with horizontally scrollable history between them. The range includes today exactly once. It starts at 21 days; **… → Card settings → History days** offers 7, 14, 21, 30, 60 and 90. Select a historical cell to backfill that date.
+Home keeps names and today's controls fixed. Recent days fit the card width; the history icon expands the configured range without increasing card height. Expanded history is horizontally scrollable and retains its inspected position through refreshes. The range includes today exactly once; **… → Card settings → History days** offers 7, 14, 21, 30, 60 and 90 days, initially 21. Select a historical cell to backfill that date. Streak counts appear only in expanded historical segments; today's column keeps its actual value or check-in state.
 
 Each habit can have its own icon and color, with a scheduled streak and the actual number of checked-in days this week. Hover the summary for scheduled progress and extra check-ins. Streaks are independent of the visible window. Choose daily or selected weekdays and an effective date for schedule changes. Rest days and recorded pauses do not break a streak; extra check-ins on rest days do not increase it. An unfinished today is not counted as a break. Older habits keep their daily meaning, without inventing past pause intervals.
 
@@ -452,7 +454,7 @@ Heatmaps and daily state grids label their months. Monthly calendars align each 
 
 The homepage habit and workload heatmaps retain their own yearly views and show each year in a cross-year range. Tab enters a day; left/right moves a week, up/down moves a day, and Home/End reaches the year's endpoints. Focus shows a temporary exact readout. New notes use their original creation dates, never weekly or monthly bucket totals. Completed tasks shares the configured task scope and completion dates with Task completion trend: explicit completion dates take priority, daily-note tasks without one use the note date, and tasks without any usable date stay outside day cells. Diary characters counts current non-whitespace content, including properties and Markdown syntax. Later edits change the count; it is not daily writing output.
 
-Activity intensity scales daily completed tasks, new notes and diary characters to their respective daily peaks in the range, weighted 35%, 35% and 30%. Colors and active dates support relative comparisons, not hours worked or productivity; changing the range can change colors and rankings. Mixed scores are no longer displayed as output quantities. Expand How this is calculated for the current metric's definition and the number of completed tasks without a usable date.
+Activity intensity scales daily completed tasks, new notes and diary characters to their respective daily peaks in the range, weighted 35%, 35% and 30%. Colors and active dates support relative comparisons, not hours worked or productivity; changing the range can change colors and rankings. Mixed scores are no longer displayed as output quantities. Open **… → How this is calculated** at the top right of the workload heatmap for the current metric's definition and the number of completed tasks without a usable date. The explanation follows the selected metric. The same menu is available on Home, Diary and custom pages.
 
 Missing values remain distinct from zero and false; lines break across missing dates. Incompatible types or a specified mixed-unit property list the affected sources. Multi-select categories count each note once per category. Select a daily state or a single property source to edit it in place; multiple sources open a note chooser. Writes go to that source, and a changed original value blocks a stale edit. Missing diary dates support backfilling; future actual records are disabled. Summary numbers and task/habit charts show sources rather than writing an aggregate back to one record.
 
@@ -734,7 +736,7 @@ Maintain stage outputs in the project note and connect reusable conclusions to t
 
 ### 11.7 Use Habits And Trends
 
-Use Home for today's check-in and the adjustable history, initially 21 days. Open Trends and Statistics for broader habit history and heatmaps. Trends are more useful during weekly and monthly review than as a daily score.
+Use Home for today's check-in and recent records, expanding longer history when needed. Open Trends and Statistics for broader habit history and heatmaps. Trends are more useful during weekly and monthly review than as a daily score.
 
 ### 11.8 Receive External Briefings
 

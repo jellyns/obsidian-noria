@@ -6,7 +6,7 @@ const H=require("./runtime/views/dashboard/core/utils/habit-parsing.js");
 
 // One dated record control is shared by Diary and older embedded note views.
 // Its caller owns refresh and any in-progress document that must be preserved.
-function renderDiaryHabitRow({parent,plugin,config,record,onSave,compact=false,date="",onSleep,beforeAct}) {
+function renderDiaryHabitRow({parent,plugin,config,record,onSave,compact=false,showValue=false,date="",onSleep,beforeAct}) {
   config={...config};
   for(const key of ["type","target","unit"])if(record?.[key]!=null && record[key]!=="")config[key]=record[key];
   const t=key=>plugin.t("workbench."+key),text=(zh,en)=>plugin.getNoriaLocale()==="zh"?zh:en;
@@ -18,16 +18,13 @@ function renderDiaryHabitRow({parent,plugin,config,record,onSave,compact=false,d
   const title=()=>`${config.name}${date?" · "+date:""}${value()!==""?" · "+value()+(config.unit||""):""}${typed&&config.target?" / "+config.target+(config.unit||""):""}`;
   const button=row.createEl("button",{cls:compact?"clickable-icon noria-habit-cell-button":"noria-habit-value-button",attr:{type:"button"}});
   const paint=()=>{button.title=title();button.setAttribute("aria-label",title());button.setAttribute("aria-pressed",String(!!record?.done));
-    button.dataset.state=record?.done?"done":value()!==""?"partial":"empty";button.empty();
+    button.dataset.state=record?.done?"done":value()!==""?"partial":"empty";button.dataset.showValue=String(showValue&&typed);button.empty();
     button.createSpan({cls:"noria-habit-status",text:record?.done?"✓":""});
+    if(showValue&&typed)button.createSpan({cls:"noria-habit-current-value",text:value()!==""?`${value()}${config.unit?" "+config.unit:""}`:text("记录","Record")});
     if(!compact){require("./picture-picker.js").renderPicture(plugin,button.createSpan({cls:"noria-habit-picture"}),visual.icon);const label=button.createSpan({cls:"noria-habit-label noria-habit-name"});label.createSpan({text:config.name});
       const s=config.summary;if(s)label.createSpan({cls:"noria-habit-streak",text:P.summaryText(s,plugin.getNoriaLocale()==="zh"),attr:{title:P.summaryDetail(s,plugin.getNoriaLocale()==="zh")}});
       if(typed)button.createSpan({cls:"noria-diary-habit-value",text:value()!==""?`${value()}${config.unit||""}`:"—"});}
     if(date){const planned=P.due(config,date);button.dataset.planned=String(planned);if(!planned)button.title+=" · "+text("休息日，可额外记录","Rest day; extra check-in allowed");button.setAttribute("aria-label",button.title);}
-    if(compact&&parent.parentElement?.classList.contains("noria-habit-history-row")){
-      const cells=[...parent.parentElement.children],done=cell=>!!cell?.querySelector('[data-state="done"]');
-      cells.forEach((cell,index)=>{cell.dataset.connectedBefore=String(done(cell)&&done(cells[index-1]));cell.dataset.connectedAfter=String(done(cell)&&done(cells[index+1]));});
-    }
   };paint();
   if(!compact&&config.summary?.historyMissing){const edit=row.createEl("button",{cls:"clickable-icon",attr:{type:"button",title:text("补全开始坚持日期","Set initial start date"),"aria-label":text("补全开始坚持日期","Set initial start date")}});setIcon(edit,"calendar-clock");edit.onclick=()=>new DiaryHabitStore(plugin).manage(config.id||config.name);}
   button.onclick=async()=>{

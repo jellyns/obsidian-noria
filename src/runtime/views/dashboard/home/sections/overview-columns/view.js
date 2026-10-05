@@ -497,7 +497,7 @@
     const titleIcon = document.createElement("span");
     titleIcon.className = "dashboard-card-heading-icon";
     titleIcon.setAttribute("aria-hidden", "true");
-    paintIcon(titleIcon, ({ tasks: "list-checks", inbox: "inbox", countdown: "calendar-clock" })[colOpts.panel] || "layout-dashboard");
+    paintIcon(titleIcon, ({ tasks: "list-todo", inbox: "inbox", countdown: "calendar-clock" })[colOpts.panel] || "layout-dashboard");
     titleEl.prepend(titleIcon);
     titleEl.style.cssText = "font-weight:760;font-size:0.96em;color:var(--dash-heading-text,var(--text-normal));letter-spacing:0.01em;";
     if (renderToolbar) {
@@ -537,7 +537,7 @@
 
   function addToolbarActions(tool, panelIds) {
     if (panelIds.includes("tasks")) {
-      addIconBtn(tool, "layout-dashboard", homeOverviewT("runtime.home.overview.openTasks"), () => openTasksBoard(), { actionKind: "open-tasks-board" });
+      addIconBtn(tool, "list-checks", homeOverviewT("runtime.home.overview.openTasks"), () => openTasksBoard(), { actionKind: "open-tasks-board" });
     }
     if (panelIds.includes("inbox")) {
       addIconBtn(tool, "library", homeOverviewT("runtime.home.overview.openInboxWorkflow"), () => openInboxWorkflow(), { actionKind: "open-inbox-workflow", target: inboxWorkflowPath, variant: "governance" });

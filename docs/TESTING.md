@@ -36,7 +36,7 @@ finishes. Writing a trace into the watched vault can trigger its own invalidatio
 Historical tool runtimes and acceptance artifacts in NoriaTest also make it an unsuitable
 small-vault performance baseline; record that limitation rather than delete old evidence.
 
-## Public embedded runtime
+## Public build scope
 
 `scripts/public-runtime-files.json` declares the runtime files shipped in the public
 bundle. When adding, renaming or removing a public runtime file, update this inventory
@@ -48,8 +48,21 @@ Run `node --test tests/embedded-release-scope.behavior.test.js` to check declare
 and configuration, accidental inclusion, and missing release content in temporary
 fixtures. Then run `npm run release:check` against the actual package.
 
-This inventory covers embedded runtime sources only. It does not yet establish a
-separate self-use build or check the main entry's imports, documentation and resources.
+The main bundle uses `scripts/build-plugin.mjs`. It checks esbuild's resolved inputs
+before writing `main.js`: first-party code and imported assets belong under `src/`,
+and installed dependencies under `node_modules/`. Files outside these roots, including
+directory links to them, stop the build and leave the previous bundle intact. Keep
+self-use code outside the public repository; ignoring a file in Git does not exclude
+it from a bundle. Normal and release builds use the same check.
+
+Run `node --test tests/public-bundle.behavior.test.js` to exercise the actual bundler
+with a working plugin export, accidental private imports and a directory link. These
+fixtures use temporary directories and do not modify the repository's sources.
+
+This validates static bundle inputs, not the meaning of every file. Shared styles
+remain in `styles.css`, partly generated from the declared Home bootstrap source.
+Public source history, documentation, screenshots and examples still require release
+review. No self-use loader or separate self-use build is provided by this check.
 
 ## Reusable installed Timeline smoke
 

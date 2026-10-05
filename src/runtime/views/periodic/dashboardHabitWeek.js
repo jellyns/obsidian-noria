@@ -1090,6 +1090,11 @@ const syncSleepHabitsFromTimeline = async () => {
 };
 
 const wrap = host.createDiv({cls:"noria-habit-history"});
+const viewKey=String(input?.widgetInstanceId||"habit-history");
+const viewState=bridge.diaryHabits.historyViewState?.get(viewKey)||{expanded:false,atRecentEdge:true,scrollLeft:0};
+bridge.diaryHabits.historyViewState?.set(viewKey,viewState);
+wrap.dataset.expanded=String(viewState.expanded);
+const historicalDates=dates.filter(date=>date!==todayKey),decorators=[];
 const completeHistory=bridge.diaryHabits.history?await bridge.diaryHabits.history(activeHabitConfigs):{};
 const plan=bridge.diaryHabits.plan;
 habitActionMirror=wrap;setHabitAttr(wrap,"data-noria-action-source","home-habit-checkin");mirrorHabitAction();
@@ -1098,7 +1103,7 @@ const summary=namesColumn.createDiv({cls:"noria-habit-column-head"});
 const scroll=wrap.createDiv({cls:"noria-habit-scroll",attr:{tabindex:"0",role:"region","aria-label":runtimeT("runtime.home.habits.historyRange")}});
 const history=scroll.createDiv({cls:"noria-habit-history-grid"});history.style.setProperty("--habit-days",String(dates.length-1));
 const historyHeader=history.createDiv({cls:"noria-habit-history-row noria-habit-column-head"});
-for(const date of dates.filter(date=>date!==todayKey))historyHeader.createSpan({text:getDayNumber(date),attr:{title:date}});
+for(const date of historicalDates)historyHeader.createSpan({text:getDayNumber(date),attr:{title:date}});
 const todayColumn=wrap.createDiv({cls:"noria-habit-today"});todayColumn.createDiv({cls:"noria-habit-column-head",text:habitSectionsUseChinese?"今天":"Today"});
 const syncSummary=()=>{const scheduled=habits.filter(name=>!plan||plan.due(habitConfigMap.get(name)||{},todayKey));summary.setText(scheduled.length?runtimeT("runtime.home.habits.todayProgress",{done:scheduled.filter(name=>habitMap.get(name)?.[todayKey]?.done).length,total:scheduled.length}):(habitSectionsUseChinese?"今天休息":"Rest day"));};
 for(const name of habits){
@@ -1110,12 +1115,12 @@ for(const name of habits){
   label.setAttribute("role","button");label.tabIndex=0;label.title=habitSectionsUseChinese?`${name} · 编辑习惯`:`${name} · Edit habit`;
   label.onclick=()=>bridge.diaryHabits.manage(cfg.id||name);label.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();label.click();}};
   const historical=history.createDiv({cls:"noria-habit-history-row"}),cells=[];
-  const decorate=()=>bridge.diaryHabits.decorateHistory(cells,cfg,{...completeHistory[name],...habitMap.get(name)},todayKey);
+  const decorate=()=>bridge.diaryHabits.decorateHistory(cells,cfg,{...completeHistory[name],...habitMap.get(name)},todayKey,viewState.expanded);decorators.push(decorate);
   for(const date of dates){
     const recordMap=habitMap.get(name)||{},config=habitConfigMap.get(name)||{name},record=recordMap[date]||null;
     const parent=date===todayKey?todayColumn.createDiv({cls:"noria-habit-today-cell"}):historical.createDiv();
     cells.push({date,parent});
-    const render=()=>{parent.empty();bridge.diaryHabits.renderRow({parent,config,record:recordMap[date]||null,compact:true,date,
+    const render=()=>{parent.empty();bridge.diaryHabits.renderRow({parent,config,record:recordMap[date]||null,compact:true,showValue:date===todayKey,date,
       beforeAct:()=>{if(date===todayKey)bridge.diaryHabits.assertToday(todayKey);},
       onSave:async(done,value)=>{
         setHabitActionState(parent,"pending");mirrorHabitAction({state:"pending",kind:"toggle-habit-checkin",habit:name,date,path:habitRegistryPath});
@@ -1130,17 +1135,27 @@ for(const name of habits){
   }
   decorate();
 }
-syncSummary();requestAnimationFrame(()=>{if(scroll.isConnected)scroll.scrollLeft=scroll.scrollWidth;});
-// Keep the recent edge visible on resize; respect a manually inspected history position.
+const syncRange=()=>{
+  const recentCount=Math.min(6,Math.max(1,Math.floor((scroll.clientWidth||192)/32)));
+  const count=viewState.expanded?historicalDates.length:Math.min(recentCount,historicalDates.length);
+  wrap.dataset.expanded=String(viewState.expanded);history.style.setProperty("--habit-days",String(count));
+  for(const row of history.children)for(let i=0;i<row.children.length;i++)row.children[i].hidden=i<historicalDates.length-count;
+  if(viewState.atRecentEdge)scroll.scrollLeft=scroll.scrollWidth;else scroll.scrollLeft=viewState.scrollLeft;
+};
+syncSummary();syncRange();requestAnimationFrame(()=>{if(scroll.isConnected)syncRange();});
+// Keep the inspected range across refreshes; resizing recent mode only adjusts its visible days.
 if(typeof input?.registerCleanup==='function'){
-  let atRecentEdge=true;
-  const trackPosition=()=>{atRecentEdge=scroll.scrollWidth-scroll.clientWidth-scroll.scrollLeft<2;};
+  const trackPosition=()=>{viewState.atRecentEdge=scroll.scrollWidth-scroll.clientWidth-scroll.scrollLeft<2;viewState.scrollLeft=scroll.scrollLeft;};
   scroll.addEventListener('scroll',trackPosition);
-  const resize=new scroll.ownerDocument.defaultView.ResizeObserver(()=>{if(atRecentEdge)scroll.scrollLeft=scroll.scrollWidth;});resize.observe(scroll);
+  const resize=new scroll.ownerDocument.defaultView.ResizeObserver(syncRange);resize.observe(scroll);
   input.registerCleanup(()=>{resize.disconnect();scroll.removeEventListener('scroll',trackPosition);});
 }
 const actionsHost=input?.actionsHost||wrap;
 const setIcon=globalThis.dashboardCore?.utils?.applyLucideIcon;
+const rangeBtn=actionsHost.createEl('button',{cls:'clickable-icon dashboard-guide-icon-btn noria-habit-history-toggle',attr:{type:'button'}});
+const syncRangeButton=()=>{const label=viewState.expanded?(habitSectionsUseChinese?"收起历史":"Show recent days"):(habitSectionsUseChinese?`查看近 ${dates.length} 天`:`Show ${dates.length} days`);rangeBtn.title=label;rangeBtn.setAttribute('aria-label',label);rangeBtn.setAttribute('aria-expanded',String(viewState.expanded));};
+if(setIcon)setIcon(rangeBtn,'history');else rangeBtn.setText('↶');syncRangeButton();
+rangeBtn.onclick=()=>{viewState.expanded=!viewState.expanded;viewState.atRecentEdge=true;syncRange();syncRangeButton();decorators.forEach(decorate=>decorate());};
 const sourceBtn=actionsHost.createEl('button',{cls:'clickable-icon dashboard-guide-icon-btn',attr:{type:'button','aria-label':runtimeT('runtime.habits.noActiveAction'),title:runtimeT('runtime.habits.noActiveAction')}});
 if(setIcon)setIcon(sourceBtn,'file-text');else sourceBtn.setText('↗');sourceBtn.onclick=()=>openFilePath(habitRegistryPath);
 const addBtn=actionsHost.createEl("button",{cls:"clickable-icon dashboard-guide-icon-btn dashboard-guide-toolbar-plus",attr:{type:"button",title:runtimeT("runtime.habits.addHabit"),"aria-label":runtimeT("runtime.habits.addHabit")}});

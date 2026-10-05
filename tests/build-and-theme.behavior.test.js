@@ -32,17 +32,11 @@ function assertNoPattern(source, pattern, message) {
   assert.equal(match === null, true, match ? `${message} (line ${source.slice(0, match.index).split('\n').length}: ${match[0].trim()})` : message);
 }
 
-test("package scripts build bundled main.js from src with obsidian external", () => {
+test("package scripts use the checked public build for normal and release builds", () => {
   const pkg = JSON.parse(fs.readFileSync(pluginPath("package.json"), "utf8"));
 
   assert.match(pkg.scripts.build, /build-embedded-runtime\.mjs/);
-  assert.match(pkg.scripts.build, /esbuild src\/main\.js --bundle/);
-  assert.match(pkg.scripts.build, /--platform=node/);
-  assert.match(pkg.scripts.build, /--format=cjs/);
-  assert.match(pkg.scripts.build, /--target=es2018/);
-  assert.match(pkg.scripts.build, /--external:obsidian/);
-  assert.match(pkg.scripts.build, /--outfile=main\.js/);
-  assert.doesNotMatch(pkg.scripts.build, /--minify/);
+  assert.match(pkg.scripts.build, /node scripts\/build-plugin\.mjs/);
   assert.equal(pkg.scripts["build:release"], "npm run build");
   assert.match(pkg.scripts["release:check"], /npm run build:release/);
   assert.match(pkg.scripts["release:check"], /release-check\.mjs/);
