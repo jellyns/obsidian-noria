@@ -37,7 +37,7 @@ test('embedded diary record controls read and update their own period layout',as
   propertyStats:{renderDailySummary:async(_,__,options)=>{received=options;}},
   cards:{layout:()=>layout,updateLayout:async(mode,change)=>{savedMode=mode;change(layout);}}};
  await renderDiaryStatistic(plugin,widget,{createDiv:()=>({dataset:{}})},selection,{register(){}});
- await bridge.runtime.renderDailyRecordSummary({},null,{widgetId:widget.id});
+ await bridge.runtime.renderDailyRecordSummary({closest:()=>null},null,{widgetId:widget.id});
  assert.deepEqual(received.context,{page:'diary',mode:'daily',selection});assert.equal(received.getWidget(widget.id),widget);
  await received.saveWidget({...widget,props:{dailyRecordFields:['sleep']}});assert.equal(savedMode,'daily');assert.deepEqual(layout.widgets[0].props.dailyRecordFields,['sleep']);
 });

@@ -84,12 +84,12 @@ class PropertyStatCards{
     if(["tasks","habits"].includes(source)){
       let rows=[];
       if(source==="tasks"){
-        const {getTaskDate}=require("./runtime/views/dashboard/core/utils/task-display.js");
+        const {getTaskDate,cleanTaskTitle}=require("./runtime/views/dashboard/core/utils/task-display.js");
         const seen=new Set();
         rows=(await this.plugin.getRuntimeTaskRows("tasks")).filter(task=>!/(^|\s)#habit\b/.test(task.text||'')).flatMap(task=>{
           const id=task.id||`${task.path}:${task.line??task.text}`,date=getTaskDate(task,config.calculate==='rate'?(config.cohort||'due'):'done');
           if(seen.has(id)||config.calculate!=='rate'&&!task.completed||range&&(!date||date<range.start||date>range.end))return [];
-          seen.add(id);return [{id,path:task.path,date,done:!!task.completed,properties:{value:1},tags:[],title:task.text}];});
+          seen.add(id);return [{id,path:task.path,date,done:!!task.completed,properties:{value:1},tags:[],title:cleanTaskTitle(task.text),taskRef:{path:task.path,line:task.line,rawText:task.rawText||task.text}}];});
       }else{
         const {readHabitDefinitions}=require('./habit-definition.js'),{DiaryHabitStore}=require('./diary-habits.js'),plan=require('./habit-plan.js');
         const configs=readHabitDefinitions(await this.plugin.loadTextFromVault(this.plugin.getManagedPath('habitRegistry'))).filter(c=>!config.habitId||c.id===config.habitId||c.name===config.habitId);
@@ -171,6 +171,18 @@ class PropertyStatCards{
       }});
     }catch(e){fail(e.message);}
   }
+  async openSource(row){
+    const file=this.app.vault.getAbstractFileByPath(row.path);
+    if(!file)throw Error(this.text('源笔记已移除，请刷新统计。','Source note was removed. Refresh the statistics.'));
+    let opened;
+    if(row.taskRef){
+      const source=await this.app.vault.read(file);let task;
+      try{task=require('./task-document.js').locateTask(source,row.taskRef);}
+      catch{throw Error(this.text('任务已变化或无法唯一定位，请刷新统计后再打开。','The task changed or cannot be located uniquely. Refresh the statistics and try again.'));}
+      opened=await this.plugin.openReviewSourceFile(row.path,{line:task.line+1,newLeaf:true});
+    }else opened=await this.plugin.openHomeSource(row.path);
+    if(!opened?.ok)throw Error(this.text('无法打开来源，请检查笔记后重试。','Could not open the source. Check the note and try again.'));
+  }
   openRows(rows,result,title="",excluded=false){
     const modal=new Modal(this.app);const untrack=this.plugin.cards.trackModal(modal);modal.onClose=untrack;modal.setTitle(title||this.text("参与统计的记录","Source records"));
     const daily=result.sourceNotes!=null;
@@ -178,7 +190,11 @@ class PropertyStatCards{
     modal.contentEl.createDiv({cls:'noria-card-secondary',text:summary+(result.missing?this.text(` · ${result.missing} 项未填`,` · ${result.missing} missing values`):'')});
     if(result.range)modal.contentEl.createDiv({cls:'noria-card-secondary',text:formatStatRange(result.range,this.plugin.getNoriaLocale())});
     const list=modal.contentEl.createDiv({cls:"noria-record-list"});
-    const renderRow=(parent,row)=>{const b=parent.createEl("button",{cls:"noria-record-open",text:(row.fieldName?row.fieldName+' · ':'')+(row.title||row.path||row.date)});b.disabled=!row.path;b.onclick=()=>this.app.workspace.openLinkText(row.path,"",true);if(row.title&&row.date)b.createSpan({cls:'noria-card-secondary',text:row.date});const error=row.reason==='unsupported-category'?this.text('分类值需为文本、数字、开关或它们的列表','Categories need text, numbers, booleans or lists of these'):row.reason==='non-numeric'?this.text('该值不是有效数字','This value is not a valid number'):row.error;if(error)b.createSpan({cls:"noria-card-secondary",text:error});};
+    const status=modal.contentEl.createDiv({cls:'noria-card-error',attr:{role:'alert'}});status.hidden=true;
+    const renderRow=(parent,row)=>{const b=parent.createEl("button",{cls:"noria-record-open",text:(row.fieldName?row.fieldName+' · ':'')+(row.title||row.path||row.date),attr:{type:'button',title:row.path||''}});b.disabled=!row.path;
+      b.onclick=async()=>{b.disabled=true;status.hidden=true;try{await this.openSource(row);modal.close();}catch(error){status.setText(error.message);status.hidden=false;}finally{b.disabled=!row.path;}};
+      const detail=[row.title&&row.date,row.taskRef&&row.path].filter(Boolean).join(' · ');if(detail)b.createSpan({cls:'noria-card-secondary',text:detail});
+      const error=row.reason==='unsupported-category'?this.text('分类值需为文本、数字、开关或它们的列表','Categories need text, numbers, booleans or lists of these'):row.reason==='non-numeric'?this.text('该值不是有效数字','This value is not a valid number'):row.error;if(error)b.createSpan({cls:"noria-card-secondary",text:error});};
     if(daily&&(result.invalid.length||result.unreadable.length)){
       const details=list.createEl('details',{cls:'noria-stat-source-issues'});details.open=!rows.length;
       const counts=[result.invalid.length?this.text(`${result.invalid.length} 项字段未纳入`,`${result.invalid.length} excluded field values`):'',result.unreadable.length?this.text(`${result.unreadable.length} 篇笔记未读取`,`${result.unreadable.length} unread notes`):''].filter(Boolean);
@@ -192,16 +208,18 @@ class PropertyStatCards{
     const {CardCatalog}=require("./card-catalog.js"),modal=new CardCatalog(this.plugin.cards,context);
     modal.onOpen=()=>{modal.modalEl.addClass("noria-card-catalog");modal.edit({id:`card-${crypto.randomUUID()}`,type:"extension",source:"noria:statistics",title:field.name,size:"medium",enabled:true,order:Date.now(),props:{source:"diary",property:field.property,calculate:field.type==="number"||field.type==="level"?"mean":"distribution",display:field.type==="number"||field.type==="level"?"trend":"bars",scope:"follow"}});};modal.open();
   }
-  async renderDailySummary(host,range,{widgetId,fields:configuredFields,context={page:"home"},getWidget=id=>this.plugin.settings.home?.widgets?.find(w=>w.id===id),saveWidget=widget=>this.plugin.cards.saveHome(widget)}={}){
+  async renderDailySummary(host,range,{widgetId,fields:configuredFields,context={page:"home"},headerTools,getWidget=id=>this.plugin.settings.home?.widgets?.find(w=>w.id===id),saveWidget=widget=>this.plugin.cards.saveHome(widget)}={}){
     host.addClass("noria-daily-record-card");
-    const {Component}=require("obsidian"),component=new Component();component.load();let generation=0,timer;const viewState={};
+    const {Component}=require("obsidian"),component=new Component();component.load();let generation=0,timer,renderedHeader;const viewState={};
     const paint=async()=>{const serial=++generation,definitions=this.plugin.records.definitions(),available=definitions.filter(f=>f.enabled!==false);
-      const shell=host.closest(".dashboard-home-widget-shell"),widget=getWidget(widgetId||shell?.dataset.noriaWidgetId);
+      const shell=host.closest(".dashboard-home-widget-shell,.noria-diary-card"),widget=getWidget(widgetId||shell?.dataset.noriaWidgetId);
       const selected=widget?.props?.dailyRecordFields??configuredFields,chosen=Array.isArray(selected)?available.filter(f=>selected.includes(f.id)):available;
-      const fields=(chosen.length?chosen:available).slice(0,3);
+      const fields=chosen.slice(0,3);
       const results=await Promise.all(fields.map(field=>this.query({source:"diary",property:field.property,calculate:["number","level"].includes(field.type)?"mean":"distribution",display:["number","level"].includes(field.type)?"trend":"bars",...(range?{scope:"fixed",start:range.start,end:range.end}:{scope:"follow"})})));
-      if(serial!==generation)return;const active=host.ownerDocument.activeElement,focused=host.contains(active)?active?.dataset?.recordField:null,focusedLabel=active?.classList.contains("noria-daily-series-label");host.empty();
-      const head=host.createDiv({cls:"noria-card-heading"});const title=head.createDiv({cls:"dashboard-panel-title"});setIcon(title.createSpan({cls:"dashboard-card-heading-icon"}),"chart-no-axes-combined");title.createSpan({text:this.text("日常记录","Daily records")});
+      if(serial!==generation)return;const active=host.ownerDocument.activeElement,focused=host.contains(active)||renderedHeader?.contains(active)?active?.dataset?.recordField:null,focusedLabel=active?.classList.contains("noria-daily-series-label");host.empty();
+      renderedHeader?.remove();const head=renderedHeader=(headerTools||host).createDiv({cls:"noria-card-heading"});
+      if(headerTools)headerTools.insertBefore(head,headerTools.querySelector('.noria-diary-card-menu'));
+      else{const title=head.createDiv({cls:"dashboard-panel-title"});setIcon(title.createSpan({cls:"dashboard-card-heading-icon"}),"chart-no-axes-combined");title.createSpan({text:this.text("日常记录","Daily records")});}
       const dateControl=head.createEl("button",{cls:"noria-daily-record-date",attr:{type:"button","data-record-field":"selected-date","aria-haspopup":"dialog"}});
       const picker=widget&&available.length?iconButton(head,"sliders-horizontal",this.text("选择显示项目","Choose displayed fields"),()=>recordPopover(picker,this.text("显示项目 · 最多三项","Display up to three fields"),(pop,close)=>{
         const ids=new Set(fields.map(f=>f.id)),choices=[];
@@ -215,15 +233,15 @@ class PropertyStatCards{
       })):null;
       if(fields.length){const period=range||results[0].range,summary=dailySources(results,fields),issues=summary.invalid.length||summary.unreadable.length;
         const source=iconButton(head,'list',issues?this.text('汇总与来源 · 有未纳入的记录','Summary & sources · Some records were excluded'):this.text('汇总与来源','Summary & sources'),()=>this.openRows(summary.rows,{...summary,range:period},this.text('汇总与来源','Summary & sources')));
-        source.classList.toggle('has-source-issues',!!issues);this.drawDailySeries(host,fields,results,period,viewState,dateControl,context);if(focused)[...host.querySelectorAll("[data-record-field]")].find(el=>el.dataset.recordField===focused&&el.classList.contains("noria-daily-series-label")===focusedLabel)?.focus({preventScroll:true});}
+        source.classList.toggle('has-source-issues',!!issues);this.drawDailySeries(host,fields,results,period,viewState,dateControl,context);if(focused)[...head.querySelectorAll("[data-record-field]"),...host.querySelectorAll("[data-record-field]")].find(el=>el.dataset.recordField===focused&&el.classList.contains("noria-daily-series-label")===focusedLabel)?.focus({preventScroll:true});}
       dateControl.hidden=!fields.length;
-      if(!fields.length){const empty=host.createDiv({cls:"noria-card-empty"});empty.createDiv({text:this.text("还没有显示的记录项目。","No record fields are shown yet.")});
-        const add=empty.createEl("button",{text:definitions.length?this.text("选择记录项目","Choose record fields"):this.text("添加记录项目","Add a record field"),cls:"noria-review-text-action",attr:{type:"button"}});add.onclick=()=>this.plugin.records.manage(!definitions.length,context);}
+      if(!fields.length){const empty=host.createDiv({cls:"noria-card-empty"});empty.createDiv({text:!definitions.length?this.text("还没有记录项目。","No record fields yet."):!available.length?this.text("记录项目均已停用。","All record fields are disabled."):this.text("选择要显示的记录项目。","Choose fields to display.")});
+        const add=empty.createEl("button",{text:picker?this.text("选择记录项目","Choose record fields"):definitions.length?this.text("管理项目","Manage fields"):this.text("添加记录项目","Add a record field"),cls:"noria-review-text-action",attr:{type:"button"}});add.onclick=()=>picker?picker.click():this.plugin.records.manage(!definitions.length,context);}
       if(shell)shell._noriaConfigureWidget=()=>this.plugin.records.manage(false,context);
     };const safePaint=()=>paint().catch(e=>{host.empty();host.createDiv({cls:"noria-card-empty",text:e.message});});await safePaint();const refresh=()=>{clearTimeout(timer);timer=setTimeout(()=>void safePaint(),180);};
     let definitionsSignature=JSON.stringify(this.plugin.records.definitions());
     component.register(this.plugin.cards.subscribe(()=>{const next=JSON.stringify(this.plugin.records.definitions());if(next!==definitionsSignature){definitionsSignature=next;refresh();}}));
-    component.registerEvent(this.app.metadataCache.on("changed",refresh));component.registerEvent(this.app.vault.on("delete",refresh));component.register(()=>{++generation;clearTimeout(timer);});return ()=>component.unload();
+    component.registerEvent(this.app.metadataCache.on("changed",refresh));component.registerEvent(this.app.vault.on("delete",refresh));component.register(()=>{++generation;clearTimeout(timer);renderedHeader?.remove();});return ()=>component.unload();
   }
   drawDailySeries(host,fields,results,range,viewState={},dateControl,context={page:"home"}){
     const {dates,series}=alignDailyRecords(results,range),count=dates.length;

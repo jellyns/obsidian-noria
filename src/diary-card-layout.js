@@ -37,6 +37,8 @@ class DiaryCardLayout {
   visibleIds(){return this.layout.order.filter(id=>this.cards.get(id)?.available&&!this.layout.cards[id].hidden);}
   openMenu(id,anchor){
     const widget=this.layout.widgets.find(item=>item.id===id),actions=[];
+    const manage=this.cards.get(id)?.host._noriaConfigureWidget;
+    if(manage)actions.push({label:this.system.text("管理内容","Manage contents"),icon:"list",run:manage});
     if(id==="habits")actions.push({label:this.system.text("管理习惯","Manage habits"),icon:"list",run:()=>this.workbench.diary.habitStore.manage()});
     if(widget)actions.push({label:this.system.text("卡片设置","Card settings"),run:()=>this.system.catalog({page:"diary",mode:this.mode,selection:this.selection},id)});
     if(!widget)actions.push({label:this.system.text("更换图样","Change picture"),icon:"image",run:()=>new (require("./picture-picker.js").PicturePicker)(this.plugin,this.layout.cards[id]?.picture,async value=>{await this.change(id,"picture",value);require("./picture-picker.js").renderPicture(this.plugin,this.cards.get(id).host.querySelector(".noria-card-heading-icon"),value||({focus:"star",tasks:"list-todo",habits:"circle-check"})[id]);}).open()});

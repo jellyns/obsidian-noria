@@ -425,7 +425,7 @@ This chart shows total task activity, completed tasks, and completion rate. Comp
 
 Note Distribution groups notes by top-level vault directory, not by tags. It helps reveal long-term content distribution and is not a score for how many folders you have.
 
-### 7.6 Daily State
+### 7.6 Daily Records
 
 Unrecorded daily fields show their icon and name. Categories have state icons; scales use visual segments. In **Configure records → Edit → State appearance**, change each state's label, icon and color while retaining its original stored value. Use a separate field for a different property, type, unit or scale range so old records keep their meaning.
 
@@ -435,11 +435,15 @@ Diary uses compact, field-colored controls that save a selection immediately. Ho
 
 Values live in the date note’s native properties. Disabling a field preserves history; renaming its display label keeps the property key. Use a separate field for a different unit or type so old values retain their meaning. Review material includes the configured names, units and values for the selected period.
 
+“Choose displayed fields → Manage fields” and “… → Manage contents” open the same field list. Disabling a selected field preserves the card’s choice without substituting another field. Re-enabling restores it, and statistics can still read historical values. An empty card offers field selection or management when all fields are disabled. Diary choices are saved separately for daily, weekly, monthly and yearly layouts; statistics added from a record stay on the current page.
+
 ![Custom records and statistics](assets/en/daily-state.png)
 
 ### 7.7 Custom Statistics Cards
 
 Choose “Add statistics card” from a record to prefill its property, or select Statistics in the card catalog and start from a record, folder, task or habit template. Configure Source → Field and calculation → Time range → Display, alongside a preview of actual data. Open matched counts and source details from the top-right chart button. Additional filters cover subfolders, tags, property conditions and grouping.
+
+Task sources show the title, date and file path. Selecting one closes the list and focuses the current task line, even after surrounding paragraphs move it. Changed or ambiguous tasks prompt you to refresh the statistics. Ordinary note sources reuse an open tab; missing sources do not create empty notes.
 
 Use count, sum, mean, minimum, maximum or category distribution, or reuse task and habit statistics. Diary cards follow the selected period; Home follows its shared range. A card can instead use fixed or all dates. Trends for ordinary notes require an event-date property or an explicit file creation / modification date. A current category is not a history of changes.
 

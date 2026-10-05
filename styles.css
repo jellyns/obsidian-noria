@@ -12568,8 +12568,8 @@ button.noria-settings-tab {
 .noria-daily-series-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .noria-daily-series-label .noria-daily-series-value{grid-column:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .noria-daily-record-card button.noria-daily-series-label:hover:not(:disabled){background:var(--background-modifier-hover);}
-.noria-daily-record-card button.noria-daily-record-date{flex:none;min-height:28px;height:auto;padding:4px 6px;box-shadow:none;border:0;background:transparent;color:var(--text-muted);font-size:var(--font-ui-smaller);font-weight:var(--font-normal);font-variant-numeric:tabular-nums;white-space:nowrap;}
-.noria-daily-record-card button.noria-daily-record-date:hover{color:var(--text-normal);background:var(--background-modifier-hover);}
+.noria-card-heading button.noria-daily-record-date{flex:none;min-height:28px;height:auto;padding:4px 6px;box-shadow:none;border:0;background:transparent;color:var(--text-muted);font-size:var(--font-ui-smaller);font-weight:var(--font-normal);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.noria-card-heading button.noria-daily-record-date:hover{color:var(--text-normal);background:var(--background-modifier-hover);}
 .noria-daily-series-value{width:100%;padding-left:22px;color:var(--text-muted);font-size:var(--font-ui-smaller);font-variant-numeric:tabular-nums;}
 .noria-daily-record-card button.noria-daily-series-chart{position:relative;display:block;min-width:0;width:100%;height:38px;box-shadow:none;border:0;padding:0;border-radius:4px;background:transparent;}
 .noria-daily-record-card button.noria-daily-series-chart.is-numeric{height:68px;}
@@ -13048,6 +13048,7 @@ button.noria-settings-tab {
 .noria-workbench-finish-layout:not([hidden])+.noria-workbench-layout{margin-inline-start:0;}
 
 .noria-diary-statistic { width:100%; min-width:0; }
+.noria-diary-statistic .noria-daily-record-card { border:0; border-radius:0; padding:0; height:auto; }
 .noria-diary-statistic .dashboard-home-root { display:block; padding:0; }
 .noria-diary-statistic .dashboard-home-root > div { width:100%; min-width:0; }
 

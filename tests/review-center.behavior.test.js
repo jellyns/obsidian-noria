@@ -674,11 +674,6 @@ test("home review frame and idle gates recover when host callbacks are dropped d
   assert.ok(idleBlock.indexOf("setTimeout(finish, 1000)") < idleBlock.indexOf("idle(finish"));
 });
 
-test("daily records and statistics share property sources and open source notes in new tabs",()=>{
- const view=fs.readFileSync(pluginPath("src/property-stat-cards.js"),"utf8"),controls=fs.readFileSync(pluginPath("src/daily-state-controls.js"),"utf8");
- assert.match(view,/openLinkText\(row.path,"",true\)/);assert.match(controls,/plugin.records.render/);
-});
-
 test("daily state writeback stores metadata in frontmatter and removes visible inline fields", () => {
   const diary = loadDiaryBlocks();
   const input = [

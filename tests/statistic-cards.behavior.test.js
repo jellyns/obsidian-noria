@@ -28,6 +28,25 @@ test('habit denominator follows dated plans, skips rests and future dates',async
  const r=await new (load())(p).query({source:'habits',calculate:'rate',scope:'fixed',start:'2026-09-21',end:'2026-09-27'});
  assert.equal(r.denominator,2);assert.equal(r.numerator,1);assert.equal(r.value,50);
 });
+
+test('task statistics retain source identity and locate the current line after surrounding edits',async()=>{
+ const p=plugin(),raw='- [x] Done [completion:: 2026-09-20]',path='Projects/Work.md',opened=[];
+ p.getRuntimeTaskRows=async()=>[{id:'done',path,line:2,text:raw,rawText:raw,completed:true}];
+ let source='## Tasks\n\n'+raw+'\n';p.app.vault.read=async()=>source;
+ p.openReviewSourceFile=async(...args)=>{opened.push(args);return {ok:true};};
+ const stats=new (load())(p),result=await stats.query({source:'tasks',calculate:'count',scope:'fixed',start:'2026-09-01',end:'2026-09-23'}),row=result.rows[0];
+ assert.ok(row.taskRef,'Task sources must retain their original identity');assert.deepEqual(JSON.parse(JSON.stringify(row.taskRef)),{path,line:2,rawText:raw});assert.equal(row.title,'Done');
+ source='# Added context\n\n'+source;await stats.openSource(row);
+ assert.deepEqual(JSON.parse(JSON.stringify(opened[0])),[path,{line:5,newLeaf:true}]);
+ source+='\n'+raw;await assert.rejects(()=>stats.openSource(row),/changed|uniquely/);assert.equal(opened.length,1);
+});
+
+test('statistics source navigation reuses ordinary notes and refuses missing sources',async()=>{
+ const p=plugin(),opened=[];p.openHomeSource=async path=>{opened.push(path);return {ok:true};};
+ const stats=new (load())(p);await stats.openSource({path:'Diary/2026-09-20.md'});assert.deepEqual(opened,['Diary/2026-09-20.md']);
+ p.app.vault.getAbstractFileByPath=()=>null;
+ await assert.rejects(()=>stats.openSource({path:'Missing.md'}),/Source note/);assert.equal(opened.length,1);
+});
 test('arbitrary property editing writes its source and rejects stale values',async()=>{
  const p=plugin(),field={property:'v',name:'Value',type:'number'};let raw='---\nv: 2\nother: keep\n---\n\nBody',editor,writePath;
  p.records={definitions:()=>[field],read:(text)=>parseYaml(text).v,edit:(anchor,f,options)=>{editor=options;}};
