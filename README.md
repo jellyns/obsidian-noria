@@ -147,8 +147,8 @@ Noria is designed around a simple knowledge-work loop:
 
 1. Install and enable **Noria** from `Settings -> Community plugins`.
 2. Open `Settings -> Noria -> Overview` and choose **Standard workspace** for a new vault or **Custom paths** for an existing vault.
-3. Review the initialization preview, then create only the missing starter files you want. The examples are ordinary Markdown and can be edited or removed at any time.
-4. Open **Home** and follow one sample task from the dashboard to its source note, then inspect the same task in **Task Board** or **Task Timeline**.
+3. Review the initialization preview and create the missing registries, templates and entry notes you need. Initialization does not add sample completions or check-ins.
+4. Open **Home**, add a real next step to the **Noria Workspace** project, and open its source note. Use the task editor, Day view or Timeline when you want to arrange a date or time.
 5. Adjust diary paths, templates, modules, and Home widgets only when you need a different structure.
 
 Noria can create diary notes from its task and review flows, and it also works with Obsidian's core Templates plugin or calendar-style plugins that create dated notes from templates. Use whichever diary creation flow fits your vault best; Noria only needs the diary root and template paths to be configured correctly.

@@ -181,6 +181,7 @@ function loadPluginClass(obsidianOverrides = {}) {
       }
       if (["./runtime/views/task-timeline/time-window.js","./timeline-stream-model.js"].includes(id)) return require("../src/"+id.slice(2));
       if (id === "./timeline-workspace.js") return {TimelineWorkspace:class {}};
+      if (id === "./inbox-seeds.js") return require("../src/inbox-seeds.js");
       if (id === "./review-document.js") return require("../src/review-document.js");
       if (id === "./review-workspace.js") return { ReviewWorkspace: class {} };
       if (id === "./workbench.js") return { NoriaWorkbench: class {} };

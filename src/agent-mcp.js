@@ -17,8 +17,11 @@ function createToolServer(getApi, version) {
     mode: z.enum(["last30", "week", "month", "year", "custom"]).optional(),
     anchor: date.optional(), start: date.optional(), end: date.optional()
   }).strict().refine(r => r.mode !== "custom" || (!!r.start && !!r.end), "Custom range requires start and end");
+  const reviewSelection=z.object({mode:z.enum(['daily','weekly','monthly','yearly']),anchorDate:date,yearlyVariant:z.enum(['month','week']).optional()}).strict();
   const tools = [
     ["noria_capabilities", "Discover implemented Noria operations and their limits.", z.object({}).strict(), true, api => api.capabilities()],
+    ['noria_reviews_read','Read the saved review and separate analysis Markdown for one explicit calendar period. Uses configured diary/Calendar paths, excludes unsaved recovery drafts and unrelated diary sections, and creates no files.',reviewSelection,true,(api,args)=>api.reviews.read(args)],
+    ['noria_reviews_prepare','Prepare the selected period using the same material and prompt as the review UI. Returns the reading material and prompt directly, plus generated evidence/material/prompt paths and the separate analysis destination. Writes only preparation files; does not invoke an Agent, create analysis or adopt it into the final review.',reviewSelection,false,(api,args)=>api.reviews.prepare(args)],
     ["noria_tasks_list", "Query tasks in Noria's configured scope. Returns source refs for updates; defaults to the last 30 days.", z.object({
       range: range.optional(), status: z.enum(["all", "open", "done", "cancelled"]).optional(),
       bucketBy: z.enum(["active", "timeline", "board"]).optional(),

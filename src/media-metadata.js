@@ -29,6 +29,11 @@ function mediaMetadata(value, kind, {allowClear = false} = {}) {
     } else if (['source', 'cover', 'publish'].includes(key)) {
       if (typeof raw !== 'string' || !raw.trim() || /[\r\n]/.test(raw)) throw fail('invalid-input', `Invalid ${key}`);
       result[key] = raw.trim();
+      if (key === 'cover' && !/^https?:\/\//i.test(result[key])) {
+        const reference = result[key].replace(/^!?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/, '$1');
+        if (/^[\/\\]|[:\\\[\]\x00-\x1f]/.test(reference) || reference.split('/').some(part => !part || part === '..' || part === '.') || !/\.(?:png|jpe?g|webp|gif|avif|svg)$/i.test(reference)) throw fail('invalid-input', 'Use a vault image path, wikilink, or HTTP(S) cover URL');
+        continue;
+      }
       if (key !== 'publish') {
         let url; try { url = new URL(raw); } catch (_) { throw fail('invalid-input', `Invalid ${key} URL`); }
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw fail('invalid-input', `Invalid ${key} URL`);

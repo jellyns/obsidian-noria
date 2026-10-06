@@ -3196,6 +3196,22 @@
 .noria-media-shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,110px),1fr));gap:18px 12px;align-items:start;padding:3px;}
 .noria-media-work{display:flex;flex-direction:column;gap:4px;min-width:0;padding:4px;border-radius:var(--radius-s);}
 .noria-media-work:hover{background:var(--background-modifier-hover);}
+.noria-media-work{position:relative;}
+.noria-media .noria-media-edit-details{position:absolute;top:6px;right:6px;width:28px;height:28px;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);}
+.noria-media .noria-media-edit-details:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:2px;}
+.noria-media-shelf[data-display="list"] .noria-media-work{padding-right:38px;}
+.noria-record-popover.noria-media-metadata-editor{width:min(400px,calc(100vw - 16px));border-radius:var(--radius-m,8px);}
+.noria-media-metadata-fields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:0 12px;}
+.noria-media-metadata-fields>.noria-card-field{grid-column:1/-1;min-width:0;}
+.noria-media-metadata-fields>[data-field="isbn"],.noria-media-metadata-fields>[data-field="pagecount"]{grid-column:auto;}
+.noria-media-selected-edition{margin-top:12px;overflow-wrap:anywhere;font-size:var(--font-ui-smaller);}
+.noria-media-proposal{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:var(--font-ui-smaller);color:var(--text-muted);}
+.noria-media-proposal>span{flex:1;min-width:0;overflow-wrap:anywhere;}
+.noria-media-proposal>button{flex-shrink:0;height:auto;padding:2px 6px;font-size:inherit;box-shadow:none;}
+.noria-media-field-change{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:var(--font-ui-smaller);}
+.noria-media-field-change>span{flex:1;min-width:0;overflow-wrap:anywhere;}
+.noria-media-field-change>button{flex-shrink:0;height:auto;padding:2px 6px;font-size:inherit;box-shadow:none;}
+
 .noria-media button.noria-media-open{display:flex;flex-direction:column;align-items:stretch;gap:9px;width:100%;height:auto;min-width:0;padding:0;box-shadow:none;background:transparent;border:0;border-radius:var(--radius-s);color:var(--text-normal);text-align:left;white-space:normal;font-size:var(--font-ui-small);font-weight:400;}
 .noria-media button.noria-media-open:focus-visible,.noria-media button.noria-media-position:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:1px;}
 .noria-media button.noria-media-position{align-self:flex-start;min-height:24px;height:auto;max-width:100%;padding:2px 0;box-shadow:none;border:0;background:transparent;white-space:normal;text-align:left;}

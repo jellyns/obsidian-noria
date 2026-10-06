@@ -27,6 +27,46 @@ function filesUnder(root) {
   return out;
 }
 
+function checkMediaDemo(root) {
+  const {normalizePages} = require('../src/workbench-pages.js');
+  const {listMedia} = require('../src/media-catalog.js');
+  const data = JSON.parse(read(root, '.obsidian/plugins/noria/data.json'));
+  const pages = normalizePages(data.workbenchPages);
+  const page = pages.pages.find(page => page.id === 'page-media');
+  assert.ok(page && !page.hidden, 'demo needs a visible media page');
+  assert.equal(pages.defaultPage, 'home');
+  const card = page.widgets.find(card => card.source === 'noria:media');
+  assert.ok(card && card.enabled);
+  const directory = path.join(root, ...card.props.folder.split('/'));
+  const files = filesUnder(directory).filter(file => file.endsWith('.md')).map(file => ({
+    path: path.relative(root, file).replace(/\\/g, '/'), basename: path.basename(file, '.md')
+  }));
+  // Generated demo values are JSON scalars/arrays, a subset of YAML; native parsing is checked separately.
+  const values = new Map(files.map(file => {
+    const fm = read(root, file.path).split('---')[1];
+    return [file.path, Object.fromEntries(fm.trim().split('\n').map(line => {
+      const colon = line.indexOf(':'); return [line.slice(0, colon), JSON.parse(line.slice(colon + 1))];
+    }))];
+  }));
+  const plugin = {normalizePath: value => value, filesUnderRoots: () => files,
+    app: {vault: {getAbstractFileByPath: folder => folder === card.props.folder ? {children: []} : null},
+      metadataCache: {getFileCache: file => ({frontmatter: values.get(file.path)})}}};
+  const all = listMedia(plugin, {folder: card.props.folder});
+  const current = listMedia(plugin, {folder: card.props.folder, status: card.props.status});
+  assert.equal(all.total, 5);
+  assert.equal(current.total, 3);
+  assert.deepEqual(current.items.flatMap(item => item.kinds).sort(), ['book', 'game', 'movie']);
+  const book = current.items.find(item => item.kinds.includes('book'));
+  assert.equal(book.properties.pageprogress, 36);
+  assert.equal(book.properties.pagecount, 160);
+  assert.equal(listMedia(plugin, {folder: card.props.folder, kind: 'book'}).total, 2);
+  for (const item of all.items) {
+    for (const field of ['rating', 'grade', 'finishedAt', 'playtime', 'viewtime']) assert.equal(field in item.properties, false);
+    assert.ok(item.tags.includes('noria-demo'));
+  }
+  assert.match(read(root, 'README.md'), /36/);
+}
+
 function demoInventory(root) {
   const contentRoots = ["00_Inbox", "01_Projects", "02_Areas", "03_Resources", "04_Archives", "05_MOC", "06_Diary", "99_Attachment"];
   const files = contentRoots.flatMap((name) => filesUnder(path.join(root, name)));
@@ -116,18 +156,27 @@ test("release demo vault is isolated, installable, and populated with current IP
   assert.ok((habits.match(/\[completion::/g) || []).length >= 40);
   assert.match(read(target, "02_Areas/Noria/Countdowns.md"), /Draft review/);
   const inboxWorkflow = read(target, "02_Areas/Noria/Inbox workflow.md");
-  assert.match(inboxWorkflow, /\| Triage \| `triage` \|/);
-  assert.match(inboxWorkflow, /Completion is not a fourth status/);
-  assert.match(inboxWorkflow, /not a separate default stage/);
-  assert.doesNotMatch(inboxWorkflow, /\| Closed \||`closed`/);
-  assert.doesNotMatch(inboxWorkflow, /- defer: postpone/);
+  assert.match(inboxWorkflow, /inbox-work/);
+  assert.match(inboxWorkflow, /Assigning SI does not yet start execution/);
+  assert.doesNotMatch(inboxWorkflow, /`triage`|`processing`|`ready`|inbox-review/);
+  const queue = read(target, "02_Areas/Noria/Inbox queue.base");
+  assert.match(queue, /note.inbox-work/);
+  assert.doesNotMatch(queue, /inbox-status|inbox-next/);
   assert.equal(fs.readdirSync(path.join(target, "06_Diary", "2026")).filter((name) => /^\d{4}-\d{2}-\d{2}\.md$/.test(name)).length, 90);
 
   const allText = fs.readdirSync(path.join(target, "00_Inbox"))
     .map((name) => read(target, `00_Inbox/${name}`))
     .join("\n");
-  assert.doesNotMatch(allText, /inbox-status: "deferred"/);
-  assert.match(allText, /inbox-status: "triage"[\s\S]*inbox-action: "defer"/);
+  assert.doesNotMatch(allText, /inbox-(?:status|action|shape|next|review):/);
+  const assignments = fs.readdirSync(path.join(target, "00_Inbox")).map(name => {
+    const raw=read(target, `00_Inbox/${name}`), match=/^inbox-work: (.+)$/m.exec(raw);
+    return {work:match?JSON.parse(match[1]):""};
+  });
+  const {selectItems, actionCount}=require("../src/inbox-card-model.js");
+  assert.equal(selectItems(assignments,"SI").length,1);
+  assert.equal(actionCount(assignments,"SI","提炼"),1);
+  assert.equal(selectItems(assignments,"我").length,2);
+  assert.equal(assignments.filter(item=>!item.work).length,1);
   assert.doesNotMatch(allText, /WENO|ZFD|Library|jellyns/i);
 });
 
@@ -166,11 +215,9 @@ test("release demo vault can generate an equivalent Simplified Chinese fixture",
   assert.match(read(target, "02_Areas/Noria/Countdowns.md"), /初稿评审/);
   assert.match(read(target, "02_Areas/Noria/Quotes.md"), /知识不在书中/);
   const inboxWorkflow = read(target, "02_Areas/Noria/Inbox workflow.md");
-  assert.match(inboxWorkflow, /\| 判断去留 \| `triage` \|/);
-  assert.match(inboxWorkflow, /处理完成不是第四个状态/);
-  assert.match(inboxWorkflow, /不是独立的默认阶段/);
-  assert.doesNotMatch(inboxWorkflow, /\| 已关闭 \||`closed`/);
-  assert.doesNotMatch(inboxWorkflow, /- defer：暂缓/);
+  assert.match(inboxWorkflow, /inbox-work/);
+  assert.match(inboxWorkflow, /选择 SI 目前只保存安排/);
+  assert.doesNotMatch(inboxWorkflow, /`triage`|`processing`|`ready`|inbox-review/);
 
   const englishParent = fs.mkdtempSync(path.join(os.tmpdir(), "noria-demo-equivalent-en-"));
   const englishTarget = path.join(englishParent, "vault");
@@ -180,6 +227,8 @@ test("release demo vault can generate an equivalent Simplified Chinese fixture",
   });
   assert.equal(englishResult.status, 0, englishResult.stderr || englishResult.stdout);
   assert.deepEqual(demoInventory(target), demoInventory(englishTarget));
+  checkMediaDemo(target);
+  checkMediaDemo(englishTarget);
   const inventory = demoInventory(target);
   assert.equal(inventory.diaries, 90);
   assert.equal(inventory.inbox, 4);

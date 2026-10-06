@@ -4,6 +4,7 @@ const {iconButton} = require('./card-controls.js');
 const {listMedia} = require('./media-catalog.js');
 const {readMedia} = require('./media-record.js');
 const {mediaEditor} = require('./media-editor.js');
+const {mediaMetadataEditor} = require('./media-metadata-editor.js');
 const {mediaIntake} = require('./media-intake-ui.js');
 
 function bookPosition(item, text) {
@@ -77,6 +78,7 @@ function registerMediaCard(system) {
         if (disposed) return;
         const scroll = viewport.scrollTop, focusedPath = shelf.contains(container.ownerDocument.activeElement) ? container.ownerDocument.activeElement.dataset.path : null;
         const focusedEdit = shelf.contains(container.ownerDocument.activeElement) ? container.ownerDocument.activeElement.dataset.editPath : null;
+        const focusedMetadata = shelf.contains(container.ownerDocument.activeElement) ? container.ownerDocument.activeElement.dataset.metadataPath : null;
         const needle = search.value.trim().toLocaleLowerCase();
         const matches = items.filter(item => (!kind || item.kinds.includes(kind)) && (!status || item.properties.status === status) &&
           (!needle || [item.title, item.properties.author, item.properties.director].flat().filter(v => typeof v === 'string').join(' ').toLocaleLowerCase().includes(needle)));
@@ -124,6 +126,23 @@ function registerMediaCard(system) {
               finally { position.disabled = false; }
             };
           }
+          if (!context.preview && item.kinds.includes('book')) {
+            const details = iconButton(work, 'file-pen-line', text('编辑作品资料', 'Edit work details'), async () => {
+              if (editing) return; editing = true; details.disabled = true;
+              let changed = false;
+              try {
+                const state = await readMedia(plugin, {path: item.path});
+                if (disposed || !details.isConnected) { editing = false; return; }
+                closeEditor = mediaMetadataEditor(plugin, details, state, {preferredImage: item.properties.image,
+                  onSaved: result => { changed = result.changed; const row = items.find(row => row.path === result.path); if (row) Object.assign(row.properties, result.properties); if (!editing && !disposed) paint(); },
+                  onClose: focus => finishEditing(focus, changed)
+                });
+              } catch (error) { editing = false; new Notice(error.message); }
+              finally { details.disabled = false; }
+            });
+            details.classList.add('noria-media-edit-details'); details.dataset.metadataPath = item.path;
+            details.setAttribute('aria-haspopup', 'dialog');
+          }
           if (detail) button.setAttribute('aria-describedby', id);
           button.onclick = () => Promise.resolve().then(() => context.preview
             ? plugin.propertyStats.openRows([{path: item.path, title: item.title}], {recorded: 1, summary: ''}, item.title, false, {preview: true})
@@ -142,6 +161,7 @@ function registerMediaCard(system) {
         viewport.scrollTop = scroll;
         if (focusedPath) [...shelf.querySelectorAll('button[data-path]')].find(button => button.dataset.path === focusedPath)?.focus({preventScroll: true});
         if (focusedEdit) ([...shelf.querySelectorAll('button[data-edit-path]')].find(button => button.dataset.editPath === focusedEdit) || search).focus({preventScroll: true});
+        if (focusedMetadata) ([...shelf.querySelectorAll('[data-metadata-path]')].find(button => button.dataset.metadataPath === focusedMetadata) || search).focus({preventScroll: true});
       };
       const reload = () => {
         if (disposed) return;

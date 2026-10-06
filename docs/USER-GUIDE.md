@@ -54,7 +54,7 @@ Initialization supplies the workspace files and entrances without synthetic comp
 - Task Timeline loads without opening Task Board first.
 - Calendar creates period notes under the configured path.
 - Habit, countdown, project, and MOC entries open their source files.
-- Review is available from the workbench navigation and supports Day, Week, Month, and Year.
+- Open Diary from the top navigation and switch to Review; Day, Week, Month and Year are available.
 - Weather is off in a fresh installation. The first explicit workspace initialization enables it; later repairs preserve the user's choice. Configure a location or provider only when weather is needed.
 
 ## 2. Home
@@ -74,7 +74,7 @@ Home is Noria's central workbench, not a fixed collection of features. It organi
 The default first screen is organized as:
 
 1. Identity, quote, weather, and overview metrics.
-2. Top navigation for Home and Diary, with Day and Calendar links; Page settings provides Add a card and Edit layout.
+2. Top navigation for Home and Diary, with Day and Calendar links; Page settings provides Add a card to this page and Arrange cards on this page.
 3. Today Tasks, Inbox, and Countdown cards.
 4. Projects and MOC entrances.
 5. Trends and Statistics; reviews are available from Diary.
@@ -104,7 +104,9 @@ An unfinished task can continue the next day. Noria does not treat rollover as p
 
 ### 2.4 Inbox
 
-The Inbox card shows the current queue, workflow groups, and a small set of actionable items. Its header keeps view switching, queue opening, and add actions. The guide area does not duplicate a second Inbox card.
+Inbox lists inputs in your Inbox folder. Filter by Me / SI and action in the header. Click an item to read its source, or hold and drag it to a side action to assign work. The queue Base shares the same inbox-work property. Keep requests in the source note; assigning SI does not start an external assistant. See [Process Inbox](#113-process-inbox) for the steps.
+
+### Habit Card
 
 The Habit card starts with today and separate recent date cells, showing up to seven days on wide cards. Narrow cards reduce historical columns while keeping names and today's controls visible. Numeric habits show today's actual value and unit, including zero. Use the history icon to expand the longer, horizontally scrollable range; click again to return to recent days. The expanded range defaults to 21 days and can be changed in **… → Card settings → History days**. Click a date cell to backfill a check-in, or a habit name to edit its parameters.
 
@@ -130,9 +132,9 @@ Project management lists names and stages before opening a single item for editi
 
 ### 2.7 Home Widgets
 
-Use **+** on the Home action bar or Diary toolbar to add built-in functions, a note / Base, statistics or an available third-party component. Configure the card with a preview of real content; restore hidden cards from the same catalog.
+Open **Page settings → Add a card to this page** at the right of the top navigation to add built-in functions, a note / Base, statistics or an available third-party component. Home, Diary and custom pages share this entry. Configure the card with a preview of real content; restore hidden cards from the same catalog.
 
-Choose **Add statistics · Start with a template**, then browse Recommended, All styles or My templates. Dashboard statistics includes the overview, note and task trends, habit history, both yearly heatmaps, tag distribution and daily records. These retain their existing metrics and interactions, can be added to Home or custom pages, and can be saved as personal templates. Their diary-period support is pending, so diary galleries explain and disable them. The eleven basic chart types each have a default setup; record templates use configured fields where available. Choose a property if no suitable state field exists. Gallery drawings illustrate styles; the editor previews real data. Recent days includes today, and switching basic charts keeps the date range and filters. Templates store configuration without copying source data; removing one leaves existing cards intact. Ready-made dashboard cards retain their existing range and metric settings rather than offering arbitrary data-source substitution.
+Choose **Statistics templates** at the top right of the card catalog, then browse Recommended, All styles or My templates. Dashboard statistics includes the overview, note and task trends, habit history, both yearly heatmaps, tag distribution and daily records. These retain their existing metrics and interactions, can be added to Home or custom pages, and can be saved as personal templates. The overview, note and task trends, both heatmaps and daily records also work in Diary, following the selected day, week, month or year by default. Tag distribution reflects the current library and stays on Home or custom pages; Diary uses its existing habit card. The gallery explains these two restrictions. The eleven basic chart types each have a default setup; record templates use configured fields where available. Choose a property if no suitable state field exists. Gallery drawings illustrate styles; the editor previews real data. Recent days includes today, and switching basic charts keeps the date range and filters. Templates store configuration without copying source data; removing one leaves existing cards intact. Ready-made dashboard cards retain their existing range and metric settings rather than offering arbitrary data-source substitution.
 
 Segmented composition restores the earlier percentage strip as a configurable chart. It uses your current record property, supports Follow page for daily/weekly/monthly/yearly notes, and opens the corresponding records from a segment or category detail. Missing values are excluded; overlapping categories and negative values cannot form exclusive shares. Use counts, sums or distributions rather than averages or extrema. The same renderer also serves legacy periodic distributions.
 
@@ -156,15 +158,17 @@ Markdown widgets can read daily briefings, current suggestions, weekly reviews, 
 
 ### Media library card
 
-Choose **Add a card → Media library**, select the folder containing your works, and apply. Subfolders are included by default. Works use existing `book`, `movie` / `tv` / `anime`, or `game` tags; list and template notes beginning with `清单-` or `模板-` are excluded. The default status is `进行中`, matching the current Library records; change it to your own stored status, or leave it empty for all works.
+Choose **Page settings → Add a card to this page → Media library**, select the folder containing your works, and apply. Subfolders are included by default. Works use existing `book`, `movie` / `tv` / `anime`, or `game` tags; list and template notes beginning with `清单-` or `模板-` are excluded. The default status filter is `进行中` (in progress). In card settings, replace it with the status your notes use, or leave it empty for all works.
 
 Search titles or creators, filter by type and stored status, and click a work to open its original note. The card retains its current filters when opening a source; metadata changes refresh the collection. Choose covers or a compact list in card settings. Local and existing HTTP(S) cover links are supported, with `image` taking precedence over `cover`. Missing images retain the title and type icon. Book pages are a current position, not reading volume; ratings and experience dates are not inferred. Click the status or page position to edit the current status and, for books, the current page. Save changes explicitly; competing status or page edits require reopening the editor. Configuration previews remain read-only. Dated experiences remain planned.
 
 Use **＋ Add a work** on the right to enter its title, type and an existing destination folder. Choose a subfolder within the card scope; duplicate lookup covers the whole card folder. Matching works show their original paths and open directly. Choose **Add a separate edition** and a free filename when it really is another edition. A matching ISBN or source edition still returns the original record. After creation the card reveals the new work; an omitted status does not become “in progress.” Dismissing or cancelling retains temporary input in the current card; it is not a persistent draft across page changes.
 
-For books, enter a title, ISBN or Open Library link and choose **Find details**. Title results lead to specific editions. Expand **Work details** to review or edit the author, publisher, publication text, ISBN, page count and source/cover links before adding. Author names are resolved from the edition’s author identifiers. If any remain unavailable, the author field explains what is missing and still allows manual entry or correction. Starting a new search clears the previously selected edition details. Manual title entry remains available when lookup fails or you discard its details. Film/TV and game intake is currently manual. This batch still awaits installation in the test vault and native acceptance.
+For books, enter a title, ISBN or Open Library link and choose **Find details**. Title results lead to specific editions. Expand **Work details** to review or edit the author, publisher, publication text, ISBN, page count and source/cover links before adding. Author names are resolved from the edition’s author identifiers. If any remain unavailable, the author field explains what is missing and still allows manual entry or correction. Starting a new search clears the previously selected edition details. Manual title entry remains available when lookup fails or you discard its details. Film/TV and game intake is currently manual.
 
-This development batch passed 60 isolated browser checks. Native Obsidian acceptance is pending; it has not yet been installed in NoriaTest.
+Use the **Edit work details** icon at the top right of a book to change its author, publisher, ISBN, page count and publication text. Expand **Source and cover** for links. Changed fields show their original values and a restore action. Save writes only changed fields, preserving status, current page, ratings and prose; clearing an input clears that field. Covers accept vault image paths, wikilinks or HTTP(S) links. A hint appears when the original `image` property takes display priority. A conflicting metadata edit keeps your input visible so you can check the source before reopening. Expand **Find edition details** to search by title, ISBN or Open Library link. Select a specific edition, compare each supplied value, and choose **Use** for the fields you want. Selection alone does not replace any input or write the note. A new query clears the suggestions but keeps your edits and adopted values; the source URL is also a separate choice.
+
+The media features in this section are part of the development version. Isolated checks have passed; native Obsidian acceptance is pending.
 
 ## 3. Task Board
 
@@ -518,6 +522,8 @@ Tasks in review previews are read-only. Open the source to change them. Legacy e
 
 ### 8.4 Evidence And External Agents
 
+The development API also exposes `reviews.read` and `reviews.prepare` through the built-in MCP connection. An external assistant can read the saved review and prepare the selected period’s material without navigating the UI; preparation does not start the assistant or change your final review. See [Review API](AGENT-API.md#reviews-and-reading-material). Native acceptance of these public operations remains pending.
+
 Noria prepares local evidence JSON and prompts but does not call a model inside the plugin. From **Reference → Analysis**, prepare the evidence, run your external workflow, then refresh to inspect its review note.
 
 The prompt points to a `.material.json` file containing original prose, relevant task/state facts, and a source index. The full evidence JSON remains available for checking a specific gap. Monthly material prefers adopted weekly reviews; yearly material prefers monthly reviews, with daily records when lower reviews are missing. Executable view blocks and repeated statistics are omitted from the reading material; authored text is retained.
@@ -710,7 +716,7 @@ Noria does not require every module to be used every day.
 
 ### 11.2 Capture Quickly
 
-- Use Home Capture or **Noria: Quick note** for today; use the Diary icon for the selected date.
+- Use **Noria: Quick note** for today or the Diary icon for the selected date. Timeline also provides quick-note input.
 - Use Task when the item is already actionable.
 
 ### 11.3 Process Inbox
@@ -770,7 +776,7 @@ Inspect task, project, habit, Daily State, and trend evidence. Separate complete
 ### 11.11 Minimal Use
 
 ```text
-capture on Home -> choose the next task -> update Markdown -> review when useful
+capture a note -> choose a task -> update Markdown -> review when useful
 ```
 
 ## 12. FAQ And Troubleshooting

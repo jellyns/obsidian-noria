@@ -2,7 +2,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const {createRequire} = require('node:module');
 const filename = path.resolve(__dirname, '../src/media-card.js'), local = createRequire(filename), entry = {exports: {}};
-vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {module: entry, URL, require: id => ['obsidian', './card-controls.js', './media-record.js', './media-editor.js', './media-intake-ui.js'].includes(id) ? {} : local(id)});
+vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {module: entry, URL, require: id => ['obsidian', './card-controls.js', './media-record.js', './media-editor.js', './media-metadata-editor.js', './media-intake-ui.js'].includes(id) ? {} : local(id)});
 const {bookPosition, coverSource} = entry.exports, text = (_, en) => en;
 
 test('book position reports stored pages without converting corrections or unknown totals into activity', () => {

@@ -80,3 +80,16 @@ test('actual MCP metadata update exposes a separate revision and preserves the p
  const result=await client.callTool({name:'noria_media_update_metadata',arguments:{path:read.path,revision:read.metadataRevision,patch:{author:'Known Author',pagecount:96}}});
  assert.equal(result.isError,undefined);assert.deepEqual(result.structuredContent.properties.author,['Known Author']);assert.equal(result.structuredContent.properties.pageprogress,20);assert.equal(parse(f.raw).rating,0);
 });
+
+
+test('book cover edits accept existing vault image references and web URLs',async()=>{
+ const f=fixture();
+ for(const cover of ['99_Attachment/书籍/封面.jpg','[[99_Attachment/另一版.png|封面]]','https://example.com/cover.jpg']) {
+  const ref=await f.api.media.read({path:f.file.path});
+  const result=await f.api.media.updateMetadata({path:ref.path,revision:ref.metadataRevision,patch:{cover}});
+  assert.equal(result.properties.cover,cover);assert.equal(result.properties.pageprogress,20);
+ }
+ const ref=await f.api.media.read({path:f.file.path}),raw=f.raw;
+ for(const cover of ['../outside.jpg','C:/cover.jpg','file:///C:/cover.jpg','javascript:alert(1)','not-an-image.md']) await assert.rejects(f.api.media.updateMetadata({path:ref.path,revision:ref.metadataRevision,patch:{cover}}),e=>e.code==='invalid-input');
+ assert.equal(f.raw,raw);
+});

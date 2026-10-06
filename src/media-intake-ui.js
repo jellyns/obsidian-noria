@@ -1,7 +1,7 @@
 "use strict";
 const {Notice} = require('obsidian');
 const {recordPopover} = require('./record-popover.js');
-const {lookupMedia} = require('./media-lookup.js');
+const {mediaLookupResults, editionMetadata} = require('./media-lookup-ui.js');
 const {createMedia} = require('./media-intake.js');
 
 function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClose}) {
@@ -53,34 +53,13 @@ function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClos
     const actions = form.createDiv({cls: 'noria-record-actions'});
     const cancel = actions.createEl('button', {text: text('取消', 'Cancel'), attr: {type: 'button'}}); cancel.onclick = () => close();
     const save = actions.createEl('button', {cls: 'mod-cta', text: text('添加', 'Add'), attr: {type: 'submit'}});
-    let busy = false, lookupSerial = 0;
-    const invalidateLookup=()=>{lookupSerial++;find.disabled=false;lookupStatus.setText('');candidates.empty();};
+    let busy = false;
+    const {search,invalidate:invalidateLookup}=mediaLookupResults(plugin,{host,find,status:lookupStatus,candidates,isBusy:()=>busy,onChoose:item=>choose(item),text});
     const choose = item => {
       invalidateLookup();draft.version=Symbol();title.value=draft.title=item.title;
-      draft.metadata={source:item.source.url};
-      for(const key of ['isbn','publish','pagecount','cover'])if(item[key] && (!Array.isArray(item[key])||item[key].length))draft.metadata[key]=item[key];
-      if(item.publishers?.length)draft.metadata.publisher=item.publishers;
-      if(item.authors?.length)draft.metadata.author=item.authors;
+      draft.metadata=editionMetadata(item);
       draft.authorNotice=!item.authorIds?.length?'missing':item.unresolvedAuthorIds?.length?'unavailable':'';
       draft.separate=false;renderMetadata();metadata.open=false;metadataSummary.focus();
-    };
-    const search = async (query, offset=0, append=false) => {
-      if(busy || !query.trim())return;
-      const serial=++lookupSerial;find.disabled=true;lookupStatus.setText(text('正在查询…','Searching…'));if(!append)candidates.empty();
-      try {
-        const result=await lookupMedia(plugin,{kind:'book',query,offset,limit:5});
-        if(!host.isConnected||serial!==lookupSerial||busy)return;
-        lookupStatus.setText(result.candidates.length?text('选择作品或版本','Choose a work or edition'):text('没有找到，可直接填写名称后添加。','No matches. You can still add a title manually.'));
-        for(const item of result.candidates){
-          const button=candidates.createEl('button',{cls:'noria-media-match',attr:{type:'button'}});
-          button.createEl('strong',{text:item.title});
-          const detail=item.level==='work'?[...(item.contributors||[]).slice(0,2),item.editionCount?text(`${item.editionCount} 个版本`,`${item.editionCount} editions`):'']:[...(item.authors||[]).slice(0,2),...(item.publishers||[]),item.publish,...(item.languages||[]),item.pagecount?text(`${item.pagecount} 页`,`${item.pagecount} pages`):'',item.isbn?.[0]];
-          button.createSpan({cls:'noria-card-secondary',text:detail.filter(Boolean).join(' · ')});
-          button.onclick=()=>{if(busy)return;item.level==='work'?search(item.source.url):choose(item);};
-        }
-        if(result.nextOffset!==null){const more=candidates.createEl('button',{text:text('更多版本或作品','More results'),attr:{type:'button'}});more.onclick=()=>{more.remove();search(query,result.nextOffset,true);};}
-      }catch(e){if(host.isConnected&&serial===lookupSerial)lookupStatus.setText(e.code==='rate-limited'?text('来源暂时限流，可稍后再查或手动填写。','The source is rate-limited. Try later or enter details manually.'):text('暂时无法查询，可重试或手动填写。','Unable to search. Retry or enter details manually.'));}
-      finally{if(host.isConnected&&serial===lookupSerial)find.disabled=false;}
     };
     find.onclick=()=>{if(!title.value.trim())return;draft.version=Symbol();draft.separate=false;clearMetadata();matches.empty();error.setText('');search(title.value.trim());};find.hidden=kind.value!=='book';
     const remember = () => { draft.version = Symbol(); draft.title = title.value; draft.kind = kind.value; draft.folder = folder.value; draft.filename = filename.value; matches.empty(); error.setText(''); };

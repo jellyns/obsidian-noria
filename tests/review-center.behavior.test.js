@@ -2609,3 +2609,28 @@ test("daily review AI analysis uses markdown preview and ignores seed artifacts"
   assert.doesNotMatch(styles, /\.noria-review-llm-grid\b/);
   assert.doesNotMatch(styles, /\.noria-review-llm-card\b/);
 });
+
+
+test("public review preparation returns persisted material and keeps each period and yearly variant separate", async () => {
+  const notices=[],plugin=makeAiPlugin({notices}),api=require('../src/public-api.js').createPublicApi(plugin);
+  const cache='.obsidian/plugins/noria/cache/stats/review/2026';
+  const cases=[['daily',undefined,'2026-10-06'],['weekly',undefined,'2026-W41'],['monthly',undefined,'2026-10'],['yearly','month','2026.month'],['yearly','week','2026.week']];
+  const results=[];
+  plugin.readReviewPromptTemplate=async()=>'';
+  for(const [mode,yearlyVariant,key] of cases){
+    const request={mode,anchorDate:'2026-10-06',...(yearlyVariant?{yearlyVariant}:{})};
+    plugin.getFullReviewEvidence=async selection=>({mode,period:selection.period,evidenceHash:key,evidencePath:`${cache}/${key}.json`,evidence:{},materialSources:{records:[{path:`Sources/${key}.md`,text:`Record ${key}`}],references:[],reads:[]}});
+    plugin.resolveReviewAnalysisArtifactPath=async()=>`Custom/${key}-review.md`;
+    const result=await api.reviews.prepare(request);results.push(result);
+    assert.equal(result.promptPath,`${cache}/${key}.prompt.md`);
+    assert.equal(result.readingPath,`${cache}/${key}.material.json`);
+    const saved=plugin.__writes.findLast(item=>item.path===result.readingPath);
+    assert.deepEqual(JSON.parse(saved.text),JSON.parse(JSON.stringify(result.material)));
+    assert.equal(result.material.payload.records[0].text,`Record ${key}`);
+    assert.equal(plugin.__writes.findLast(item=>item.path===result.promptPath).text,result.prompt+'\n');
+    assert.ok(result.prompt.includes(result.readingPath));assert.ok(result.prompt.includes(result.artifactPath));
+  }
+  assert.equal(new Set(results.map(result=>result.promptPath)).size,5);
+  assert.equal(plugin.__writes.length,15);assert.ok(plugin.__writes.every(write=>write.path.startsWith(cache+'/')));
+  assert.equal(notices.length,0,'external preparation does not display UI toasts');
+});
