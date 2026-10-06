@@ -6,11 +6,12 @@ const {createMedia} = require('./media-intake.js');
 
 function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClose}) {
   draft.version = Symbol();
-  const clearDraft = version => { if (draft.version === version) { draft.title = ''; draft.filename = ''; delete draft.metadata; delete draft.separate; } };
+  const clearDraft = version => { if (draft.version === version) { draft.title = ''; draft.filename = ''; delete draft.metadata; delete draft.separate; delete draft.authorNotice; } };
   const text = (zh, en) => plugin.getNoriaLocale() === 'zh' ? zh : en;
   return recordPopover(anchor, text('添加作品', 'Add a work'), (host, close) => {
     host.addClass('noria-media-editor');
     const form = host.createEl('form');
+    form.noValidate = true;
     const field = (label, tag = 'input', attr = {}) => {
       const row = form.createEl('label', {cls: 'noria-card-field'}); row.createSpan({text: label});
       return row.createEl(tag, {attr: {'aria-label': label, ...attr}});
@@ -31,16 +32,22 @@ function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClos
     const filename = field(text('文件名', 'Filename'), 'input', {type: 'text'}); filename.value = draft.filename || ''; filename.parentElement.hidden = !draft.filename;
     const metadata = form.createEl('details', {cls:'noria-media-details'});
     const metadataSummary=metadata.createEl('summary',{text:text('作品资料','Work details')});
-    const metadataInputs = {};
+    const metadataInputs = {}; let authorHint;
     for(const [key,zh,en] of [['isbn','ISBN','ISBN'],['author','作者','Author'],['publisher','出版社','Publisher'],['publish','出版日期','Published'],['pagecount','总页数','Pages'],['source','来源链接','Source URL'],['cover','封面链接','Cover URL']]) {
       const row=metadata.createEl('label',{cls:'noria-card-field'});row.createSpan({text:text(zh,en)});
       const input=row.createEl('input',{attr:{'aria-label':text(zh,en),type:key==='pagecount'?'number':'text',...(key==='pagecount'?{min:'1',step:'1'}:{})}});
       metadataInputs[key]=input;
-      input.addEventListener('input',()=>{draft.version=Symbol();draft.metadata ||= {};const value=input.value.trim();if(value)draft.metadata[key]=key==='pagecount'?Number(value):['isbn','author','publisher'].includes(key)?value.split('；').map(x=>x.trim()).filter(Boolean):value;else delete draft.metadata[key];});
+      if(key==='author'){authorHint=row.createSpan({cls:'noria-card-secondary',text:text('部分作者资料未取得，可手动补充。','Some author details are unavailable; you can enter them here.'),attr:{id:`${listId}-authors`}});input.setAttribute('aria-describedby',authorHint.id);}
+      input.addEventListener('input',()=>{draft.version=Symbol();draft.metadata ||= {};const value=input.value.trim();if(value)draft.metadata[key]=key==='pagecount'?Number(value):['isbn','author','publisher'].includes(key)?value.split('；').map(x=>x.trim()).filter(Boolean):value;else delete draft.metadata[key];if(key==='author'){delete draft.authorNotice;updateMetadataSummary();}});
     }
-    const clearMetadata=()=>{delete draft.metadata;metadata.hidden=true;};
+    const clearMetadata=()=>{delete draft.metadata;delete draft.authorNotice;authorHint.hidden=true;for(const input of Object.values(metadataInputs))input.value='';metadata.hidden=true;metadata.open=false;};
     const removeMetadata=metadata.createEl('button',{text:text('不使用这些资料','Remove these details'),attr:{type:'button'}});removeMetadata.onclick=()=>{draft.version=Symbol();clearMetadata();};
-    const renderMetadata=()=>{metadata.hidden=!draft.metadata;metadataSummary.setText([text('作品资料','Work details'),[draft.metadata?.publisher].flat().filter(Boolean).join('、'),draft.metadata?.pagecount?text(`${draft.metadata.pagecount} 页`,`${draft.metadata.pagecount} pages`):''].filter(Boolean).join(' · '));for(const [key,input] of Object.entries(metadataInputs))input.value=Array.isArray(draft.metadata?.[key])?draft.metadata[key].join('；'):draft.metadata?.[key]??'';};renderMetadata();
+    const updateMetadataSummary=()=>{
+      authorHint.hidden=!draft.authorNotice;
+      authorHint.setText(draft.authorNotice==='missing'?text('来源未提供作者，可手动补充。','The source has no author details; you can enter them here.'):text('部分作者资料未取得，可手动补充。','Some author details are unavailable; you can enter them here.'));
+      metadataSummary.setText([text('作品资料','Work details'),[draft.metadata?.publisher].flat().filter(Boolean).join('、'),draft.metadata?.pagecount?text(`${draft.metadata.pagecount} 页`,`${draft.metadata.pagecount} pages`):'',draft.authorNotice?text('作者信息不全','Author details incomplete'):''].filter(Boolean).join(' · '));
+    };
+    const renderMetadata=()=>{metadata.hidden=!draft.metadata;updateMetadataSummary();for(const [key,input] of Object.entries(metadataInputs))input.value=Array.isArray(draft.metadata?.[key])?draft.metadata[key].join('；'):draft.metadata?.[key]??'';};renderMetadata();
     const matches = form.createDiv({cls: 'noria-media-matches'});
     const error = form.createDiv({cls: 'noria-card-error', attr: {role: 'alert'}});
     const actions = form.createDiv({cls: 'noria-record-actions'});
@@ -53,6 +60,8 @@ function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClos
       draft.metadata={source:item.source.url};
       for(const key of ['isbn','publish','pagecount','cover'])if(item[key] && (!Array.isArray(item[key])||item[key].length))draft.metadata[key]=item[key];
       if(item.publishers?.length)draft.metadata.publisher=item.publishers;
+      if(item.authors?.length)draft.metadata.author=item.authors;
+      draft.authorNotice=!item.authorIds?.length?'missing':item.unresolvedAuthorIds?.length?'unavailable':'';
       draft.separate=false;renderMetadata();metadata.open=false;metadataSummary.focus();
     };
     const search = async (query, offset=0, append=false) => {
@@ -65,7 +74,7 @@ function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClos
         for(const item of result.candidates){
           const button=candidates.createEl('button',{cls:'noria-media-match',attr:{type:'button'}});
           button.createEl('strong',{text:item.title});
-          const detail=item.level==='work'?[...(item.contributors||[]).slice(0,2),item.editionCount?text(`${item.editionCount} 个版本`,`${item.editionCount} editions`):'']:[...(item.publishers||[]),item.publish,...(item.languages||[]),item.pagecount?text(`${item.pagecount} 页`,`${item.pagecount} pages`):'',item.isbn?.[0]];
+          const detail=item.level==='work'?[...(item.contributors||[]).slice(0,2),item.editionCount?text(`${item.editionCount} 个版本`,`${item.editionCount} editions`):'']:[...(item.authors||[]).slice(0,2),...(item.publishers||[]),item.publish,...(item.languages||[]),item.pagecount?text(`${item.pagecount} 页`,`${item.pagecount} pages`):'',item.isbn?.[0]];
           button.createSpan({cls:'noria-card-secondary',text:detail.filter(Boolean).join(' · ')});
           button.onclick=()=>{if(busy)return;item.level==='work'?search(item.source.url):choose(item);};
         }
@@ -73,11 +82,13 @@ function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClos
       }catch(e){if(host.isConnected&&serial===lookupSerial)lookupStatus.setText(e.code==='rate-limited'?text('来源暂时限流，可稍后再查或手动填写。','The source is rate-limited. Try later or enter details manually.'):text('暂时无法查询，可重试或手动填写。','Unable to search. Retry or enter details manually.'));}
       finally{if(host.isConnected&&serial===lookupSerial)find.disabled=false;}
     };
-    find.onclick=()=>search(title.value.trim());find.hidden=kind.value!=='book';
+    find.onclick=()=>{if(!title.value.trim())return;draft.version=Symbol();draft.separate=false;clearMetadata();matches.empty();error.setText('');search(title.value.trim());};find.hidden=kind.value!=='book';
     const remember = () => { draft.version = Symbol(); draft.title = title.value; draft.kind = kind.value; draft.folder = folder.value; draft.filename = filename.value; matches.empty(); error.setText(''); };
     for (const input of [title, kind, folder, filename]) input.addEventListener(input === kind ? 'change' : 'input', () => {remember();if(input===title||input===kind){invalidateLookup();draft.separate=false;}if(input===kind){find.hidden=kind.value!=='book';if(kind.value!=='book')clearMetadata();}});
     form.onsubmit = async event => {
-      event.preventDefault(); if (busy || !form.reportValidity()) return;
+      event.preventDefault(); if (busy) return;
+      if (Object.values(metadataInputs).some(input=>!input.validity.valid)) metadata.open=true;
+      if (!form.reportValidity()) return;
       const destination = plugin.normalizePath(folder.value.trim()).replace(/\/$/, '');
       if (destination !== root && !destination.startsWith(root + '/')) { error.setText(text('请选择作品目录或其子目录。', 'Choose the media folder or one of its subfolders.')); return; }
       const version = draft.version;
@@ -96,7 +107,7 @@ function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClos
           close(); onCreated(result, reveal);
           if (!reveal) new Notice(text(`已收录 ${result.title}`, `Added ${result.title}`));
         } else if (host.isConnected) {
-          matches.createDiv({cls: 'noria-card-secondary', text: text('已有同名作品', 'Matching works already exist')});
+          matches.createDiv({cls: 'noria-card-secondary', text: text('已有作品', 'Matching works already exist')});
           for (const item of result.matches) {
             const button = matches.createEl('button', {cls: 'noria-media-match', attr: {type: 'button'}});
             button.createEl('strong', {text: item.title}); button.createSpan({cls: 'noria-card-secondary', text: item.path});
@@ -107,7 +118,7 @@ function mediaIntake(plugin, anchor, {root, draft, onCreated, openSource, onClos
             separate.onclick=()=>{draft.version=Symbol();draft.separate=true;filename.parentElement.hidden=false;filename.focus();separate.remove();};
           }
           matches.querySelector('button')?.focus();
-        } else new Notice(text('已有同名作品；重新打开添加入口可选择原记录。', 'Matching works exist. Reopen Add to choose the original.'));
+        } else new Notice(text('已有作品；重新打开添加入口可选择原记录。', 'Matching works exist. Reopen Add to choose the original.'));
       } catch (e) {
         if (host.isConnected) {
           error.setText(e.code === 'not-found' ? text('目录不存在，请选择已有目录。', 'Folder not found. Choose an existing folder.') : e.code === 'conflict' ? text('文件名已被占用，请换一个文件名或打开原笔记。', 'The filename is taken. Choose another filename or open the original note.') : e.message);

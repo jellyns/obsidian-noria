@@ -50,3 +50,33 @@ test('actual MCP media read and update share source-preserving write and conflic
  const result=await client.callTool({name:'noria_media_update',arguments:request});assert.equal(result.structuredContent.properties.pageprogress,60);assert.equal(result.isError,undefined);
  const stale=await client.callTool({name:'noria_media_update',arguments:request});assert.equal(stale.isError,true);assert.equal(stale.structuredContent.error.code,'conflict');
 });
+
+
+test('metadata updates preserve independent progress, personal notes and scores',async()=>{
+ const f=fixture(),ref=await f.api.media.read({path:f.file.path});assert.equal(typeof ref.metadataRevision,'string');
+ f.raw=f.raw.replace('pageprogress: 20','pageprogress: 30')+'A later personal paragraph.\r\n';
+ const result=await f.api.media.updateMetadata({path:ref.path,revision:ref.metadataRevision,patch:{author:['Known Author'],publisher:'Known Publisher',pagecount:96,isbn:'0140328726'}});
+ assert.equal(result.changed,true);assert.deepEqual(Array.from(result.properties.author),['Known Author']);assert.deepEqual(Array.from(result.properties.publisher),['Known Publisher']);assert.equal(result.properties.pageprogress,30);
+ assert.ok(f.raw.includes('rating: 0\r\n# Keep the original comment\r\nother: "keep"'));assert.ok(f.raw.endsWith('A later personal paragraph.\r\n'));assert.doesNotMatch(f.raw,/finishedAt|reading_volume/);
+ const same=f.raw;assert.equal((await f.api.media.updateMetadata({path:ref.path,revision:result.metadataRevision,patch:{author:['Known Author']}})).changed,false);assert.equal(f.raw,same);
+ const cleared=await f.api.media.updateMetadata({path:ref.path,revision:result.metadataRevision,patch:{publisher:null}});assert.equal(cleared.properties.publisher,null);assert.deepEqual(Array.from(cleared.properties.author),['Known Author']);
+});
+
+test('metadata revisions guard concurrent facts without blocking independent progress updates',async()=>{
+ const f=fixture(),ref=await f.api.media.read({path:f.file.path});
+ await f.api.media.updateMetadata({path:ref.path,revision:ref.metadataRevision,patch:{author:'A'}});
+ const raw=f.raw;await assert.rejects(f.api.media.updateMetadata({path:ref.path,revision:ref.metadataRevision,patch:{author:'B'}}),e=>e.code==='conflict');assert.equal(f.raw,raw);
+ assert.equal((await f.api.media.update({path:ref.path,revision:ref.revision,patch:{pageprogress:40}})).properties.pageprogress,40);
+ const current=await f.api.media.read({path:ref.path}),before=f.raw;
+ for(const patch of [{rating:5},{status:'已读'},{pageprogress:10},{author:[]},{pagecount:0},{isbn:'9780140328722'}])await assert.rejects(f.api.media.updateMetadata({path:ref.path,revision:current.metadataRevision,patch}),e=>e.code==='invalid-input');
+ assert.equal(f.raw,before);
+ const game=fixture('game'),g=await game.api.media.read({path:game.file.path});await assert.rejects(game.api.media.updateMetadata({path:g.path,revision:g.metadataRevision,patch:{author:'Someone'}}),e=>e.code==='invalid-input');
+});
+
+test('actual MCP metadata update exposes a separate revision and preserves the personal record',async t=>{
+ const f=fixture(),connection=createAgentConnection({getApi:()=>f.api,version:'test'});t.after(()=>connection.dispose());
+ const endpoint=await connection.start(),client=new Client({name:'media-metadata',version:'1'});await client.connect(new StreamableHTTPClientTransport(new URL(endpoint.url),{requestInit:{headers:{Authorization:`Bearer ${endpoint.token}`}}}));t.after(()=>client.close());
+ const read=(await client.callTool({name:'noria_media_read',arguments:{path:f.file.path}})).structuredContent;
+ const result=await client.callTool({name:'noria_media_update_metadata',arguments:{path:read.path,revision:read.metadataRevision,patch:{author:'Known Author',pagecount:96}}});
+ assert.equal(result.isError,undefined);assert.deepEqual(result.structuredContent.properties.author,['Known Author']);assert.equal(result.structuredContent.properties.pageprogress,20);assert.equal(parse(f.raw).rating,0);
+});

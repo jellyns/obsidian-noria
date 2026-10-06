@@ -3,6 +3,7 @@ const {createHash} = require('node:crypto');
 const {parseYaml} = require('obsidian');
 const {frontmatter, writeProperty} = require('./record-properties.js');
 const {mediaTypes} = require('./media-catalog.js');
+const {metadataFields, mediaMetadata} = require('./media-metadata.js');
 const fail = (code, message) => Object.assign(Error(message), {code});
 
 function sourceFile(plugin, path) {
@@ -17,9 +18,10 @@ function snapshot(plugin, file, raw) {
   const {value: fm} = frontmatter(raw, parseYaml);
   const {types} = mediaTypes(fm, (plugin.app.metadataCache.getFileCache(file)?.tags || []).map(row => row.tag));
   if (!types.length) throw fail('unsupported', 'The note has no supported media tag');
-  const properties = {status: fm.status ?? null, pageprogress: fm.pageprogress ?? null, pagecount: fm.pagecount ?? null};
+  const properties = {status: fm.status ?? null, pageprogress: fm.pageprogress ?? null, ...Object.fromEntries(metadataFields.map(key=>[key,fm[key]??null]))};
   const revision = 'media-v1-' + createHash('sha256').update(JSON.stringify([file.path, types, ...['status', 'pageprogress'].map(key => [Object.hasOwn(fm, key), fm[key]])])).digest('hex');
-  return {path: file.path, title: typeof fm.title === 'string' && fm.title.trim() ? fm.title : file.basename, kinds: types, properties, revision};
+  const metadataRevision = 'media-metadata-v1-' + createHash('sha256').update(JSON.stringify([file.path, types, ...metadataFields.map(key=>[Object.hasOwn(fm,key),fm[key]])])).digest('hex');
+  return {path: file.path, title: typeof fm.title === 'string' && fm.title.trim() ? fm.title : file.basename, kinds: types, properties, revision, metadataRevision};
 }
 
 async function readMedia(plugin, request = {}) {
@@ -50,4 +52,31 @@ async function updateMedia(plugin, request = {}) {
   });
   return result;
 }
-module.exports = {readMedia, updateMedia};
+async function updateMediaMetadata(plugin, request = {}) {
+  const {revision, patch} = request;
+  if (Object.keys(request).some(key=>!['path','revision','patch'].includes(key)) || typeof revision !== 'string' || !revision || !patch || typeof patch !== 'object' || Array.isArray(patch) || !Object.keys(patch).length) throw fail('invalid-input', 'Read metadataRevision and supply the selected book metadata fields');
+  const values = mediaMetadata(patch, 'book', {allowClear:true});
+  const file = sourceFile(plugin, request.path), originalPath = file.path;
+  let result;
+  await plugin.app.vault.process(file, raw => {
+    if (plugin._noriaPluginDisposed) throw fail('unsupported', 'Noria is unloaded; reconnect to the current plugin instance');
+    if (file.path !== originalPath) throw fail('conflict', 'The source moved; open it again');
+    const before = snapshot(plugin, file, raw);
+    if (!before.kinds.includes('book')) throw fail('invalid-input', 'Book metadata applies to books');
+    if (before.metadataRevision !== revision) throw fail('conflict', 'The book metadata changed elsewhere; read it again before saving');
+    let next = raw;
+    for (const [key,value] of Object.entries(values)) {
+      if (JSON.stringify(before.properties[key]) === JSON.stringify(value)) continue;
+      next = writeProperty(next,{property:key,type:Array.isArray(value)?'list':key==='pagecount'?'number':'option',options:[value]},value,parseYaml);
+    }
+    const original = frontmatter(raw,parseYaml).value, updated = frontmatter(next,parseYaml).value;
+    for (const key of new Set([...Object.keys(original),...Object.keys(updated),...Object.keys(values)])) {
+      const expected = Object.hasOwn(values,key)?values[key]:original[key];
+      if (!Object.hasOwn(values,key) && Object.hasOwn(original,key)!==Object.hasOwn(updated,key) || JSON.stringify(updated[key]??null) !== JSON.stringify(expected??null)) throw fail('conflict', 'Could not preserve the other properties; check the source frontmatter');
+    }
+    result = {ok:true,changed:next!==raw,...snapshot(plugin,file,next)};
+    return next;
+  });
+  return result;
+}
+module.exports = {readMedia, updateMedia, updateMediaMetadata};

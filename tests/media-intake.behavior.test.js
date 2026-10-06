@@ -77,3 +77,14 @@ test('another edition requires an explicit separate choice and never overwrites 
  for(const metadata of [{rating:5},{pagecount:0},{source:'javascript:alert(1)'},{isbn:'9780140328722'}])await assert.rejects(f.api.media.create({...request,title:'Invalid',metadata}),e=>e.code==='invalid-input');
  assert.equal(f.writes,before);
 });
+
+test('Open Library edition links identify the same source with or without a title slug', async () => {
+  const f = fixture();
+  const first = await f.api.media.create({folder:'Media',kind:'book',title:'Fantastic Mr. Fox',metadata:{source:'http://openlibrary.org/books/OL7353617M/Fantastic_Mr._Fox?edition=1#details'}});
+  for (const source of ['https://openlibrary.org/books/OL7353617M', 'https://openlibrary.org/books/OL7353617M.json']) {
+    const result = await f.api.media.create({folder:'Media',kind:'book',title:'Another title',filename:'Other.md',separate:true,metadata:{source}});
+    assert.equal(result.created,false); assert.equal(result.matches[0].path,first.path); assert.equal(result.matches[0].reason,'identity');
+  }
+  assert.equal(f.writes,1);
+  assert.equal((await f.api.media.create({folder:'Media',kind:'book',title:'Other edition',metadata:{source:'https://openlibrary.org/books/OL7353618M'}})).created,true);
+});

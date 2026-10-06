@@ -17,7 +17,8 @@ function validateValue(definition,value){
   if(["number","level"].includes(definition.type)){
     if(typeof value!=="number"||!Number.isFinite(value))throw Error("Enter a valid number");
     if(definition.type==="level"&&(value<definition.min||value>definition.max||!Number.isInteger(value)))throw Error("Value is outside the scale");
-  }else if(definition.type==="toggle"){if(typeof value!=="boolean")throw Error("Choose on or off");}
+  }else if(definition.type==="list"){if(!Array.isArray(value)||value.some(item=>typeof item!=="string"))throw Error("Enter a list of text values");}
+  else if(definition.type==="toggle"){if(typeof value!=="boolean")throw Error("Choose on or off");}
   else if(typeof value!=="string"||!definition.options.includes(value))throw Error("Choose an available option");
   return value;
 }
@@ -34,7 +35,12 @@ function writeProperty(raw,definition,value,parse){
   if(matches.length>1)throw Error("Duplicate property; resolve it in the source note");
   // Null is an explicit cleared value. It also masks an older inline value without rewriting history.
   const line=`${JSON.stringify(key)}: ${JSON.stringify(value)}`;
-  if(matches.length){const start=matches[0];let end=start+1;while(end<lines.length&&/^(?:[ \t]+\S|\s*-\s)/.test(lines[end]))end++;lines.splice(start,end-start,line);}
+  if(matches.length){
+    const start=matches[0];let end=start+1;
+    while(end<lines.length&&(!/^\S/.test(lines[end])||/^(?:#|-\s)/.test(lines[end])))end++;
+    const comments=lines.slice(start+1,end).filter(value=>!value.trim()||/^#/.test(value));
+    lines.splice(start,end-start,line,...comments);
+  }
   else lines.push(line);
   const body=hit?raw.slice(hit[0].length):raw;
   return `---${eol}${lines.join(eol)}${eol}---${eol}`+body;

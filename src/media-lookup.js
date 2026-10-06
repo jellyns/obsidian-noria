@@ -1,18 +1,11 @@
 "use strict";
+const {normalizeISBN: isbn} = require('./media-metadata.js');
 const states = new WeakMap();
 const fail = (code, message) => Object.assign(new Error(message), {code});
 const text = value => typeof value === 'string' ? value.trim() : '';
 const strings = value => Array.isArray(value) ? value.map(text).filter(Boolean) : [];
 const copy = value => JSON.parse(JSON.stringify(value));
 
-function isbn(raw) {
-  const value = raw.replace(/^ISBN(?:-1[03])?:?\s*/i, '').replace(/[ -]/g, '').toUpperCase();
-  if (!/^(?:\d{9}[\dX]|97[89]\d{10})$/.test(value)) return null;
-  const digits = [...value].map(x => x === 'X' ? 10 : Number(x));
-  const sum = digits.reduce((n, d, i) => n + d * (value.length === 10 ? 10 - i : i % 2 ? 3 : 1), 0);
-  if (sum % (value.length === 10 ? 11 : 10)) throw fail('invalid-input', 'ISBN checksum does not match');
-  return value;
-}
 
 function queryPath(query, limit, offset) {
   if (/^https?:\/\//i.test(query)) {
@@ -90,6 +83,30 @@ function candidate(row, level) {
   return result;
 }
 
+async function resolveAuthors(plugin, candidates) {
+  const ids = [...new Set(candidates.flatMap(item => item.authorIds || []))], names = new Map();
+  // Resolve identifiers from these editions together; search order is not author order.
+  for (let offset = 0; offset < ids.length; offset += 20) {
+    const batch = ids.slice(offset, offset + 20);
+    const params = new URLSearchParams({q: `key:(${batch.join(' OR ')})`, fields: 'key,name', limit: String(batch.length)});
+    try {
+      const data = await json(plugin, `/search/authors.json?${params}`);
+      if (!Array.isArray(data?.docs)) throw fail('source-error', 'Open Library returned no author list');
+      for (const row of data.docs) {
+        const key = text(row?.key).replace(/^\/authors\//, ''), id = `/authors/${key}`, name = text(row?.name);
+        if (batch.includes(id) && name) names.set(id, name);
+      }
+    } catch (error) {
+      if (!['network-error', 'source-error', 'rate-limited'].includes(error.code)) throw error;
+      break;
+    }
+  }
+  for (const item of candidates) if (item.level === 'edition') {
+    item.authors = item.authorIds.flatMap(id => names.has(id) ? [names.get(id)] : []);
+    item.unresolvedAuthorIds = item.authorIds.filter(id => !names.has(id));
+  }
+}
+
 async function lookupMedia(plugin, request = {}) {
   const {kind, query, limit = 5, offset = 0} = request;
   if (Object.keys(request).some(key => !['kind', 'query', 'limit', 'offset'].includes(key)) || kind !== 'book' || typeof query !== 'string' || !query.trim() || !Number.isInteger(limit) || limit < 1 || limit > 20 || !Number.isInteger(offset) || offset < 0) throw fail('invalid-input', 'Supply book, a title / ISBN / Open Library link, and a valid page range');
@@ -100,7 +117,8 @@ async function lookupMedia(plugin, request = {}) {
   if (!Array.isArray(rows)) throw fail('source-error', 'Open Library returned no result list');
   const candidates = rows.map(row => candidate(row, search ? 'work' : 'edition')).filter(Boolean);
   if (rows.length && !candidates.length) throw fail('source-error', 'Open Library returned no identifiable works or editions');
+  if (!search) await resolveAuthors(plugin, candidates);
   const total = Number(search ? data?.numFound ?? data?.num_found : editions ? data?.size : rows.length);
   return {provider: 'openlibrary', candidates, nextOffset: (search || editions) && rows.length && offset + rows.length < total ? offset + rows.length : null};
 }
-module.exports = {lookupMedia, normalizeISBN: isbn};
+module.exports = {lookupMedia};

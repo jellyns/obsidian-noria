@@ -2,36 +2,12 @@
 const {parseYaml} = require('obsidian');
 const {frontmatter} = require('./record-properties.js');
 const {listMedia, mediaTypes} = require('./media-catalog.js');
-const {normalizeISBN} = require('./media-lookup.js');
+const {normalizeISBN, mediaMetadata} = require('./media-metadata.js');
 const queues = new WeakMap();
 const fail = (code, message) => Object.assign(new Error(message), {code});
 const titleKey = value => value.normalize('NFKC').trim().replace(/^《(.*)》$/u, '$1').replace(/\s+/gu, ' ').toLocaleLowerCase();
 
-function mediaMetadata(value, kind) {
-  if (value === undefined) return {};
-  if (!value || typeof value !== 'object' || Array.isArray(value) || kind !== 'book') throw fail('invalid-input', 'Book metadata must be an object');
-  const result = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (['author', 'publisher', 'isbn'].includes(key)) {
-      const values = Array.isArray(raw) ? raw : [raw];
-      if (!values.length || values.some(v => typeof v !== 'string' || !v.trim() || /[\r\n]/.test(v))) throw fail('invalid-input', `Invalid ${key}`);
-      result[key] = [...new Set(values.map(v => v.trim()))];
-      if (key === 'isbn') result.isbn = result.isbn.map(v => { const number = normalizeISBN(v); if (!number) throw fail('invalid-input', 'Invalid ISBN'); return number; });
-    } else if (key === 'pagecount') {
-      if (!Number.isInteger(raw) || raw <= 0) throw fail('invalid-input', 'Page count must be a positive integer');
-      result[key] = raw;
-    } else if (['source', 'cover', 'publish'].includes(key)) {
-      if (typeof raw !== 'string' || !raw.trim() || /[\r\n]/.test(raw)) throw fail('invalid-input', `Invalid ${key}`);
-      result[key] = raw.trim();
-      if (key !== 'publish') {
-        let url; try { url = new URL(raw); } catch (_) { throw fail('invalid-input', `Invalid ${key} URL`); }
-        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw fail('invalid-input', `Invalid ${key} URL`);
-        url.hash = ''; result[key] = url.href;
-      }
-    } else throw fail('invalid-input', `Unsupported media metadata: ${key}`);
-  }
-  return result;
-}
+
 function isbnIdentity(value) {
   try {
     const number = normalizeISBN(String(value));
@@ -39,6 +15,16 @@ function isbnIdentity(value) {
     const base = '978' + number.slice(0, 9);
     const sum = [...base].reduce((n,d,i) => n + Number(d) * (i % 2 ? 3 : 1), 0);
     return base + (10 - sum % 10) % 10;
+  } catch (_) { return null; }
+}
+function sourceIdentity(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    const edition = url.hostname === 'openlibrary.org' && !url.port && url.pathname.match(/^\/books\/(OL\d+M)(?:\.json|\/.*)?$/);
+    if (edition) return `openlibrary:${edition[1]}`;
+    url.hash = ''; return url.href;
   } catch (_) { return null; }
 }
 
@@ -58,9 +44,10 @@ async function createMedia(plugin, request = {}) {
     let page = listMedia(plugin, {folder: searchFolder, kind, limit: 100}), matches = [], offset;
     const scope = page.folder, wanted = titleKey(title);
     const identifiers = (details.isbn || []).map(isbnIdentity).filter(Boolean);
+    const source = sourceIdentity(details.source);
     const match = item => {
       const props = item.properties || {}, existing = [props.isbn].flat().map(isbnIdentity).filter(Boolean);
-      const exact = identifiers.some(id => existing.includes(id)) || details.source && props.source === details.source;
+      const exact = identifiers.some(id => existing.includes(id)) || source && sourceIdentity(props.source) === source;
       const sameTitle = titleKey(item.title) === wanted;
       return exact ? 'identity' : sameTitle && !separate ? 'title' : '';
     };
