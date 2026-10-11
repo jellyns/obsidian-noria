@@ -13,7 +13,7 @@
   const EVENT_COLORS = Object.freeze({
     task: "var(--noria-task-timeline-task-blue)",
     annotation: "var(--noria-task-timeline-mark-amber)",
-    pomodoro: "var(--noria-task-timeline-pomo-red)",
+    pomodoro: "var(--interactive-accent)",
     note: "var(--noria-task-timeline-note-cyan)",
     git: "var(--noria-task-timeline-git-violet)",
     noria: "var(--noria-task-timeline-noria-teal)"
@@ -122,19 +122,20 @@
     return Math.max(0, finite(options.totalHeightPx, 312.5) * 0.24);
   }
 
-  function buildDateTicks(mainViewport, locale, measureText) {
+  function buildDateTicks(mainViewport, locale, measureText, clock) {
     const range = viewportApi.visibleRange(mainViewport);
-    const showYear = new Date(range.startMs).getFullYear() !== new Date(range.endMs).getFullYear();
+    const labelTime = ms => clock ? +new Date(clock.wall(ms).replace(" ","T")) : ms;
+    const showYear = new Date(labelTime(range.startMs)).getFullYear() !== new Date(labelTime(range.endMs)).getFullYear();
     let previousDate = "";
     let previousMonth = "";
-    const ticks = viewportApi.buildTimeTicks(mainViewport, { minSpacingPx: 56 }).map((tick, index) => {
-      const date = isoLocal(tick.timeMs);
+    const ticks = viewportApi.buildTimeTicks(mainViewport, { minSpacingPx: 56, clock }).map((tick, index) => {
+      const date = clock ? clock.day(tick.timeMs) : isoLocal(tick.timeMs);
       const changed = tick.intervalMs < DAY ? date !== previousDate : date.slice(0, 7) !== previousMonth;
       const first = index === 0;
       previousDate = date;
       previousMonth = date.slice(0, 7);
       return { ...tick, date, priority: changed && !first ? 3 : first ? 2 : 0,
-        label: formatDateTick(tick.timeMs, tick.intervalMs, locale, changed || first, showYear) };
+        label: formatDateTick(labelTime(tick.timeMs), tick.intervalMs, locale, changed || first, showYear) };
     });
     return viewportApi.placeTickLabels(ticks, mainViewport.widthPx, measureText);
   }
@@ -231,7 +232,7 @@
     const heightPx = resolveHeight(options);
     const visibleRange = resolveVisibleRange(options.overviewViewport, options.visibleRange);
     const locale = normalizeLocale(options.locale);
-    const axisHeightPx = Math.min(26, heightPx * 0.5);
+    const axisHeightPx = options.separateAxis ? 0 : Math.min(26, heightPx * 0.5);
     const mainRange = viewportApi.visibleRange(options.mainViewport);
     return {
       widthPx,
@@ -240,7 +241,8 @@
       locale,
       zIndex: { ...LAYER_Z },
       visibleRange,
-      dateTicks: buildDateTicks(options.mainViewport, locale, options.measureText),
+      dateTicks: options.separateAxis ? [] : buildDateTicks(options.mainViewport, locale, options.measureText),
+      windowBounds: {left:viewportApi.dateMsToPx(options.overviewViewport,mainRange.startMs),right:viewportApi.dateMsToPx(options.overviewViewport,mainRange.endMs)},
       todayMarker: buildTodayMarker(options.overviewViewport, options.now, visibleRange),
       eventItems: buildEventItems(options.events, options.overviewViewport, heightPx, options.maxEvents, visibleRange, mainRange, axisHeightPx)
     };
@@ -277,7 +279,7 @@
       : "Time navigation: drag or use arrow keys to pan, plus and minus to zoom");
     host.setAttribute("data-noria-overview-event-count", String(plan.eventItems.length));
     host.setAttribute("data-noria-overview-tick-count", String(plan.dateTicks.length));
-    host.className = `${text(host.className)} noria-task-timeline-native-overview`.trim();
+    if(!text(host.className).split(/\s+/).includes('noria-task-timeline-native-overview'))host.className = `${text(host.className)} noria-task-timeline-native-overview`.trim();
     setStyles(host, {
       position: "relative",
       width: `${plan.widthPx}px`,
@@ -297,6 +299,11 @@
       setStyles(node, { position: "absolute", left: `${tick.labelLeftPx}px`, width: `${tick.labelWidthPx}px`,
         top: `${Math.max(1, (plan.axisHeightPx - 14) / 2)}px` });
     });
+    if(plan.windowBounds){
+      const windowEl=createElement(documentRef,host,'noria-timeline-overview-window',{'aria-hidden':'true'});
+      const left=clamp(plan.windowBounds.left,0,plan.widthPx),right=clamp(plan.windowBounds.right,left,plan.widthPx);
+      setStyles(windowEl,{position:'absolute',left:`${left}px`,top:`${plan.axisHeightPx}px`,width:`${right-left}px`,height:`${Math.max(0,plan.heightPx-plan.axisHeightPx)}px`});
+    }
 
     const eventsLayer = createElement(documentRef, host, "noria-task-timeline-overview-info-layer noria-task-timeline-native-overview-events", {
       "data-noria-overview-layer": "events"
@@ -362,7 +369,26 @@
     return host;
   }
 
+  function renderDateAxis(host,ticks,height,documentRef,onReturn,locale){
+    const hadFocus=host.contains?.(documentRef.activeElement);
+    host.replaceChildren();
+    for(const tick of ticks){
+      if(onReturn&&tick.labelLeftPx<32)continue;
+      const label=createElement(documentRef,host,'noria-timeline-date-tick',{'data-noria-tick-date':tick.date});
+      label.textContent=tick.label;
+      setStyles(label,{position:'absolute',left:`${tick.labelLeftPx}px`,width:`${tick.labelWidthPx}px`,top:`${Math.max(0,(height-16)/2)}px`});
+    }
+    if(onReturn){
+      const button=documentRef.createElement('button');button.className='noria-timeline-return-window';button.textContent='←';button.type='button';
+      button.setAttribute('aria-label',locale==='zh-CN'?'返回之前的日期范围':'Return to previous date range');button.title=button.getAttribute('aria-label');
+      button.onclick=()=>{host.focus?.({preventScroll:true});onReturn();};host.appendChild(button);
+    }
+    if(hadFocus)host.focus?.({preventScroll:true});
+  }
+
   root.nativeOverview = {
+    buildDateTicks,
+    renderDateAxis,
     buildOverviewPlan,
     renderOverview
   };

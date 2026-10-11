@@ -26,6 +26,14 @@ function registerNoriaHomeIcon(obsidianApi) {
   }
 }
 
+function registerNoriaTaskTimelineIcon(obsidianApi) {
+  obsidianApi.addIcon("noria-task-timeline", `<g transform="scale(${NORIA_OBSIDIAN_ICON_SCALE})" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8v8M11 6h9M11 18h9"/><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/></g>`);
+}
+
+function registerNoriaRangeIcon(obsidianApi) {
+  obsidianApi.addIcon("noria-range", `<path d="M4 8v8M4 12h16M20 8v8" transform="scale(${NORIA_OBSIDIAN_ICON_SCALE})" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`);
+}
+
 function hasNoriaHomeMark(element) {
   if (!element || typeof element.querySelector !== "function") return false;
   try {
@@ -86,5 +94,7 @@ module.exports = {
   NORIA_MARK_PATH,
   buildNoriaMarkBody,
   registerNoriaHomeIcon,
+  registerNoriaTaskTimelineIcon,
+  registerNoriaRangeIcon,
   ensureNoriaHomeRibbonIcon
 };

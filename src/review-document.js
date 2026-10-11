@@ -76,11 +76,11 @@ function writeReviewDocument(markdown, binding, content) {
   return before + block + ending + after;
 }
 
-function splitReviewSections(markdown) {
+function splitReviewSections(markdown, titleLevel = 2) {
   const raw = String(markdown || "");
   let headings = scanAtxHeadings(raw);
   let from = 0;
-  if (headings[0]?.start === 0 && headings[0].level <= 2) { from = headings[0].end; headings = headings.slice(1); }
+  if (headings[0]?.start === 0 && headings[0].level <= titleLevel) { from = headings[0].end; headings = headings.slice(1); }
   const level = headings.length ? Math.min(...headings.map(h => h.level)) : 0;
   const top = headings.filter(h => h.level === level);
   const sections = [];
@@ -171,7 +171,8 @@ function reviewPresentation(markdown, heading) {
 
 function getReviewAnalysisSections(markdown) {
   const raw = clean(markdown).replace(/^---\n[\s\S]*?\n(?:---|\.\.\.)\s*\n/, "");
-  return splitReviewSections(raw).filter(part => part.content.trim());
+  // Reviews have an outer H2; analysis files commonly start directly with H2 sections.
+  return splitReviewSections(raw, 1).filter(part => part.content.trim());
 }
 
 function appendReviewAnalysis(markdown, part) {
@@ -198,7 +199,13 @@ function prepareReviewPreview(markdown, options = {}) {
   for (const range of replacements.reverse()) source = source.slice(0, range.start) + (options.hideViews ? "" : `[[${options.sourcePath}|${options.viewLabel || options.sourcePath}]]\n`) + source.slice(range.end);
   return source
     .replace(/^([ \t>]*(?:(?:[-+*]|\d+[.)])\s+)?)(`{3,}|~{3,})[^\r\n]*$/gm, "$1$2")
-    .replace(/!\[\[([^\]\n]+)\]\]/g, (all, target) => /\.(?:png|jpe?g|gif|webp|svg|avif|bmp|pdf|mp3|wav|ogg|m4a|mp4|webm)(?:[|#]|$)/i.test(target) ? all : `[[${target}]]`);
+    .replace(/!\[\[([^\]\n]+)\]\]/g, (all, target) => {
+      // Bases bind edits to result files, not fragment line offsets. Diaries can
+      // opt in while review excerpts keep their existing preview restrictions.
+      const supported = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp|pdf|mp3|wav|ogg|m4a|mp4|webm)(?:[|#]|$)/i.test(target)
+        || options.allowBases && /\.base(?:[|#]|$)/i.test(target);
+      return supported ? all : `[[${target}]]`;
+    });
 }
 
 module.exports = { REVIEW_START, REVIEW_END, readReviewDocument, writeReviewDocument, splitReviewSections, replaceReviewPart, previewReviewPart, normalizeReviewPayload, hasReviewContent, getReviewAnalysisSections, appendReviewAnalysis, prepareReviewPreview, reviewPresentation };

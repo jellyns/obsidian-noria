@@ -6,7 +6,7 @@ const STYLES=[
   ['columns','柱图','Columns','chart-column'],['bars','横向条形','Horizontal bars','chart-bar'],
   ['donut','环图','Donut','chart-pie'],['composition','分段占比','Segmented composition','chart-bar-stacked'],['heatmap','日历热力图','Calendar heatmap','calendar-days'],
   ['strip','连续色带','Continuous strip','chart-no-axes-combined'],['states','按日状态格','Daily states','calendar-check'],
-  ['progress','目标进度','Progress','goal'],['comparison','前期对比','Previous period','columns-2']
+  ['progress-rings','进度环','Progress rings','circle-gauge'],['time-ring','时间环','Time ring','clock'],['progress','目标进度','Progress','goal'],['comparison','前期对比','Previous period','columns-2']
 ];
 // These templates retain the existing dashboard renderer and its data semantics.
 const DASHBOARD_STATS={
@@ -36,7 +36,7 @@ function widgetFromTemplate(template,base,followDiary=false){
     else if(identity.props.scope!=='all')identity.props.scope='follow';
   }
   return template.kind==='dashboard'?{...identity,type:'builtin',builtinId:template.builtinId,source:template.source}:
-    {...identity,type:'extension',source:template.kind==='periodic'?'noria:periodic-statistics':'noria:statistics'};
+    {...identity,type:'extension',source:template.kind==='overview'?'noria:period-overview':template.kind==='periodic'?'noria:periodic-statistics':'noria:statistics'};
 }
 function builtInTemplates(fields,text){
   const active=fields.filter(f=>f.enabled!==false),numeric=active.find(f=>['number','level'].includes(f.type)),state=active.find(f=>['option','toggle'].includes(f.type));
@@ -46,6 +46,8 @@ function builtInTemplates(fields,text){
   const states={source:'diary',property:state?.property||'',calculate:'distribution',...recent};
   const groups={source:'notes',calculate:'count',group:'folder',recursive:true,scope:'all'};
   const definitions={
+    'progress-rings':{title:text('目标进度环','Goal progress rings'),props:{source:'goals',calculate:'rate',scope:'follow',ringCount:'2',ring1Source:'tasks',ring1Cohort:'scheduled',ring2Source:'habits'},description:text('各圈独立查看目标与实际，点击回看来源','Inspect each goal and its actual value, with source records')},
+    'time-ring':{title:text('专注时间环','Focus time ring'),props:{source:'focus',calculate:'sum',scope:'follow',showSchedule:true},description:text('对照任务安排与实际专注，暂停保留空白','Compare scheduled tasks and actual focus, leaving pauses blank')},
     metric:{title:text('完成任务数量','Completed tasks'),props:task,description:text('查看近期实际完成了多少任务','Count recently completed tasks')},
     line:{title:numeric?text(numeric.name+'变化',numeric.name+' trend'):text('任务完成趋势','Task completion trend'),props:trend,description:text('按日期查看变化，缺失记录保留空白','See changes by date; missing records stay empty')},
     columns:{title:text('每日完成任务','Daily task completions'),props:task,description:text('比较每天完成的任务数量','Compare the number of tasks completed each day')},
@@ -60,7 +62,7 @@ function builtInTemplates(fields,text){
   };
   const styles=STYLES.map(([display,zh,en,icon])=>({id:'style-'+display,style:display,styleName:text(zh,en),icon,...definitions[display],props:{...definitions[display].props,display}}));
   const records=active.map(f=>({id:'record-'+f.id,title:f.name,icon:'activity',description:text('使用已配置的日常记录','Use your configured daily record'),props:{source:'diary',property:f.property,calculate:['number','level'].includes(f.type)?'mean':'distribution',display:['number','level'].includes(f.type)?'line':'strip',...recent}}));
-  return {styles,recommended:[...records,...['metric','heatmap','progress','comparison'].map(id=>styles.find(t=>t.style===id))]};
+  return {styles,recommended:[...records,...['metric','time-ring','progress-rings','heatmap','progress','comparison'].map(id=>styles.find(t=>t.style===id))]};
 }
 
 // A template copies configuration, never a card placement or a data snapshot.
@@ -68,10 +70,10 @@ function templateFromWidget(widget,title,id=globalThis.crypto.randomUUID()){
   const name=String(title||'').trim();
   if(!name||name.length>80)throw Error('Template names must contain 1–80 characters');
   const dashboard=isDashboardStatistic(widget);
-  if(!dashboard&&(!['noria:statistics','noria:periodic-statistics'].includes(widget.source)||widget.type!=='extension'))throw Error('Only statistics cards can be saved as statistics templates');
+  if(!dashboard&&(!['noria:statistics','noria:periodic-statistics','noria:period-overview'].includes(widget.source)||widget.type!=='extension'))throw Error('Only statistics cards can be saved as statistics templates');
   const props=clone(widget.props||{});delete props.cardHeight;
   if(props.display==='trend')props.display='columns';
-  return {id,title:name,size:widget.size||'medium',props,...(dashboard?{kind:'dashboard',builtinId:widget.builtinId||widget.id,source:widget.source,style:DASHBOARD_STATS[widget.builtinId||widget.id][0]}:widget.source==='noria:periodic-statistics'?{kind:'periodic',style:'combo'}:{})};
+  return {id,title:name,size:widget.size||'medium',props,...(dashboard?{kind:'dashboard',builtinId:widget.builtinId||widget.id,source:widget.source,style:DASHBOARD_STATS[widget.builtinId||widget.id][0]}:widget.source==='noria:period-overview'?{kind:'overview',style:'records'}:widget.source==='noria:periodic-statistics'?{kind:'periodic',style:'combo'}:{})};
 }
 class StatisticTemplates{
   constructor(plugin){this.plugin=plugin;}

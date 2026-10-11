@@ -29,6 +29,13 @@ function axisDomain(values,value={},style='line',reference=null){
  if(min===max){const pad=Math.abs(min)*.1||1;if(zero&&min===0)max=1;else{min-=pad;max+=pad;}}
  return {min,max,expanded};
 }
+function axisTicks(domain,integer=false){
+ if(!domain)return [];
+ const low=integer?Math.ceil(domain.min):domain.min,high=integer?Math.floor(domain.max):domain.max;
+ if(low>high)return [];
+ const mid=integer?Math.round((low+high)/2):(low+high)/2;
+ return [...new Set([high,mid,low])];
+}
 function applyLook(config,look){return {...clone(config),appearance:clone(validateAppearance(look.appearance))};}
 class StatisticLooks{
  constructor(plugin){this.plugin=plugin;}
@@ -36,4 +43,4 @@ class StatisticLooks{
  async save(title,value){const name=String(title||'').trim();if(!name||name.length>80)throw Error('Appearance names must contain 1–80 characters');const item={id:globalThis.crypto.randomUUID(),title:name,appearance:clone(validateAppearance(value))};await commitSettingsChange(this.plugin,['statisticLooks'],()=>{this.plugin.settings.statisticLooks={version:1,items:[...this.read(),item]};});return clone(item);}
  async remove(id){await commitSettingsChange(this.plugin,['statisticLooks'],()=>{this.plugin.settings.statisticLooks={version:1,items:this.read().filter(v=>v.id!==id)};});}
 }
-module.exports={appearance,validateAppearance,accent,categoryColor,axisDomain,applyLook,StatisticLooks};
+module.exports={appearance,validateAppearance,accent,categoryColor,axisDomain,axisTicks,applyLook,StatisticLooks};

@@ -27,6 +27,7 @@ function writeHabitDefinition(raw,original,draft,{id,zh=true,today}={}){
   if(config.icon&&!require("./picture-model.js").validPicture(config.icon))throw Error("Invalid habit icon");
   if(config.color&&!/^#[\da-f]{6}$/i.test(config.color))throw Error("Invalid habit color");
   require("./habit-plan.js").plans(config);
+  require("./habit-plan.js").targets(config);
   const eol=raw.includes("\r\n")?"\r\n":"\n",line="- "+H.serializeHabitConfig(config);
   if(current&&current.stage===stage)return raw.slice(0,current.startOffset)+line+raw.slice(current.startOffset+current.raw.length);
   let next=current?raw.slice(0,current.startOffset)+raw.slice(current.endOffset):raw;

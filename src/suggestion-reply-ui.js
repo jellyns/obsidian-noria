@@ -8,8 +8,10 @@ async function renderSuggestionReplies(plugin,host,selection){
   slot.empty();
   try{
    const source=selection.originPath?(await plugin.api.suggestionReplies.read({date:selection.date,sourcePath:selection.path})).source:await plugin.api.suggestions.read({date:selection.date});
-   if(disposed||source.path!==selection.path||!source.exists)return;
-   const release=await mountSuggestionReplies(plugin,slot,selection,source);
+   if(disposed||source.path!==selection.path)return;
+   const releaseActions=await require('./suggestion-actions.js').mountSuggestionActions(plugin,host,selection);
+   let releaseReplies;try{releaseReplies=source.exists?await mountSuggestionReplies(plugin,slot,selection,source):()=>{};}catch(error){releaseActions();throw error;}
+   const release=()=>{releaseReplies();releaseActions();};
    if(disposed)release();else cleanup=release;
   }catch{
    if(disposed)return;
@@ -72,6 +74,8 @@ async function mountSuggestionReplies(plugin,host,selection,source){
   status.hidden=!status.textContent;
   status.classList.toggle('is-error',!!readError||!!s.error);recovery.hidden=!readError&&s.error!=='draft-load';
   const replies=s.history?.replies||[];summary.hidden=!replies.length;if(!replies.length){history.hidden=true;summary.setAttribute('aria-expanded','false');}
+  area.hidden=footer.hidden=!d.expanded&&!d.markdown&&!replies.length&&!status.textContent;
+  library.hidden=!replies.length&&!d.markdown;
   clearTimeout(expiryTimer);const expires=replies.filter(r=>r.state==='claimed').map(r=>Date.parse(r.claim.expiresAt));if(expires.length)expiryTimer=setTimeout(()=>void reload(),Math.max(1,Math.min(...expires)-Date.now()+20));
   const signature=JSON.stringify(replies);if(signature!==lastHistory){lastHistory=signature;summary.setText(t(`交流 ${replies.length}`,`Replies ${replies.length}`));entries.empty();responseView.empty();historyComponent?.unload();historyComponent=new Component();historyComponent.load();
    const newest=[...replies].reverse().find(r=>r.response);responseView.hidden=!newest;
@@ -91,7 +95,9 @@ async function mountSuggestionReplies(plugin,host,selection,source){
  }
  const act=fn=>{try{fn();}catch{paint();}};
  input.addEventListener('input',()=>act(()=>model.edit(input.value)));
- open.onclick=()=>{act(()=>model.expand(true));input.focus();};collapse.onclick=()=>{act(()=>model.expand(false));open.focus();};
+ open.onclick=()=>{act(()=>model.expand(true));input.focus();};collapse.onclick=()=>{act(()=>model.expand(false));if(!footer.hidden)open.focus();else shell?.querySelector('[data-noria-widget-shell-action="menu"],.noria-diary-card-menu')?.focus();};
+ const shell=host.closest('.dashboard-home-widget-shell,.noria-diary-card'),replyAction={label:t('补充想法','Add a thought'),icon:'message-square',run:()=>open.onclick()};
+ if(shell)shell._noriaRecordActions=[...shell._noriaRecordActions||[],replyAction];
  confirm.onclick=()=>act(()=>{viewedMarkdown=model.snapshot().source.markdown;model.rebase();});
  recovery.onclick=()=>{if(model.snapshot().error==='draft-load')model.reloadDraft();void reload();};
  save.onclick=async()=>{if(save.disabled)return;try{await model.save();if(!disposed)open.focus();}catch{await reload();}};
@@ -105,6 +111,6 @@ async function mountSuggestionReplies(plugin,host,selection,source){
  // Coalesce file changes without rebuilding the card or moving keyboard focus.
  const modified=plugin.app.vault.on('modify',file=>{const s=model.snapshot();if(file.path===s.history?.path||file.path===s.source.path){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{if(!disposed)void reload();},0);}});
  paint();await reload();
- return()=>{disposed=true;releaseScope();clearTimeout(expiryTimer);clearTimeout(refreshTimer);plugin.app.vault.offref(modified);unsubscribe();historyComponent?.unload();};
+ return()=>{disposed=true;if(shell)shell._noriaRecordActions=(shell._noriaRecordActions||[]).filter(action=>action!==replyAction);releaseScope();clearTimeout(expiryTimer);clearTimeout(refreshTimer);plugin.app.vault.offref(modified);unsubscribe();historyComponent?.unload();};
 }
 module.exports={renderSuggestionReplies};

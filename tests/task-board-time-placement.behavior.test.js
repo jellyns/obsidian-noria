@@ -14,7 +14,14 @@ test('wide day and week blocks keep a full single-line interval even among overl
   for (const view of ['day', 'week']) {
     const result = context.decidePlannerChromeTimePlacement(null, { ...base, view });
     assert.equal(result.placement, 'range-corner');
+    assert.equal(result.nearTitle, true);
   }
+});
+
+test('wrapped titles reserve their measured height before the adjacent time',()=>{
+ const element={querySelector:()=>({getBoundingClientRect:()=>({height:34})})};
+ const result=context.decidePlannerChromeTimePlacement(element,{...base,view:'day'});
+ assert.ok(result.nearTitle);assert.ok(result.timeTopPx>=38);
 });
 
 test('narrow blocks stack only when both lines and their spacing fit; shorter blocks degrade without clipping', () => {
@@ -22,6 +29,7 @@ test('narrow blocks stack only when both lines and their spacing fit; shorter bl
     const decide = height => context.decidePlannerChromeTimePlacement(null, { ...base, view, usableWidth: 70, usableHeight: height });
     const tall = decide(100);
     assert.equal(tall.placement, 'range-stack');
+    assert.ok(!tall.nearTitle);
     assert.ok(tall.timeBandPx >= 2 * 14 + 1 + 5);
     assert.equal(decide(60).placement, 'start-corner');
     assert.equal(decide(30).placement, 'hidden');

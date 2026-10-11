@@ -8,27 +8,35 @@ const H=require("./runtime/views/dashboard/core/utils/habit-parsing.js");
 // Its caller owns refresh and any in-progress document that must be preserved.
 function renderDiaryHabitRow({parent,plugin,config,record,onSave,compact=false,showValue=false,date="",onSleep,beforeAct}) {
   config={...config};
+  if(config.type==="number"&&config.targetPlan&&date)config.target=P.targetAt(config,date);
+  const baseConfig={...config};
   for(const key of ["type","target","unit"])if(record?.[key]!=null && record[key]!=="")config[key]=record[key];
   const t=key=>plugin.t("workbench."+key),text=(zh,en)=>plugin.getNoriaLocale()==="zh"?zh:en;
   const row=parent.createDiv({cls:"noria-diary-habit-row"+(compact?" is-compact":"")});row.dataset.habit=config.name;
   const visual=P.visual(config);row.style?.setProperty("--noria-habit-color",visual.color);
-  const save=async(done,value="")=>{row.inert=true;try {const ok=await onSave(done,value);if(ok!==false)record={done,value};return ok!==false;}finally{row.inert=false;}};
+  const save=async(done,value="",options={})=>{row.inert=true;try {const ok=await onSave(done,value,options);if(ok!==false){if(options.historicalTarget)config.target=String(options.historicalTarget);record={done,value};}return ok!==false;}finally{row.inert=false;}};
   const value=()=>String(record?.value??"");
-  const typed=["number","sleep"].includes(config.type);
+  let typed=["number","sleep"].includes(config.type);
   const title=()=>`${config.name}${date?" · "+date:""}${value()!==""?" · "+value()+(config.unit||""):""}${typed&&config.target?" / "+config.target+(config.unit||""):""}`;
   const button=row.createEl("button",{cls:compact?"clickable-icon noria-habit-cell-button":"noria-habit-value-button",attr:{type:"button"}});
   const paint=()=>{button.title=title();button.setAttribute("aria-label",title());button.setAttribute("aria-pressed",String(!!record?.done));
     button.dataset.state=record?.done?"done":value()!==""?"partial":"empty";button.dataset.showValue=String(showValue&&typed);button.empty();
-    button.createSpan({cls:"noria-habit-status",text:record?.done?"✓":""});
-    if(showValue&&typed)button.createSpan({cls:"noria-habit-current-value",text:value()!==""?`${value()}${config.unit?" "+config.unit:""}`:text("记录","Record")});
+    const compactValue=compact&&showValue&&typed&&value()!==""&&value().length<=3?value():null;
+    button.createSpan({cls:"noria-habit-status",text:compactValue??(record?.done?"✓":typed&&value()!==""?"·":"")});
+    if(showValue&&typed&&!compact)button.createSpan({cls:"noria-habit-current-value",text:value()!==""?`${value()}${config.unit?" "+config.unit:""}`:text("记录","Record")});
     if(!compact){require("./picture-picker.js").renderPicture(plugin,button.createSpan({cls:"noria-habit-picture"}),visual.icon);const label=button.createSpan({cls:"noria-habit-label noria-habit-name"});label.createSpan({text:config.name});
-      const s=config.summary;if(s)label.createSpan({cls:"noria-habit-streak",text:P.summaryText(s,plugin.getNoriaLocale()==="zh"),attr:{title:P.summaryDetail(s,plugin.getNoriaLocale()==="zh")}});
+      const s=config.summary;if(s){label.title=P.summaryText(s,plugin.getNoriaLocale()==="zh")+'\n'+P.summaryDetail(s,plugin.getNoriaLocale()==="zh");button.setAttribute('aria-description',label.title);}
       if(typed)button.createSpan({cls:"noria-diary-habit-value",text:value()!==""?`${value()}${config.unit||""}`:"—"});}
     if(date){const planned=P.due(config,date);button.dataset.planned=String(planned);if(!planned)button.title+=" · "+text("休息日，可额外记录","Rest day; extra check-in allowed");button.setAttribute("aria-label",button.title);}
   };paint();
   if(!compact&&config.summary?.historyMissing){const edit=row.createEl("button",{cls:"clickable-icon",attr:{type:"button",title:text("补全开始坚持日期","Set initial start date"),"aria-label":text("补全开始坚持日期","Set initial start date")}});setIcon(edit,"calendar-clock");edit.onclick=()=>new DiaryHabitStore(plugin).manage(config.id||config.name);}
   button.onclick=async()=>{
-    try{beforeAct?.();}catch(error){new Notice(error.message);return;}
+    try{
+      if(await beforeAct?.()===false)return;
+      const field=config.recordField&&plugin.records?.definitions().find(f=>f.property===config.recordField);
+      if(field){const day=date||plugin.getLocalYmd(),spec=await plugin.resolveCalendarNoteSpecAsync('daily',day),raw=await plugin.loadTextFromVault(spec.path),state=plugin.records.snapshot(day,spec.path,raw,field);
+        if(state.multiple){plugin.records.edit(button,field,{date:day,state,value:state.value,onSave:(value,options)=>save(false,'',{recordOperation:{...options,value,expected:{revision:state.revision}}})});return;}}
+    }catch(error){new Notice(error.message);return;}
     if(!typed){if(await save(!record?.done))paint();return;}
     if(record?.source==="tl"&&record.task){await plugin.openTaskDetails(record.task,{anchor:button,onSaved:()=>plugin.requestNoriaRefresh("home","habit:sleep-source")});return;}
     if(config.type==="sleep"&&onSleep){onSleep(paint);return;}
@@ -36,18 +44,25 @@ function renderDiaryHabitRow({parent,plugin,config,record,onSave,compact=false,s
       const form=host.createEl("form",{cls:"noria-diary-habit-form"});
       const input=form.createEl("input",{attr:{type:config.type==="number"?"number":"time","aria-label":t("habitValue"),required:""}});
       if(config.type==="number"){input.min="0";input.step="any";}input.value=value();
+      let targetInput;
+      if(config.type==="number"&&config.targetPlan&&!config.target){
+        const label=form.createEl("label",{text:text("当日目标","Target for this date")});
+        targetInput=label.createEl("input",{attr:{type:"number",step:"any",min:"0",required:"","aria-label":text("当日目标","Target for this date")}});
+      }
       if(config.target)form.createDiv({cls:"noria-card-secondary",text:`${plugin.t("runtime.habits.target")}: ${config.target}${config.unit||""}`});
       const actions=form.createDiv({cls:"noria-record-actions"});
       const submit=actions.createEl("button",{text:t("save"),cls:"mod-cta",attr:{type:"submit"}});
       if(record){const clear=actions.createEl("button",{text:t("habitWithdraw"),attr:{type:"button"}});clear.onclick=async()=>{if(await save(false)){paint();close();}};}
       const error=form.createDiv({cls:"noria-card-error",attr:{role:"alert"}});
-      form.onsubmit=async e=>{e.preventDefault();if(!input.reportValidity())return;submit.disabled=true;
-        try{const actual=input.value,done=config.type==="sleep"?H.isSleepBeforeTarget(actual,config.target):Number(actual)>=(Number(config.target)||0);
-          if(await save(done,actual)){paint();close();}else error.setText(text("未保存，请重试","Not saved. Try again."));
+      form.onsubmit=async e=>{e.preventDefault();if(!input.reportValidity()||(targetInput&&!targetInput.reportValidity()))return;submit.disabled=true;
+        try{const actual=input.value,done=config.type==="sleep"?H.isSleepBeforeTarget(actual,config.target):Number(actual)>=Number(targetInput?.value||config.target);
+          if(await save(done,actual,targetInput?{historicalTarget:targetInput.value}:{})){paint();close();}else error.setText(text("未保存，请重试","Not saved. Try again."));
         }catch(e){error.setText(e.message);}finally{submit.disabled=false;}
       };
     });
   };
+  // Refresh the original control so external note edits keep keyboard focus and open anchors.
+  row.updateHabitRecord=next=>{record=next;config={...baseConfig};for(const key of ["type","target","unit"])if(next?.[key]!=null&&next[key]!=="")config[key]=next[key];typed=["number","sleep"].includes(config.type);paint();};
   return row;
 }
 
@@ -62,8 +77,8 @@ async function renderEmbeddedDiaryHabits(plugin,{container,date,registryPath=""}
   for(const record of data.records)configs.set(record.name,{...configs.get(record.name),...H.inferLegacyHabitConfig(record.text),name:record.name,id:record.id,aliases:record.aliases});
   const names=date===plugin.getLocalYmd()?[...configs.keys()]:[...records.keys()];
   const controls=container.createDiv({cls:"noria-diary-habit-list"});
-  const render=config=>renderDiaryHabitRow({parent:controls,plugin,config,record:records.get(config.name),onSave:async(done,value)=>{
-    try{await store.write({date,config,done,value});await renderEmbeddedDiaryHabits(plugin,{container,date,registryPath});return true;}
+  const render=config=>renderDiaryHabitRow({parent:controls,plugin,config,date,record:records.get(config.name),onSave:async(done,value,options)=>{
+    try{await store.write({date,config,done,value,...options});await renderEmbeddedDiaryHabits(plugin,{container,date,registryPath});return true;}
     catch(error){new Notice(String(error?.message||error));return false;}
   }});
   names.forEach(name=>render(configs.get(name)));

@@ -182,28 +182,30 @@
     }];
   }
 
-  function decorateMainPlan(plan, viewport, viewportApi, currentMs, locale) {
+  function decorateMainPlan(plan, viewport, viewportApi, currentMs, locale, clock) {
     const widthPx = Math.max(0, finite(plan?.widthPx, viewport.widthPx));
-    const heightPx = Math.max(0, finite(plan?.heightPx, 0));
+    const heightPx = Math.max(0, finite(plan?.contentHeightPx, finite(plan?.heightPx, 0)));
     plan.densityWidthPx = widthPx;
     plan.locale = normalizeLocale(locale);
     const range = viewportApi.visibleRange(viewport);
     const weekendWashes = [];
-    let cursor = startOfLocalDay(range.startMs) - DAY;
-    for (let count = 0; cursor <= range.endMs + DAY && count < 500; count += 1, cursor += DAY) {
-      const date = new Date(cursor);
+    const dayStart = value => clock ? clock.dayStart(value) : startOfLocalDay(value);
+    const nextDay = (value,amount=1) => clock ? clock.addDays(value,amount) : +new Date(new Date(value).setDate(new Date(value).getDate()+amount));
+    let cursor = nextDay(dayStart(range.startMs),-1);
+    for (let count = 0; cursor <= range.endMs + DAY && count < 500; count += 1, cursor = nextDay(cursor)) {
+      const date = new Date(clock ? clock.day(cursor)+"T12:00:00" : cursor);
       if (date.getDay() !== 0 && date.getDay() !== 6) continue;
       const left = viewportApi.dateMsToPx(viewport, cursor);
-      const right = viewportApi.dateMsToPx(viewport, cursor + DAY);
+      const right = viewportApi.dateMsToPx(viewport, nextDay(cursor));
       weekendWashes.push({
         key: new Date(cursor).toISOString().slice(0, 10),
         bounds: { left, top: 0, width: Math.max(0, right - left), height: heightPx }
       });
     }
     plan.weekendWashes = weekendWashes;
-    const todayStart = startOfLocalDay(currentMs);
+    const todayStart = dayStart(currentMs);
     const todayLeft = viewportApi.dateMsToPx(viewport, todayStart);
-    const todayRight = viewportApi.dateMsToPx(viewport, todayStart + DAY);
+    const todayRight = viewportApi.dateMsToPx(viewport, nextDay(todayStart));
     const nowLeft = viewportApi.dateMsToPx(viewport, currentMs);
     plan.markers = [
       {
@@ -313,9 +315,10 @@
   function buildTaskMap(index) {
     const map = new Map();
     (Array.isArray(index?.events) ? index.events : []).forEach((event) => {
-      if (text(event?.layer) !== "task") return;
-      const key = text(event.taskKey || event.id);
+      if (!["task","pomodoro","note","git","noria"].includes(text(event?.layer))) return;
+      const key = event.layer !== "task" ? text(event.id) : text(event.taskKey || event.id);
       if (key && !map.has(key)) map.set(key, event);
+      if(event.id)map.set(event.id,event);
     });
     return map;
   }
@@ -327,6 +330,7 @@
     if (!container) throw new Error("Native timeline backend requires a container");
     const serviceTimelineEl = context.serviceTimelineEl || timelineEl || container;
     const settings = context.settings && typeof context.settings === "object" ? context.settings : {};
+    const expandedProjects = new Set(settings.expandedProjects || []);
     const services = context.services && typeof context.services === "object" ? context.services : {};
     const locale = normalizeLocale(settings.locale || context.locale);
     const todayLabel = text(settings.todayLabel || context.todayLabel) || (locale === "zh-CN" ? "今日" : "Today");
@@ -342,6 +346,9 @@
     let rangePreview = null;
     let mainViewport = null;
     let overviewViewport = null;
+    let previousProjectWindow=null;
+    let projectScrollAnchor=null;
+    let pendingViewState=null;
     let rendered = false;
     let disposed = false;
     let explicitSize = null;
@@ -351,7 +358,7 @@
     let lastMeasuredWidth = NaN;
     let lastMeasuredHeight = NaN;
     let manualScaleTimer = null;
-    const windows = root.timeWindow;
+    const windows = context.clock && root.timeWindow?.withClock ? root.timeWindow.withClock(context.clock) : root.timeWindow;
     let timeWindow = windows?.normalize(settings.timeWindow);
     let focusMagnification = settings.focusMagnification !== false;
     const fitWindow = () => {
@@ -394,7 +401,7 @@
     const effectiveIndex = () => {
       if (!previews.size && !annotationPreviews.size) return canonicalIndex;
       const next = canonicalIndex.events.map((event) => event.layer === "annotation"
-        ? annotationPreviews.get(event.id) || event : previews.get(text(event.taskKey || event.id)) || event);
+        ? annotationPreviews.get(event.id) || event : previews.get(text(settings.groupBy==="projects"?event.id:event.taskKey || event.id)) || event);
       annotationPreviews.forEach((event, id) => { if (!next.some(item => item.id === id)) next.push(event); });
       return apis.eventIndex.createEventIndex(next);
     };
@@ -417,7 +424,10 @@
       });
       if (!timeWindow && windows) {
         const start = new Date(centerMs); start.setHours(0, 0, 0, 0);
-        timeWindow = settings.scaleMode === "manual" && settings.manualZoomIndex != null
+        if(context.clock)start.setTime(context.clock.dayStart(centerMs));
+        if(settings.groupBy==="projects"&&canonicalIndex.events.length){
+          timeWindow=windows.coveringTasks(canonicalIndex.events);
+        }else timeWindow = settings.scaleMode === "manual" && settings.manualZoomIndex != null
           ? windows.normalize(apis.viewport.visibleRange(mainViewport))
           : windows.at(+start, {amount:1,unit:"day"});
       }
@@ -445,25 +455,54 @@
         host.setAttribute?.("data-noria-timeline-state", state);
         return false;
       }
-      initializeViewports(rect.width);
+      const frame=host.__noriaNativeTimelineState?.projectFrame;
+      const scrollWidth=frame?Math.max(0,finite(frame.offsetWidth,0)-finite(frame.clientWidth,0)):0;
+      const chartWidth=Math.max(1,rect.width-scrollWidth);
+      initializeViewports(chartWidth);
       const index = effectiveIndex();
-      const overviewHeight = Math.min(rect.height * 0.3, 56);
-      const mainHeight = Math.max(1, rect.height - overviewHeight);
+      const axisHeight=28;
+      const overviewHeight = settings.overviewVisibility==='show'||(settings.overviewVisibility!=='hide'&&rect.width>=480&&rect.height>=360)?24:0;
+      const mainHeight = Math.max(1, rect.height - axisHeight - overviewHeight);
       const mainPlan = decorateMainPlan(
         apis.layout.buildRenderPlan({
           eventIndex: index,
           events: index.events,
           viewport: mainViewport,
-          widthPx: rect.width,
+          widthPx: chartWidth,
           heightPx: mainHeight,
+          groupBy: settings.groupBy, projects: context.projects, unplaced: context.unplaced, projectRoot: context.projectRoot,
+          expandedProjects: [...expandedProjects], locale,
           selectedAnnotationId,
           measureText: context.measureText
         }),
         mainViewport,
         apis.viewport,
         nowMs(context),
-        locale
+        locale, context.clock
       );
+      mainPlan.timeZone=context.clock?.display;
+      mainPlan.projectMode=settings.groupBy==="projects";
+      mainPlan.axisHeightPx=axisHeight;
+      mainPlan.dateTicks=apis.overview.buildDateTicks(mainViewport,locale,context.measureText,context.clock);
+      mainPlan.onReturnWindow=previousProjectWindow?()=>{const previous=previousProjectWindow;previousProjectWindow=null;return instance.setWindow(previous);}:null;
+      mainPlan.outerWidthPx=rect.width;
+      mainPlan.onProjectOpen=context.onProjectOpen;
+      mainPlan.onProjectUnscheduled=context.onProjectUnscheduled;
+      mainPlan.onProjectFit=row=>{
+        if(disposed)return false;
+        const ids=new Set(row.scheduledEventIds||[]);
+        const range=windows?.coveringTasks(canonicalIndex.events.filter(event=>ids.has(event.id)));
+        if(!range)return false;
+        previousProjectWindow=timeWindow?{...timeWindow}:apis.viewport.visibleRange(mainViewport);
+        return instance.setWindow(range);
+      };
+      mainPlan.onProjectToggle=key=>{
+        const frame=host.__noriaNativeTimelineState?.projectFrame;
+        const row=mainPlan.projectRows?.find(row=>row.project&&row.key===key);
+        if(frame&&row)projectScrollAnchor={key,offset:row.top-frame.scrollTop};
+        if(expandedProjects.has(key))expandedProjects.delete(key);else expandedProjects.add(key);
+        context.onProjectExpanded?.([...expandedProjects]);schedule("project-toggle");
+      };
       if (rangePreview) {
         const left = clamp(apis.viewport.dateMsToPx(mainViewport, rangePreview.startMs), 0, rect.width);
         const right = clamp(apis.viewport.dateMsToPx(mainViewport, rangePreview.endMs), left, rect.width);
@@ -473,8 +512,9 @@
         events: index.events,
         mainViewport,
         overviewViewport,
-        widthPx: rect.width,
+        widthPx: chartWidth,
         heightPx: overviewHeight,
+        separateAxis:true,
         totalHeightPx: rect.height,
         now: new Date(nowMs(context)).toISOString(),
         locale,
@@ -484,8 +524,8 @@
       const model = {
         mainPlan,
         overviewPlan,
-        state: index.events.length ? "ready" : "empty",
-        message: index.events.length ? "" : "No timeline events",
+        state: index.events.length || mainPlan.projectRows?.length ? "ready" : "empty",
+        message: index.events.length || mainPlan.projectRows?.length ? "" : "No timeline events",
         showStateMessage: context.externalStateLayer !== true
       };
       if (rendered) apis.renderer.updateNativeTimeline(host, model);
@@ -494,6 +534,20 @@
         rendered = true;
       }
       renderCount += 1;
+      const nextFrame=host.__noriaNativeTimelineState?.projectFrame;
+      if(pendingViewState&&(!mainPlan.projectMode||nextFrame?.clientHeight>0)){
+        if(nextFrame){
+          const anchor=mainPlan.projectRows?.find(row=>row.project&&row.key===pendingViewState.projectKey);
+          nextFrame.scrollTop=anchor?Math.max(0,anchor.top-pendingViewState.projectOffset):pendingViewState.scrollTop||0;
+        }
+        pendingViewState=null;
+      }
+      if(nextFrame&&projectScrollAnchor){
+        const row=mainPlan.projectRows?.find(row=>row.project&&row.key===projectScrollAnchor.key);
+        if(row)nextFrame.scrollTop=Math.max(0,row.top-projectScrollAnchor.offset);
+        projectScrollAnchor=null;
+      }
+      if(nextFrame&&Math.abs(Math.max(0,finite(nextFrame.offsetWidth,0)-finite(nextFrame.clientWidth,0))-scrollWidth)>.5)schedule("project-scrollbar");
       state = model.state;
       host.setAttribute?.("data-noria-native-render-count", String(renderCount));
       if (typeof context.onRender === "function") {
@@ -510,7 +564,7 @@
       document: documentRef,
       getViewport: () => mainViewport,
       getOverviewViewport: () => overviewViewport,
-      getTask: (taskKey) => taskMap.get(text(taskKey)) || null,
+      getTask: (taskKey) => {const event=taskMap.get(text(taskKey));return event?.layer==='task'?(settings.groupBy==='projects'?{...event,taskKey:event.id}:event):null;},
       updateViewport: (viewport) => {
         if (!viewport) return;
         const zoomed = mainViewport && Math.abs(viewport.msPerPx / mainViewport.msPerPx - 1) > 1e-8;
@@ -624,6 +678,11 @@
       getWindow() { return timeWindow ? {...timeWindow} : mainViewport ? apis.viewport.visibleRange(mainViewport) : null; },
       getFocus() { return timeWindow?.focusMs ?? mainViewport?.centerMs ?? nowMs(context); },
       getFocusMagnification() { return focusMagnification; },
+      canFitTasks() { return !!windows?.coveringTasks(canonicalIndex.events); },
+      fitTasks() {
+        const range=windows?.coveringTasks(canonicalIndex.events);
+        return range?instance.setWindow(range):false;
+      },
       setFocusMagnification(value) {
         focusMagnification=value===true;
         if(timeWindow&&mainViewport)timeWindow={...timeWindow,focusMs:timeWindow.focusMs??mainViewport.centerMs};
@@ -639,6 +698,19 @@
         schedule("time-window"); scheduleManualScaleState(); return true;
       },
       flushWindow() { emitManualScaleState(); },
+      captureViewState() {
+        if(disposed)return null;
+        if(pendingViewState)return {...pendingViewState,previousProjectWindow};
+        const state=host.__noriaNativeTimelineState,frame=state?.projectFrame;
+        if(!state)return null;
+        const row=frame&&state.mainPlan?.projectRows?.filter(row=>row.project&&row.top<=frame.scrollTop+8).at(-1);
+        return {scrollTop:frame?.scrollTop||0,projectKey:row?.key||'',projectOffset:row?row.top-frame.scrollTop:0,previousProjectWindow};
+      },
+      restoreViewState(value) {
+        if(disposed||!value)return;
+        pendingViewState=value;previousProjectWindow=windows?.normalize(value.previousProjectWindow)||null;schedule('restore-view');
+      },
+      setOverviewVisibility(value) { settings.overviewVisibility=['show','hide'].includes(value)?value:'auto';schedule('overview-visibility'); },
       selectAnnotation(id) { selectedAnnotationId = text(id); schedule("annotation-select"); },
       previewAnnotation(event) {
         if (!event?.id) return;

@@ -5,7 +5,7 @@
 (() => {
   const root = globalThis.dashboardCore || (globalThis.dashboardCore = {});
   root.utils = root.utils || {};
-  const REVIEW_CENTER_RUNTIME_CONTRACT_VERSION = 2;
+  const REVIEW_CENTER_RUNTIME_CONTRACT_VERSION = 3;
 
   const normalizePath = (raw) =>
     String(raw || "")
@@ -200,10 +200,21 @@
     return (h >>> 0).toString(16).padStart(8, "0");
   };
 
-  const createEvidenceHash = (evidence) => hashString(stableJson(evidence || {}));
+  const createEvidenceHash = (evidence) => {
+    // Collection timings describe the read, not a change in the review material.
+    const { performance, ...material } = evidence || {};
+    for (const key of ["stats", "snapshot"]) {
+      const snapshot = material[key];
+      if (snapshot?.meta) {
+        const { generatedAt, ...meta } = snapshot.meta;
+        material[key] = { ...snapshot, meta };
+      }
+    }
+    return hashString(stableJson(material));
+  };
 
   const countWords = (text) => {
-    const raw = String(text || "");
+    const raw = root.utils?.diaryDayBlocks?.withoutDiaryCardViews?.(text)??String(text || "");
     const cjk = raw.match(/[\u3400-\u9fff]/g) || [];
     const latin = raw.match(/[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*/g) || [];
     return cjk.length + latin.length;

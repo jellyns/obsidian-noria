@@ -14,6 +14,8 @@ findings.md
 progress.md
 tmp_visual/
 .tmp/
+evidence/
+.impeccable/
 
 # 常见垃圾
 .DS_Store

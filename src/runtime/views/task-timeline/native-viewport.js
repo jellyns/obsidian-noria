@@ -166,6 +166,7 @@
     if (!viewport || viewport.widthPx <= 0) return [];
     const intervalMs = chooseTickInterval(viewport, options.minSpacingPx);
     const range = visibleRange(viewport);
+    if(options.clock)return options.clock.ticks(range.startMs,range.endMs,intervalMs).map(timeMs=>({timeMs,intervalMs,px:dateMsToPx(viewport,timeMs)}));
     if (intervalMs >= 30 * DAY) {
       const monthStep = intervalMs >= 365 * DAY ? 12 : Math.round(intervalMs / (30 * DAY));
       const start = new Date(range.startMs);

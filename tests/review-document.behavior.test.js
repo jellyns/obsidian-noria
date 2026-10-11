@@ -97,6 +97,9 @@ test("analysis adoption appends selected real sections and preserves the current
   assert.ok(result.startsWith(original + "\n\n"));
   assert.match(result, /### A useful observation\n\nText\n\n#### Detail/);
   assert.doesNotMatch(result, /Another|mode: monthly/);
+  const withoutTitle = D.getReviewAnalysisSections(artifact.replace('# Analysis\n\n',''));
+  assert.deepEqual(withoutTitle.map(part=>part.title),['A useful observation','Another']);
+  assert.equal(D.appendReviewAnalysis(original,withoutTitle[0]),result);
 });
 
 test("preview disables executable fences and note transclusion while retaining images", () => {
@@ -125,4 +128,12 @@ test("legacy capture before an explicit review heading stays outside the review 
   const source="- [11:51] a capture\n\n## 复盘\n\nConfirmed result";
   const split=reviewPresentation(source,"复盘");assert.equal(split.leading,"- [11:51] a capture\n\n");assert.equal(split.review,"## 复盘\n\nConfirmed result");assert.equal(split.leading+split.review,source);
   const ambiguous="## 复盘\nA\n## 复盘\nB";assert.equal(reviewPresentation(ambiguous,"复盘").review,ambiguous);
+});
+
+test('diary preview permits explicit Base embeds without enabling note transclusion or executable views',()=>{
+ const source='![[Templates/Dated notes.base#On this day]]\n![[Another.md]]\n![[fake.base.md]]\n\n```dataviewjs\nwrite()\n```';
+ const preview=D.prepareReviewPreview(source,{sourcePath:'Diary/2026-10-08.md',allowBases:true});
+ assert.match(preview,/!\[\[Templates\/Dated notes\.base#On this day\]\]/);
+ assert.doesNotMatch(preview,/!\[\[Another|!\[\[fake|```dataviewjs|write\(\)/);
+ assert.doesNotMatch(D.prepareReviewPreview(source),/!\[\[Templates/);
 });

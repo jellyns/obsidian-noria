@@ -9,6 +9,8 @@ let {
   onTimelineManualScaleState,
   onTimelineFocusTodayReady,
   onTimelineBackendReady,
+  onTimelineProjectExpanded,
+  onTimelineUnscheduled,
   onTimelineWindowChanged,
   onTimelineMarkModeChange,
   isTimelineRuntimeCurrent
@@ -35,6 +37,7 @@ const TASK_TIMELINE_SHELL_STYLE_ID = "noria-task-timeline-shell-style";
 const TASK_TIMELINE_NATIVE_STYLE_ID = "noria-task-timeline-native-style";
 
 const taskTimelineBridge = noriaBridge && typeof noriaBridge === "object" ? noriaBridge : {};
+const taskTimelineClock = taskTimelineBridge.tasksCalendar?.timelineClock;
 const taskTimelinePages = pages == null ? "" : String(pages);
 const taskTimelineDailyNoteFormat = dailyNoteFormat || "YYYY-MM-DD";
 const taskTimelineSettingsInput = timelineSettings || taskTimelineBridge.timelineViewSettings || taskTimelineBridge.timelineView || {};
@@ -174,6 +177,7 @@ async function taskTimelineEnsureRuntime(options = {}) {
     ["event-model", TASK_TIMELINE_EVENT_MODEL_PATH],
     ["task-adapter", TASK_TIMELINE_TASK_ADAPTER_PATH],
     ["task-edit", TASK_TIMELINE_TASK_EDIT_PATH],
+    ["pomodoro-state", ".obsidian/plugins/noria/views/task-timeline/pomodoro-state.js"],
     ["pomodoro-binding", ".obsidian/plugins/noria/views/task-timeline/pomodoro-binding.js"],
     ["annotation-provider", TASK_TIMELINE_ANNOTATION_PROVIDER_PATH],
     ["annotation-editor", TASK_TIMELINE_ANNOTATION_EDITOR_PATH],
@@ -309,13 +313,8 @@ async function taskTimelineCollectTraces(events) {
   }
   try {
     if (typeof taskTimelineBridge.data?.getTimelineTraces === "function") {
-      const starts = (events || []).map((event) => Date.parse(event?.start)).filter(Number.isFinite);
-      const ends = (events || []).map((event) => Date.parse(event?.end || event?.start)).filter(Number.isFinite);
       return await taskTimelineBridge.data.getTimelineTraces({
-        range: {
-          start: starts.length ? new Date(Math.min(...starts)).toISOString() : "",
-          end: ends.length ? new Date(Math.max(...ends)).toISOString() : ""
-        },
+        layers: taskTimelineNormalizeFilter(timelineFilter).layers,
         source: { pages: taskTimelinePages }
       });
     }
@@ -345,6 +344,9 @@ function taskTimelineNormalizeFilter(raw) {
   const layers = layerInput.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
   return {
     layers: layers.length ? Array.from(new Set(layers)) : ["task", "annotation"],
+    groupBy: source.groupBy === "projects" ? "projects" : "free",
+    projectRoot: String(source.projectRoot || ""),
+    expandedProjects: Array.isArray(source.expandedProjects) ? source.expandedProjects : [],
     showDone: source.showDone !== false,
     query: String(source.query || source.text || "").trim(),
     includeTags: taskTimelineNormalizeTagList(source.includeTags || source.tags),
@@ -364,6 +366,7 @@ function taskTimelineNormalizeFilter(raw) {
 function taskTimelineFilterQuery(state) {
   return {
     layers: state.layers,
+    sourceRoot: state.projectRoot,
     excludeStatus: state.showDone ? [] : ["done"],
     tags: state.includeTags,
     excludeTags: state.excludeTags,
@@ -439,12 +442,18 @@ function taskTimelineWaitForEditorReady(leaf, timeoutMs = 96) {
 }
 
 async function taskTimelineOpenSource(event) {
-  const path = taskTimelineEventPath(event);
+  let path = taskTimelineEventPath(event);
+  const paths = event?.payload?.burst?.paths || event?.source?.paths;
+  if (paths?.length > 1) {
+    path = await taskTimelineBridge.runtime?.chooseTimelineSource?.(paths);
+    if (!path) return false;
+  }
   const file = path ? app?.vault?.getAbstractFileByPath?.(path) : null;
   const leaf = file?.extension === "md" ? taskTimelinePickMarkdownLeaf() : null;
   if (!leaf?.openFile) return false;
   await leaf.openFile(file, { active: true });
-  const line = Math.max(0, taskTimelineEventLine(event));
+  const anchorLine = event.source?.anchor ? app.metadataCache?.getFileCache?.(file)?.blocks?.[event.source.anchor]?.position?.start?.line : undefined;
+  const line = Number.isInteger(anchorLine) && anchorLine >= 0 ? anchorLine : Math.max(0, taskTimelineEventLine(event));
   await taskTimelineWaitForEditorReady(leaf);
   try { leaf.view?.setEphemeralState?.({ line }); } catch (_) {}
   try {
@@ -463,7 +472,7 @@ async function taskTimelineCommitDrag(taskEdit, payload) {
   const path = taskTimelineEventPath(event);
   const file = path ? app?.vault?.getAbstractFileByPath?.(path) : null;
   if (!file || file.extension !== "md") return false;
-  let outcome = "unchanged";
+  let outcome = "unchanged",receipt=null;
   const applyDrag = (current) => {
     const source = String(current || "");
     const snapshot = taskTimelineEventRawLine(event);
@@ -487,12 +496,13 @@ async function taskTimelineCommitDrag(taskEdit, payload) {
       end: payload?.dates?.end,
       snapMinutes: 5,
       minDurationMin: 5
-    }).trimEnd();
+    }, {formatDateTime: taskTimelineClock ? value => taskTimelineClock.write(value, !compatibleEvent.noria?.startTime) : undefined}).trimEnd();
     if (!nextLine || nextLine === oldLine) {
       outcome = "unchanged";
       return source;
     }
     outcome = "changed";
+    receipt={path,before:oldLine,after:nextLine};
     return source.slice(0, row.start) + nextLine + source.slice(row.start + oldLine.length);
   };
   await app.vault.process(file, applyDrag);
@@ -505,6 +515,7 @@ async function taskTimelineCommitDrag(taskEdit, payload) {
   }
   if (outcome !== "changed") return false;
   taskTimelineBridge.refresh?.requestRefresh?.("timeline", "task-timeline-drag-write");
+  taskTimelineBridge.tasks.showMoveUndo(receipt,payload?.timelineEl);
   return true;
 }
 
@@ -697,8 +708,10 @@ async function taskTimelineRender() {
     const taskModel = runtime.adapter.tasksToTimelineEvents(tasks, {
       dailyNoteFormat: taskTimelineDailyNoteFormat,
       pages: taskTimelinePages,
+      metaToIso: taskTimelineClock?.iso,
       timelineTagPlacement: taskTimelineSettingsInput.timelineTagPlacement
     });
+    for(const event of taskModel.events)event.color=taskTimelineBridge.runtime.resolveTaskCategory(event.payload.task).color;
     timing.taskModelMs = taskTimelineRoundMs(taskTimelinePerfNow() - phase);
 
     phase = taskTimelinePerfNow();
@@ -715,16 +728,25 @@ async function taskTimelineRender() {
     timing.traceCacheMs = Number.isFinite(Number(traceData?.meta?.performance?.cacheMs)) ? taskTimelineRoundMs(traceData.meta.performance.cacheMs) : 0;
 
     phase = taskTimelinePerfNow();
+    const collectFocusEvents=state=>{
+      const events=runtime.pomodoroProvider.pomodoroStateToTimelineEvents(state,{now:new Date().toISOString(),locale:taskTimelineRuntimeLocale()}).events;
+      const categories=taskTimelineBridge.runtime.resolveFocusCategories(state,tasks);
+      for(const event of events){
+        const category=categories[event.payload?.pomodoro?.taskKey];
+        if(category&&!event.kind.includes('break')){event.color=category.color;event.tags=[...category.tags.map(tag=>'#'+tag),'#pomodoro'];}
+      }
+      return events;
+    };
     const providerResult = await runtime.eventModel.collectProviderEvents([
       { id: "tasks", layer: "task", collect: () => taskModel.events },
       annotationLayerActive
         ? { id: "annotations", layer: "annotation", collect: () => runtime.annotationProvider.annotationsToTimelineEvents(annotations).events }
         : null,
       pomodoroLayerActive && runtime.pomodoroProvider
-        ? { id: "pomodoro", layer: "pomodoro", collect: () => runtime.pomodoroProvider.pomodoroStateToTimelineEvents(pomodoroState, { now: new Date().toISOString() }).events }
+        ? { id: "pomodoro", layer: "pomodoro", collect: () => collectFocusEvents(pomodoroState) }
         : null,
       traceLayerActive
-        ? { id: "traces", layer: "trace", collect: () => runtime.traceProvider.timelineTracesToEvents(traceData).events }
+        ? { id: "traces", layer: "trace", collect: () => runtime.traceProvider.timelineTracesToEvents(traceData, { locale: taskTimelineRuntimeLocale() }).events }
         : null
     ].filter(Boolean), { sourceMode: "tasks", pages: taskTimelinePages });
     timing.providerCollectMs = taskTimelineRoundMs(taskTimelinePerfNow() - phase);
@@ -737,6 +759,8 @@ async function taskTimelineRender() {
 
     const settings = {
       ...taskTimelineSettingsInput,
+      groupBy: filterState.groupBy,
+      expandedProjects: filterState.expandedProjects,
       locale: taskTimelineRuntimeLocale(),
       todayLabel: taskTimelineRuntimeMessage("runtime.timeline.relative.today", "Today"),
       scaleMode: filterState.scaleMode,
@@ -788,6 +812,7 @@ async function taskTimelineRender() {
       annotationPopup = runtime.annotationEditor.openEditor({
         document: timelineEl.ownerDocument,
         annotation,
+        clock: taskTimelineClock,
         locale: settings.locale,
         anchor: taskTimelineEditorAnchor(event),
         returnFocus: event?.target,
@@ -808,6 +833,13 @@ async function taskTimelineRender() {
       });
     };
 
+    const projects = settings.groupBy === "projects" ? taskTimelineRows((await taskTimelineBridge.data.getSnapshot({include:["projects"]},{ctx}))?.domains?.projects?.items).filter(p=>p.stage!=="hidden"&&(!filterState.projectRoot||p.root===filterState.projectRoot)).map(p=>{
+      const candidates=[p.targetPath,p.root,`${p.root}/${p.name}·MOC.md`,`${p.root}/${p.name}.md`,`${p.root}/README.md`];
+      const targetPath=candidates.find(path=>path&&app.vault.getAbstractFileByPath(path.split('#')[0])?.extension==='md')||"";
+      return {...p,targetPath};
+    }) : [];
+    const unplaced = taskModel.unplaced.filter(runtime.eventModel.createTimelineMatcher(taskTimelineFilterQuery(filterState)));
+    if (!taskTimelineRunIsCurrent()) { disposeDensity?.();root.remove?.();return; }
     phase = taskTimelinePerfNow();
     backendInstance = await runtime.engine.mountTimelineBackend("native", {
       timelineEl,
@@ -817,12 +849,23 @@ async function taskTimelineRender() {
       measureText: taskTimelineTextMeasurer(timelineEl),
       externalStateLayer: true,
       events: filteredEvents,
+      clock: taskTimelineClock,
+      projects, unplaced, projectRoot: filterState.projectRoot,
+      onProjectExpanded: paths => { filterState.expandedProjects=paths; onTimelineProjectExpanded?.(paths); },
+      onProjectUnscheduled: onTimelineUnscheduled,
+      onProjectOpen: row => {
+        if(row.project)return row.path?taskTimelineOpenSource({source:{path:row.path}}):false;
+        const task=row.task.payload?.task || row.task.task || {};
+        return taskTimelineBridge.tasks.openDetails({path:row.path,line:row.task.source?.line,rawText:task.source?.rawLine||task.rawText||task.rawLine||(typeof task.text==='string'?task.text:task.text?.raw)}, {calendarZone:taskTimelineBridge.tasksCalendar?.zone}).catch(error=>taskTimelineNotifyFailure(error.message));
+      },
       settings,
       onRender: () => { taskTimelineSetState(root, stage, "ready", "", counts); onTimelineWindowChanged?.(); },
       onManualScaleState: typeof onTimelineManualScaleState === "function" ? onTimelineManualScaleState : null,
       onMarkModeChange: typeof onTimelineMarkModeChange === "function" ? onTimelineMarkModeChange : null,
       services: {
-        openSource: taskTimelineOpenSource,
+        openSource: event => event.layer==='task'
+          ? taskTimelineBridge.tasks.openDetails({path:taskTimelineEventPath(event),line:taskTimelineEventLine(event),rawText:taskTimelineEventRawLine(event)}, {calendarZone:taskTimelineBridge.tasksCalendar?.zone}).catch(error=>taskTimelineNotifyFailure(error.message))
+          : taskTimelineOpenSource(event),
         commitDrag: (payload) => taskTimelineCommitDrag(runtime.taskEdit, payload)
       },
       selectRange: (intent, event) => {
@@ -858,17 +901,26 @@ async function taskTimelineRender() {
     };
     if (typeof onTimelineFocusTodayReady === "function") onTimelineFocusTodayReady(focusToday);
     let disposed = false;
+    const unsubscribeFocus = pomodoroLayerActive && taskTimelineBridge.subscribePomodoro?.(state=>{
+      if(disposed||!taskTimelineRunIsCurrent())return;
+      const focusEvents=collectFocusEvents(state);
+      backendInstance.refresh({events:runtime.eventModel.filterTimelineEvents([...providerResult.events.filter(event=>event.layer!=="pomodoro"),...focusEvents],taskTimelineFilterQuery(filterState)),reason:"focus-records"});
+    });
     const cleanup = () => {
       if (disposed) return;
       disposed = true;
       annotationPopup?.close("dispose");
       try { backendInstance.dispose(); } catch (_) {}
+      if(typeof unsubscribeFocus==='function')unsubscribeFocus();
       try { disposeDensity(); } catch (_) {}
       if (typeof onTimelineFocusTodayReady === "function") onTimelineFocusTodayReady(null);
     };
     timelineEl.__noriaTaskTimelineCleanup = cleanup;
     timelineEl.__noriaTaskTimelineBackend = backendInstance;
-    if (typeof onTimelineBackendReady === "function") onTimelineBackendReady(backendInstance, taskModel, providerResult.events, timelineEl);
+    if (typeof onTimelineBackendReady === "function") onTimelineBackendReady(backendInstance, taskModel, providerResult.events, timelineEl, {
+      ...(traceData?.git ? { git: traceData.git.available !== false } : {}),
+      ...(traceData?.cache ? { noria: traceData.cache.available !== false } : {})
+    });
 
     timing.totalMs = taskTimelineRoundMs(taskTimelinePerfNow() - loadStartedAt);
     taskTimelineSetLoadDiagnostics(timelineEl, "ready", timing, counts);

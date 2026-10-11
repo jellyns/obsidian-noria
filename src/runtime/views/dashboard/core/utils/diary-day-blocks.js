@@ -613,7 +613,29 @@
     return { hasTodayTasks, hasInbox, hasState, hasGdd, hasThought, hasGratitude };
   };
 
+  // Interface configuration is not diary writing. Keep line offsets for task
+  // projections, but remove only valid, explicitly named card-view blocks.
+  const withoutDiaryCardViews = (input) => {
+    const raw=String(input||''),blocks=[];let opening;
+    for(const row of scanMarkdownLines(raw)){
+      if(row.fenceStart)opening=row;
+      if(!row.fenceEnd||!opening)continue;
+      if(opening.fenceLanguage==='noria-view')try{
+        const payload=JSON.parse(raw.slice(opening.end,row.start));
+        if(payload?.view==='diary-cards'&&Array.isArray(payload.props?.cards))blocks.push({start:opening.start,end:row.end});
+      }catch(_){}opening=null;
+    }
+    const headings=scanAtxHeadings(raw);let result=raw;
+    for(const block of blocks.reverse()){
+      let start=block.start;const heading=headings.filter(h=>h.start<start).at(-1),next=headings.find(h=>h.start>block.end&&h.level<=2)?.start??raw.length;
+      if(heading?.level===2&&['卡片','Cards'].includes(heading.title)&&!raw.slice(heading.end,start).trim()&&!raw.slice(block.end,next).trim())start=heading.start;
+      result=result.slice(0,start)+raw.slice(start,block.end).replace(/[^\r\n]/g,'')+result.slice(block.end);
+    }
+    return result;
+  };
+
   return {
+    withoutDiaryCardViews,
     scanMarkdownLines,
     scanAtxHeadings,
     readDiaryInboxSection,

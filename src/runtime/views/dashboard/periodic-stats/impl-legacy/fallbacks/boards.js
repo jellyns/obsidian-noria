@@ -45,7 +45,7 @@
         return;
       }
       const host = card.createDiv();
-      host.style.cssText = "padding:6px;border-radius:10px;background:color-mix(in srgb,var(--background-primary) 88%,rgba(59,130,246,.05));border:1px solid color-mix(in srgb,var(--background-modifier-border) 76%,rgba(59,130,246,.14));";
+      host.classList.add("noria-period-stat-heatmap");
       const entries = Object.entries(map).map(([date, intensity]) => ({ date, intensity }));
       render(host, {
         year,

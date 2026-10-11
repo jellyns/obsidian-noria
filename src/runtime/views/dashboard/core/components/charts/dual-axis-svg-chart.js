@@ -51,10 +51,16 @@
     } = config || {};
 
     const pal = root.components?.charts?.chartPalette;
-    const chartColor = (k) =>
-      bare ? ({lineStroke:"var(--color-purple)",lineMarkerFill:"var(--color-purple)",lineMarkerStroke:"var(--background-primary)",barFill:"var(--color-blue)",barStroke:"var(--color-blue)",tickLeft:"var(--text-muted)",tickRight:"var(--text-muted)",gridStroke:"var(--background-modifier-border)",gridOpacity:".5",axisLeft:"var(--background-modifier-border)",axisRight:"var(--background-modifier-border)"}[k] || "var(--text-muted)") : typeof pal?.chartColor === "function"
-        ? pal.chartColor(k)
-        : pal?.FALLBACK?.[k] ?? ({lineStroke:"var(--color-purple)",lineMarkerFill:"var(--color-purple)",lineMarkerStroke:"var(--background-primary)",barFill:"var(--color-blue)",barStroke:"var(--color-blue)",gridLine:"var(--background-modifier-border)"}[k] || "var(--text-muted)");
+    const fallback = {
+      lineStroke:"var(--dash-chart-series-line, rgb(79 70 229))",
+      lineMarkerFill:"var(--background-primary)",lineMarkerStroke:"var(--dash-chart-series-line, rgb(79 70 229))",
+      barFill:"color-mix(in srgb, var(--dash-chart-series-bars, rgb(8 126 164)) 82%, transparent)",
+      barStroke:"var(--dash-chart-series-bars, rgb(8 126 164))",
+      gridStroke:"var(--background-modifier-border)",gridOpacity:".5"
+    };
+    const chartColor = key => pal?.VAR?.[key] && key !== 'gridOpacity' ? `var(${pal.VAR[key]})`
+      : typeof pal?.chartColor === 'function' ? pal.chartColor(key) : pal?.FALLBACK?.[key] ?? fallback[key] ?? 'var(--text-muted)';
+
 
     const chipsRenderer = root.components?.cards?.metricChips?.renderMetricChips;
     const card = bare ? parent : makeCard(parent, title);
@@ -80,7 +86,7 @@
     const chartH = bare ? (chartW < 420 ? 210 : 240) : 280;
     const padL = bare ? 44 : 58;
     const padR = bare ? 44 : 56;
-    const padT = 16;
+    const padT = bare ? 32 : 16;
     const padB = 36;
     const plotW = chartW - padL - padR;
     const plotH = chartH - padT - padB;
@@ -98,7 +104,9 @@
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", `0 0 ${chartW} ${chartH}`);
     svg.setAttribute("width", "100%");
-    svg.setAttribute("role","img");svg.setAttribute("aria-label",`${title}: ${barName} / ${lineName}`);
+    svg.setAttribute("role","img");
+    const titleId='noria-dual-'+Math.random().toString(36).slice(2),svgTitle=document.createElementNS("http://www.w3.org/2000/svg","title");
+    svgTitle.setAttribute('id',titleId);svgTitle.textContent=title+': '+barName+' / '+lineName;svg.appendChild(svgTitle);svg.setAttribute('aria-labelledby',titleId);
     svg.setAttribute("height", String(chartH));
     svg.style.cssText = `display:block;width:100%;height:${chartH}px;background:transparent;border-radius:0;border:none;`;
 
@@ -111,7 +119,7 @@
       g.setAttribute("y2", y);
       g.setAttribute("stroke", chartColor("gridStroke"));
       g.setAttribute("stroke-opacity", chartColor("gridOpacity"));
-      if(!bare)g.setAttribute("stroke-dasharray", "4 6");
+      g.setAttribute("stroke-dasharray", bare ? "3 7" : "4 6");
       svg.appendChild(g);
     });
 
@@ -121,7 +129,7 @@
     leftAxis.setAttribute("x2", padL);
     leftAxis.setAttribute("y2", padT + plotH);
     leftAxis.setAttribute("stroke", chartColor("axisLeft"));
-    svg.appendChild(leftAxis);
+    if(!bare)svg.appendChild(leftAxis);
 
     const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "line");
     rightAxis.setAttribute("x1", padL + plotW);
@@ -129,7 +137,7 @@
     rightAxis.setAttribute("x2", padL + plotW);
     rightAxis.setAttribute("y2", padT + plotH);
     rightAxis.setAttribute("stroke", chartColor("axisRight"));
-    svg.appendChild(rightAxis);
+    if(!bare)svg.appendChild(rightAxis);
 
     [...new Set([0, Math.ceil(maxLine / 2), maxLine])].forEach((val) => {
       const y = yLeft(val);
@@ -162,7 +170,7 @@
     defs.appendChild(glow);
     svg.appendChild(defs);
 
-    const barW = Math.min(28, Math.max(.5,(plotW / n) * .58));
+    const barW = Math.min(bare?13:28, Math.max(.5,(plotW / n) * .54));
     barSeries.forEach((v, i) => {
       const x = xAt(i) - barW / 2;
       const y = yRight(v);
@@ -184,7 +192,7 @@
     line.setAttribute("d", countLinePath(points));
     line.setAttribute("fill", "none");
     line.setAttribute("stroke", chartColor("lineStroke"));
-    line.setAttribute("stroke-width", "2.8");
+    line.setAttribute("stroke-width", bare ? "2" : "2.8");
     line.setAttribute("stroke-linecap", "round");
     line.setAttribute("stroke-linejoin", "round");
     if(!bare)line.setAttribute("filter", `url(#${glowId})`);
@@ -217,6 +225,15 @@
       svg.appendChild(tx);
     });
 
+    const annotationApi = root.components?.charts?.trendAnnotations ||
+      (typeof module !== 'undefined' && module.exports ? require('./trend-annotations.js') : null);
+    const annotations = annotationApi?.createTrendAnnotations(svg, {
+      bounds:{left:padL+2,right:padL+plotW-2,top:bare?padT-18:padT+3,bottom:padT+plotH-3},
+      series:[
+        {values:lineSeries,xAt,yAt:yLeft,color:chartColor('lineStroke'),format:value=>formatValue(value)+lineUnit},
+        {values:barSeries,xAt,yAt:yRight,color:chartColor('barStroke'),format:formatValue}
+      ]
+    });
     if(bare&&typeof onInspect==='function'){
       const cursor=document.createElementNS(svg.namespaceURI,'line');
       for(const [key,value] of Object.entries({y1:padT,y2:padT+plotH,stroke:'var(--text-faint)','stroke-width':1,'pointer-events':'none'}))cursor.setAttribute(key,String(value));
@@ -230,7 +247,7 @@
         const next=Math.max(0,Math.min(n-1,index));if(next===active)return;active=next;
         cursor.setAttribute('x1',xAt(active));cursor.setAttribute('x2',xAt(active));
         marker.setAttribute('visibility',lineSeries[active]==null?'hidden':'visible');marker.setAttribute('cx',xAt(active));marker.setAttribute('cy',yLeft(lineSeries[active]));
-        plot.setAttribute('data-index',String(active));onInspect(active);
+        plot.setAttribute('data-index',String(active));annotations?.update(active);onInspect(active);
       };
       plot.appendChild(svg);
       plot.onpointermove=event=>{const rect=svg.getBoundingClientRect();if(rect.width)select(Math.floor(((event.clientX-rect.left)*chartW/rect.width-padL)/plotW*n));};

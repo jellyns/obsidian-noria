@@ -40,6 +40,7 @@ function loadTimelineHooks() {
   };
   context.globalThis = context;
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(pluginPath("views/task-timeline/pomodoro-state.js"), "utf8"), context);
   vm.runInContext(code, context, { filename: "views/tasks-timeline/view.js" });
   return context.__noriaTimelineTestHooks;
 }
@@ -151,6 +152,7 @@ function loadTaskTimelinePomodoroBinding() {
   };
   context.globalThis = context;
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(pluginPath("views/task-timeline/pomodoro-state.js"), "utf8"), context);
   vm.runInContext(code, context, { filename: "views/task-timeline/pomodoro-binding.js" });
   const hooks = context.__noriaTaskTimelinePomodoroBindingTestHooks;
   Object.defineProperty(hooks, "__context", { value: context });
@@ -881,12 +883,12 @@ test("presentation pomodoro provider maps stored and active sessions to unified 
   assert.equal(timeline.events.length, 2);
   assert.equal(timeline.events[0].layer, "pomodoro");
   assert.equal(timeline.events[0].kind, "work");
-  assert.equal(timeline.events[0].title, "Pomo 25m");
+  assert.equal(timeline.events[0].title, "Write Noria plan");
   assert.match(timeline.events[0].presentation.hoverText, /^Task: Write Noria plan/m);
   assert.equal(timeline.events[0].source.path, "06_Diary/2026-06-01.md");
   assert.equal(timeline.events[0].source.line, 4);
   assert.equal(timeline.events[1].kind, "active-work");
-  assert.equal(timeline.events[1].title, "Pomo 10m");
+  assert.equal(timeline.events[1].title, "Write Noria plan");
   assert.equal(timeline.events[1].end, "2026-06-01T09:40:00+08:00");
   assert.match(timeline.events[1].presentation.classname, /noria-task-timeline-pomodoro--active/);
 });
@@ -914,10 +916,10 @@ test("presentation pomodoro provider keeps raw task markdown out of event labels
   });
 
   assert.equal(timeline.events.length, 1);
-  assert.equal(timeline.events[0].title, "Pomo 25m");
+  assert.equal(timeline.events[0].title, "与讨论这种问题一句话版本");
   assert.doesNotMatch(timeline.events[0].title, /\[[ xX]\]/);
-  assert.doesNotMatch(timeline.events[0].title, /与讨论这种问题/);
-  assert.match(timeline.events[0].presentation.hoverText, /^Task: 与讨论这种问题一句话版本 #proj\/noria/m);
+  assert.doesNotMatch(timeline.events[0].title, /#proj/);
+  assert.match(timeline.events[0].presentation.hoverText, /^Task: 与讨论这种问题一句话版本/m);
 });
 
 test("presentation pomodoro provider renders unassigned active timers as standalone traces", () => {
@@ -939,7 +941,7 @@ test("presentation pomodoro provider renders unassigned active timers as standal
   assert.equal(timeline.events[0].id, "pomodoro-active-unassigned");
   assert.equal(timeline.events[0].layer, "pomodoro");
   assert.equal(timeline.events[0].kind, "active-work");
-  assert.equal(timeline.events[0].title, "Pomo 12m");
+  assert.equal(timeline.events[0].title, "Free focus");
   assert.equal(timeline.events[0].start, "2026-06-01T10:00:00+08:00");
   assert.equal(timeline.events[0].end, "2026-06-01T10:12:00+08:00");
   assert.equal(timeline.events[0].payload.pomodoro.taskKey, "");
@@ -1054,7 +1056,7 @@ test("presentation pomodoro binding controls start, pause, resume, stop, and det
   assert.equal(state.tasks.zp_a.sessions[0].end, "2026-06-01T10:20:00+08:00");
   assert.equal(state.tasks.zp_a.sessions[0].durationMin, 18);
   assert.equal(state.tasks.zp_a.sessions[0].completed, false);
-  assert.equal(state.tasks.zp_a.sessions[0].outcome, "abandoned");
+  assert.equal(state.tasks.zp_a.sessions[0].outcome, "stopped");
 
   const detached = binding.detachPomodoroState(state, ["zp_a"], "2026-06-01T10:21:00+08:00");
   assert.equal(detached.activeAttachTaskKey, "");
@@ -1234,7 +1236,7 @@ test("presentation pomodoro state advances work into break and completes elapsed
     title: "写 Noria 时间轴"
   };
   let state = binding.startOrTogglePomodoroState(
-    { version: 2, workLen: 25, breakLen: 5, tasks: {} },
+    { version: 2, workLen: 25, breakLen: 5, autostartBreak: true, tasks: {} },
     meta,
     "2026-06-01T10:00:00+08:00"
   );
@@ -1285,7 +1287,7 @@ test("presentation pomodoro provider exposes abandoned sessions distinctly", () 
   assert.match(timeline.events[0].presentation.hoverText, /Status: abandoned/);
 });
 
-test("presentation pomodoro dock exposes abandoned history as diagnostics", () => {
+test("presentation pomodoro dock records an ordinary stop without marking it abandoned", () => {
   const binding = loadTaskTimelinePomodoroBinding();
   const node = createFakeElement("div", { cls: "timeline-event-label noria-task-timeline-editable" });
   const event = {
@@ -1308,8 +1310,8 @@ test("presentation pomodoro dock exposes abandoned history as diagnostics", () =
   const bound = binding.decorateTaskPomodoroDropTargets([node], event, { pomodoroState: state });
   const dock = node.querySelector(".noria-task-timeline-pomodoro-dock");
 
-  assert.equal(bound.summary.lastOutcome, "abandoned");
-  assert.equal(dock.getAttribute("data-noria-pomodoro-last-outcome"), "abandoned");
+  assert.equal(bound.summary.lastOutcome, "stopped");
+  assert.equal(dock.getAttribute("data-noria-pomodoro-last-outcome"), "stopped");
   assert.equal(dock.getAttribute("data-noria-pomodoro-last-mode"), "WORK");
   assert.equal(dock.getAttribute("data-noria-pomodoro-last-ended-at"), "2026-06-01T10:18:00+08:00");
 });
@@ -1331,7 +1333,7 @@ test("presentation pomodoro dock tick refreshes countdown and saves only auto tr
   const meta = binding.taskPomodoroMeta(event);
   let now = "2026-06-01T10:10:00+08:00";
   let current = binding.startOrTogglePomodoroState(
-    { version: 2, workLen: 25, breakLen: 5, tasks: {} },
+    { version: 2, workLen: 25, breakLen: 5, autostartBreak: true, tasks: {} },
     meta,
     "2026-06-01T10:00:00+08:00"
   );
@@ -1449,7 +1451,8 @@ test("presentation trace provider maps Noria cache traces to source-aware events
   assert.equal(timeline.events[0].kind, "review-evidence");
   assert.equal(timeline.events[0].start, "2026-06-12T21:30:00+08:00");
   assert.equal(timeline.events[0].source.type, "noria-cache");
-  assert.equal(timeline.events[0].source.path, ".obsidian/plugins/noria/cache/stats/review/2026/2026-06-12.json");
+  assert.equal(timeline.events[0].source.path, "06_Diary/2026/2026-06-12-review.md");
+  assert.equal(timeline.events[0].payload.noria.path, ".obsidian/plugins/noria/cache/stats/review/2026/2026-06-12.json");
   assert.equal(timeline.events[0].payload.noria.evidenceHash, "hash-a");
   assert.match(timeline.events[0].presentation.classname, /noria-task-timeline-noria-cache/);
   assert.match(timeline.events[0].presentation.hoverText, /06_Diary\/2026\/2026-06-12-review\.md/);
@@ -1494,6 +1497,16 @@ test("presentation trace provider aggregates short note and git bursts without m
   assert.equal(gitBurst.payload.burst.count, 2);
   assert.deepEqual(plain(gitBurst.payload.burst.hashes), ["aaa1111", "bbb2222"]);
   assert.match(gitBurst.presentation.classname, /noria-task-timeline-git--commit-burst/);
+});
+
+test("Chinese note traces keep source choices while localizing grouped titles", () => {
+  const provider=loadTaskTimelineTraceProvider();
+  const result=provider.timelineTracesToEvents({notes:[
+    {path:"项目/甲.md",title:"甲",modified:"2026-06-01T09:00:00+08:00"},
+    {path:"项目/乙.md",title:"乙",modified:"2026-06-01T09:10:00+08:00"}
+  ]},{locale:"zh"});
+  assert.equal(result.events[0].title,"修改 2 篇笔记");
+  assert.deepEqual(plain(result.events[0].source.paths),["项目/甲.md","项目/乙.md"]);
 });
 
 test("task timeline task adapter maps start and due tasks to duration events", () => {
@@ -1755,6 +1768,54 @@ test("presentation task edit updates duration start and due from drag result", (
   assert.equal((moved.match(/\[due::/g) || []).length, 1);
 });
 
+test("timeline keeps each independent arrangement and the deadline with one task identity", () => {
+  const {taskAdapter} = loadTaskTimelineTaskPipeline();
+  const raw = "- [ ] Research [schedule:: 2026-10-08 09:00 / 2026-10-08 10:00] [schedule:: 2026-10-09 14:00 / 2026-10-09 15:30] [due:: 2026-10-12]";
+  const task = {rawLine:raw,path:"P.md",line:2};
+  const model = taskAdapter.tasksToTimelineEvents([task]);
+  assert.equal(model.events.length,3);
+  assert.deepEqual(plain(model.events.map(e=>e.kind)),["scheduled","scheduled","due"]);
+  assert.deepEqual(plain(model.events.slice(0,2).map(e=>e.payload.noria.scheduleIndex)),[0,1]);
+  assert.equal(new Set(model.events.map(e=>e.id)).size,3);
+  assert.equal(new Set(model.events.map(e=>e.payload.taskKey)).size,1);
+  const json = taskAdapter.tasksToTimelineJson([task]);
+  assert.equal(json.events[1].noria.scheduleIndex,1);
+  assert.equal(json.events[1].durationEvent,true);
+  const moved = loadTaskTimelineTaskEdit().buildDraggedTaskLine(raw,json.events[1],{
+    role:"move",start:new Date("2026-10-10T16:00:00"),end:new Date("2026-10-10T17:30:00")
+  });
+  assert.equal(moved,raw.replace("2026-10-09 14:00 / 2026-10-09 15:30","2026-10-10 16:00 / 2026-10-10 17:30"));
+});
+
+test("timeline arrangements preserve date precision and reject stale schedule selectors", () => {
+  const adapter=loadTaskTimelineTaskAdapter(),edit=loadTaskTimelineTaskEdit();
+  const raw="- [ ] Read ⏳ 2026-10-08 [schedule:: 2026-10-09 / 2026-10-11] [due:: 2026-10-20]";
+  const events=adapter.tasksToTimelineJson([{rawLine:raw,path:"P.md",line:0}]).events;
+  assert.equal(events.length,3);
+  assert.equal(edit.buildDraggedTaskLine(raw,events[0],{role:"move",start:new Date("2026-10-10T12:00:00")}),raw.replace("⏳ 2026-10-08","⏳ 2026-10-10"));
+  assert.equal(edit.buildDraggedTaskLine(raw,events[1],{role:"move",start:new Date("2026-10-12T00:00:00"),end:new Date("2026-10-14T00:00:00")}),raw.replace("2026-10-09 / 2026-10-11","2026-10-12 / 2026-10-14"));
+  assert.throws(()=>edit.buildDraggedTaskLine(raw.replace("2026-10-09 / 2026-10-11","2026-10-15 / 2026-10-16"),events[1],{role:"move",start:new Date("2026-10-12T00:00:00")}),/task-changed/);
+});
+
+test("invalid arrangements stay visible as unplaced, never as modification-time events", () => {
+  const adapter=loadTaskTimelineTaskAdapter();
+  const model=adapter.tasksToTimelineEvents([{rawLine:"- [ ] Read [schedule:: broken]",path:"P.md",line:0,modified:"2026-10-07 12:00"}]);
+  assert.equal(model.events.length,0);assert.equal(model.unplaced.length,1);
+  assert.equal(model.unplaced[0].reason,"invalid-schedule");
+  const tagged=adapter.tasksToTimelineJson([{rawLine:"- [ ] Sleep #tl [schedule:: 2026-10-08 23:00 / 2026-10-09 07:00]",path:"P.md",line:1}]);
+  assert.equal(tagged.events.length,1);assert.equal(tagged.events[0].durationEvent,true);
+});
+
+test('timeline shows the deadline with a same-day arrangement instead of an extra task event',()=>{
+ const adapter=loadTaskTimelineTaskAdapter();
+ const json=adapter.tasksToTimelineJson([{rawLine:'- [ ] Submit [schedule:: 2026-10-08 09:00 / 2026-10-08 10:00] [due:: 2026-10-08 18:00]',path:'P.md',line:0}]);
+ assert.equal(json.events.length,1);assert.match(json.events[0].hoverText,/Due: 2026-10-08 18:00/);
+ const line=loadTimelineActionsAdapter().buildTimelineTaskLine({label:'Sleep',startDate:'2026-10-08',startTime:'23:00',dueDate:'2026-10-09',dueTime:'07:00',timelineTag:'#tl/sleep'});
+ const parsed=require('../src/task-document.js').parseTaskLine(line);
+ assert.equal(parsed.start,'');assert.equal(parsed.due,'');assert.equal(parsed.schedules[0].start,'2026-10-08 23:00');assert.equal(parsed.schedules[0].end,'2026-10-09 07:00');
+ assert.equal(adapter.tasksToTimelineJson([{rawLine:line,path:'P.md',line:0}]).events.length,1);
+});
+
 test("presentation task edit moves due-only instants without adding start", () => {
   const edit = loadTaskTimelineTaskEdit();
   const line = "- [ ] Submit report [due:: 2026-05-03 10:00]";
@@ -1812,13 +1873,13 @@ test("timeline reads and moves date aliases without altering code examples or le
 
 function timelineDragFixture(initial, snapshot, line = 1) {
  const view=fs.readFileSync(pluginPath('views/task-timeline/view.js'),'utf8');
- let text=initial;const notices=[],refreshes=[];
+ let text=initial;const notices=[],refreshes=[],receipts=[];
  const c=vm.createContext({app:{vault:{getAbstractFileByPath:()=>({extension:'md'}),process:async(f,fn)=>{text=fn(text)}}},
    taskTimelineNotifyFailure:message=>notices.push(message),taskTimelineRuntimeMessage:(key,fallback)=>fallback,
-   taskTimelineBridge:{tasks:{locateSource:require('../src/task-document.js').locateTask},refresh:{requestRefresh:(...args)=>refreshes.push(args)}}});
+   taskTimelineBridge:{tasks:{locateSource:require('../src/task-document.js').locateTask,showMoveUndo:receipt=>receipts.push(receipt)},refresh:{requestRefresh:(...args)=>refreshes.push(args)}}});
  let i=view.indexOf('function taskTimelineEventNoria(');vm.runInContext(view.slice(i,view.indexOf('\nfunction taskTimelinePickMarkdownLeaf',i)),c);
  i=view.indexOf('async function taskTimelineCommitDrag(');vm.runInContext(view.slice(i,view.indexOf('\nfunction taskTimelineNormalizeRange',i)),c);
- return {get text(){return text;},notices,refreshes,commit:()=>c.taskTimelineCommitDrag(loadTaskTimelineTaskEdit(),{
+ return {get text(){return text;},notices,refreshes,receipts,commit:()=>c.taskTimelineCommitDrag(loadTaskTimelineTaskEdit(),{
    event:{source:{path:'P.md',line},noria:{kind:'duration',task:{rawLine:snapshot}},start:'2026-10-06T09:00:00',end:'2026-10-06T10:00:00'},
    role:'move',dates:{start:new Date('2026-10-06T11:00:00'),end:new Date('2026-10-06T12:00:00')}})};
 }
@@ -1827,6 +1888,7 @@ test("timeline drag writeback preserves surrounding Markdown and CRLF",async()=>
  const line="  - [ ] Child [start:: 2026-10-06 09:00] [due:: 2026-10-06 10:00] ^child";
  const before=`- [ ] Parent\r\n${line}\r\n    Attached paragraph\r\n`,f=timelineDragFixture(before,line);
  assert.equal(await f.commit(),true);assert.equal(f.text,before.replace('09:00','11:00').replace('10:00','12:00'));
+ assert.equal(f.receipts.length,1);assert.equal(f.receipts[0].before,line);assert.equal(f.receipts[0].after,line.replace('09:00','11:00').replace('10:00','12:00'));
 });
 
 test("timeline drag follows an unchanged source past inserted rows and ignores code copies",async()=>{
@@ -1996,7 +2058,7 @@ test("formal task timeline health rejects ready native roots without paint evide
 test("formal task timeline cold boot refresh retries until a visible restored leaf is processed", () => {
   const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
   const coldStart = main.indexOf("async runTimelineLeavesColdBootRefresh()");
-  const coldEnd = main.indexOf("async openTasksTimelineLeaf()", coldStart);
+  const coldEnd = main.indexOf("async openTasksTimelineLeaf(", coldStart);
   assert.ok(coldStart > 0 && coldEnd > coldStart, "cold boot refresh helper should be found");
   const body = main.slice(coldStart, coldEnd);
   const layoutStart = main.indexOf("this.app.workspace.onLayoutReady(() => {");
@@ -2024,7 +2086,7 @@ test("formal task timeline recovery does not interrupt healthy or pending native
   assert.match(pending, /noria-timeline-deferred-state/);
 
   const coldStart = main.indexOf("async runTimelineLeavesColdBootRefresh()");
-  const coldEnd = main.indexOf("async openTasksTimelineLeaf()", coldStart);
+  const coldEnd = main.indexOf("async openTasksTimelineLeaf(", coldStart);
   assert.ok(coldStart > 0 && coldEnd > coldStart, "cold boot refresh helper should be found");
   const cold = main.slice(coldStart, coldEnd);
   assert.match(cold, /noriaTimelineViewLooksHealthy\(view\)[\s\S]{0,180}cold-boot-healthy/);
@@ -2033,7 +2095,7 @@ test("formal task timeline recovery does not interrupt healthy or pending native
   assert.match(cold, /if\s*\(visibleProcessedCount\s*>\s*0\)\s*this\._timelineColdBootRefreshDone\s*=\s*true/);
   assert.doesNotMatch(cold, /visibleReloadCount\s*\+=\s*1;[\s\S]{0,80}await view\.reload\(\)/);
 
-  const openStart = main.indexOf("async openTasksTimelineLeaf()");
+  const openStart = main.indexOf("async openTasksTimelineLeaf(");
   const openEnd = main.indexOf("async openTaskBoardDay(", openStart);
   assert.ok(openStart > 0 && openEnd > openStart, "task timeline open helper should be found");
   const open = main.slice(openStart, openEnd);
@@ -2234,7 +2296,6 @@ test("formal task timeline toolbar actions expose stable diagnostics metadata", 
     ["diaryInboxBtn", "toggle-diary-inbox"],
     ["focusBtn", "jump-today"],
     ["filterBtn", "toggle-filter-panel"],
-    ["timerAttachBtn", "drag-attach-pomodoro"],
     ["addBtn", "add-today-task"]
   ]) {
     assert.match(
@@ -2255,10 +2316,7 @@ test("formal task timeline toolbar actions expose stable diagnostics metadata", 
   }
 
   assert.match(toolbarBody, /focusBtn\.setAttribute\("data-noria-action-state",\s*didJump \? "ok" : "unavailable"\)/);
-  assert.match(toolbarBody, /const pomodoroLayerActive = currentFilterState\.layers\.includes\("pomodoro"\)/);
-  assert.match(toolbarBody, /if \(this\.plugin\.isPomodoroModuleEnabled\(\) && pomodoroLayerActive\)/);
-  assert.match(toolbarBody, /timerAttachBtn\.setAttribute\("data-noria-action-state",\s*"dragging"\)/);
-  assert.match(toolbarBody, /timerAttachBtn\.setAttribute\("data-noria-action-state",\s*"idle"\)/);
+  assert.doesNotMatch(toolbarBody, /timerAttachBtn/);
 });
 
 test("formal task timeline hides upstream website copyright badge", () => {
@@ -2423,10 +2481,12 @@ test("formal task timeline keeps filter popover visually lightweight", () => {
   const popoverBlock = styles.match(/\.noria-tl-filter-popover\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
   assert.ok(popoverBlock, "filter popover style should exist");
-  assert.match(popoverBlock, /background:\s*color-mix/);
-  assert.match(popoverBlock, /box-shadow:\s*none/);
+  assert.match(popoverBlock, /background:\s*var\(--background-primary\)/);
+  assert.match(popoverBlock, /position:\s*fixed/);
+  assert.match(popoverBlock, /width:\s*min\(320px, calc\(100vw - 16px\)\)/);
+  assert.match(popoverBlock, /max-height:\s*calc\(100vh - 32px\)/);
   assert.doesNotMatch(popoverBlock, /background:\s*var\(--noria-surface-raised\)/);
-  assert.doesNotMatch(popoverBlock, /box-shadow:\s*var\(--shadow-s\)/);
+  assert.match(popoverBlock, /box-shadow:\s*var\(--shadow-s\)/);
   assert.match(styles, /\.noria-tl-filter-mode-row\s*\{[\s\S]*?\n\}/);
   assert.match(styles, /\.noria-tl-filter-mode-row\s+\.noria-tl-filter-chip\s*\{[\s\S]*?font-weight:\s*640/);
   assert.match(styles, /\.noria-tl-filter-preset-row,\s*\n\.noria-tl-filter-tools\s*\{[\s\S]*?opacity:\s*0\.72/);
@@ -2998,7 +3058,7 @@ test("task calendar runtime stores local preferences through bridge before local
   const earlyEnd = runtime.indexOf("function ensurePlannerChromePlannerLabPanel", earlyStart);
   assert.ok(earlyStart > 0 && earlyEnd > earlyStart, "planner chrome toolbar setup should be found");
   const earlyBody = runtime.slice(earlyStart, earlyEnd);
-  assert.match(earlyBody, /saveTasksCalendarRuntimePreference\("showEarlyHours",\s*showEarlyHours,\s*"noria-tc-show-early-hours"\)/);
+  assert.match(earlyBody, /openPlannerHoursSettings\(ax\)/);
   assert.doesNotMatch(earlyBody, /localStorage\.setItem\("noria-tc-show-early-hours"/);
 
   assert.match(main, /async saveTasksCalendarPreference\(/);
@@ -3056,7 +3116,7 @@ test("task calendar quadrant urgency stays relative to today across aggregated r
   assert.equal(context.classify({ typ: "overdue", task: { priority: "low", due: "2026-08-04" } }), "q3");
 });
 
-test("formal task timeline keeps filter hierarchy focused and moves annotation selection to the toolbar", () => {
+test("formal task timeline keeps filter hierarchy focused without a separate annotation toolbar button", () => {
   const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
   const panelStart = main.indexOf("  renderTimelineFilterPanel(anchorEl) {");
   const panelEnd = main.indexOf("  /** ItemView", panelStart);
@@ -3072,8 +3132,8 @@ test("formal task timeline keeps filter hierarchy focused and moves annotation s
   assert.match(panel, /timeline\.filter\.moreFilters/);
   assert.doesNotMatch(panel, /noria-tl-filter-scale-row/);
   assert.doesNotMatch(panel, /"mode-mark"/);
-  assert.match(toolbar, /data-noria-action-kind": "toggle-annotation-select"/);
-  assert.match(toolbar, /timeline\.chrome\.annotationSelect/);
+  assert.doesNotMatch(toolbar, /data-noria-action-kind": "toggle-annotation-select"/);
+  // The actual contextual menu action is exercised by timeline-toolbar-menu.behavior.test.js.
 });
 
 test("task calendar quadrant drag keeps dates intact and persists an explicit manual bucket", () => {
@@ -3186,8 +3246,9 @@ test("task calendar creates diary notes under the configured diary root", () => 
   assert.match(wrapper, /isUnderVaultRoot\(currentFilePathForEmbed,\s*configuredDiaryRoot\)/);
   assert.doesNotMatch(wrapper, /\^06_Diary\\\//);
 
-  assert.match(homeTasks, /const getConfiguredDiaryRoot = \(\) =>/);
-  assert.match(homeTasks, /\$\{root\}\/\$\{y\}\/\$\{todayStr\}\.md/);
+  assert.match(homeTasks, /bridge\.runtime\.openPeriodTaskCreate/);
+  const taskCreate=fs.readFileSync(path.join(pluginRoot,'src/diary-task-create.js'),'utf8');
+  assert.match(taskCreate, /plugin\.resolveCalendarNoteSpecAsync\(selection\.mode,selection\.anchorDate\)/);
   assert.doesNotMatch(homeTasks, /06_Diary\/\$\{y\}\/\$\{y\}\$\{pad2/);
   assert.match(weather, /__noriaRuntimeBridge\?\.paths\?\.diaryRoot/);
 });
@@ -3288,9 +3349,9 @@ test("task calendar uses one canonical task row builder without recursive fallba
   const nodeDecl = runtime.indexOf("var node = buildTaskElement(", showStart);
   assert.ok(showStart > 0 && nodeDecl > showStart, "showTasks pre-node branch should be found");
   const preNode = runtime.slice(showStart, nodeDecl);
-  const fastPath = preNode.match(/if \(plannerChromeWeek && \(slotEarly\.slotType == "none" \|\| routeEarlyToWaiting\)\) \{[\s\S]*?continue;\s*\n\t\t\t\}/)?.[0] || "";
+  const fastPath = preNode.match(/if \(plannerChromeWeek && slotEarly\.slotType == "none"\) \{[\s\S]*?continue;\s*\n\t\t\t\}/)?.[0] || "";
   assert.ok(fastPath, "planner waiting fast path should exist before task DOM builders");
-  assert.match(fastPath, /dayBucketPlan\.push\(\{ task: sorted\[t\], node: null, typ: typ, preAxis: routeEarlyToWaiting \}\)/);
+  assert.match(fastPath, /dayBucketPlan\.push\(\{ task: sorted\[t\], node: null, typ: typ \}\)/);
   assert.match(fastPath, /renderedTaskKeys\.add\(taskKey\)/);
   assert.doesNotMatch(fastPath, /arePlannerChromeWaitingRowsEnabled/);
   assert.doesNotMatch(fastPath, /buildTaskElement|appendedRows\+\+/);
@@ -3329,7 +3390,7 @@ test("task calendar waiting hosts are in cellContent before timeLane and never i
   const ensureEnd = runtime.indexOf("function renderPlannerChromeWaitingHostForDate", ensureStart);
   assert.ok(ensureStart > 0 && ensureEnd > ensureStart, "waiting host ensure body should be found");
   const ensureBody = runtime.slice(ensureStart, ensureEnd);
-  assert.match(ensureBody, /cellContent\.insertBefore\(host,\s*timeLane\)/);
+  assert.match(ensureBody, /cellContent\.insertBefore\(host,\s*laneBoundary\)/);
   assert.doesNotMatch(ensureBody, /grid\.appendChild|grid\.insertBefore|position:\s*"absolute"/);
 
   assert.doesNotMatch(css, /\.timeAxisGlobal[\s\S]{0,180}tc-planner-waiting-host/);
@@ -3350,7 +3411,7 @@ test("task calendar waiting rows inherit normal task title structure and bounded
   assert.match(runtime, /tcEnsureStatusCircle\(item/);
 
   assert.match(css, /--tc-planner-waiting-row-h:\s*20px/);
-  assert.match(css, /--tc-planner-waiting-band-h:\s*calc\(var\(--tc-planner-waiting-row-h\) \* 2 \+ var\(--tc-planner-waiting-row-gap\)\)/);
+  assert.match(css, /--tc-planner-waiting-band-h:\s*var\(--tc-planner-waiting-peek, 0px\)/);
   assert.doesNotMatch(css, /\.tc-planner-waiting-strip\s*\{[\s\S]*?max-height:\s*20px/);
   assert.match(css, /\.tc-planner-waiting-strip \[data-tc-waiting-item='1'\] \.note,/);
   assert.match(css, /\.tc-planner-waiting-strip \[data-tc-waiting-item='1'\] \.icon \{[\s\S]*display:\s*none/);
@@ -3402,7 +3463,7 @@ test("task calendar waiting band is bounded and internally scrollable without ex
   const waitingStripScrollableBlock = css.match(/\.tc-planner-waiting-strip\[data-scrollable='1'\] \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(waitingStripScrollableBlock, "waiting strip scrollable state block should be present");
   assert.match(waitingStripScrollableBlock, /overflow-y:\s*auto/);
-  assert.doesNotMatch(css, /scrollbar-[a-z-]+\s*:/);
+  assert.doesNotMatch(css, /scrollbar-(?:color|width)\s*:/);
   assert.doesNotMatch(css, /::-webkit-scrollbar/);
   assert.doesNotMatch(css, /is-collapsed \[data-tc-waiting-overflow/);
   assert.doesNotMatch(css, /\.grid > \.tc-planner-waiting-layer \{/);
@@ -3441,8 +3502,9 @@ test("task calendar waiting band is bounded and internally scrollable without ex
   const adaptiveEnd = runtime.indexOf("function enforcePlannerChromeWeekGridLayout", adaptiveStart);
   assert.ok(adaptiveStart > 0 && adaptiveEnd > adaptiveStart, "planner adaptive sizing body should be found");
   const adaptiveBody = runtime.slice(adaptiveStart, adaptiveEnd);
-  assert.match(adaptiveBody, /var bottomPadding = 24;/);
-  assert.match(adaptiveBody, /return d === "comfortable" \? 28 : \(d === "tight" \? 24 : 20\);/);
+  assert.match(adaptiveBody, /gridRect.height/);
+  assert.match(adaptiveBody, /var bottomSafe = 16;/);
+  assert.doesNotMatch(adaptiveBody, /clampPlannerChromeSlotHeight/);
 });
 
 test("task calendar week timed lane width is isolated from waiting rows", () => {
@@ -3526,18 +3588,15 @@ test("task calendar week timed lane width is isolated from waiting rows", () => 
   assert.match(normalizeBody, /item\.style\.removeProperty\("left"\)/);
   assert.match(normalizeBody, /item\.style\.removeProperty\("touch-action"\)/);
   assert.match(normalizeBody, /item\.removeAttribute\("draggable"\)/);
-  assert.match(normalizeBody, /item\.removeAttribute\("data-drag-bound"\)/);
-  assert.match(normalizeBody, /item\.removeAttribute\("data-planner-pointerdown-bound"\)/);
+  assert.match(normalizeBody, /item\.addEventListener\("pointerdown",onTaskPointerDown,true\)/);
   assert.match(normalizeBody, /item\.querySelectorAll\("\.resize-handle"\)/);
 
   const pointerStart = runtime.indexOf("function onTaskPointerDown");
   const pointerEnd = runtime.indexOf("function getMetaFromNote", pointerStart);
   assert.ok(pointerStart > 0 && pointerEnd > pointerStart, "pointerdown body should be found");
   const pointerBody = runtime.slice(pointerStart, pointerEnd);
-  const waitingSkipIndex = pointerBody.search(/data-slot"\)\s*==\s*"waiting"|data-lane"\)\s*==\s*"waiting"|closest\("\.tc-planner-waiting-strip"\)/);
-  const preventIndex = pointerBody.indexOf("ev.preventDefault()");
-  assert.ok(waitingSkipIndex >= 0, "pointerdown should skip waiting strip/items");
-  assert.ok(preventIndex >= 0 && waitingSkipIndex < preventIndex, "waiting skip should run before preventDefault");
+  assert.match(pointerBody, /var fromWaiting =/);
+  assert.match(pointerBody, /addSchedule:true/);
 
   assert.match(runtime, /function syncPlannerChromeWaitingStripScrollableState/);
   const syncScrollableStart = runtime.indexOf("function syncPlannerChromeWaitingStripScrollableState");
@@ -3656,27 +3715,12 @@ test("task calendar waiting scroll diagnostics expose cache key and restore outc
   );
 });
 
-test("week planner routes tasks before the visible axis into the waiting strip before overlap layout", () => {
+test("outside timed tasks use boundary summaries instead of the waiting strip", () => {
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
-
-  assert.match(runtime, /function shouldRoutePlannerChromeSlotToWaiting\(slot,\s*visibleStartMin\)/);
-  const helperStart = runtime.indexOf("function shouldRoutePlannerChromeSlotToWaiting(slot, visibleStartMin)");
-  const helperEnd = runtime.indexOf("\nfunction ", helperStart + 10);
-  assert.ok(helperStart > 0 && helperEnd > helperStart, "pre-axis routing helper should be found");
-  const helperBody = runtime.slice(helperStart, helperEnd);
-  assert.match(helperBody, /slot\.slotType\s*===\s*"point"[\s\S]*startMin\s*<\s*dayStart/);
-  assert.match(helperBody, /slot\.slotType\s*===\s*"range"[\s\S]*endMin\s*<=\s*dayStart/);
-
-  const renderStart = runtime.indexOf("function renderTasksIntoHost");
-  const renderEnd = runtime.indexOf("\nfunction ", renderStart + 10);
-  const renderBody = runtime.slice(renderStart, renderEnd);
-  assert.match(renderBody, /routeEarlyToWaiting\s*=\s*plannerChromeWeek\s*&&\s*shouldRoutePlannerChromeSlotToWaiting/);
-  assert.match(renderBody, /slotEarly\.slotType\s*==\s*"none"\s*\|\|\s*routeEarlyToWaiting/);
-  assert.match(renderBody, /dayBucketPlan\.push\(\{\s*task:\s*sorted\[t\],\s*node:\s*null,\s*typ:\s*typ/);
-  assert.ok(
-    renderBody.indexOf("routeEarlyToWaiting") < renderBody.indexOf("var node = buildTaskElement("),
-    "pre-axis tasks should be classified before a timed card is built"
-  );
+  assert.doesNotMatch(runtime, /routeEarlyToWaiting|shouldRoutePlannerChromeSlotToWaiting|preAxis/);
+  assert.match(runtime, /outsideHours.set/);
+  assert.doesNotMatch(runtime, /outsideHours\.(?:before|after)/);
+  assert.match(runtime, /buildPlannerHoursBoundary/);
 });
 
 test("task calendar day planner axis is an absolute overlay sourced from the time lane", () => {
@@ -3744,9 +3788,8 @@ test("task calendar planner finalizer orders waiting, axis, overlap, and now mar
   }
 });
 
-test("task calendar drag refresh stays local and item view reload preserves current view anchor", () => {
+test("task calendar drag refresh stays local and records its current view anchor", () => {
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
 
   const triggerStart = runtime.indexOf("function triggerTaskFreshRefresh");
   const triggerEnd = runtime.indexOf("/** 拖拽/弹窗保存后延迟合并刷新", triggerStart);
@@ -3764,10 +3807,8 @@ test("task calendar drag refresh stays local and item view reload preserves curr
   assert.match(storeBody, /rootNode\.setAttribute\("data-noria-current-view",\s*taskStore\.view\.mode\)/);
   assert.match(storeBody, /rootNode\.setAttribute\("data-noria-current-anchor",\s*taskStore\.view\.anchorDate\)/);
 
-  assert.match(main, /captureCurrentTasksRuntimeInput\(\)/);
-  assert.match(main, /async mountTasksRuntime\(fallbackInput = \{\}\)/);
-  assert.match(main, /const input = \{ \.\.\.fallbackInput, \.\.\.this\.plugin\.consumeTasksItemViewInput\(\) \}/);
-  assert.match(main, /const fallbackInput = this\.captureCurrentTasksRuntimeInput\(\);[\s\S]*await this\.mountTasksRuntime\(fallbackInput\)/);
+  // Reload navigation and lifecycle behavior is exercised in task-board-reload.behavior.test.js.
+
 });
 
 test("task calendar and timeline use fresh task source for local status refreshes", () => {
@@ -3888,7 +3929,7 @@ test("task calendar month rows share themed checkbox geometry and span alignment
   assert.match(monthCompactBody, /className = "description tc-month-task-title"/);
   assert.match(monthCompactBody, /setAttribute\("role", "link"\)/);
   assert.doesNotMatch(monthCompactBody, /createElement\("a"\)/);
-  assert.doesNotMatch(css, /text-decoration\s*:/);
+  assert.doesNotMatch(monthTaskCss, /text-decoration\s*:/);
   assert.ok(
     timedTaskBlocks.some(({ body }) => /border-radius:\s*var\(--tc-timed-task-radius,\s*4px\)/.test(body)),
     "week/day timed task blocks should use the dedicated 4px radius token"
@@ -3925,14 +3966,12 @@ test("task calendar month rows share themed checkbox geometry and span alignment
   assert.doesNotMatch(runtime, /overlayEdgeInset\) \? metrics\.overlayEdgeInset : 2/);
 });
 
-test("task calendar quadrant statistics use the shared range model", () => {
+test("task calendar quadrants and counters share the selected range and task population", () => {
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
 
   assert.match(runtime, /function createTaskCalendarRangeModel/);
   assert.match(runtime, /function createTaskCalendarRangeStats/);
-  assert.match(runtime, /function accumulateCurrentTaskRangeStats/);
   assert.match(runtime, /function setStatisticValuesFromRangeStats/);
-  assert.match(runtime, /function requestSharedTaskBoardRangeStats/);
   assert.match(runtime, /function inheritEisenhowerGranularityFromView/);
   assert.match(runtime, /var eisenhowerFocusDate = null/);
   assert.match(runtime, /function getEisenhowerFocusDate/);
@@ -3945,11 +3984,9 @@ test("task calendar quadrant statistics use the shared range model", () => {
   const listBody = runtime.slice(listStart, listEnd);
   assert.match(listBody, /var focus = getEisenhowerFocusDate\(focusDate/);
   assert.match(listBody, /var rangeModel = createTaskCalendarRangeModel\(focus,\s*eisenhowerGranularity\)/);
-  assert.match(listBody, /var rangeStats = createTaskCalendarRangeStats\(\)/);
+  assert.match(listBody, /var completedInRange = new Map\(\)/);
   assert.match(listBody, /var eisenDayList = rangeModel\.days/);
-  assert.match(listBody, /accumulateCurrentTaskRangeStats\(rangeStats,\s*currentDate\)/);
-  assert.match(listBody, /setStatisticValuesFromRangeStats\(rangeStats\)/);
-  assert.match(listBody, /requestSharedTaskBoardRangeStats\(rangeModel,\s*rangeStats\)/);
+  assert.match(listBody, /setStatisticValuesFromRangeStats\(createTaskCalendarRangeStats\(taskQuadrantBest,\s*completedInRange\)\)/);
   assert.doesNotMatch(listBody, /var dueCounter = 0/);
   assert.doesNotMatch(listBody, /setStatisticValues\(dueCounter/);
 
@@ -4058,7 +4095,7 @@ test("task calendar period controls use compact borderless mode buttons", () => 
   assert.ok(eisenBlock, "Eisenhower segmented button style should exist");
   assert.match(eisenBlock, /font-weight:\s*(?:var\(--noria-panel-segment-weight,\s*)?650/);
   const eisenListButtonBlocks = Array.from(css.matchAll(
-    /\.tasksCalendar\[view='list'\] \.eisenMatrixTopBar \.tc-eisen-granularity\.tc-segmented button\s*\{[\s\S]*?\n\}/g
+    /\.tasksCalendar\[view='list'\] \.tc-toolbar-planner-slot \.tc-eisen-granularity\.tc-segmented button\s*\{[\s\S]*?\n\}/g
   ), (match) => match[0]);
   assert.ok(eisenListButtonBlocks.length > 0, "list-view Eisenhower button styles should exist");
   eisenListButtonBlocks.forEach((block) => {

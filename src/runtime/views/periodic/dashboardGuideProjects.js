@@ -1,6 +1,9 @@
 const host = (input && input.mount) ? input.mount : this.container;
 
 (async () => {
+  host._noriaAddProjectTask=null;
+  const headingTools=host.closest?.(".dashboard-guide-projects")?.querySelector(".dashboard-guide-card__tools");
+  headingTools?.querySelector(".dashboard-project-source-slot")?.remove();
   async function runProjectGuideBuildQueue(queue, limit = 4) {
     if (!Array.isArray(queue) || queue.length === 0) return;
     let index = 0;
@@ -669,7 +672,7 @@ const host = (input && input.mount) ? input.mount : this.container;
       debugEntry.openCount = open.length;
       debugEntry.stage = stage;
       projectDebug.projects.push(debugEntry);
-      projectBuildRows[projectIndex] = { name: proj.name, mocPath, targetPath, done, total, open, completed:tasks.filter(t=>t.completed||t.status==="done"), pct, stage, hasInProgress, _debug: debugEntry };
+      projectBuildRows[projectIndex] = { name: proj.name, root: proj.singleFile ? proj.pages[0] : proj.root, mocPath, targetPath, done, total, open, completed:tasks.filter(t=>t.completed||t.status==="done"), pct, stage, hasInProgress, _debug: debugEntry };
     });
   });
   await runProjectGuideBuildQueue(projectBuildJobs);
@@ -695,9 +698,20 @@ const host = (input && input.mount) ? input.mount : this.container;
   const wrap = host.createDiv();
   wrap.addClass?.("dashboard-project-workbench");
   wrap.style.cssText = "display:flex;flex-direction:column;gap:8px;min-height:0;flex:1;width:100%;";
-  const bar = wrap.createDiv();
+  const switchRow = wrap.createDiv({ cls: "dashboard-project-switch-row" });
+  const bar = switchRow.createDiv();
   bar.addClass?.("dashboard-project-chip-strip");
-  bar.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;padding:2px 2px 0;flex-shrink:0;";
+  bar.style.cssText = "display:flex;flex-wrap:nowrap;gap:6px;padding:2px 2px 0;min-width:0;flex:1;overflow-x:auto;";
+  const sourceSlot = (headingTools || switchRow).createDiv({ cls: "dashboard-project-source-slot" });
+  if(headingTools)headingTools.insertBefore(sourceSlot,headingTools.querySelector('.dashboard-guide-toolbar-plus'));
+  if (bridge.runtime?.chooseProject) {
+    const choose = switchRow.createEl("button", { cls: "clickable-icon dashboard-project-overflow", attr: { type: "button", "aria-label": projectsT("runtime.periodic.projects.choose") } });
+    bridge.runtime.setIcon?.(choose,"chevron-down");
+    choose.onclick = async () => {
+      const name = await bridge.runtime.chooseProject(projectData.map(p => ({ name:p.name, path:p.targetPath || p.mocPath })));
+      if (name) { rebuild(name); buttonRefs.find(x => x.name===name)?.btn?.focus?.({preventScroll:true}); }
+    };
+  }
   const panel = wrap.createDiv();
   panel.addClass?.("dashboard-project-current-panel");
   panel.style.cssText =
@@ -705,7 +719,6 @@ const host = (input && input.mount) ? input.mount : this.container;
 
   const buttonRefs = [];
   const setBtn = (btn, active, stage, pct) => {
-    const pctSafe = Math.max(0, Math.min(100, Number(pct) || 0));
     btn.addClass?.("dashboard-project-chip");
     btn.classList?.add?.("dashboard-project-chip");
     btn.classList?.toggle?.("dashboard-project-chip--active", !!active);
@@ -715,7 +728,6 @@ const host = (input && input.mount) ? input.mount : this.container;
     btn.setAttr?.("data-project-stage", stage || "active");
     btn.setAttribute?.("data-project-stage", stage || "active");
     btn.style.cssText = "";
-    btn.style.setProperty("--noria-project-progress", `${pctSafe}%`);
   };
 
   const appendProjectTaskRow = (parent, task, displayText, variant, opts = {}) => {
@@ -755,7 +767,14 @@ const host = (input && input.mount) ? input.mount : this.container;
 
     const nextRow = panel.createDiv();
     nextRow.addClass("dashboard-project-next-row");
-    const sourceButton = nextRow.createEl("button", { cls: "clickable-icon noria-project-source" });
+    sourceSlot.empty();
+    if(typeof bridge.openTasksTimeline==='function'){
+      const timeline=sourceSlot.createEl("button",{cls:"clickable-icon noria-project-timeline",attr:{type:"button","aria-label":projectsUseChinese?"项目时间轴":"Project timeline"}});
+      timeline.title=timeline.getAttribute('aria-label');
+      bridge.runtime?.setIcon?.(timeline,"gantt-chart");
+      timeline.onclick=()=>bridge.openTasksTimeline({projectRoot:proj.root});
+    }
+    const sourceButton = sourceSlot.createEl("button", { cls: "clickable-icon noria-project-source" });
     sourceButton.type = "button";
     sourceButton.setAttr("aria-label", projectsT("runtime.periodic.projects.openNote"));
     sourceButton.setAttr("title", projectsT("runtime.periodic.projects.openNote"));
@@ -775,6 +794,17 @@ const host = (input && input.mount) ? input.mount : this.container;
     const nextInput = nextRow.createEl("input");
     nextInput.type = "text";
     nextInput.value=projectViewState.drafts[proj.name]||"";
+    const showComposer = () => {
+      projectViewState.composing=proj.name;
+      nextRow.hidden=false;
+      nextInput.focus?.({preventScroll:true});
+    };
+    nextRow.hidden=projectViewState.composing!==proj.name;
+    host._noriaAddProjectTask=showComposer;
+    if (!host.closest?.('.dashboard-guide-projects')) {
+      const add=sourceSlot.createEl('button',{cls:'clickable-icon',attr:{type:'button','aria-label':projectsT('runtime.periodic.projects.nextAdd',{name:proj.name})}});
+      bridge.runtime?.setIcon?.(add,'plus');add.onclick=showComposer;
+    }
     nextInput.addEventListener("input",()=>{projectViewState.drafts[proj.name]=nextInput.value;});
     nextInput.className = "dashboard-project-next-input";
     nextInput.setAttr?.("placeholder", projectsT("runtime.periodic.projects.nextPlaceholder"));
@@ -860,6 +890,11 @@ const host = (input && input.mount) ? input.mount : this.container;
       await submitNext();
     };
     nextInput.addEventListener("keydown", async (ev) => {
+      if (ev.key === "Escape" && !ev.isComposing && !nextSubmitting) {
+        ev.preventDefault?.();ev.stopPropagation?.();projectViewState.composing="";nextRow.hidden=true;
+        host.closest?.('.dashboard-guide-projects')?.querySelector('[data-noria-action-kind="add-project-task"]')?.focus();
+        return;
+      }
       if (ev.key !== "Enter" || ev.shiftKey || ev.isComposing) return;
       ev.preventDefault?.();
       await submitNext();
@@ -891,8 +926,7 @@ const host = (input && input.mount) ? input.mount : this.container;
       const backlog = ordered.filter((t) => !t._inProgress).slice(0, full?undefined:8);
       if (inProgress.length) {
         const h = listWrap.createDiv({ text: projectsT("runtime.periodic.projects.inProgress") });
-        h.style.cssText =
-          "display:inline-flex;align-self:flex-start;padding:1px 8px;border-radius:999px;background:rgba(56,189,248,.14);border:1px solid rgba(56,189,248,.3);font-size:.8em;font-weight:600;color:#075985;";
+        h.className="dashboard-project-task-heading";
         inProgress.forEach((t) => appendProjectTaskRow(listWrap, t, cleanTask(t.text), "inProgress"));
       }
       if (backlog.length) {
@@ -976,6 +1010,8 @@ const host = (input && input.mount) ? input.mount : this.container;
     const target = projectData.find((x) => x.name === selectedName) || projectData[0];
     buttonRefs.forEach((x) => setBtn(x.btn, x.name === target.name, x.stage, x.pct));
     renderProject(target);
+    const selected=buttonRefs.find(x=>x.name===target.name)?.btn;
+    if(selected&&bar.clientWidth){const left=selected.offsetLeft-bar.offsetLeft;bar.scrollLeft=Math.max(0,left-(bar.clientWidth-selected.offsetWidth)/2);}
   };
 
   rebuild(projectViewState.selected || projectData[0].name);

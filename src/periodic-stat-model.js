@@ -13,4 +13,10 @@ function series(snapshot,metric){
    line:metric==='notes'?Number(row.notes||0):row.planned>0?Number(row.done||0)/row.planned*100:null,
    done:Number(row.done||0),source:row}));
 }
-module.exports={granularity,series};
+function periodRange(model,index,range){
+ const row=model[index];if(!row)return null;
+ const next=model[index+1]?.start;
+ const end=next?new Date(Date.parse(next+'T12:00:00Z')-86400000).toISOString().slice(0,10):range.end;
+ return {start:row.start<range.start?range.start:row.start,end:end>range.end?range.end:end};
+}
+module.exports={granularity,series,periodRange};

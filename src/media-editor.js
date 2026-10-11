@@ -16,13 +16,18 @@ function mediaEditor(plugin, anchor, snapshot, {statuses = [], onSaved, onClose}
     for (const value of [...new Set(statuses)].filter(v => typeof v === 'string' && v.trim())) choices.createEl('option', {value});
     let page;
     if (snapshot.kinds.includes('book')) {
-      const label = form.createEl('label', {cls: 'noria-card-field'}); label.createSpan({text: text('当前页', 'Current page')});
-      page = label.createEl('input', {attr: {type: 'number', min: '0', step: '1', 'aria-label': text('当前页', 'Current page'), placeholder: text('未填写', 'Not recorded')}});
+      const label = form.createEl('label', {cls: 'noria-card-field'}); label.createSpan({text: text('读到第几页', 'Page reached')});
+      page = label.createEl('input', {attr: {type: 'number', min: '0', step: '1', 'aria-label': text('读到第几页', 'Page reached'), 'aria-describedby':id+'-pages', placeholder: text('未填写', 'Not recorded')}});
       page.value = snapshot.properties.pageprogress ?? '';
       const total = snapshot.properties.pagecount;
       if (typeof total === 'number' && total > 0) label.createSpan({cls: 'noria-card-secondary', text: text(`全书 ${total} 页`, `${total} pages in this edition`)});
+      label.createSpan({cls:'noria-card-secondary',text:text('按书内页码记录；PDF 阅读位置单独保留。','Use the page number printed in the book; the PDF keeps its own reading position.'),attr:{id:id+'-pages'}});
     }
-    const initial = {status: status.value, page: page?.value};
+    const completion = form.createEl('details');
+    completion.createEl('summary',{text:text('完成日期','Completion date')});
+    const finished = completion.createEl('input',{attr:{type:'date','aria-label':text('完成日期（可选）','Completion date (optional)')}});
+    finished.value=snapshot.properties.finishedAt||'';completion.open=!!finished.value;
+    const initial = {status: status.value, page: page?.value, finished:finished.value};
     const actions = form.createDiv({cls: 'noria-record-actions'});
     const cancel = actions.createEl('button', {text: text('取消', 'Cancel'), attr: {type: 'button'}}); cancel.onclick = () => close();
     const save = actions.createEl('button', {cls: 'mod-cta', text: text('保存', 'Save'), attr: {type: 'submit'}});
@@ -32,17 +37,20 @@ function mediaEditor(plugin, anchor, snapshot, {statuses = [], onSaved, onClose}
       const patch = {};
       if (status.value !== initial.status) patch.status = status.value.trim() || null;
       if (page && page.value !== initial.page) patch.pageprogress = page.value === '' ? null : Number(page.value);
+      if (finished.value !== initial.finished) patch.finishedAt = finished.value || null;
       if (!Object.keys(patch).length) { close(); return; }
-      saving = true; save.disabled = cancel.disabled = true; error.setText('');
+      const controls = [status, page, finished, save, cancel].filter(Boolean);
+      saving = true; for (const control of controls) control.disabled = true; error.setText('');
       try {
         const result = await updateMedia(plugin, {path: snapshot.path, revision: snapshot.revision, patch});
-        onSaved?.(result);
-        if (!host.isConnected) new Notice(text('作品记录已保存', 'Media record saved'));
+        const reveal = host.isConnected;
+        await onSaved?.(result, reveal);
+        if (!reveal) new Notice(text('作品记录已保存', 'Media record saved'));
         close();
       } catch (e) {
         const message = e.code === 'conflict' ? text('原记录已在别处修改，当前输入未保存。请核对原笔记后重新打开编辑。', 'This record changed elsewhere. Your input was not saved. Check the original note and reopen this editor.') : e.message;
         if (host.isConnected) error.setText(message); else new Notice(message);
-      } finally { saving = false; save.disabled = cancel.disabled = false; }
+      } finally { saving = false; for (const control of controls) control.disabled = false; }
     };
   }, {onClose});
 }

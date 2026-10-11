@@ -18,7 +18,7 @@
     fallbackEnabled: false,
     autoWriteDaily: true
   };
-  const CACHE_KEY = "__noria_weather_cache_v2";
+  const CACHE_KEY = "__noria_weather_cache_v3";
   const DAY_BLOCKS_PATH = ".obsidian/plugins/noria/views/dashboard/core/utils/diary-day-blocks.js";
 
   const norm = (v) => String(v || "").trim();
@@ -288,7 +288,11 @@
       iconDay: norm(d.iconDay),
       tempMin: norm(d.tempMin),
       tempMax: norm(d.tempMax),
-      humidity: norm(d.humidity)
+      humidity: norm(d.humidity),
+      forecast: (data.daily || []).map(day => ({
+        date: day.fxDate, tempMin: day.tempMin, tempMax: day.tempMax,
+        statusText: norm(day.textDay), mappedWeather: mapWeatherToPreset(day.textDay, day.tempMax, day.iconDay)
+      }))
     };
   }
 
@@ -362,7 +366,12 @@
       aqi: "",
       ip: ipLoc.ip,
       source: "wttr",
-      statusText: condition
+      statusText: condition,
+      forecast: (data.weather || []).map(day => {
+        const description = day.hourly?.[4]?.weatherDesc?.[0]?.value || day.hourly?.[0]?.weatherDesc?.[0]?.value || "";
+        return { date: day.date, tempMin: day.mintempC, tempMax: day.maxtempC,
+          statusText: description, mappedWeather: mapWeatherToPreset(description, day.maxtempC, "") };
+      })
     };
   }
 
@@ -395,7 +404,7 @@
     return Number.isFinite(n) ? String(Math.round(n)) : "";
   };
 
-  async function getOpenMeteoRealtime(cfg, options = {}) {
+  async function resolveCalendarWeatherLocation(cfg, options = {}) {
     const anchor = options?.anchor || {};
     let city = norm(cfg.manualCity || anchor.city);
     let ip = norm(anchor.ip);
@@ -420,10 +429,15 @@
         lon = geo.lon;
       }
     }
+    return {city, ip, lat, lon};
+  }
+
+  async function getOpenMeteoRealtime(cfg, options = {}) {
+    const {city, ip, lat, lon} = await resolveCalendarWeatherLocation(cfg, options);
     const url =
       `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}` +
       "&current=temperature_2m,relative_humidity_2m,weather_code" +
-      "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1";
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7";
     const data = await httpJson(url);
     const current = data?.current || {};
     const daily = data?.daily || {};
@@ -453,7 +467,12 @@
       source: "open-meteo",
       statusText,
       lat,
-      lon
+      lon,
+      forecast: (daily.time || []).map((date, i) => {
+        const statusText = mapWmoCodeToText(daily.weather_code?.[i]);
+        return { date, tempMin: daily.temperature_2m_min?.[i], tempMax: daily.temperature_2m_max?.[i],
+          statusText, mappedWeather: mapWeatherToPreset(statusText, daily.temperature_2m_max?.[i], "") };
+      })
     };
   }
 
@@ -570,7 +589,7 @@
     try {
       now = await getQweatherNow(locationParam, cfg);
     } catch (_) {}
-    const air = await getQweatherAir(locationParam, cfg);
+    const air = await getQweatherAir(locationParam, cfg).catch(() => ({}));
     const statusText = now.textNow || daily.textDay;
     const iconCode = now.iconNow || daily.iconDay;
     const currentTemp = norm(now.currentTemp);
@@ -593,6 +612,7 @@
       aqi: air.aqi,
       ip: ipLoc.ip,
       source: "qweather",
+      forecast: daily.forecast,
       statusText
     };
   }
@@ -634,15 +654,99 @@
     });
     if (cached && options.force !== true) return cached;
 
-    const payload = isHistoryDate
-      ? await getHistoricalWeatherByDate(cfg, { targetDate, filePath: options.filePath, anchor })
-      : await getRealtimeWeather(cfg, { targetDate, filePath: options.filePath, anchor });
-    setCache(cfg, payload, {
-      targetDate,
-      anchorCity: anchor.city,
-      anchorIp: anchor.ip
-    });
-    return payload;
+    // Home and calendar share a single in-flight request for this location/date.
+    const key = buildCacheId(cfg, { targetDate, anchorCity: anchor.city, anchorIp: anchor.ip });
+    if (weatherRequests.has(key)) return weatherRequests.get(key);
+    const request = (async () => {
+      const payload = isHistoryDate
+        ? await getHistoricalWeatherByDate(cfg, { targetDate, filePath: options.filePath, anchor })
+        : await getRealtimeWeather(cfg, { targetDate, filePath: options.filePath, anchor });
+      setCache(cfg, payload, { targetDate, anchorCity: anchor.city, anchorIp: anchor.ip });
+      return payload;
+    })();
+    weatherRequests.set(key, request);
+    try { return await request; }
+    finally { weatherRequests.delete(key); }
+  }
+
+  const weatherRequests = new Map();
+  function normalizeForecastDays(payload) {
+    const number = value => value == null || String(value).trim() === "" || !Number.isFinite(Number(value)) ? "" : String(Math.round(Number(value)));
+    return (Array.isArray(payload?.forecast) ? payload.forecast : []).filter(day => {
+      const date = norm(day?.date);
+      return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
+    }).map(day => ({ ...day, date: norm(day.date), tempMin: number(day.tempMin), tempMax: number(day.tempMax), city: payload.city, source: payload.source }));
+  }
+  async function getForecast(runtimeWeather) {
+    // Only provider-dated rows; never assign current conditions to an arbitrary day.
+    return normalizeForecastDays(await getWeatherForHome(runtimeWeather));
+  }
+
+  const calendarWeatherCache = new Map();
+  const shiftDate = (iso, days) => new Date(Date.parse(iso) + days * 86400000).toISOString().slice(0, 10);
+  async function getCalendarWeather(runtimeWeather, options = {}) {
+    const cfg = getMergedCfg(runtimeWeather);
+    if (!cfg.enabled) return [];
+    const today = todayIso();
+    const past = [-1, 0, 7, 30, 90].includes(options.pastDays) ? options.pastDays : 7;
+    const future = [0, 3, 7, 14].includes(options.futureDays) ? options.futureDays : 7;
+    const dates = [...new Set(normalizeForecastDays({forecast: (options.dates || []).map(date => ({date}))}).map(row => row.date))]
+      .filter(date => (past === -1 || date >= shiftDate(today, -past)) && date <= shiftDate(today, future)).sort();
+    if (!dates.length) return [];
+    // Only a visible calendar range: no unbounded archive download or one request per cell.
+    if (dates.length > 62 || Date.parse(dates.at(-1)) - Date.parse(dates[0]) > 61 * 86400000) throw new Error("Weather range exceeds the visible calendar");
+    const key = 'calendar|' + buildCacheId(cfg, {targetDate: today}) + '|' + dates.join(',') + '|' + future;
+    const cached = calendarWeatherCache.get(key);
+    if (cached && Date.now() - cached.time < Math.max(5, Number(cfg.cacheMinutes) || 45) * 60000) return cached.rows;
+    if (weatherRequests.has(key)) return weatherRequests.get(key);
+    const request = (async () => {
+      const jobs = [];
+      const history = dates.filter(date => date < today);
+      const forecast = dates.filter(date => date >= today);
+      let location;
+      const getLocation = () => location || (location = resolveCalendarWeatherLocation(cfg));
+      const meteoRange = async (range, archive) => {
+        const place = await getLocation();
+        const base = archive ? 'https://archive-api.open-meteo.com/v1/archive' : 'https://api.open-meteo.com/v1/forecast';
+        const query = new URLSearchParams({latitude: place.lat, longitude: place.lon, start_date: range[0], end_date: range.at(-1),
+          daily: 'weather_code,temperature_2m_max,temperature_2m_min', timezone: 'auto'});
+        const data = await httpJson(base + '?' + query);
+        const daily = data?.daily || {};
+        return normalizeForecastDays({city: place.city, source: archive ? 'history-api:open-meteo' : 'open-meteo',
+          forecast: (daily.time || []).map((date, i) => {
+            const statusText = mapWmoCodeToText(daily.weather_code?.[i]);
+            return {date, tempMin: daily.temperature_2m_min?.[i], tempMax: daily.temperature_2m_max?.[i], statusText,
+              mappedWeather: mapWeatherToPreset(statusText, daily.temperature_2m_max?.[i], '')};
+          })});
+      };
+      const recentStart = shiftDate(today, -92);
+      const archive = history.filter(date => date < recentStart);
+      const recent = history.filter(date => date >= recentStart);
+      if (archive.length) jobs.push(meteoRange(archive, true));
+      if (cfg.provider === 'open-meteo' || cfg.provider === 'open-meteo-only') {
+        const range = [...recent, ...forecast];
+        if (range.length) jobs.push(meteoRange(range, false));
+      } else {
+        if (recent.length) jobs.push(meteoRange(recent, false));
+        if (forecast.length) jobs.push((async () => {
+          const rows = await getForecast(cfg);
+          // Extend only the provider that actually supplied the forecast, never replace a chosen QWeather/wttr source.
+          return rows[0]?.source === 'open-meteo' && forecast.at(-1) > shiftDate(today, 6) ? meteoRange(forecast, false) : rows;
+        })());
+      }
+      const results = await Promise.allSettled(jobs);
+      const rows = results.filter(result => result.status === 'fulfilled').flatMap(result => result.value)
+        .filter(row => dates.includes(row.date)).map(row => ({...row, historical: row.date < today}));
+      const failed = results.find(result => result.status === 'rejected');
+      if (!rows.length && failed) throw failed.reason;
+      if (!failed) {
+        calendarWeatherCache.set(key, {time: Date.now(), rows});
+        if (calendarWeatherCache.size > 24) calendarWeatherCache.delete(calendarWeatherCache.keys().next().value);
+      }
+      return rows;
+    })();
+    weatherRequests.set(key, request);
+    try { return await request; } finally { weatherRequests.delete(key); }
   }
 
   async function getWeatherForHome(runtimeWeather) {
@@ -757,6 +861,9 @@
 
   root.utils.weatherService = {
     getWeatherForHome,
+    getForecast,
+    getCalendarWeather,
+    normalizeForecastDays,
     getWeatherForDate,
     readWriteDailyWeather,
     mapWeatherToPreset,

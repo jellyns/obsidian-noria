@@ -1,12 +1,21 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const {normalizeDiaryCards, normalizePeriodLayouts, changeDiaryCardLayout, migrateDiaryLayouts, chooseLegacyLayout} = require("../src/card-layout-model.js");
 
+test('core card title and picture survive removal, layout changes and serialization',()=>{
+  const input=normalizeDiaryCards({cards:{record:{title:' 我的记录 ',picture:'notebook-pen',size:'full'}}});
+  const removed=changeDiaryCardLayout(input,'record','hidden',true);
+  const moved=changeDiaryCardLayout(removed,'record','move','up');
+  const restored=normalizeDiaryCards(JSON.parse(JSON.stringify(changeDiaryCardLayout(moved,'record','hidden',false))));
+  assert.equal(restored.cards.record.title,'我的记录');assert.equal(restored.cards.record.picture,'notebook-pen');
+  assert.equal(restored.cards.record.size,'full');assert.equal(restored.widgets.length,0);
+});
+
 test("one old workspace layout is preserved in independent day, week, month and year layouts", () => {
   const old = {order:["habits","tasks","focus"],cards:{tasks:{size:"full",collapsed:true}}};
   const result = migrateDiaryLayouts({},[{id:"window-1",layout:old}]);
   for (const mode of ["daily","weekly","monthly","yearly"]) {
     assert.equal(result.periods[mode].cards.tasks.size,"full");
-    assert.deepEqual(result.periods[mode].order,["habits","tasks","focus"]);
+    assert.deepEqual(result.periods[mode].order,["habits","tasks","record","review"]);
   }
   result.periods.daily.cards.tasks.size="small";
   assert.equal(result.periods.weekly.cards.tasks.size,"full");

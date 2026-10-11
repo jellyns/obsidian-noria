@@ -89,15 +89,91 @@
   function updateBandGeometry(state, mainPlan, overviewPlan) {
     const widthPx = Math.max(0, finite(mainPlan?.widthPx, overviewPlan?.widthPx || 0));
     const mainHeight = Math.max(0, finite(mainPlan?.heightPx, 0));
+    const contentHeight=Math.max(mainHeight,finite(mainPlan?.contentHeightPx,mainHeight));
     const overviewHeight = Math.max(0, finite(overviewPlan?.heightPx, 0));
+    const axisHeight = Math.max(0, finite(mainPlan?.axisHeightPx, 0));
+    setAttribute(state.host,"data-noria-project-view",mainPlan?.projectMode?"true":null);
+    setAttribute(state.host,"data-noria-scrollable-content",contentHeight>mainHeight?"true":null);
     setStyles(state.host, {
       position: "relative",
-      width: `${widthPx}px`,
-      height: `${mainHeight + overviewHeight}px`,
+      width: `${finite(mainPlan?.outerWidthPx,widthPx)}px`,
+      height: `${mainHeight + overviewHeight + axisHeight}px`,
       overflow: "hidden"
     });
-    setStyles(state.main.band, { width: `${widthPx}px`, height: `${mainHeight}px` });
+    setStyles(state.main.band, { width: `${widthPx}px`, height: `${contentHeight}px` });
     setStyles(state.overviewBand, { width: `${widthPx}px`, height: `${overviewHeight}px` });
+    state.overviewBand.hidden=overviewHeight===0;
+    state.dateAxis.hidden=axisHeight===0;
+    setStyles(state.dateAxis,{width:`${widthPx}px`,height:`${axisHeight}px`});
+    if(state.projectFrame)setStyles(state.projectFrame,{height:`${mainHeight}px`});
+    if(state.projectLabels)setStyles(state.projectLabels,{width:`${widthPx}px`,height:`${contentHeight}px`});
+  }
+
+  function renderProjectRows(state, plan) {
+    if(!state.projectLabels)return;
+    const keep=new Set();
+    const zone=plan.timeZone?{timeZone:plan.timeZone}:{},year=new Intl.DateTimeFormat('en',{...zone,year:'numeric'}),nowYear=year.format(new Date());
+    const shortDates=new Intl.DateTimeFormat(plan.locale,{...zone,month:'short',day:'numeric'}),fullDates=new Intl.DateTimeFormat(plan.locale,{...zone,year:'numeric',month:'short',day:'numeric'});
+    const monthKey=new Intl.DateTimeFormat('en',{...zone,year:'numeric',month:'numeric'}),dayOnly=new Intl.DateTimeFormat(plan.locale,{...zone,day:'numeric'});
+    for(const row of plan.projectRows || []){
+      if(!row.project)continue;
+      keep.add(row.key);
+      let refs=state.projectNodes.get(row.key);
+      if(!refs){
+        const node=createElement(state.document,'div','noria-timeline-project-row');
+        const toggle=createElement(state.document,'button','noria-timeline-project-toggle',{type:'button'});
+        const title=createElement(state.document,'button','noria-timeline-project-name',{type:'button'});
+        const reveal=createElement(state.document,'button','noria-timeline-project-reveal',{type:'button'});
+        const revealIcon=createElement(state.document,'span','noria-timeline-project-reveal-icon',{'aria-hidden':'true'});
+        const revealLabel=createElement(state.document,'span','noria-timeline-project-reveal-label');
+        reveal.appendChild(revealIcon);reveal.appendChild(revealLabel);
+        const unscheduled=createElement(state.document,'button','noria-timeline-project-unscheduled',{type:'button','aria-haspopup':'dialog'});
+        node.appendChild(toggle);node.appendChild(title);node.appendChild(reveal);node.appendChild(unscheduled);state.projectLabels.appendChild(node);
+        refs={node,toggle,title,reveal,revealIcon,revealLabel,unscheduled};state.projectNodes.set(row.key,refs);
+      }
+      applyBounds(refs.node,{left:8,top:row.top,width:Math.max(0,plan.widthPx-16),height:row.height});
+      setAttribute(refs.node,'data-project-row',row.project?'project':'task');
+      setAttribute(refs.node,'data-project-key',row.key);
+      refs.toggle.hidden=!row.project;refs.toggle.textContent='';
+      refs.toggle.disabled=!row.scheduledEventIds?.length;
+      setAttribute(refs.toggle,'data-empty',refs.toggle.disabled?'true':null);
+      setAttribute(refs.toggle,'aria-expanded',String(row.expanded===true));setAttribute(refs.toggle,'aria-label',`${plan.locale==='zh-CN'?(row.expanded?'收起':'展开'):(row.expanded?'Collapse':'Expand')} ${row.title}`);
+      refs.toggle.onclick=()=>plan.onProjectToggle?.(row.key);
+      refs.title.textContent=row.title;refs.title.title=`${row.title} · ${row.count} ${plan.locale==='zh-CN'?'项任务':'tasks'}`;
+      refs.title.disabled=row.project&&!/\.md$/i.test(row.path||'');
+      refs.title.onclick=()=>plan.onProjectOpen?.(row);
+      refs.reveal.hidden=!(row.expanded&&row.schedule&&row.visibleTaskCount===0);
+      const revealLabel=plan.locale==='zh-CN'?'查看安排':'Show schedule';
+      const dates=row.schedule&&[row.schedule.startMs,row.schedule.endMs].some(ms=>year.format(new Date(ms))!==nowYear)?fullDates:shortDates;
+      let dateLabel='';
+      if(row.schedule){
+        const start=new Date(row.schedule.startMs),end=new Date(row.schedule.endMs);
+        if(plan.locale==='zh-CN'){
+          const first=dates.format(start),last=dates.format(end);
+          dateLabel=first===last?first:first+'–'+(monthKey.format(start)===monthKey.format(end)?dayOnly.format(end):last);
+        }else dateLabel=dates.formatRange(start,end);
+      }
+      refs.revealIcon.textContent=dateLabel;
+      refs.revealLabel.textContent='↗';setAttribute(refs.revealLabel,'aria-hidden','true');
+      setAttribute(refs.reveal,'aria-label',`${row.title} · ${revealLabel} · ${dateLabel}`);
+      refs.reveal.title=`${row.title} · ${revealLabel} · ${dateLabel}`;
+      refs.reveal.onclick=()=>{refs.toggle.focus?.({preventScroll:true});plan.onProjectFit?.(row);};
+      const unplaced=row.unplacedTasks||[];
+      refs.unscheduled.hidden=!unplaced.length;
+      refs.unscheduled.textContent=`${plan.locale==='zh-CN'?'未安排':'Unscheduled'} ${unplaced.length}`;
+      refs.unscheduled.title=`${row.title} · ${refs.unscheduled.textContent}`;
+      setAttribute(refs.unscheduled,'aria-label',refs.unscheduled.title);
+      refs.unscheduled.onclick=()=>plan.onProjectUnscheduled?.(unplaced,refs.unscheduled,row.title);
+
+    }
+    for(const [key,refs] of state.projectNodes)if(!keep.has(key)){refs.node.remove();state.projectNodes.delete(key);}
+    state.projectBars.replaceChildren();
+    for(const summary of plan.projectSummaries||[]){
+      const bar=createElement(state.document,'div','noria-timeline-project-span');applyBounds(bar,summary.bounds);
+      setAttribute(bar,'data-clipped-start',summary.clippedStart?'true':null);
+      setAttribute(bar,'data-clipped-end',summary.clippedEnd?'true':null);
+      state.projectBars.appendChild(bar);
+    }
   }
 
   function renderWeekendWashes(state, plan) {
@@ -194,7 +270,7 @@
         refs.wrapper.appendChild(refs.point);
       }
       setAttribute(refs.point, "data-noria-task-unit-key", unit.taskKey);
-      setAttribute(refs.point, "data-noria-task-visual-role", unit.point.role || "point");
+      setAttribute(refs.point, "data-noria-task-visual-role", unit.canOpenSource===false?"record-summary":unit.point.role || "point");
       const pointOwnsSourceAction = unit.title?.visible === false || unit.title?.bounds?.width < 16;
       setAttribute(refs.point, "aria-hidden", pointOwnsSourceAction ? "false" : "true");
       setAttribute(refs.point, "role", pointOwnsSourceAction ? "button" : "");
@@ -223,7 +299,7 @@
   }
 
   function reconcileHandleZone(state, refs, unit) {
-    if (unit.isInstant || unit.title?.visible === false) {
+    if (unit.readOnly || unit.isInstant || unit.title?.visible === false) {
       refs.handleZone?.remove?.();
       refs.handleZone = null;
       return;
@@ -238,13 +314,13 @@
       refs.wrapper.appendChild(refs.handleZone);
     }
     setAttribute(refs.handleZone, "data-noria-task-unit-key", unit.taskKey);
-    applyBounds(refs.handleZone, unit.title?.bounds);
+    applyBounds(refs.handleZone, unit.handleZoneBounds || unit.title?.bounds);
   }
 
   function renderHandles(state, refs, unit) {
     refs.handles.forEach((node) => node.remove?.());
     refs.handles = [];
-    if (unit.title?.visible === false) return;
+    if (unit.readOnly || unit.title?.visible === false) return;
     const definitions = unit.isInstant
       ? [["move", unit.handles?.move?.bounds]]
       : [
@@ -253,6 +329,7 @@
           ["end", unit.handles?.end?.bounds]
         ];
     definitions.forEach(([role, handleBounds]) => {
+      if(unit.handles?.[role]?.visible===false)return;
       const node = createElement(
         state.document,
         "div",
@@ -276,18 +353,35 @@
     setAttribute(refs.wrapper, "data-noria-task-group-key", unit.taskKey);
     setAttribute(refs.wrapper, "data-noria-task-title-visible", titleVisible ? "true" : "false");
     refs.wrapper.className = `noria-task-timeline-native-task-unit ${unit.status === "done" ? "is-done" : "is-open"}`;
+    setAttribute(refs.wrapper, "data-noria-event-layer", unit.layer||"task");
+    setAttribute(refs.wrapper, "data-noria-event-kind", unit.kind||"");
+    refs.wrapper.style.setProperty?.("--noria-event-color", unit.kind?.includes('break')?'var(--text-muted)':unit.color||"var(--interactive-accent)");
     setAttribute(refs.title, "data-noria-task-unit-key", unit.taskKey);
-    setAttribute(refs.title, "data-noria-task-visual-role", unit.title?.role || "primary-title");
+    setAttribute(refs.title, "data-noria-task-visual-role", unit.canOpenSource===false?"record-summary":unit.title?.role || "primary-title");
     setAttribute(refs.title, "data-noria-source-action", "");
-    setAttribute(refs.title, "role", titleVisible ? "button" : "");
+    setAttribute(refs.title, "role", titleVisible ? (unit.canOpenSource===false?"group":"button") : "");
     setAttribute(refs.title, "tabindex", titleVisible ? "0" : "");
-    const statusText = state.mainPlan?.locale === "zh-CN" ? (unit.status === "done" ? "已完成" : "未完成") : (unit.status === "done" ? "Completed" : "Open");
-    setAttribute(refs.title, "aria-label", titleVisible ? `${unit.title?.text || unit.taskKey} · ${statusText}` : "");
+    const statusText = unit.readOnly ? (state.mainPlan?.locale === "zh-CN" ? (unit.layer==='pomodoro'?"实际记录":"活动记录") : (unit.layer==='pomodoro'?"Recorded time":"Activity")) : state.mainPlan?.locale === "zh-CN" ? (unit.status === "done" ? "已完成" : "未完成") : (unit.status === "done" ? "Completed" : "Open");
+    setAttribute(refs.title, "aria-label", titleVisible ? `${unit.title?.text || unit.taskKey}${unit.title?.durationLabel?' · '+unit.title.durationLabel:''}${unit.title?.sourceLabel?' · '+unit.title.sourceLabel:''} · ${statusText}` : "");
     setAttribute(refs.title, "aria-hidden", titleVisible ? "" : "true");
     refs.title.hidden = !titleVisible;
-    refs.title.textContent = text(unit.title?.text);
+    const sourceLabel=text(unit.title?.sourceLabel);
+    if(sourceLabel){
+      if(!refs.sourceLabel){refs.title.textContent='';refs.focusLabel=null;refs.nameLabel=createElement(state.document,'span','noria-task-timeline-native-name');refs.sourceLabel=createElement(state.document,'span','noria-task-timeline-native-source');refs.title.appendChild(refs.nameLabel);refs.title.appendChild(refs.sourceLabel);}
+      refs.nameLabel.textContent=text(unit.title?.text);refs.sourceLabel.textContent=sourceLabel;
+    }else if(unit.layer==='pomodoro'){
+      if(!refs.focusLabel){refs.title.textContent='';refs.focusLabel=createElement(state.document,'span','noria-task-timeline-native-focus-label');refs.focusDuration=createElement(state.document,'span','noria-task-timeline-native-focus-duration');refs.title.appendChild(refs.focusLabel);refs.title.appendChild(refs.focusDuration);}
+      refs.focusLabel.textContent=text(unit.title?.text);refs.focusDuration.textContent=text(unit.title?.durationLabel);
+    }else refs.title.textContent = text(unit.title?.text);
+    if(!sourceLabel)refs.sourceLabel=null;
+    setAttribute(refs.title,'data-noria-source-caption',sourceLabel?'true':null);
+    setAttribute(refs.title,'data-noria-title-lines',String(unit.title?.lines || 1));
+    refs.title.style.setProperty?.('--noria-title-lines',String(unit.title?.lines || 1));
     applyBounds(refs.title, unit.title?.bounds);
     refs.title.style.fontWeight = "";
+    setAttribute(refs.wrapper,"data-noria-project-task",unit.projectTask?"true":null);
+    setAttribute(refs.wrapper,"data-noria-compact-project",unit.compactProject?"true":null);
+    setAttribute(refs.wrapper,"data-noria-inline-title",unit.inlineTitle?"true":null);
     reconcilePointAndRail(state, refs, unit);
     reconcileHandleZone(state, refs, unit);
     renderHandles(state, refs, unit);
@@ -323,8 +417,8 @@
       if (count > 0) {
         const node = createElement(state.document, "div", "noria-task-timeline-native-overflow", { role: "status" });
         node.textContent = model.mainPlan.locale === "zh-CN"
-          ? `还有 ${count} 条任务 · 放大时间轴或增大视图查看`
-          : `${count} more tasks · zoom in or enlarge this view`;
+          ? `还有 ${count} 项 · 放大时间轴或增大视图查看`
+          : `${count} more items · zoom in or enlarge this view`;
         state.main.stateLayer.appendChild(node);
       }
       return;
@@ -345,7 +439,7 @@
   function showTaskDetails(state, taskKey) {
     const refs = state.taskNodes.get(taskKey);
     const unit = refs?.unit;
-    const visible = unit && unit.title?.visible !== false;
+    const visible = !state.detailsSuppressed && unit && unit.title?.visible !== false;
     state.detailsKey = visible ? taskKey : "";
     state.taskNodes.forEach((item, key) => {
       setAttribute(item.wrapper, "data-noria-task-details", visible && key === taskKey ? "active" : "");
@@ -367,22 +461,34 @@
       state.host.appendChild(state.detailsTooltip);
     }
     const locale = state.mainPlan?.locale === "zh-CN" ? "zh-CN" : "en";
-    const dateOptions = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+    const dateOptions = { ...(state.mainPlan.timeZone ? {timeZone:state.mainPlan.timeZone} : {}), year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
     const format = value => new Date(value).toLocaleString(locale, dateOptions);
     state.detailsTitle.textContent = text(unit.title.text);
     state.detailsTime.textContent = unit.isInstant ? format(unit.startMs) : `${format(unit.startMs)} → ${format(unit.endMs)}`;
-    state.detailsStatus.textContent = locale === "zh-CN" ? (unit.status === "done" ? "已完成" : "未完成") : (unit.status === "done" ? "Completed" : "Open");
-    state.detailsSource.textContent = text(unit.sourcePath);
+    state.detailsStatus.textContent = unit.readOnly ? ((locale === "zh-CN" ? {pomodoro:"专注记录",note:"笔记",noria:"记录",git:"提交"} : {pomodoro:"Focus",note:"Note",noria:"Record",git:"Commit"})[unit.layer] || "") : locale === "zh-CN" ? (unit.status === "done" ? "已完成" : "未完成") : (unit.status === "done" ? "Completed" : "Open");
+    const sourcePaths=unit.sourcePaths || [];
+    state.detailsSource.textContent = sourcePaths.length>1
+      ? sourcePaths.slice(0,3).map(path=>text(path).split('/').pop().replace(/\.md$/i,'')).join(' · ')+(sourcePaths.length>3?` · +${sourcePaths.length-3}`:'')
+      : text(unit.sourcePath);
     state.detailsSource.hidden = !unit.sourcePath;
     const tooltip = state.detailsTooltip;
     tooltip.hidden = false;
     tooltip.style.width = `${Math.min(320, Math.max(80, state.mainPlan.widthPx - 16))}px`;
-    const width = tooltip.offsetWidth;
-    const height = tooltip.offsetHeight;
-    const below = unit.title.bounds.bottom + 10;
+    // Use rendered coordinates: project/free content may be scrolled under the fixed axis.
+    const hostRect = state.host.getBoundingClientRect();
+    const titleRect = refs.title.getBoundingClientRect();
+    const railRect = refs.rail?.getBoundingClientRect();
+    const top = Math.min(titleRect.top, railRect?.top ?? titleRect.top) - hostRect.top;
+    const bottom = Math.max(titleRect.bottom, railRect?.bottom ?? titleRect.bottom) - hostRect.top;
+    const roomAbove = top - 8, roomBelow = hostRect.height - bottom - 8;
+    const below = roomBelow >= Math.min(tooltip.scrollHeight, 160) || roomBelow >= roomAbove;
+    const room = Math.max(0, (below ? roomBelow : roomAbove) - 8);
+    // A tiny card cannot host a useful preview without covering the task. Its editor remains available.
+    if (room < 48 || bottom < 0 || top > hostRect.height) { tooltip.hidden = true; return; }
+    tooltip.style.maxHeight = `${room}px`;
     setStyles(tooltip, {
-      left: `${Math.max(8, Math.min(unit.title.bounds.left, state.mainPlan.widthPx - width - 8))}px`,
-      top: `${below + height <= state.mainPlan.heightPx - 4 ? below : Math.max(4, unit.title.bounds.top - height - 8)}px`
+      left: `${Math.max(8, Math.min(titleRect.left-hostRect.left, hostRect.width-tooltip.offsetWidth-8))}px`,
+      top: `${below ? bottom+8 : top-tooltip.offsetHeight-8}px`
     });
   }
 
@@ -397,13 +503,15 @@
       return "";
     };
     const clearTimer = () => { globalThis.clearTimeout(state.detailsTimer); state.detailsTimer = null; };
+    const dismiss = () => { clearTimer(); state.hoverKey = ""; state.focusedKey = ""; showTaskDetails(state, ""); };
     const handlers = {
+      pointerdown: () => { state.detailsSuppressed = true; dismiss(); },
       pointerover: event => {
         const key = taskKey(event.target);
-        if (!key || key === taskKey(event.relatedTarget)) return;
+        if (state.detailsSuppressed || event.buttons || !key || key === taskKey(event.relatedTarget)) return;
         state.hoverKey = key;
         clearTimer();
-        state.detailsTimer = globalThis.setTimeout(() => showTaskDetails(state, key), 140);
+        state.detailsTimer = globalThis.setTimeout(() => showTaskDetails(state, key), 400);
       },
       pointerout: event => {
         if (taskKey(event.target) === taskKey(event.relatedTarget)) return;
@@ -418,10 +526,17 @@
         clearTimer(); state.hoverKey = ""; state.focusedKey = ""; showTaskDetails(state, "");
       }
     };
-    Object.entries(handlers).forEach(([type, handler]) => state.host.addEventListener(type, handler));
+    Object.entries(handlers).forEach(([type, handler]) => state.host.addEventListener(type, handler, type === "pointerdown"));
+    const release = () => { state.detailsSuppressed = false; };
+    state.document.addEventListener?.("pointerup", release, true);
+    state.document.addEventListener?.("pointercancel", release, true);
+    state.projectFrame?.addEventListener?.("scroll", dismiss, {passive:true});
     state.disposeDetails = () => {
+      state.document.removeEventListener?.("pointerup", release, true);
+      state.document.removeEventListener?.("pointercancel", release, true);
+      state.projectFrame?.removeEventListener?.("scroll", dismiss);
       clearTimer();
-      Object.entries(handlers).forEach(([type, handler]) => state.host.removeEventListener(type, handler));
+      Object.entries(handlers).forEach(([type, handler]) => state.host.removeEventListener(type, handler, type === "pointerdown"));
     };
   }
 
@@ -436,7 +551,14 @@
     renderMarkers(state, mainPlan);
     renderAnnotations(state, mainPlan);
     reconcileTaskNodes(state, mainPlan);
+    renderProjectRows(state,mainPlan);
     overviewApi.renderOverview(state.overviewBand, overviewPlan);
+    overviewApi.renderDateAxis(state.dateAxis,mainPlan.axisHeightPx?mainPlan.dateTicks||[]:[],mainPlan.axisHeightPx||0,state.document,mainPlan.onReturnWindow,mainPlan.locale);
+    state.main.background.replaceChildren();
+    for(const tick of mainPlan.dateTicks||[]){
+      const guide=createElement(state.document,'div','noria-timeline-date-guide',{'aria-hidden':'true'});
+      setStyles(guide,{position:'absolute',left:`${tick.px}px`,top:'0',height:'100%'});state.main.background.appendChild(guide);
+    }
     renderState(state, model);
     state.model = model;
     if (state.detailsKey) showTaskDetails(state, state.detailsKey);
@@ -452,7 +574,15 @@
       "data-noria-timeline-band": "overview"
     });
     const fragment = documentRef.createDocumentFragment();
-    fragment.appendChild(main.band);
+    const dateAxis=createElement(documentRef,'div','noria-timeline-date-axis',{'data-noria-timeline-band':'axis',tabindex:'0',role:'group','aria-label':model.mainPlan?.locale==='zh-CN'?'日期轴：方向键平移，加减号缩放':'Date axis: arrow keys to pan, plus and minus to zoom'});
+    fragment.appendChild(dateAxis);
+    let projectFrame=createElement(documentRef,"div","noria-timeline-project-scroll"),projectLabels=null,projectBars=null;
+    if(model.mainPlan?.projectMode){
+      projectLabels=createElement(documentRef,'div','noria-timeline-project-labels');
+      projectBars=createElement(documentRef,'div','noria-timeline-project-spans');
+      main.band.appendChild(projectBars);main.band.appendChild(projectLabels);
+    }
+    projectFrame.appendChild(main.band);fragment.appendChild(projectFrame);
     fragment.appendChild(overviewBand);
     host.replaceChildren(fragment);
     const state = {
@@ -460,6 +590,8 @@
       document: documentRef,
       main,
       overviewBand,
+      dateAxis,
+      projectFrame,projectLabels,projectBars,projectNodes:new Map(),
       taskNodes: new Map(),
       model: null,
       disposed: false

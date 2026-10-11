@@ -47,6 +47,7 @@
       task && task.rawLine,
       task && task.lineText,
       task && task.source && task.source.rawLine,
+      task && task.rawText,
       task && task.text,
       task && task.visual,
       task && task.title
@@ -385,6 +386,7 @@
     if (meta.title) rows.push(`Title: ${meta.title}`);
     const time = formatTaskTimeLabel(meta);
     if (time) rows.push(`Time: ${time}`);
+    if (meta.deadline) rows.push(`Due: ${formatMetaDateTime(meta.deadline)}`);
     if (meta.status && meta.status !== "open") rows.push(`Status: ${meta.status}`);
     if (Array.isArray(meta.tags) && meta.tags.length) rows.push(`Tags: ${meta.tags.join(" ")}`);
     if (meta.path) rows.push(`Source: ${meta.path}${meta.line != null ? `:${meta.line + 1}` : ""}`);
@@ -439,6 +441,7 @@
     if (time) {
       rows.push(`<div class="noria-task-timeline-bubble-row"><span class="noria-task-timeline-bubble-k">Time</span><span class="noria-task-timeline-bubble-v">${escapeHtmlText(time)}</span></div>`);
     }
+    if (meta.deadline) rows.push(`<div class="noria-task-timeline-bubble-row"><span class="noria-task-timeline-bubble-k">Due</span><span class="noria-task-timeline-bubble-v">${escapeHtmlText(formatMetaDateTime(meta.deadline))}</span></div>`);
     if (meta.path) {
       rows.push(`<div class="noria-task-timeline-bubble-row"><span class="noria-task-timeline-bubble-k">Source</span><span class="noria-task-timeline-bubble-v">${escapeHtmlText(meta.path)}${meta.line != null ? `:${meta.line + 1}` : ""}</span></div>`);
     }
@@ -463,7 +466,7 @@
     ].join("");
   }
 
-  function buildEvent(task, index, options, seenTaskIds) {
+  function buildEvent(task, index, options, seenTaskIds, placement) {
     const start = readStartMeta(task);
     const due = readDueMeta(task);
     const scheduled = readScheduledMeta(task);
@@ -474,8 +477,8 @@
     const path = taskPath(task);
     const line = taskLine(task);
     const tags = taskTags(task);
-    const id = buildTaskId(task, index, seenTaskIds);
-    const taskKey = id;
+    const id = placement ? placement.id : buildTaskId(task, index, seenTaskIds);
+    const taskKey = placement ? placement.taskKey : id;
     const timelineControlTask = isTimelineControlTask(task);
     const timelineTagPlacement = normalizeTimelineTagPlacement(options && options.timelineTagPlacement);
     const strictTimelineTagPlacement = timelineControlTask && timelineTagPlacement === "start-due-only";
@@ -484,7 +487,13 @@
     let kind = "";
     let fallbackDateSource = "";
 
-    if (start && start.ymd) {
+    if (placement && placement.schedule) {
+      eventStart = parseDateTimeValue(placement.schedule.start);
+      eventEnd = parseDateTimeValue(placement.schedule.end);
+      kind = "scheduled";
+    } else if (placement && placement.invalidSchedule) {
+      // A malformed explicit arrangement must not acquire a date from mtime.
+    } else if (start && start.ymd) {
       eventStart = start;
       if (due && due.ymd) {
         eventEnd = normalizeEndMeta(start, due);
@@ -517,14 +526,14 @@
           status,
           tags,
           source: { type: "markdown", path, line },
-          reason: strictTimelineTagPlacement ? "timeline-tag-missing-start-or-due" : "missing-date-and-modified-time",
+          reason: placement && placement.invalidSchedule ? "invalid-schedule" : strictTimelineTagPlacement ? "timeline-tag-missing-start-or-due" : "missing-date-and-modified-time",
           id,
           title
         }
       };
     }
 
-    const isDuration = kind === "duration" && eventEnd && eventEnd.ymd && metaToUtcMs(eventEnd) > metaToUtcMs(eventStart);
+    const isDuration = eventEnd && eventEnd.ymd && metaToUtcMs(eventEnd) > metaToUtcMs(eventStart);
     const classes = [
       "noria-task-timeline-task",
       `noria-task-timeline-task--${kind}`,
@@ -539,12 +548,17 @@
       task,
       id,
       taskKey,
+      ...(placement && placement.schedule ? {
+        scheduleIndex: placement.schedule.index,
+        scheduleStart: placement.schedule.start,
+        scheduleEnd: placement.schedule.end
+      } : {}),
       kind,
       status,
       path,
       line,
       tags,
-      primaryYmd: primaryYmdForTask(task) || eventStart.ymd,
+      primaryYmd: placement && placement.schedule ? eventStart.ymd : primaryYmdForTask(task) || eventStart.ymd,
       fallbackDateSource,
       startYmd: eventStart.ymd,
       startTime: eventStart.hhmm || "",
@@ -562,7 +576,8 @@
       line,
       status,
       tags,
-      fallbackDateSource
+      fallbackDateSource,
+      deadline: placement && placement.schedule ? due : null
     };
 
     return {
@@ -572,8 +587,8 @@
         provider: "tasks",
         kind,
         title,
-        start: metaToIso(eventStart),
-        ...(isDuration ? { end: metaToIso(eventEnd) } : {}),
+        start: (options.metaToIso || metaToIso)(eventStart),
+        ...(isDuration ? { end: (options.metaToIso || metaToIso)(eventEnd) } : {}),
         isInstant: !isDuration,
         status,
         source: { type: "markdown", path, line },
@@ -608,9 +623,33 @@
     const unplaced = [];
     const seenTaskIds = new Map();
     for (let i = 0; i < items.length; i += 1) {
-      const built = buildEvent(items[i], i, options, seenTaskIds);
-      if (built.event) events.push(built.event);
-      if (built.unplaced) unplaced.push(built.unplaced);
+      const task = items[i], raw = taskRawLine(task);
+      const parsed = root.taskDocument.parseTaskLine(/^[ \t]*[-*+]\s+\[[^\]]\]/.test(raw) ? raw : `- [ ] ${raw}`);
+      const schedules = parsed.schedules || [];
+      if (!schedules.length) {
+        const built = buildEvent(task, i, options, seenTaskIds);
+        if (built.event) events.push(built.event);
+        if (built.unplaced) unplaced.push(built.unplaced);
+        continue;
+      }
+      const taskKey = buildTaskId(task, i, seenTaskIds);
+      const strict = isTimelineControlTask(task) && normalizeTimelineTagPlacement(options.timelineTagPlacement) === "start-due-only";
+      const visible = schedules.filter(s => !s.error && (s.source === "schedule" || !strict));
+      for (const schedule of visible) {
+        const built = buildEvent(task, i, options, seenTaskIds, {taskKey, id:`${taskKey}:schedule:${schedule.index}`, schedule});
+        events.push(built.event);
+      }
+      // Preserve legacy start/end meaning. A due-only task adds a separate
+      // deadline event; it never becomes the end of an independent arrangement.
+      const deadline=readDueMeta(task);
+      const dueCovered=deadline && visible.some(s=>s.start.slice(0,10)<=deadline.ymd&&(s.end.endsWith(" 00:00")?s.end.slice(0,10)>deadline.ymd:(s.end||s.start).slice(0,10)>=deadline.ymd));
+      if (readStartMeta(task) || (deadline && !dueCovered)) {
+        const built = buildEvent(task, i, options, seenTaskIds, {taskKey, id:taskKey});
+        if (built.event) events.push(built.event);
+      } else if (!visible.length) {
+        const built = buildEvent(task, i, options, seenTaskIds, {taskKey, id:taskKey, invalidSchedule:schedules.some(s=>s.error)});
+        if (built.unplaced) unplaced.push(built.unplaced);
+      }
     }
     return {
       dateTimeFormat: "iso8601",

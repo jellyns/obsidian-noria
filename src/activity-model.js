@@ -39,18 +39,18 @@ function taskActivities(tasks,range,today){
   }
   return result;
 }
-function fileActivities(files,range,config,localDate,today){
+function fileActivities(files,range,config,localDate,today,clock){
   const result=[],seen=new Set();
   for(const file of files||[])for(const [key,kind] of [["ctime","note-created"],["mtime","note-modified"]]){
     if(!config[key]||!Number.isFinite(file.stat?.[key])||file.stat[key]<=0)continue;
-    const stamp=new Date(file.stat[key]),date=localDate(stamp),id=`${file.path}:${kind}`;
+    const stamp=new Date(file.stat[key]),date=clock?clock.day(+stamp):localDate(stamp),id=`${file.path}:${kind}`;
     if(date<range.start||date>range.end||date>today||seen.has(id))continue;seen.add(id);
-    result.push({id,kind,date,time:`${String(stamp.getHours()).padStart(2,"0")}:${String(stamp.getMinutes()).padStart(2,"0")}`,path:file.path,title:file.basename||file.path.split("/").pop()});
+    result.push({id,kind,date,time:clock?clock.wall(+stamp).slice(11):`${String(stamp.getHours()).padStart(2,"0")}:${String(stamp.getMinutes()).padStart(2,"0")}`,path:file.path,title:file.basename||file.path.split("/").pop()});
   }
   return result;
 }
-async function createActivityReader(plugin,{selection,range:explicitRange,config={},excludePaths=[],includeDates=[],recordDates,onlyDates,order="desc",signal}={}){
-  const range=explicitRange||diaryRange(selection),today=plugin.getLocalYmd(),excluded=new Set(excludePaths),byPath=new Map(),events=[];
+async function createActivityReader(plugin,{selection,range:explicitRange,config={},excludePaths=[],includeDates=[],recordDates,onlyDates,order="desc",signal,clock}={}){
+  const range=explicitRange||diaryRange(selection),today=clock?clock.day(Date.now()):plugin.getLocalYmd(),excluded=new Set(excludePaths),byPath=new Map(),events=[];
   const check=()=>{if(signal?.aborted){const error=new Error("Activity request cancelled");error.name="AbortError";throw error;}};
   check();
   let ambiguous=0;
@@ -71,7 +71,7 @@ async function createActivityReader(plugin,{selection,range:explicitRange,config
   check();
   if(config.ctime||config.mtime){
     const files=plugin.filesUnderRoots(plugin.getScopeSpec("notes").roots,[".md"]);
-    events.push(...fileActivities(files,range,config,date=>plugin.getLocalYmd(date),today));
+    events.push(...fileActivities(files,range,config,date=>plugin.getLocalYmd(date),today,clock));
   }
   const allowed=onlyDates?new Set(onlyDates):null;
   const dates=[...new Set([...events.map(e=>e.date),...includeDates.filter(d=>validDate(d)&&d>=range.start&&d<=range.end)])].filter(d=>!allowed||allowed.has(d)).sort();if(order!=="asc")dates.reverse();

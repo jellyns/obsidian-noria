@@ -42,6 +42,19 @@ test('media search reads current metadata, supports existing states and reports 
  plugin._noriaPluginDisposed=true;await assert.rejects(api.media.list({folder:'Media'}),e=>e.code==='unsupported');
 });
 
+test('configured templates stay outside the catalog regardless of filename or index state',async()=>{
+ const {api,plugin}=fixture();plugin.settings={mediaContent:{book:{template:'Media\\Books\\A.md'},movie:{template:'Media/Unindexed.md'}}};
+ const result=await api.media.list({folder:'Media'});
+ assert.deepEqual(result.items.map(row=>row.path),['Media/Film/B.md','Media/Game/C.md']);assert.equal(result.unindexed,0);
+});
+
+test('music tags and artist search are independent of film and book categories',async()=>{
+ const {api,values}=fixture();values.set('Media/Other.md',{title:'One Day',tags:['arts/music'],artist:'Matisyahu'});
+ const result=await api.media.list({folder:'Media',kind:'music',query:'matisyahu'});
+ assert.equal(result.total,1);assert.deepEqual(result.items[0].kinds,['music']);assert.equal(result.items[0].properties.artist,'Matisyahu');
+ assert.equal((await api.media.list({folder:'Media',kind:'book',query:'matisyahu'})).total,0);
+});
+
 test('actual MCP transport exposes read-only media queries using the same public catalog',async t=>{
  const {api}=fixture(),connection=createAgentConnection({getApi:()=>api,version:'1'});
  t.after(()=>connection.dispose());const endpoint=await connection.start(),client=new Client({name:'media-contract',version:'1'});

@@ -1,6 +1,7 @@
 "use strict";
 const {normalizeReviewSelection} = require("./review-center-core.js");
 const {cleanTaskTitle, getTaskDate} = require("./runtime/views/dashboard/core/utils/task-display.js");
+const {readTaskScheduling}=require("./task-document.js");
 
 function shiftDate(value, days) {
   const date = new Date(value + "T12:00:00Z");
@@ -37,20 +38,23 @@ function projectDiaryTasks(tasks, selection, notePath, today) {
     if (!task?.path || /(^|\s)#habit\b/i.test(task.text || "") || ["cancelled","canceled"].includes(task.status)) continue;
     const key = `${task.path}:${task.line}`, own = task.path === notePath;
     if (seen.has(key)) continue;
-    const dates = ["start","scheduled","due"].map(k => getTaskDate(task,k)).filter(Boolean).sort();
+    const timing=readTaskScheduling(task),arranged=timing.schedules.filter(s=>!s.error).map(s=>s.start.slice(0,10));
+    const dates = [...["start","scheduled","due"].map(k => getTaskDate(task,k)),...arranged].filter(Boolean).sort();
     const completion = getTaskDate(task,"done");
-    const dated = dates.some(d => d <= range.end);
+    // Carry-over belongs to the current working period, not every past or
+    // future journal. Explicit multi-day arrangements still overlap ranges.
+    const dated = dates.some(d => d <= range.end && (current || d >= range.start)) || timing.schedules.some(span=>!span.error&&span.start.slice(0,10)<=range.end&&(span.end||span.start).slice(0,10)>=range.start);
     const completed = task.completed === true;
     const included = completed
-      ? completion ? completion >= range.start && completion <= range.end : own || (s.mode === "daily" && dated)
-      : (own && !dates.length) || dated;
+      ? completion ? completion >= range.start && completion <= range.end : own
+      : (own && !dates.length && !timing.schedules.length) || dated;
     if (!included) continue;
     seen.add(key);
     const priorities={highest:5,high:4,medium:3,low:2,lowest:1};
     const inlinePriority=/\[priority::\s*(highest|high|medium|low|lowest)\]/i.exec(task.text||"")?.[1]?.toLowerCase();
     const priority = priorities[String(task.priority||"").toLowerCase()] || priorities[inlinePriority] || 0;
     rows.push({task,key,title:cleanTaskTitle(task.text),priority,completed,completion,
-      date:getTaskDate(task,"due") || getTaskDate(task,"scheduled") || getTaskDate(task,"start"),
+      date:getTaskDate(task,"due") || arranged.find(d=>d>=range.start&&d<=range.end) || arranged.at(-1) || getTaskDate(task,"scheduled") || getTaskDate(task,"start"),
       due:getTaskDate(task,"due"),carry:!completed && !!dates[0] && dates[0] < range.start});
   }
   const compare = (a,b) => b.priority-a.priority || (a.date || "9999").localeCompare(b.date || "9999") || a.title.localeCompare(b.title);

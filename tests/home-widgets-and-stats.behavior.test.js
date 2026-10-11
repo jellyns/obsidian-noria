@@ -189,6 +189,7 @@ function loadPluginClass(obsidianOverrides = {}) {
       if (id === "./diary-habit-view.js") return {renderEmbeddedDiaryHabits(){}};
       if (id === "./diary-habits.js") return require("../src/diary-habits.js");
       if (id === "./habit-plan.js") return require("../src/habit-plan.js");
+      if (id === "./runtime/views/task-timeline/pomodoro-state.js") return require("../src/runtime/views/task-timeline/pomodoro-state.js");
       if (id === "./task-document.js") return require("../src/task-document.js");
       if (id === "./task-editor-writeback.js") return require("../src/task-editor-writeback.js");
       if (id === "./task-adoption-document.js") return require("../src/task-adoption-document.js");
@@ -199,6 +200,9 @@ function loadPluginClass(obsidianOverrides = {}) {
       if (id === "./noria-identity.js") return noriaIdentity;
       if (id === "./settings-maintenance.js") return settingsMaintenance;
       if (id === "crypto") return require("node:crypto");
+      if (id === "./home-focus-defaults.js") return require("../src/home-focus-defaults.js");
+      if (id === "./task-calendar-zone.js") return require("../src/task-calendar-zone.js");
+      if (id === "./pane-popover.js") return {};
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -217,7 +221,9 @@ function homeMenuHarness(widgets) {
   });
   const plugin={settings:{home:{widgets}},getNoriaLocale:()=>"en"},calls=[];
   plugin.cards=Object.create(module.exports.CardSystem.prototype);plugin.cards.plugin=plugin;
+  plugin.cards.providers=new Map();
   plugin.cards.catalog=(context,id)=>calls.push(["configure",context.page,id]);
+  plugin.cards.changeHomeCards=async change=>change(plugin.settings.home);
   plugin.setHomeWidgetCollapsed=async(id,value)=>calls.push(["collapse",id,value]);
   plugin.editHomeWidget=async(request)=>calls.push(plain(request));
   const anchor={closest(){return {querySelectorAll:()=>[]};},ownerDocument:{}};
@@ -231,17 +237,22 @@ test("opening shared Home card controls does not change records or layout",()=>{
   assert.equal(JSON.stringify(h.plugin.settings),before);assert.deepEqual(h.calls,[]);
 });
 
-test("card settings, collapse, width and hiding preserve the selected instance",async()=>{
+test("card settings, collapse, width and removal preserve the selected instance",async()=>{
   const h=homeMenuHarness([{id:"tasks",size:"medium",enabled:true}]),menu=h.open("tasks",["tasks"]);
-  await menu.actions[0].run();await menu.collapse(true);await menu.size("wide");await menu.hide();
+  await menu.actions[0].run();await menu.collapse(true);await menu.size("wide");await menu.remove();
   assert.deepEqual(h.calls,[["configure","home","tasks"],["collapse","tasks",true],
-    {widgetId:"tasks",action:"size",value:"wide"},{widgetId:"tasks",action:"enabled",value:false}]);
+    {widgetId:"tasks",action:"size",value:"wide"}]);
+  assert.equal(h.plugin.settings.home.widgets[0].enabled,false);
 });
 
-test("moving cards targets the next visible neighbour and hidden cards can be restored",async()=>{
+test("moving cards targets the next visible neighbour and removal can be undone without losing later changes",async()=>{
   const h=homeMenuHarness([{id:"a",enabled:true},{id:"hidden",enabled:false},{id:"b",enabled:true}]);
-  await h.open("a",["a","b"]).move("down");await h.open("hidden",["a","hidden","b"]).hide();
-  assert.deepEqual(h.calls,[{widgetId:"a",action:"move",value:"down",targetId:"b"},{widgetId:"hidden",action:"enabled",value:true}]);
+  await h.open("a",["a","b"]).move("down");const undo=await h.plugin.cards.removeHome('a');
+  h.plugin.settings.home.widgets[0].props={filter:'book'};await undo();
+  assert.deepEqual(h.calls,[{widgetId:"a",action:"move",value:"down",targetId:"b"}]);
+  assert.equal(h.plugin.settings.home.widgets[0].enabled,true);
+  assert.deepEqual(h.plugin.settings.home.widgets[0].props,{filter:'book'});
+  assert.equal(h.plugin.settings.home.widgets[1].enabled,false);
 });
 
 test("moving to a visible neighbour keeps hidden and future widget data intact", () => {
@@ -287,12 +298,14 @@ const FLAT_HOME_WIDGET_IDS = [
   "identity",
   "metrics",
   "today-actions",
-  "daily-advice",
   "today-tasks-card",
   "inbox-card",
-  "countdown-card",
-  "habit-history-card",
   "projects-card",
+  "focus-timer-card",
+  "habit-history-card",
+  "countdown-card",
+  "daily-advice",
+  "quick-access",
   "moc-strip",
   "review-focus",
   "trends-range",
@@ -304,6 +317,21 @@ const FLAT_HOME_WIDGET_IDS = [
   "daily-state-card"
 ];
 
+test("removed home cards remain absent across settings reloads, including default markdown cards", () => {
+  const Plugin=loadPluginClass(),plugin=new Plugin();
+  let settings=plugin.normalizeSettings({});
+  settings.home.removedWidgetIds=['moc-strip','daily-advice'];
+  settings.home.widgets=settings.home.widgets.filter(w=>!settings.home.removedWidgetIds.includes(w.id));
+  for(let i=0;i<2;i++){
+    settings=plugin.normalizeSettings(JSON.parse(JSON.stringify(settings)));
+    assert.equal(settings.home.widgets.some(w=>['moc-strip','daily-advice'].includes(w.id)),false);
+    assert.deepEqual(plain(settings.home.removedWidgetIds),['moc-strip','daily-advice']);
+    assert.ok(settings.home.widgets.some(w=>w.id==='today-tasks-card'));
+  }
+  settings.home.removedWidgetIds=[];
+  assert.ok(plugin.normalizeSettings(settings).home.widgets.some(w=>w.id==='moc-strip'));
+});
+
 test("home schema v3 exposes every visual card as a first-class root widget", () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
@@ -314,14 +342,15 @@ test("home schema v3 exposes every visual card as a first-class root widget", ()
   assert.equal(defaults.home.widgets.some((widget) => ["workbench", "guide", "trends"].includes(widget.id)), false);
   const dailyAdvice = defaults.home.widgets.find((widget) => widget.id === "daily-advice");
   assert.equal(dailyAdvice.type, "markdown");
-  assert.equal(dailyAdvice.enabled, false);
-  assert.equal(dailyAdvice.size, "full");
+  assert.equal(dailyAdvice.enabled, true);
+  assert.equal(dailyAdvice.layout.span, 4);
   assert.equal(dailyAdvice.title, "建议");
   assert.equal(dailyAdvice.source, "");
   assert.deepEqual(plain(dailyAdvice.props), {
     sourceMode: "daily-section",
     heading: "建议",
-    renderMode: "compact"
+    renderMode: "compact",
+    cardHeight: 169
   });
   assert.equal(defaults.home.widgets.some((widget) => widget.id === "focus-strip"), false);
   assert.deepEqual(plain(defaults.home.widgets.find((widget) => widget.id === "today-tasks-card").props.panels), ["tasks"]);
@@ -330,11 +359,28 @@ test("home schema v3 exposes every visual card as a first-class root widget", ()
   assert.equal(defaults.home.widgets.find((widget) => widget.id === "review-focus").props.defaultExpanded, true);
   assert.equal(defaults.home.widgets.find((widget) => widget.id === "habit-heatmap-card").props.heatmapMode, "habit");
   assert.equal(defaults.home.widgets.find((widget) => widget.id === "workload-heatmap-card").props.heatmapMode, "workload");
-  assert.ok(
-    defaults.home.widgets.findIndex((widget) => widget.id === "habit-history-card")
-      < defaults.home.widgets.findIndex((widget) => widget.id === "projects-card"),
-    "the full habit card should sit above projects"
-  );
+  const rows = [
+    ["today-tasks-card", "inbox-card", "projects-card"],
+    ["focus-timer-card", "habit-history-card", "countdown-card"],
+    ["daily-advice", "quick-access", "moc-strip"]
+  ];
+  for (const row of rows) {
+    assert.equal(row.reduce((span, id) => span + defaults.home.widgets.find(w => w.id === id).layout.span, 0), 12);
+  }
+  assert.equal(defaults.home.widgets.some(w => w.id === "focus-today-card"), false);
+});
+
+test("starter layout updates preserve saved geometry, disabled advice and custom shortcuts", () => {
+  const Plugin = loadPluginClass(), plugin = new Plugin();
+  const saved = plugin.normalizeSettings({});
+  saved.home.widgets = saved.home.widgets.filter(w => w.id !== "quick-access");
+  saved.home.widgets.push({id:"my-links",type:"extension",schemaVersion:3,enabled:true,order:5,size:"wide",title:"Links",source:"noria:shortcuts",layout:{span:7},props:{}});
+  const advice = saved.home.widgets.find(w => w.id === "daily-advice");
+  Object.assign(advice, {enabled:false,order:6,layout:{span:5},props:{...advice.props,cardHeight:240}});
+  const before = plain(saved.home.widgets).sort((a,b) => a.order-b.order);
+  const restored = plugin.normalizeSettings(saved);
+  assert.deepEqual(plain(restored.home.widgets), before);
+  assert.deepEqual(plain(plugin.normalizeSettings(restored).home.widgets), before);
 });
 
 test("home settings discard the retired focus strip and retain source-less daily-section cards", () => {
@@ -515,7 +561,7 @@ test("flat Home cards reuse shared renderers through native root adapters", () =
   const trends = read("views/dashboard/home/sections/trends-and-stats/view.js");
   const heatmaps = read("views/dashboard/home/sections/trends-and-stats/blocks/heatmaps/view.js");
 
-  for (const id of FLAT_HOME_WIDGET_IDS.slice(4)) {
+  for (const id of FLAT_HOME_WIDGET_IDS.slice(4).filter(id=>!id.startsWith("focus-"))) {
     assert.match(home, new RegExp(`["']?${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\\s*:`));
   }
   assert.match(home, /const HOME_WIDGET_SCHEMA_VERSION = 3/);
@@ -607,7 +653,7 @@ test("home settings normalize configurable dashboard widgets", () => {
   assert.deepEqual(plain(defaults.home.widgets.map((w) => w.id)), FLAT_HOME_WIDGET_IDS);
   assert.deepEqual(
     plain(defaults.home.widgets.map((w) => w.type)),
-    FLAT_HOME_WIDGET_IDS.map((id) => id === "daily-advice" ? "markdown" : "builtin")
+    FLAT_HOME_WIDGET_IDS.map((id) => id === "daily-advice" ? "markdown" : id.startsWith("focus-") ? "extension" : "builtin")
   );
   assert.deepEqual(plain(defaults.home.widgets.map((w) => w.schemaVersion)), FLAT_HOME_WIDGET_IDS.map(() => 3));
   assert.deepEqual(plain(defaults.home.trendsRange), { mode: "last30", start: "", end: "", yearGranularity: "week" });
@@ -1506,7 +1552,7 @@ test("home profile-lite presets reshape built-in widgets without dropping custom
   assert.equal(byId.metrics.enabled, true);
   assert.equal(byId["today-actions"].enabled, true);
   assert.equal(byId["daily-advice"].enabled, false);
-  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", ...FLAT_HOME_WIDGET_IDS.slice(11)]) {
+  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", ...FLAT_HOME_WIDGET_IDS.slice(FLAT_HOME_WIDGET_IDS.indexOf("trends-range"))]) {
     assert.equal(byId[widgetId].enabled, true, `${widgetId} should be enabled in research`);
     assert.equal(byId[widgetId].collapsed, false);
   }
@@ -1544,7 +1590,7 @@ test("home profile-lite presets reshape built-in widgets without dropping custom
   assert.equal(reviewById["review-focus"].enabled, true, "review profile should keep the same-leaf Review Focus surface available");
   assert.equal(reviewById["review-focus"].collapsed, false);
   assert.equal(reviewById["review-focus"].props.defaultExpanded, true);
-  for (const widgetId of FLAT_HOME_WIDGET_IDS.slice(11)) assert.equal(reviewById[widgetId].enabled, true);
+  for (const widgetId of FLAT_HOME_WIDGET_IDS.slice(FLAT_HOME_WIDGET_IDS.indexOf("trends-range"))) assert.equal(reviewById[widgetId].enabled, true);
   assert.deepEqual(plain(plugin.settings.home.guidePanels), {
     inbox: false,
     projects: false,
@@ -1592,7 +1638,7 @@ test("home profile-lite presets are conservative and do not duplicate existing b
   assert.equal(byId.metrics.enabled, true);
   assert.equal(byId["today-actions"].enabled, true);
   assert.equal(byId["daily-advice"].enabled, false);
-  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", "review-focus", ...FLAT_HOME_WIDGET_IDS.slice(11)]) {
+  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", "review-focus", ...FLAT_HOME_WIDGET_IDS.slice(FLAT_HOME_WIDGET_IDS.indexOf("trends-range"))]) {
     assert.equal(byId[widgetId].enabled, false, `${widgetId} should be disabled in minimal`);
   }
   assert.equal(byId["markdown-briefing"].enabled, false);
@@ -2475,7 +2521,7 @@ test("trend widgets default to full dashboard stats with one global range", () =
   assert.doesNotMatch(taskTrend, /statsService/);
   assert.match(taskTrend, /runtime\.home\.trends\.taskTrendTitle/);
   assert.match(taskTrend, /undatedCompleted/);
-  assert.match(taskTrend, /noria-task-trend-axis-stat/);
+  assert.match(taskTrend, /data-noria-card-explanation/);
   assert.doesNotMatch(taskTrend, /renderDualAxis/);
   assert.match(read("views/dashboard/periodic-stats/impl-legacy/view.js"), /tasks\?\.completion\?\.series/);
   assert.doesNotMatch(dailyState, /dashboard-daily-state-summary/);
@@ -2728,6 +2774,17 @@ test("shared chart helpers balance donut label counts and align month labels to 
     const gridWidth = spec.cell * 53 + spec.gap * 52;
     assert.ok(gridWidth <= width, `continuous heatmap should fit a ${width}px card without clipping`);
   }
+});
+
+test("annual heatmap uses the full available width including axes without truncating the final week", () => {
+  const heatmap = loadRuntimeChart("views/dashboard/core/components/charts/year-heatmap-calendar.js").yearHeatmapCalendar._test;
+  for (const weeks of [53,54]) for (const width of [320,390,560,1200,1800]) {
+    const spec = heatmap.layoutSpec(width,weeks,true);
+    const renderedWidth = 14 + 7 + spec.weekdayOffset + weeks*spec.cell + (weeks-1)*spec.gap + 2;
+    assert.ok(Math.abs(renderedWidth-width)<0.01, `${weeks} weeks and labels fill ${width}px`);
+  }
+  const narrow=heatmap.layoutSpec(100,53,true);
+  assert.ok(narrow.cell>=3, "very narrow cards retain inspectable cells and scroll instead of clipping");
 });
 
 test("periodic stats and diary templates no longer embed weekly habit matrix or periodic blocks", () => {

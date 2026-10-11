@@ -169,6 +169,7 @@ function loadPluginClass(options = {}) {
       }
       if (id === "child_process") return {};
       if (id === "crypto") return require("node:crypto");
+      if (id === "./home-focus-defaults.js") return require("../src/home-focus-defaults.js");
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -887,6 +888,7 @@ test("review center refreshes a stale global parser contract before reading new 
   const { PluginClass, context } = loadPluginClass({ exposeContext: true });
   const plugin = new PluginClass();
   const staleReviewCenter = {
+    runtimeContractVersion: 2,
     parseReviewArtifact() {
       return { sections: { summary: "", analysis: "", advice: "", evidence: "" }, gddSuggestion: {} };
     },
@@ -909,9 +911,28 @@ test("review center refreshes a stale global parser contract before reading new 
   ].join("\n"));
 
   assert.notEqual(review, staleReviewCenter);
-  assert.equal(review.runtimeContractVersion, 2);
+  assert.equal(review.runtimeContractVersion, 3);
   assert.equal(parsed.sections.summary, "当天完成了有证据的闭环。");
   assert.equal(review.hasGeneratedReviewContent(parsed), true);
+});
+
+test("review evidence freshness ignores collection timing but detects changed source content", () => {
+  const review = loadReviewCenter();
+  const evidence = { date: "2026-10-06", tasks: { done: 1 }, excerpts: [{ path: "Diary.md", text: "Original observation" }] };
+  const preparedHash = review.createEvidenceHash({ ...evidence, performance: { totalMs: 12.2, tasksMs: 8 } });
+  const rereadHash = review.createEvidenceHash({ ...evidence, performance: { totalMs: 0.8, tasksMs: 0.7 } });
+  const analysis = review.parseReviewArtifact(`---\nevidence_hash: ${preparedHash}\n---\n\n## Analysis\nA suggestion based on the observation.`);
+  assert.equal(review.isArtifactStale(analysis, rereadHash), false);
+  assert.equal(review.isArtifactStale(analysis, review.createEvidenceHash({ ...evidence, tasks: { done: 2 } })), true);
+  assert.equal(review.isArtifactStale(analysis, review.createEvidenceHash({ ...evidence, excerpts: [{ path: "Diary.md", text: "Revised observation" }] })), true);
+  for (const key of ["stats", "snapshot"]) {
+    const snapshot = { meta: { generatedAt: "2026-10-06T01:00:00Z", schemaVersion: 1 }, domains: { tasks: { done: 1 } } };
+    const first = review.createEvidenceHash({ ...evidence, [key]: snapshot });
+    const rebuilt = { ...snapshot, meta: { ...snapshot.meta, generatedAt: "2026-10-06T01:01:00Z" } };
+    assert.equal(review.createEvidenceHash({ ...evidence, [key]: rebuilt }), first);
+    assert.notEqual(review.createEvidenceHash({ ...evidence, [key]: { ...rebuilt, domains: { tasks: { done: 2 } } } }), first);
+    assert.equal(snapshot.meta.generatedAt, "2026-10-06T01:00:00Z");
+  }
 });
 
 test("review evidence hash tolerates circular snapshot references", () => {
@@ -1301,7 +1322,8 @@ test("task timeline no longer contains the old recap toolbar entry", () => {
 });
 
 test("daily review final archive omits duplicated daily state controls", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  // Check the review UI, not unrelated record editing bundled into main.js.
+  const main = ["src/review-workspace.js", "src/runtime/views/dashboard/core/utils/review-center.js"].map(file=>fs.readFileSync(pluginPath(file),"utf8")).join("\n");
 
   assert.doesNotMatch(main, /choose\("focus",\s*\["1",\s*"2",\s*"3",\s*"4",\s*"5"\]\)/);
   assert.doesNotMatch(main, /choose\("energy",\s*\["1",\s*"2",\s*"3",\s*"4",\s*"5"\]\)/);
@@ -1726,8 +1748,8 @@ test("daily final rechecks the review fingerprint when a missing target is creat
     parseThought: () => "",
     replaceFinalReviewSections: (markdown) => `${markdown}\n\n### Summary\n\nmy local final\n`
   });
-  plugin.getManagedPath = () => "06_Diary";
-  plugin.getTodayDiarySeedText = async () => "# 2026-07-14\n\n## Review\n";
+  // Template loading is covered separately; this fixture owns a concurrent create.
+  plugin.buildCalendarNoteContent = async () => "# 2026-07-14\n\n## Review\n";
   plugin.loadTextFromVault = async () => current;
   plugin.ensureVaultParent = async () => {};
   plugin.loadReviewRecoveryEntry = async () => null;
@@ -2633,4 +2655,39 @@ test("public review preparation returns persisted material and keeps each period
   assert.equal(new Set(results.map(result=>result.promptPath)).size,5);
   assert.equal(plugin.__writes.length,15);assert.ok(plugin.__writes.every(write=>write.path.startsWith(cache+'/')));
   assert.equal(notices.length,0,'external preparation does not display UI toasts');
+});
+
+test("analysis API uses the vault mutation queue, loads in the existing review parser and preserves the saved review",async()=>{
+  const plugin=makeAiPlugin(),review=loadReviewCenter(),notes=new Map(),writes=[],refreshes=[];
+  const selection={mode:'monthly',anchorDate:'2026-10-06'},source='Custom/2026-10.md',artifact='Custom/2026-10-review.md';
+  const original='## Plans\nKeep my plan.\n\n## Review\n\nMy own conclusion.\n';notes.set(source,original);
+  plugin.ensureReviewCenterUtils=async()=>review;
+  plugin.resolveCalendarNoteSpecAsync=async()=>({path:source,periodId:'2026-10'});
+  plugin.getFullReviewEvidence=async()=>({evidenceHash:'material-1'});
+  plugin.getReviewFinalSectionHeading=()=> 'Review';
+  plugin.reloadOpenNoriaViews=async scope=>refreshes.push(scope);
+  plugin.loadTextFromVault=async path=>notes.get(path)||'';
+  plugin.app.vault={
+    getAbstractFileByPath:path=>notes.has(path)?{path}:null,
+    adapter:{exists:async path=>notes.has(path),mkdir:async()=>{}},
+    create:async(path,text)=>{if(notes.has(path))throw Error('File already exists');notes.set(path,text);writes.push(path);return {path};},
+    process:async(file,fn)=>{const text=fn(notes.get(file.path));notes.set(file.path,text);writes.push(file.path);}
+  };
+  const api=require('../src/public-api.js').createPublicApi(plugin),read=await api.reviews.read(selection);
+  const prefix='---\nevidence_hash: material-1\n---\n\n## Observation\n\n';
+  const request={...selection,revision:read.analysis.revision,evidenceHash:'material-1',markdown:prefix+'Review the interrupted session.'};
+  const results=await Promise.allSettled([api.reviews.submitAnalysis(request),api.reviews.submitAnalysis({...request,markdown:prefix+'A competing version.'})]);
+  assert.equal(results.filter(item=>item.status==='fulfilled').length,1);
+  assert.equal(results.find(item=>item.status==='rejected').reason.code,'conflict');
+  assert.equal(notes.get(artifact),request.markdown);assert.equal(notes.get(source),original);
+  const loaded=await plugin.getReviewAnalysisArtifact(selection,{evidenceHash:'material-1'});
+  assert.equal(loaded.generated,true);assert.equal(loaded.stale,false);
+  assert.equal((await plugin.getReviewAnalysisArtifact(selection,{evidenceHash:'material-2'})).stale,true);
+  const parts=D.getReviewAnalysisSections(loaded.text);assert.equal(parts.length,1);assert.equal(parts[0].title,'Observation');
+  const binding=D.readReviewDocument(original,['Review']);
+  const adopted=D.writeReviewDocument(original,binding,D.appendReviewAnalysis(binding.markdown,parts[0]));
+  assert.ok(adopted.startsWith('## Plans\nKeep my plan.'));
+  assert.match(adopted,/My own conclusion\.[\s\S]*### Observation[\s\S]*Review the interrupted session\./);
+  assert.doesNotMatch(adopted,/evidence_hash|competing version/);
+  assert.ok(writes.every(path=>path===artifact));assert.ok(refreshes.every(scope=>scope==='review'));
 });

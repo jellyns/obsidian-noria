@@ -50,7 +50,7 @@ test("habit controls retain zero, leave unknown actual values blank, and keep fa
   for(const compact of [false,true])for(const value of [0,"",undefined]){
     const host=new Element();let request;
     const row=renderDiaryHabitRow({parent:host,plugin,config,record:{done:true,value},compact,showValue:compact,onSave:async(done,value)=>{request={done,value};return false;}});
-    assert.equal(row.all("span").find(el=>el.className===(compact?"noria-habit-current-value":"noria-diary-habit-value")).text,value===0?(compact?"0 分钟":"0分钟"):(compact?"记录":"—"));
+    assert.equal(row.all("span").find(el=>el.className===(compact?"noria-habit-status":"noria-diary-habit-value")).text,value===0?(compact?"0":"0分钟"):(compact?"✓":"—"));
     await row.all("button")[0].onclick();
     const input=lastPopover.all("input")[0];assert.equal(input.value,value===0?"0":"");
     input.value="7";await lastPopover.all("form")[0].onsubmit({preventDefault(){}});

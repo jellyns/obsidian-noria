@@ -24,3 +24,11 @@ test('appearance presets persist independently, retain existing applied copies a
  assert.equal(new A.StatisticLooks({settings:disk}).read()[0].id,look.id);fail=true;await assert.rejects(store.remove(look.id),/disk failure/);assert.equal(store.read().length,1);
  fail=false;await store.remove(look.id);assert.equal(store.read().length,0);assert.equal(card.appearance.color,'blue');assert.deepEqual(plugin.settings.statisticTemplates.items,[]);
 });
+
+test('count ticks are distinct integers without rounding or changing the data domain',()=>{
+ for(const domain of [{min:0,max:1},{min:0,max:3},{min:-1.4,max:2.6},{min:1,max:1.1}]){
+  const before={...domain},ticks=A.axisTicks(domain,true);assert.ok(ticks.every(Number.isInteger));assert.equal(new Set(ticks).size,ticks.length);assert.ok(ticks.every(v=>v>=domain.min&&v<=domain.max));assert.deepEqual(domain,before);
+ }
+ assert.deepEqual(A.axisTicks({min:0,max:1},true),[1,0]);
+ assert.deepEqual(A.axisTicks({min:0,max:5}),[5,2.5,0]);
+});

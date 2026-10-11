@@ -4,17 +4,19 @@
   const text = value => String(value == null ? "" : value).trim();
   const isChinese = locale => locale === "zh" || locale === "zh-CN";
 
-  function parseDate(value) {
+  function parseDate(value, clock) {
+    if(clock && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/.test(String(value)))return new Date(clock.fromDisplay(value));
     const day = typeof value === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     return day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(value);
   }
 
-  function prepareDraft(raw = {}) {
+  function prepareDraft(raw = {}, clock) {
     const title = text(raw.title);
     if (!title) return { error: "name" };
-    const start = parseDate(raw.start);
     const point = raw.type === "point";
-    const end = point ? null : parseDate(raw.end);
+    let start,end;
+    try { start=parseDate(raw.start,clock);end=point?null:parseDate(raw.end,clock); }
+    catch(error){return {error:'time',message:text(error.message)};}
     if (!Number.isFinite(start.getTime()) || (!point && !Number.isFinite(end.getTime()))) return { error: "time" };
     if (end && end <= start) return { error: "range" };
     const projectPath = text(raw.projectPath).replace(/\\/g, "/");
@@ -26,9 +28,10 @@
     } };
   }
 
-  function localTime(value) {
+  function localTime(value, clock) {
     const date = parseDate(value);
     if (!Number.isFinite(date.getTime())) return "";
+    if(clock)return clock.wall(+date).replace(' ','T');
     const pad = number => String(number).padStart(2, "0");
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
@@ -123,19 +126,20 @@
     project.value = original.projectPath || "";
     const projectInfo = node(document, form, "div", "noria-task-timeline-annotation-help", t("Loading projects…", "正在读取项目…"));
     const start = field(t("Start", "开始"), "start", "datetime-local");
-    start.value = localTime(original.start);
+    start.value = localTime(original.start, options.clock);
     start.step = "60";
     const end = point ? null : field(t("End", "结束"), "end", "datetime-local");
-    if (end) { end.value = localTime(original.end); end.step = "60"; }
+    if (end) { end.value = localTime(original.end, options.clock); end.step = "60"; }
     const colors = node(document, form, "div", "noria-task-timeline-context-colors");
     colors.setAttribute("role", "group");
     colors.setAttribute("aria-label", t("Annotation color", "标注颜色"));
     const swatches = [];
     const updateSwatches = () => swatches.forEach(button => button.setAttribute("aria-pressed", button.dataset.color === color ? "true" : "false"));
+    const unchanged=(value,prior)=>value===localTime(prior,options.clock)?prior:value;
     const draft = () => prepareDraft({
-      ...original, title: name.value, start: start.value, ...(end ? { end: end.value } : {}),
+      ...original, title: name.value, start: unchanged(start.value,original.start), ...(end ? { end: unchanged(end.value,original.end) } : {}),
       projectPath: project.value, projectName: project.value ? projects.get(project.value) || original.projectName || project.value : "", color
-    });
+    },options.clock);
     const preview = () => {
       const value = draft();
       if (value.error) return;
@@ -179,7 +183,7 @@
       error.hidden = true;
       if (!deleting && value.error) {
         error.textContent = value.error === "name" ? t("Enter a name.", "请填写名称。") : value.error === "range"
-          ? t("End must be after start.", "结束时间应晚于开始时间。") : t("Enter valid dates and times.", "请填写有效的日期和时间。");
+          ? t("End must be after start.", "结束时间应晚于开始时间。") : value.message || t("Enter valid dates and times.", "请填写有效的日期和时间。");
         error.hidden = false;
         (value.error === "name" ? name : end || start).focus();
         popup.position();
@@ -226,8 +230,8 @@
       close: reason => popup.close(reason || "cancel", true),
       updateRange(intent) {
         if (popup.closed || pending) return;
-        start.value = localTime(intent.startMs);
-        if (end) end.value = localTime(intent.endMs);
+        start.value = localTime(intent.startMs, options.clock);
+        if (end) end.value = localTime(intent.endMs, options.clock);
         preview();
       }
     };

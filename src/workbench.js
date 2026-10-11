@@ -16,17 +16,20 @@ class NoriaWorkbench {
     this.active=internal(chosen)?chosen.id:config.pages.find(p=>internal(p)&&!p.hidden).id;
     this.initialTarget=!requested&&!internal(chosen)?chosen.id:null;
     this.customEditing=false;this.customVersions=new Map();
+    this.mediaKind=['book','movie','music','game'].includes(initial.mediaKind)?initial.mediaKind:'';
+    this.mediaScrolls={...(initial.mediaScrolls||{})};
     this.intent = initial.page === "review" || initial.intent === "review" ? "review" : "record";
     this.selection = this.plugin.resolveReviewSelection(initial.selection || {});
     this.pages = new Map(); this.loads = new Map(); this.serial = 0;
     this.scrolls = {...(initial.scrolls || {})};
     this.diaryCards = initial.diaryCards;
     this.navigationId=`noria-pages-${crypto.randomUUID()}`;
-    this.nav = this.host.createDiv({cls: "noria-workbench-nav", attr: {role: "navigation", "aria-label": this.t("navigation")}});
-    this.tabs=this.nav.createDiv({cls:"noria-workbench-tabs",attr:{role:"tablist","aria-label":this.t("navigation")}});
+    this.nav = this.host.createDiv({cls: "noria-workbench-nav", attr: {role: "navigation", "aria-labelledby": this.navigationId+"-label"}});
+    this.nav.createSpan({text:this.t("navigation"),attr:{id:this.navigationId+"-label",hidden:""}});
+    this.tabs=this.nav.createDiv({cls:"noria-workbench-tabs",attr:{role:"tablist","aria-labelledby":this.navigationId+"-label"}});
     this.body = this.host.createDiv({cls: "noria-workbench-pages"});
     this.syncNavigation();
-    this.unsubscribePages=this.store.subscribe(()=>this.syncPages());
+    this.unsubscribePages=this.store.subscribe(event=>this.syncPages(event));
     this.navObserver=new this.host.ownerDocument.defaultView.ResizeObserver(()=>this.syncNavigation());
     this.navObserver.observe(this.host);
     this.finishLayoutButton=this.nav.createEl("button",{cls:"noria-workbench-finish-layout",attr:{type:"button","aria-label":this.text("完成布局调整","Finish arranging cards")}});
@@ -75,8 +78,17 @@ class NoriaWorkbench {
       more.onclick=()=>{const menu=new Menu();for(const page of overflow)menu.addItem(item=>item.setTitle(this.store.label(page)).onClick(()=>choose(page)));const r=more.getBoundingClientRect();menu.onHide(()=>more.focus({preventScroll:true}));menu.showAtPosition({x:r.left,y:r.bottom});};}
     if(focused)this.tabs.querySelector(`[data-noria-page="${focused}"]`)?.focus({preventScroll:true});
   }
-  async syncPages(){
+  async syncPages({layoutOnly=false,pageId,previousPage}={}){
     if(this.disposed)return;
+    if(layoutOnly&&previousPage){
+      const id=pageId.split(':')[0],page=this.store.get(id);
+      // A layout move must not invalidate live editors on the next focusout.
+      // Only acknowledge it if no earlier content refresh is still pending.
+      if(!this.loads.has(id)||this.customVersions.get(id)===this.cardVersion(previousPage)){
+        if(this.loads.has(id))this.customVersions.set(id,this.cardVersion(page));
+        return;
+      }
+    }
     const config=this.store.read(),current=config.pages.find(p=>p.id===this.active);
     if(!current||current.hidden){const fallback=config.pages.find(p=>p.id===config.defaultPage&&internal(p)&&!p.hidden)||config.pages.find(p=>internal(p)&&!p.hidden);await this.show(fallback.id);}
     this.syncNavigation();
@@ -97,7 +109,7 @@ class NoriaWorkbench {
     try{await pending;this.customVersions.set(id,this.cardVersion(page));refs.panel.scrollTop=top;}
     catch(error){this.loads.delete(id);throw error;}
   }
-  cardVersion(page){return JSON.stringify([page.widgets,page.trendsRange,page.dailyStateRange]);}
+  cardVersion(page){return JSON.stringify([page.widgets,page.trendsRange,page.dailyStateRange,page.mediaViews]);}
   canReplace(panel){return !(panel.contains(panel.ownerDocument.activeElement)&&panel.ownerDocument.activeElement?.matches('input,textarea,select,[contenteditable=true]'))&&
     ![...panel.querySelectorAll('textarea,input[type=text]')].some(input=>input.value!==input.defaultValue);}
   t(key) {return this.plugin.t("workbench." + key);}
@@ -124,9 +136,14 @@ class NoriaWorkbench {
     const menu=new Menu();
     menu.addItem(item=>item.setTitle(this.text("添加本页卡片","Add a card to this page")).setIcon("plus").onClick(()=>{
       const selection=this.diary?.selection||this.selection;
-      const context=this.active==="home"?{page:"home"}:this.active==="diary"?{page:"diary",mode:selection.mode,selection}:{page:"custom",pageId:this.active};this.plugin.cards.catalog(context);
+      const context=this.active==="home"?{page:"home"}:this.active==="diary"?this.diary.cards.catalogContext():{page:"custom",pageId:this.active==='media'&&this.mediaKind?'media:'+this.mediaKind:this.active};this.plugin.cards.catalog(context);
     }));
     menu.addItem(item=>item.setTitle(this.isLayoutEditing()?this.text("完成布局调整","Finish arranging cards"):this.text("调整本页布局","Arrange cards on this page")).setIcon(this.isLayoutEditing()?"check":"layout-dashboard").onClick(()=>void this.setLayoutEditing(!this.isLayoutEditing()).catch(e=>this.error(e))));
+    if(this.active==='diary'&&['daily','weekly','monthly','yearly'].includes(this.diary?.selection.mode)){
+      const context=this.diary.cards.catalogContext();
+      menu.addItem(item=>item.setTitle(this.text('默认卡片…','Default cards…')).setIcon('panels-top-left').onClick(()=>this.plugin.cards.catalog({page:'diary',mode:context.mode,selection:context.selection,defaults:true})));
+      if(this.plugin.settings.cardLayouts?.notes?.[this.diary.session?.model.path])menu.addItem(item=>item.setTitle(this.text('恢复默认布局','Restore default layout')).setIcon('rotate-ccw').onClick(()=>void context.noteCards.configure(null).catch(e=>this.error(e))));
+    }
     menu.addSeparator();
     menu.addItem(item=>item.setTitle(this.text("管理页面","Manage pages")).setIcon("panels-top-left").onClick(()=>new (require('./workbench-page-settings.js').PageSettings)(this).open()));
     this.layoutButton.setAttribute("aria-expanded","true");
@@ -152,7 +169,7 @@ class NoriaWorkbench {
     if(!this.store.get(page)||this.disposed)return;
     if(page==='day'||page==='calendar'){
       if(this.active==='diary')await this.diary?.flush();
-      return page==='day'?this.plugin.openTaskBoardDay():this.plugin.openCalendarLeaf(this.active==='diary'?(this.diary?.selection||this.selection):this.selection);
+      return page==='day'?this.plugin.openTasksBoardLeaf():this.plugin.openCalendarLeaf(this.active==='diary'?(this.diary?.selection||this.selection):this.selection);
     }
     this.syncNavigation();
     const serial = ++this.serial;
@@ -185,6 +202,7 @@ class NoriaWorkbench {
     const selection = this.active === "diary" ? this.diary?.selection : this.selection;
     return {page: this.active, intent:this.diary?.intent || this.intent, selection: selection || this.selection,
       diaryCards: this.diary?.cards.state() || this.diaryCards,
+      mediaKind:this.mediaKind,mediaScrolls:{...this.mediaScrolls},
       scrolls: {...this.scrolls, [this.active]: this.pages.get(this.active)?.panel.scrollTop||0}};
   }
   async refreshForDay(){

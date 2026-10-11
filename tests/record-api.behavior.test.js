@@ -13,6 +13,18 @@ function fixture(raw){
   processTextAtVaultPath(path,transform){const job=(queues.get(path)||Promise.resolve()).catch(()=>{}).then(()=>{const current=files.get(path)||'',next=transform(current);if(next!==current)files.set(path,next);});queues.set(path,job);return job;}};
  p.records=new module.exports.RecordFields(p);return {p,api:createPublicApi(p),files,fields,date,note,refresh};
 }
+test('multiple entries share a daily projection and habit binding; equal totals still conflict after detail changes',async()=>{
+ const f=fixture('---\nminutes: 4\n---\nKeep.\n');f.fields[0].multiple=true;f.fields[0].aggregation='sum';
+ const read=async()=> (await f.api.records.read({date:f.date})).items[0];
+ let ref=await read();const append=await f.api.records.update({date:f.date,fieldId:ref.fieldId,revision:ref.revision,operation:'append',value:6,time:'12:00'});
+ assert.equal(append.value,10);assert.equal(append.entries.length,2);assert.equal(habitRecords(f.files.get(f.note),f.date,f.note)[0].done,true);
+ const stale=await read();ref=await f.api.records.update({date:f.date,fieldId:ref.fieldId,revision:stale.revision,operation:'edit',entry:1,value:6,time:'13:00'});
+ assert.equal(ref.value,stale.value);assert.notEqual(ref.revision,stale.revision);
+ await assert.rejects(f.api.records.update({date:f.date,fieldId:ref.fieldId,revision:stale.revision,operation:'delete',entry:1}),e=>e.code==='conflict');
+ await assert.rejects(f.api.records.update({date:f.date,fieldId:ref.fieldId,revision:ref.revision,value:20}),e=>e.code==='invalid-input');
+ ref=await f.api.records.update({date:f.date,fieldId:ref.fieldId,revision:ref.revision,operation:'delete',entry:1});assert.equal(ref.value,4);assert.equal(habitRecords(f.files.get(f.note),f.date,f.note)[0].done,false);
+ ref=await f.api.records.update({date:f.date,fieldId:ref.fieldId,revision:ref.revision,operation:'delete',entry:0});assert.equal(ref.value,null);assert.equal(ref.entries.length,0);assert.match(f.files.get(f.note),/Keep\./);
+});
 test('record API reads without creation, writes through shared habit binding and preserves independent prose',async()=>{
  const f=fixture();const definitions=await f.api.records.fields();assert.equal(definitions.items.length,3);definitions.items[0].name='Changed copy';assert.equal(f.fields[0].name,'Reading');
  const before=await f.api.records.read({date:f.date});assert.equal(before.exists,false);assert.equal(f.files.size,0);
@@ -46,4 +58,14 @@ test('record API rejects invalid and future inputs, preserves false, and rejects
  await assert.rejects(f.api.records.update({date:f.date,fieldId:'missing',revision:reading.revision,value:12}),e=>e.code==='not-found');assert.equal(f.files.size,0);
  assert.equal((await f.api.records.update({date:f.date,fieldId:toggle.fieldId,revision:toggle.revision,value:false})).value,false);
  f.p._noriaPluginDisposed=true;await assert.rejects(f.api.records.read({date:f.date}),e=>e.code==='unsupported');
+});
+test('bound numeric records use the effective target, then retain the recorded snapshot',async()=>{
+ const f=fixture(),load=f.p.loadTextFromVault;
+ let registry='## Active habits\n- Reading [type:: number] [target:: 45] [record-field:: minutes] [target-plan:: 2026-10-01=30;2026-10-08=45]\n';
+ f.p.loadTextFromVault=async path=>path==='Habits.md'?registry:load(path);
+ await f.p.records.save(f.date,f.fields[0],35);
+ let row=habitRecords(f.files.get(f.note),f.date,f.note)[0];assert.equal(row.target,'30');assert.equal(row.done,true);
+ registry=registry.replace('2026-10-01=30','2026-10-01=40');
+ await f.p.records.save(f.date,f.fields[0],31);
+ row=habitRecords(f.files.get(f.note),f.date,f.note)[0];assert.equal(row.target,'30');assert.equal(row.done,true);
 });

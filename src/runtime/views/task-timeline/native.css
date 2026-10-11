@@ -12,6 +12,60 @@
   container-type: inline-size;
 }
 
+.noria-timeline-project-scroll { position: relative; overflow-y: auto; overflow-x: hidden; }
+.noria-timeline-project-labels { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+.noria-timeline-project-row { display: flex; align-items: flex-start; gap: 4px; padding: 4px 0 0; pointer-events: none; }
+.noria-timeline-project-row button { pointer-events: auto; }
+.noria-task-timeline-native-root .noria-timeline-project-row button { padding: 3px; height: 28px; min-width: 0; border: 0; box-shadow: none; background: transparent; color: var(--text-normal); border-radius: 6px; }
+.noria-task-timeline-native-root .noria-timeline-project-row button:hover { background: var(--background-modifier-hover); }
+.noria-task-timeline-native-root .noria-timeline-project-row button:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+.noria-timeline-project-toggle { flex: 0 0 20px; display: grid; place-items: center; }
+.noria-timeline-project-toggle::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform 120ms ease; }
+.noria-timeline-project-toggle[aria-expanded="true"]::before { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .noria-timeline-project-toggle::before { transition: none; } }
+.noria-timeline-project-toggle[hidden] { display: none; }
+.noria-timeline-project-toggle[data-empty] { visibility: hidden; }
+.noria-task-timeline-native-root .noria-timeline-project-row .noria-timeline-project-name { display: block; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: var(--font-ui-small); }
+.noria-timeline-project-row[data-project-row="project"] .noria-timeline-project-name { font-weight: 600; }
+.noria-task-timeline-native-root .noria-timeline-project-row .noria-timeline-project-unscheduled { flex: none; margin-left: auto; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.noria-task-timeline-native-root .noria-timeline-project-row .noria-timeline-project-reveal { position:absolute;left:24px;top:26px;height:24px;max-width:calc(100% - 24px);display:flex;align-items:center;gap:7px;padding:2px 6px;overflow:hidden;white-space:nowrap;color:var(--text-muted);font-size:var(--font-ui-smaller);text-decoration:none;background:color-mix(in srgb,var(--background-modifier-hover) 55%,transparent); }
+.noria-timeline-project-reveal-icon {min-width:0;overflow:hidden;text-overflow:ellipsis;text-decoration:none;}
+.noria-timeline-project-reveal-label {flex:none;color:var(--text-muted);text-decoration:none;}
+.noria-task-timeline-native-root .noria-timeline-project-row .noria-timeline-project-reveal[hidden] { display:none; }
+.noria-timeline-project-unscheduled[hidden] { display: none; }
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-root [data-noria-project-task] .noria-task-timeline-native-title { font-weight: 400; font-size: 12px; line-height: 18px; }
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-root [data-noria-compact-project] .noria-task-timeline-native-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
+.noria-task-timeline-native-root [data-noria-project-task].is-done .noria-task-timeline-native-title { text-decoration: line-through; opacity: .65; }
+.noria-timeline-date-axis { position: relative; flex: none; overflow: hidden; background: var(--noria-task-timeline-time-band); border-bottom: 1px solid var(--background-modifier-border); }
+.noria-timeline-date-axis[hidden], .noria-task-timeline-native-overview-band[hidden] { display: none; }
+.noria-timeline-date-tick { color: var(--text-muted); font-size: 11px; line-height: 16px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.noria-timeline-date-guide { border-left: 1px solid color-mix(in srgb,var(--background-modifier-border) 28%,transparent); pointer-events: none; }
+.noria-timeline-date-axis:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+.noria-task-timeline-native-root .noria-timeline-return-window { position: absolute; left: 0; top: 0; width: 28px; height: 28px; padding: 0; box-shadow: none; border: none; background: transparent; color: var(--text-muted); }
+.noria-task-timeline-native-root .noria-timeline-return-window:hover { background: var(--background-modifier-hover); }
+.noria-timeline-overview-window { border: 1px solid color-mix(in srgb,var(--interactive-accent) 30%,transparent); background: color-mix(in srgb,var(--interactive-accent) 7%,transparent); border-radius: 4px; pointer-events: none; }
+.noria-project-unscheduled-picker {
+  width: 340px; padding: 8px; border: none; border-radius: 12px;
+  background: var(--background-primary); color: var(--text-normal);
+  box-shadow: var(--shadow-s); font-size: var(--font-ui-small);
+}
+.noria-project-unscheduled-heading { padding: 4px 8px 8px; color: var(--text-muted); font-size: var(--font-ui-smaller); overflow-wrap: anywhere; }
+.noria-project-unscheduled-picker .noria-project-unscheduled-item {
+  display: flex; justify-content: flex-start; align-items: flex-start; gap: 8px; width: 100%; height: auto; min-height: 36px;
+  padding: 8px; text-align: left; white-space: normal; overflow-wrap: anywhere;
+  background: transparent; border: 0; box-shadow: none; color: var(--text-normal);
+}
+.noria-project-unscheduled-item > span:last-child { min-width: 0; }
+.noria-project-unscheduled-item small { display: block; color: var(--text-muted); margin-top: 4px; }
+.noria-project-unscheduled-icon { flex: none; display: flex; padding-top: 2px; color: var(--text-muted); }
+.noria-project-unscheduled-icon svg { width: 16px; height: 16px; }
+.noria-project-unscheduled-picker .noria-project-unscheduled-item:hover { background: var(--background-modifier-hover); }
+.noria-project-unscheduled-picker .noria-project-unscheduled-item:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+.noria-timeline-project-spans { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.noria-timeline-project-span { border-top: 2px solid var(--text-muted); border-inline: 2px solid var(--text-muted); opacity: .65; border-radius: 2px 2px 0 0; }
+.noria-timeline-project-span[data-clipped-start="true"] { border-left: 0; border-top-left-radius: 0; }
+.noria-timeline-project-span[data-clipped-end="true"] { border-right: 0; border-top-right-radius: 0; }
+
 .noria-task-timeline-native-root[data-noria-timeline-density="normal"] {
   --noria-task-timeline-title-size: 12px;
   --noria-task-timeline-title-line: 16px;
@@ -131,7 +185,7 @@
   text-overflow: ellipsis;
   pointer-events: auto;
   cursor: pointer;
-  font-weight: var(--noria-task-timeline-task-open-weight, 600);
+  font-weight: 400;
 }
 
 .noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-root .noria-task-timeline-native-title[hidden] {
@@ -140,14 +194,14 @@
 
 .noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-title {
   color: var(--noria-task-timeline-time-ink);
-  font-weight: var(--noria-task-timeline-task-open-weight, 600);
+  font-weight: 400;
 }
 
 .noria-task-timeline-native-point {
   z-index: 1;
-  border: 1px solid var(--interactive-accent);
+  border: 1px solid var(--noria-event-color, var(--interactive-accent));
   border-radius: 50%;
-  background: var(--interactive-accent);
+  background: var(--noria-event-color, var(--interactive-accent));
   pointer-events: auto;
   cursor: pointer;
 }
@@ -156,16 +210,56 @@
   z-index: 0;
   border: 0;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--interactive-accent) 38%, transparent);
+  background: color-mix(in srgb, var(--noria-event-color, var(--interactive-accent)) 38%, transparent);
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
 }
+.noria-task-timeline-native-root[data-noria-project-view] .noria-task-timeline-native-rail {
+  opacity: 1;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--noria-event-color, var(--interactive-accent)) 16%, var(--background-primary));
+}
+.noria-task-timeline-native-root:not([data-noria-project-view]) .noria-task-timeline-native-task-unit .noria-task-timeline-native-rail { opacity: .65; }
+.noria-task-timeline-native-root[data-noria-project-view] .is-done .noria-task-timeline-native-rail { opacity: .5; }
+.noria-task-timeline-native-root[data-noria-project-view] .noria-task-timeline-native-task-unit:not([data-noria-inline-title]) .noria-task-timeline-native-rail { background: color-mix(in srgb, var(--noria-event-color, var(--interactive-accent)) 65%, var(--background-primary)); }
+.noria-task-timeline-native-root[data-noria-project-view] [data-noria-event-kind="due"] .noria-task-timeline-native-point { border-radius: 1px; transform: rotate(45deg); }
 
 .noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-rail,
 .noria-task-timeline-native-task-unit.is-done .noria-task-timeline-native-point {
   background: color-mix(in srgb, var(--color-green, #51876d) 75%, var(--text-muted));
   border-color: color-mix(in srgb, var(--color-green, #51876d) 75%, var(--text-muted));
+}
+
+.noria-task-timeline-native-task-unit[data-noria-event-layer="pomodoro"] .noria-task-timeline-native-rail {
+  opacity: 1;
+  height: 4px;
+  background: color-mix(in srgb, var(--noria-event-color, var(--interactive-accent)) 62%, transparent);
+}
+.noria-task-timeline-native-task-unit[data-noria-event-layer="pomodoro"] .noria-task-timeline-native-point {
+  border-radius: 2px;
+  background: var(--background-primary);
+}
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-task-unit[data-noria-event-layer="pomodoro"] .noria-task-timeline-native-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.noria-task-timeline-native-focus-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--noria-title-lines, 1); white-space: normal; overflow-wrap: anywhere; }
+.noria-task-timeline-native-focus-duration { flex: none; color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-title[data-noria-title-lines="2"]:not([data-noria-source-caption]),
+.noria-task-timeline-native-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--noria-title-lines, 1);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+}
+.noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-title[data-noria-source-caption] { display: block; white-space: normal; }
+.noria-task-timeline-native-source { display: block; font-size: 11px; line-height: 16px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.noria-task-timeline-native-task-unit[data-noria-event-kind$="break"] {
+  --noria-event-color: var(--text-muted);
 }
 
 .noria-task-timeline-root--tasks-timeline .noria-task-timeline-native-root .timeline-band-1 .noria-task-timeline-native-overview-date {
@@ -200,7 +294,7 @@
   z-index: 150;
   padding: 10px 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 5px;
+  border-radius: 10px;
   background: var(--background-primary);
   color: var(--text-normal);
   font-size: 12px;
@@ -209,7 +303,10 @@
   pointer-events: none;
 }
 
+.noria-task-timeline-native-tooltip { overflow: hidden; }
 .noria-task-timeline-native-tooltip[hidden] { display: none; }
+.noria-task-timeline-native-tooltip-status { white-space: pre-line; }
+.noria-task-timeline-native-title[data-noria-task-visual-role="record-summary"] { cursor: default; }
 .noria-task-timeline-native-tooltip-title { font-weight: 600; margin-bottom: 4px; }
 .noria-task-timeline-native-tooltip-time,
 .noria-task-timeline-native-tooltip-source { color: var(--text-muted); font-size: 11px; }
@@ -232,6 +329,7 @@
 .noria-task-timeline-native-point:hover ~ .noria-task-timeline-native-handle,
 .noria-task-timeline-native-point:focus-visible ~ .noria-task-timeline-native-handle,
 .noria-task-timeline-native-handle-zone:hover ~ .noria-task-timeline-native-handle,
+.noria-task-timeline-native-task-unit:has(.noria-task-timeline-native-handle:hover) .noria-task-timeline-native-handle,
 .noria-task-timeline-native-task-unit[data-noria-drag-state="active"] .noria-task-timeline-native-handle {
   opacity: 0.54;
   pointer-events: auto;
@@ -239,6 +337,7 @@
 
 .noria-task-timeline-native-handle--start,
 .noria-task-timeline-native-handle--end {
+  z-index: 3;
   cursor: ew-resize;
 }
 
@@ -391,3 +490,8 @@
   background: transparent; text-align: left; white-space: normal;
 }
 .noria-task-timeline-annotation-list .noria-task-timeline-annotation-list-item:hover { background: var(--background-modifier-hover); }
+
+.noria-task-timeline-native-task-unit[data-noria-event-layer="note"] .noria-task-timeline-native-point {
+  background: var(--background-primary);
+  border: 1px solid var(--noria-event-color, var(--interactive-accent));
+}

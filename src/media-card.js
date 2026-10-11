@@ -6,12 +6,14 @@ const {readMedia} = require('./media-record.js');
 const {mediaEditor} = require('./media-editor.js');
 const {mediaMetadataEditor} = require('./media-metadata-editor.js');
 const {mediaIntake} = require('./media-intake-ui.js');
+const {bookProgress} = require('./media-display.js');
+const {bindCoverImage,watchCoverImages}=require('./media-cover.js');
 
 function bookPosition(item, text) {
-  if (!item.kinds.includes('book')) return '';
-  const {pageprogress: page, pagecount: total} = item.properties;
-  if (typeof page !== 'number' || !Number.isFinite(page) || page <= 0) return '';
-  return typeof total === 'number' && Number.isFinite(total) && total >= page
+  const progress = bookProgress(item);
+  if (!progress) return '';
+  const {page, total} = progress;
+  return total !== null && total >= page
     ? text(`${page} / ${total} 页`, `${page} / ${total} pages`)
     : text(`第 ${page} 页`, `Page ${page}`);
 }
@@ -33,14 +35,14 @@ function coverSource(plugin, item) {
 
 function registerMediaCard(system) {
   const {plugin} = system, text = (zh, en) => system.text(zh, en);
-  const types = [['', text('全部类型', 'All types')], ['book', text('书籍', 'Books')], ['movie', text('影视', 'Film & TV')], ['game', text('游戏', 'Games')]];
+  const types = [['', text('全部类型', 'All types')], ['book', text('书籍', 'Books')], ['movie', text('影视', 'Film & TV')], ['music', text('音乐', 'Music')], ['game', text('游戏', 'Games')]];
   const load = config => {
     const items = []; let offset = 0, page;
     do { page = listMedia(plugin, {folder: config.folder, recursive: config.recursive !== false, offset, limit: 100}); items.push(...page.items); offset = page.nextOffset; } while (offset !== null);
     return {items, unindexed: page.unindexed};
   };
-  system.register({id: 'noria:media', title: text('书影音游', 'Media library'), icon: 'library',
-    description: text('继续正在读、看、玩的作品，搜索藏库并打开原笔记。', 'Continue your books, films and games, or browse their original notes.'),
+  system.register({id: 'noria:media', title: text('作品列表', 'Works list'), icon: 'library',
+    description: text('继续正在读、看、玩的作品，搜索收藏并打开原笔记。', 'Continue your books, films and games, or browse their original notes.'),
     fields: [
       {key: 'folder', label: text('作品目录', 'Media folder'), type: 'folder', required: true},
       {key: 'recursive', label: text('包含子目录', 'Include subfolders'), type: 'checkbox', default: true},
@@ -89,11 +91,7 @@ function registerMediaCard(system) {
           button.dataset.path = item.path;
           const cover = button.createSpan({cls: 'noria-media-cover', attr: {'aria-hidden': 'true'}});
           setIcon(cover, item.kinds.includes('book') ? 'book-open' : item.kinds.includes('game') ? 'gamepad-2' : 'clapperboard');
-          const src = coverSource(plugin, item);
-          if (src) {
-            const img = cover.createEl('img', {attr: {alt: '', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer'}});
-            img.onerror = () => img.remove(); img.src = src;
-          }
+          bindCoverImage(cover,()=>coverSource(plugin,item));
           const body = button.createSpan({cls: 'noria-media-work-body'});
           body.createSpan({cls: 'noria-media-title', text: item.title});
           const detail = [item.properties.status, bookPosition(item, text)].filter(v => typeof v === 'string' && v.trim()).join(' · ');
@@ -154,7 +152,7 @@ function registerMediaCard(system) {
           if (items.length) {
             const reset = empty.createEl('button', {text: text('查看全部', 'View all'), attr: {type: 'button'}});
             reset.onclick = () => { kind = status = ''; search.value = ''; typeSelect.value = statusSelect.value = ''; limit = 24; viewport.scrollTop = 0; paint(); search.focus(); };
-          } else empty.createSpan({cls: 'noria-card-secondary', text: text('作品笔记使用 book、movie／tv／anime 或 game 标签。', 'Use book, movie / tv / anime, or game tags on media notes.')});
+          } else empty.createSpan({cls: 'noria-card-secondary', text: text('作品笔记使用 book、movie／tv／anime、music 或 game 标签。', 'Use book, movie / tv / anime, music, or game tags on media notes.')});
         }
         more.hidden = matches.length <= limit;
         if (!more.hidden) more.setText(text(`显示更多 · 还有 ${matches.length - limit} 项`, `Show more · ${matches.length - limit} remaining`));
@@ -209,6 +207,7 @@ function registerMediaCard(system) {
       component.registerEvent(plugin.app.metadataCache.on('resolved', () => { if (unindexed) reload(); }));
       component.registerEvent(plugin.app.vault.on('delete', schedule));
       component.registerEvent(plugin.app.vault.on('rename', schedule));
+      watchCoverImages(plugin,component,container);
       component.register(() => { disposed = true; clearTimeout(timer); closeEditor?.(false); });
       reload();
     }});

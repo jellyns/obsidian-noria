@@ -505,6 +505,14 @@
       tool.addClass("dashboard-workbench-panel__tools");
       tool.style.cssText = "display:flex;align-items:center;flex-shrink:0;";
       renderToolbar(tool);
+      const primary = String(colOpts.panel || '').split(',')[0];
+      const action = {tasks:'open-tasks-board',inbox:'open-inbox-queue',countdown:'open-countdowns'}[primary];
+      const open = action && tool.querySelector(`[data-noria-action-kind="${action}"]`);
+      if (open) {
+        paintIcon(open, {tasks:'list-todo',inbox:'inbox',countdown:'calendar-clock'}[primary]);
+        open.addClass('dashboard-card-heading-icon','noria-card-open');
+        titleIcon.replaceWith(open);
+      }
     }
 
     const body = card.createDiv();
@@ -537,7 +545,7 @@
 
   function addToolbarActions(tool, panelIds) {
     if (panelIds.includes("tasks")) {
-      addIconBtn(tool, "list-checks", homeOverviewT("runtime.home.overview.openTasks"), () => openTasksBoard(), { actionKind: "open-tasks-board" });
+      addIconBtn(tool, "list-todo", homeOverviewT("runtime.home.overview.openTasks"), () => openTasksBoard(), { actionKind: "open-tasks-board" });
     }
     if (panelIds.includes("inbox")) {
       addIconBtn(tool, "library", homeOverviewT("runtime.home.overview.openInboxWorkflow"), () => openInboxWorkflow(), { actionKind: "open-inbox-workflow", target: inboxWorkflowPath, variant: "governance" });
@@ -574,6 +582,7 @@
     if (panelId === "tasks") {
       payload.actionsHost = actionsHost;
       payload.periodHost = actionsHost;
+      payload.summaryHost = actionsHost?.closest('.dashboard-workbench-panel__head')?.querySelector('.dashboard-workbench-panel__title');
     } else if (panelId === "countdown" || panelId === "inbox") {
       payload.actionsHost = actionsHost;
     }

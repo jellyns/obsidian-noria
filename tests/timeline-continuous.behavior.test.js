@@ -17,7 +17,8 @@ test('root-level Daily Notes includes configured files but rejects unrelated dat
   const files=[{path:'2026-09-26.md'},{path:'Other/2026-09-25.md'}],plugin={getCalendarSettings:()=>({calendarIntegrationMode:'daily-notes'}),readDailyNotesPluginConfig:async()=>({folder:'',format:'YYYY-MM-DD'}),app:{vault:{getRoot:()=>({children:[files[0],{path:'Other',children:[files[1]]}]})}},filesUnderRoots:()=>[files[1]],resolveCalendarNoteSpec:(_,d)=>({path:d+'.md'})};
   assert.deepEqual((await dailyDates(plugin)).dates,['2026-09-26']);
 });
-test('hidden or nonmatching tasks do not add empty source dates',async()=>{
+test('hidden or nonmatching tasks do not add empty source dates',async(t)=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date('2026-09-27T12:00:00')});
   const {plugin}=fixture(),e={id:'done',title:'Done',start:'2020-01-01',source:{path:'tasks.md',line:1},payload:{task:{text:'Done',completed:true},noria:{startYmd:'2020-01-01'}}};
   const reader=await new ContinuousTimeline(plugin,{events:[e]},{showDone:false,records:false}).init('2026-09-27');assert.deepEqual(reader.dates,['2026-09-27']);
 });

@@ -10,7 +10,9 @@ test('book position reports stored pages without converting corrections or unkno
   assert.equal(bookPosition(book({pageprogress: 24, pagecount: 180}), text), '24 / 180 pages');
   assert.equal(bookPosition(book({pageprogress: 24, pagecount: 0}), text), 'Page 24');
   assert.equal(bookPosition(book({pageprogress: 240, pagecount: 180}), text), 'Page 240');
-  for (const value of [0, -1, NaN, Infinity, '24', null]) assert.equal(bookPosition(book({pageprogress: value}), text), '');
+  assert.equal(bookPosition(book({pageprogress:0}),text),'Page 0');
+  assert.equal(bookPosition(book({pageprogress:0,pagecount:180}),text),'0 / 180 pages');
+  for (const value of [-1, 1.5, NaN, Infinity, '24', null]) assert.equal(bookPosition(book({pageprogress: value}), text), '');
   assert.equal(bookPosition({kinds: ['game'], properties: {pageprogress: 24, playtime: 100}}, text), '');
 });
 

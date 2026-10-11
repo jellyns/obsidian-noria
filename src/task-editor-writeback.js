@@ -1,12 +1,12 @@
 "use strict";
-const {locateTask,parseTaskLine,editTaskDocument}=require("./task-document.js");
+const {locateTask,locateTaskConversion,parseTaskLine,editTaskDocument}=require("./task-document.js");
 const {attachCitation,findTaskById}=require("./task-adoption-document.js");
 const ids=value=>[...new Set(String(value||"").split(/[\s,]+/).filter(Boolean))];
 const refKey=ref=>ref.path+"\n"+ref.rawText;
 
 // Preflight every affected document. A new task is committed last so a failed
 // dependency write cannot leave a newly created date note behind.
-async function saveTaskEditor({read,process,identity,patch,dependencies,today,createId,create,citation}) {
+async function saveTaskEditor({read,process,identity,patch,dependencies,today,createId,create,citation,conversion}) {
   const files=new Map(), edits=new Map();
   async function include(ref){
     if(!ref.path)throw new Error("missing-task-path");
@@ -24,6 +24,12 @@ async function saveTaskEditor({read,process,identity,patch,dependencies,today,cr
     files.set(identity.path,{before,text:insertion.text});
     current={ref:identity,patch:{},model:parseTaskLine(identity.rawText)};
     edits.set(refKey(identity),current);
+  }else if(conversion){
+    const before=await read(identity.path),row=locateTaskConversion(before,identity);
+    const line=conversion.taskLine,model=parseTaskLine(line);
+    const text=before.slice(0,row.start)+line+before.slice(row.start+row.text.length);
+    identity={...identity,rawText:line,text:line,line:row.line};
+    files.set(identity.path,{before,text});current={ref:identity,patch:{},model};edits.set(refKey(identity),current);
   }else current=await include(identity);
   Object.assign(current.patch,patch);
   if(dependencies){

@@ -49,6 +49,7 @@ function loadPluginClass(options = {}) {
       }
       if (id === "child_process") return {};
       if (id === "crypto") return require("node:crypto");
+      if (id === "./home-focus-defaults.js") return require("../src/home-focus-defaults.js");
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -414,6 +415,7 @@ test("runtime source read failures render one error state and can retry", async 
 test("runtime globals stay owned by the newest plugin instance across same-build reload", () => {
   const Plugin = loadPluginClass();
   const runtimeGlobal = Plugin.__testContext;
+  runtimeGlobal.document={querySelectorAll:()=>[],getElementById:()=>null};
   const createPlugin = () => {
     const plugin = new Plugin();
     plugin.app = {

@@ -128,17 +128,18 @@
 
   function layoutSpec(width, totalWeeks, showYearLabel) {
     const w = Math.max(1, Number(width || 0));
-    const yearReserve = showYearLabel ? 14 : 0;
+    const yearReserve = showYearLabel ? 21 : 0;
     const showWeekdays = w >= 390;
-    const weekdayReserve = showWeekdays ? 12 : 0;
+    const weekdayReserve = showWeekdays ? 15 : 0;
     const gap = w < 180 ? 0 : w < 280 ? 0.5 : 1;
     const usable = Math.max(1, w - yearReserve - weekdayReserve - 2 - (totalWeeks - 1) * gap);
-    const cell = clamp(Math.floor(usable / totalWeeks), w < 140 ? 1 : 2, 17);
+    const cell = Math.max(3, usable / totalWeeks);
     return {
       gap,
       cell,
       showWeekdays,
-      weekdayOffset: showWeekdays ? 12 : 0,
+      weekdayOffset: weekdayReserve,
+      gridWidth: totalWeeks * cell + (totalWeeks - 1) * gap,
       showAllMonths: w >= 500,
       showQuarterMonths: w >= 360,
       monthFont: w < 430 ? ".58em" : ".68em"
@@ -405,7 +406,7 @@
     const rootEl = parent.createDiv();
     rootEl.className = `noria-year-heatmap noria-year-heatmap--${paletteKey}`;
     rootEl.style.cssText =
-      "width:100%;min-width:0;overflow:hidden;padding-bottom:2px;display:grid;grid-template-rows:auto auto;row-gap:4px;align-items:start;";
+      "width:100%;min-width:0;flex:0 0 auto;overflow:auto;padding:1px;box-sizing:border-box;display:grid;grid-template-rows:auto auto;row-gap:4px;align-items:start;justify-content:safe center;";
 
     let yearEl = null;
     if (showYearLabel) {
@@ -473,9 +474,12 @@
     }
 
     const applyLayout = () => {
-      const width = measureWidth(parent, 640);
+      const view = parent.ownerDocument?.defaultView;
+      const style = view?.getComputedStyle(parent);
+      const width = (parent.clientWidth || measureWidth(parent, 640)) - (parseFloat(style?.paddingLeft) || 0) - (parseFloat(style?.paddingRight) || 0);
       const spec = layoutSpec(width, totalWeeks, showYearLabel);
-      rootEl.style.gridTemplateColumns = showYearLabel ? "auto minmax(0,1fr)" : "minmax(0,1fr)";
+      const chartWidth = spec.gridWidth + spec.weekdayOffset;
+      rootEl.style.gridTemplateColumns = showYearLabel ? `14px ${chartWidth}px` : `${chartWidth}px`;
       rootEl.style.columnGap = showYearLabel ? "7px" : "0";
       if (yearEl) {
         yearEl.style.display = "block";
@@ -487,7 +491,7 @@
       monthRow.style.gap = `${spec.gap}px`;
       monthRow.style.fontSize = spec.monthFont;
       body.style.gridColumn = showYearLabel ? "2" : "1";
-      body.style.gridTemplateColumns = spec.showWeekdays ? "auto max-content" : "max-content";
+      body.style.gridTemplateColumns = spec.showWeekdays ? `12px ${spec.gridWidth}px` : `${spec.gridWidth}px`;
       body.style.justifyContent = "start";
       body.style.gap = spec.showWeekdays ? "3px" : "0";
       weekdays.style.display = spec.showWeekdays ? "grid" : "none";

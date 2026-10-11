@@ -1,11 +1,12 @@
 "use strict";
 
 const kinds = {
-  book: new Set(['book', 'arts/books']),
-  movie: new Set(['movie', 'film', 'tv', 'anime', 'arts/film', 'arts/television', 'arts/animation']),
-  game: new Set(['game', 'arts/games'])
+  book: new Set(['book', 'arts/books', '图书', '书籍']),
+  movie: new Set(['movie', 'film', 'tv', 'anime', 'arts/film', 'arts/television', 'arts/animation', '电影', '影视', '电视剧', '动画']),
+  music: new Set(['music', 'album', 'song', 'arts/music', '音乐', '专辑', '歌曲']),
+  game: new Set(['game', 'arts/games', '游戏'])
 };
-const fields = ['source', 'publisher', 'status', 'rating', 'grade', 'description', 'cover', 'image', 'author', 'director', 'publish', 'year', 'releaseDate', 'isbn', 'country', 'platform', 'genre', 'pagecount', 'pageprogress', 'playtime', 'viewtime', 'finishedAt', 'created'];
+const fields = ['source', 'publisher', 'status', 'rating', 'grade', 'description', 'cover', 'image', 'author', 'director', 'artist', 'developer', 'publish', 'year', 'releaseDate', 'isbn', 'country', 'platform', 'genre', 'pagecount', 'pageprogress', 'playtime', 'viewtime', 'finishedAt', 'created'];
 const invalid = message => Object.assign(new Error(message), {code: 'invalid-input'});
 const clone = value => JSON.parse(JSON.stringify(value));
 function mediaTypes(fm, inlineTags = []) {
@@ -15,11 +16,15 @@ function mediaTypes(fm, inlineTags = []) {
   return {tags, types: Object.entries(kinds).filter(([, aliases]) => normalized.some(tag => aliases.has(tag))).map(([type]) => type)};
 }
 
+function isMediaTemplate(plugin, path) {
+  return Object.values(plugin.settings?.mediaContent || {}).some(profile => typeof profile?.template === 'string' && profile.template.trim() && plugin.normalizePath(profile.template.trim()) === path);
+}
+
 // Read the native metadata index. Original field values and note locations remain authoritative.
 function listMedia(plugin, request = {}) {
   const {folder, kind, status, query = '', recursive = true, offset = 0, limit = 50} = request;
   if (typeof folder !== 'string' || !folder.trim() || /(^|[\\/])\.\.?([\\/]|$)/.test(folder) || /^[\\/]|^[a-z]:/i.test(folder)) throw invalid('Choose a vault-relative media folder');
-  if (kind != null && !Object.hasOwn(kinds, kind)) throw invalid('Choose book, movie or game');
+  if (kind != null && !Object.hasOwn(kinds, kind)) throw invalid('Choose book, movie, music or game');
   if (status != null && typeof status !== 'string' || typeof query !== 'string' || typeof recursive !== 'boolean') throw invalid('Use text filters and a boolean recursive option');
   if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw invalid('Use a nonnegative offset and a limit from 1 to 100');
   const scope = plugin.normalizePath(folder.trim()).replace(/\/$/, '');
@@ -31,13 +36,13 @@ function listMedia(plugin, request = {}) {
     if (!file.path.startsWith(scope + '/') || !recursive && file.path.slice(scope.length + 1).includes('/')) continue;
     const name = file.basename || file.path.split('/').at(-1).replace(/\.md$/i, '');
     // Existing Library templates and list pages carry the same media tags as entries.
-    if (/^(?:模板-|清单-)/.test(name)) continue;
+    if (/^(?:模板-|清单-)/.test(name) || isMediaTemplate(plugin, file.path)) continue;
     const cache = plugin.app.metadataCache.getFileCache(file);
     if (!cache) { unindexed++; continue; }
     const fm = cache.frontmatter || {}, {tags, types} = mediaTypes(fm, (cache.tags || []).map(row => row.tag));
     if (!types.length || kind && !types.includes(kind) || status != null && fm.status !== status) continue;
     const title = typeof fm.title === 'string' && fm.title.trim() ? fm.title : name;
-    if (needle && ![title, fm.author, fm.director, fm.aliases].flat().filter(value => typeof value === 'string').join('\n').toLocaleLowerCase().includes(needle)) continue;
+    if (needle && ![title, fm.author, fm.director, fm.artist, fm.developer, fm.aliases].flat().filter(value => typeof value === 'string').join('\n').toLocaleLowerCase().includes(needle)) continue;
     items.push({path: file.path, title, kinds: types, tags, properties: clone(Object.fromEntries(fields.filter(key => Object.hasOwn(fm, key)).map(key => [key, fm[key]])))});
   }
   items.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
@@ -45,4 +50,4 @@ function listMedia(plugin, request = {}) {
   return {folder: scope, items: page, total: items.length, unindexed, nextOffset: offset + page.length < items.length ? offset + page.length : null};
 }
 
-module.exports = {listMedia, mediaTypes};
+module.exports = {listMedia, mediaTypes, isMediaTemplate};

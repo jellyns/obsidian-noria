@@ -162,7 +162,7 @@
       isInstant: true,
       status: text(source.status),
       color: "#14b8a6",
-      source: { type: "noria-cache", ...(path ? { path } : {}) },
+      source: { type: "noria-cache", ...(artifactPath || source.diaryPath ? { path: artifactPath || normalizePath(source.diaryPath) } : {}) },
       tags: normalizeTags(source.tags, "#noria-cache"),
       payload: { noria: { ...source, path, artifactPath } },
       presentation: {
@@ -334,14 +334,21 @@
     return out;
   }
 
-  function timelineTracesToEvents(traces) {
+  function timelineTracesToEvents(traces, options = {}) {
     const source = traces && typeof traces === "object" ? traces : {};
     const events = [
       ...noteTracesToEvents(source.notes || source.noteTraces),
       ...gitTracesToEvents(source.git || source.commits || source.gitCommits),
       ...noriaCacheTracesToEvents(source.cache || source.noria || source.noriaCache)
     ];
-    return { dateTimeFormat: "iso8601", events: sortEvents(aggregateTraceBursts(events)), unplaced: [] };
+    const grouped = sortEvents(aggregateTraceBursts(events));
+    if (options.locale === "zh") for (const event of grouped) {
+      if (event.layer !== "note") continue;
+      const created = event.kind.startsWith("created");
+      event.title = event.payload?.burst ? `${created ? "新建" : "修改"} ${event.payload.burst.count} 篇笔记` : `${created ? "新建" : "修改"} · ${noteDisplayTitle(event.payload.note)}`;
+      event.presentation.hoverText = [event.title, event.start, ...(event.source.paths || [event.source.path]).filter(Boolean)].join("\n");
+    }
+    return { dateTimeFormat: "iso8601", events: grouped, unplaced: [] };
   }
 
   root.traceProvider = {

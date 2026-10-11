@@ -2,17 +2,17 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {insertCard,changeDiaryCardLayout,normalizeDiaryCards}=require('../src/card-layout-model.js');
 const mod={exports:{}};
 vm.runInNewContext(fs.readFileSync(require.resolve('../src/card-direct-controls.js'),'utf8'),{module:mod,require:()=>({})});
-const {nearestSize}=mod.exports;
-test('width snapping includes grid gaps and chooses exact preset boundaries',()=>{
-  assert.equal(nearestSize(291,1200,12),'small');
-  assert.equal(nearestSize(392,1200,12),'medium');
-  assert.equal(nearestSize(594,1200,12),'wide');
-  assert.equal(nearestSize(1200,1200,12),'full');
-  assert.equal(nearestSize(-50,1200,12),'small');
-  assert.equal(nearestSize(2000,1200,12),'full');
+const {nearestSpan,cardSpan}=require('../src/card-width.js');
+test('width drag reaches intermediate widths, includes gaps and clamps at the edges',()=>{
+ for(const [pixels,span] of [[291,3],[392,4],[493,5],[594,6],[695,7],[796,8],[897,9],[998,10],[1099,11],[1200,12],[-50,3],[2000,12]])assert.equal(nearestSpan(pixels,1200,12),span);
 });
-test('diary preview uses its effective medium span',()=>{
-  assert.equal(nearestSize(594,1200,12,[3,6,6,12]),'medium');
+test('a diary intermediate width survives reload, reorder and collapse without changing its old preset',()=>{
+ let layout=changeDiaryCardLayout(normalizeDiaryCards(),'record','width',7);
+ layout=changeDiaryCardLayout(layout,'record','collapsed',true);
+ layout=normalizeDiaryCards(JSON.parse(JSON.stringify(layout)));
+ assert.equal(layout.cards.record.span,7);assert.equal(layout.cards.record.size,'full');
+ assert.equal(cardSpan(layout.cards.record),7);
+ const reset=changeDiaryCardLayout(layout,'record','size','medium');assert.equal(reset.cards.record.span,undefined);assert.equal(cardSpan(reset.cards.record),4);
 });
 test('drag insertion moves one card and preserves intervening and hidden cards',()=>{
  const original=['a','hidden','b','c','d'];
@@ -25,12 +25,9 @@ test('drag insertion moves one card and preserves intervening and hidden cards',
 test('diary drag is restricted to available target cards and persists across normalization',()=>{
  const layout=normalizeDiaryCards({order:['tasks','focus','habits'],cards:{focus:{hidden:true}}});
  const next=changeDiaryCardLayout(layout,'habits','reorder',{target:'tasks',after:false},['tasks','habits']);
- assert.deepEqual(next.order,['habits','tasks','focus']);
+ assert.deepEqual(next.order,['habits','tasks','focus','record','review']);
  assert.deepEqual(normalizeDiaryCards(JSON.parse(JSON.stringify(next))),next);
  assert.deepEqual(changeDiaryCardLayout(layout,'habits','reorder',{target:'focus'},['tasks','habits']),layout);
-});
-test('responsive snapping keeps the chosen preset when several sizes share a visible width',()=>{
- assert.equal(nearestSize(594,1200,12,[6,6,6,12],'wide'),'wide');
 });
 test('a failed Home reorder restores the saved layout rather than leaving a phantom order',async()=>{
  const module={exports:{}};

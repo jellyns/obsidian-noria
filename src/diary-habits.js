@@ -1,5 +1,6 @@
 "use strict";
 const H = require("./runtime/views/dashboard/core/utils/habit-parsing.js");
+const P = require("./habit-plan.js");
 const {scanMarkdownLines,scanAtxHeadings} = require("./runtime/views/dashboard/core/utils/diary-day-blocks.js");
 const {normalizeReviewSelection} = require("./review-center-core.js");
 
@@ -13,7 +14,7 @@ function habitRecords(raw, date, path) {
       text:match[2],completed:/[xX]/.test(match[1]),path,line:row.line,start:row.start,end:row.end,raw:row.text}];
   });
 }
-function withoutHabitRecords(raw,date) {
+function withoutHabitRecords(raw,date,{preserveLines=false}={}) {
   const records=habitRecords(raw,date,"");
   let ranges=records.map(r=>({start:r.start,end:r.end}));
   const headings=scanAtxHeadings(raw);
@@ -24,10 +25,10 @@ function withoutHabitRecords(raw,date) {
     for(const r of inner.slice().reverse()) remainder=remainder.slice(0,r.start-h.end)+remainder.slice(r.end-h.end);
     if(inner.length && !remainder.trim()) {ranges=ranges.filter(r=>r.start<h.start || r.end>end);ranges.push({start:h.start,end});}
   }
-  for(const range of ranges.sort((a,b)=>b.start-a.start)) raw=raw.slice(0,range.start)+raw.slice(range.end);
+  for(const range of ranges.sort((a,b)=>b.start-a.start)) raw=raw.slice(0,range.start)+(preserveLines?raw.slice(range.start,range.end).replace(/[^\r\n]/g,''):'')+raw.slice(range.end);
   return raw;
 }
-function writeHabitMarkdown(raw, {config,date,done,value="",heading="习惯记录"}) {
+function writeHabitMarkdown(raw, {config,date,done,value="",historicalTarget="",heading="习惯记录"}) {
   const cfg=H.inferLegacyHabitConfig(H.serializeHabitConfig(config));
   if(!cfg.name || [cfg.name,cfg.type,cfg.target,cfg.unit,value].some(v=>/[\r\n\[\]]/.test(String(v||"")))) throw new Error("Invalid habit record");
   normalizeReviewSelection({mode:"daily",anchorDate:date});
@@ -37,7 +38,13 @@ function writeHabitMarkdown(raw, {config,date,done,value="",heading="习惯记�
   const records=habitRecords(raw,date,"").filter(r=>r.name === cfg.name || names.has(r.name) || (cfg.id && r["habit-id"]===cfg.id));
   if(records.length>1) throw new Error("Duplicate habit records; open the source to resolve them");
   const eol=/\r\n|\n|\r/.exec(raw)?.[0] || "\n";
-  const {plan,weekdays,icon,color,...recordConfig}=cfg;
+  if(cfg.type==="number"&&cfg.targetPlan){
+    cfg.target=records[0]?.target||P.targetAt(cfg,date)||String(historicalTarget||"");
+    if(cfg.target&&(!Number.isFinite(Number(cfg.target))||Number(cfg.target)<=0))throw Error("Invalid historical target");
+    if(!cfg.target)throw Error("该日期的目标未记录，请先核对历史目标 / No target recorded for this date");
+    if(value!=="")done=Number(value)>=Number(cfg.target);
+  }
+  const {plan,weekdays,icon,color,targetPlan,...recordConfig}=cfg;
   const line=`- [${done?"x":" "}] ${H.serializeHabitConfig(recordConfig)} #habit [due:: ${date}]${value !== ""?` [value:: ${value}]`:""}${done?` [completion:: ${date}]`:""}`;
   if(records.length){
     const hit=records[0];
@@ -99,7 +106,7 @@ class DiaryHabitStore {
       const field=p.records?.definitions().find(field=>field.property===config.recordField);if(!field)continue;
       for(const [date,record] of Object.entries(result[config.name])){
         const spec=await p.resolveCalendarNoteSpecAsync("daily",date),value=p.records.read(await read(spec.path),field);
-        result[config.name][date]={...record,path:spec.path,value:value??"",done:typeof value==="number"&&value>=Number(record.target||config.target),source:"property",recordField:config.recordField};
+        result[config.name][date]={...record,target:record.target||P.targetAt(config,date),path:spec.path,value:value??"",done:typeof value==="number"&&value>=Number(record.target||P.targetAt(config,date)||NaN),source:"property",recordField:config.recordField};
       }
     }
     return result;
@@ -118,23 +125,26 @@ class DiaryHabitStore {
       const name=config?.name||row.name;
       resolved.set(name,{...row,name,originalName:row.name,...(config?.id?{id:config.id,aliases:config.aliases}:{} )});
     }
-    const sleep=active.find(cfg=>cfg.type==="sleep");
-    if(sleep&&!resolved.has(sleep.name)){
+    const sourcePaths=[spec.path],sleep=active.find(cfg=>cfg.type==="sleep");
+    if(sleep){
       const next=await p.resolveCalendarNoteSpecAsync("daily",require("./diary-tasks.js").shiftDate(date,1));
+      sourcePaths.push(next.path);
+      if(!resolved.has(sleep.name)){
       const sources=[{path:spec.path,raw},{path:next.path,raw:next.path===spec.path?"":await p.loadTextFromVault(next.path)}];
       for(const source of sources)for(const line of scanMarkdownLines(source.raw).filter(line=>line.eligible)){
         const hit=/^\s*[-*+]\s*\[[ xX]\]\s+(.+)$/.exec(line.text);if(!hit||!/(^|\s)#tl\/sleep\b/.test(hit[1]))continue;
         const fields=H.parseInlineFields(hit[1]);if(H.getSleepHabitDate(fields.start)!==date)continue;
         const value=fields.start?.match(/\d{1,2}:\d{2}/)?.[0]||"",target=fields.target||sleep.target;
-        resolved.set(sleep.name,{...sleep,date,value,target,type:"sleep",done:H.isSleepBeforeTarget(value,target),source:"tl",path:source.path,text:hit[1],task:{path:source.path,line:line.line,text:hit[1],rawText:line.text}});
+        resolved.set(sleep.name,{...sleep,date,value,target,end:fields.due?.match(/\d{1,2}:\d{2}/)?.[0]||"",type:"sleep",done:H.isSleepBeforeTarget(value,target),source:"tl",path:source.path,text:hit[1],task:{path:source.path,line:line.line,text:hit[1],rawText:line.text}});
+      }
       }
     }
     for(const config of definitions.filter(cfg=>cfg.recordField)){
       const field=p.records?.definitions().find(field=>field.property===config.recordField);if(!field)continue;
       const record=resolved.get(config.name),value=p.records.read(raw,field);
-      if(record||(config.stage==="active"&&date===p.getLocalYmd?.()))resolved.set(config.name,{...config,...record,name:config.name,date,path:spec.path,value:value??"",done:typeof value==="number"&&value>=Number(record?.target||config.target),source:"property",recordField:config.recordField});
+      if(record||(config.stage==="active"&&date===p.getLocalYmd?.()))resolved.set(config.name,{...config,...record,target:record?.target||P.targetAt(config,date),name:config.name,date,path:spec.path,value:value??"",done:typeof value==="number"&&value>=Number(record?.target||P.targetAt(config,date)||NaN),source:"property",recordField:config.recordField});
     }
-    return {spec,registryPath,active,records:[...resolved.values()]};
+    return {spec,sourcePaths,registryPath,active,records:[...resolved.values()]};
   }
   manage(initial=false){
     const p=this.plugin,{RecordManager}=require("./record-manager.js"),{readHabitDefinitions,writeHabitDefinition}=require("./habit-definition.js");
@@ -159,7 +169,7 @@ class DiaryHabitStore {
           for(let day=1;day<=7;day++){const b=days.createEl("button",{text:(p.getNoriaLocale()==="zh"?["一","二","三","四","五","六","日"]:["M","T","W","T","F","S","S"])[day-1],attr:{type:"button","aria-label":text(`周${["一","二","三","四","五","六","日"][day-1]}`,`Weekday ${day}`),"aria-pressed":String((draft.weekdays??"1234567").includes(String(day)))}});
             b.onclick=()=>{const selected=new Set(draft.weekdays??"1234567");selected.has(String(day))?selected.delete(String(day)):selected.add(String(day));draft.weekdays=[...selected].sort().join("");b.setAttribute("aria-pressed",String(selected.has(String(day))));changed();};}}},
         {key:"startedOn",label:text("开始坚持日期","Initial start date"),type:"date",required:true,max:row.raw?(require("./habit-plan.js").firstStart(row)<p.getLocalYmd()?require("./habit-plan.js").firstStart(row):p.getLocalYmd()):p.getLocalYmd(),when:row=>!row.raw||!!require("./habit-plan.js").firstStart(row),description:text("可向前补全最初计划；后续的计划变更和暂停记录保持。","Extend the initial schedule into the past; later changes and pauses are preserved.")},
-        {key:"effective",label:text("新计划生效日期","New schedule effective from"),type:"date",default:p.getLocalYmd(),min:p.getLocalYmd(),when:row=>!!row.raw,description:text("更改计划日从此日期起生效；暂停或恢复从今天起生效。","Weekday changes start on this date. Pause/resume takes effect today.")},
+        {key:"effective",label:text("新计划生效日期","New schedule effective from"),type:"date",default:p.getLocalYmd(),min:p.getLocalYmd(),when:row=>!!row.raw,description:text("更改计划日或数值目标从此日期起生效；已有记录保留当时目标。暂停或恢复从今天起生效。","Weekday and numeric target changes start on this date; existing records keep their targets. Pause/resume takes effect today.")},
         {key:"stage",label:text("状态","State"),type:"select",options:stages}],
       save,
       actions:row=>stages.filter(stage=>stage.value!==row.stage).map(stage=>({label:stage.label,icon:stage.value==="active"?"play":stage.value==="paused"?"pause":"check",run:()=>save({...row,stage:stage.value},row)}))
@@ -170,12 +180,17 @@ class DiaryHabitStore {
     const {assertCurrentDay}=require("./day-clock.js");assertCurrentDay(p,request.expectedToday);
     normalizeReviewSelection({mode:"daily",anchorDate:date});
     if(date>p.getLocalYmd()) throw new Error(p.t("workbench.habitFuture"));
+    if(request.recordOperation){
+      const field=p.records?.definitions().find(f=>f.property===request.config.recordField);if(!field)throw Error('The linked record field is unavailable');
+      const result=await p.records.save(date,field,request.recordOperation.value,{...request.recordOperation,expectedToday:request.expectedToday});return {ok:true,...result.write};
+    }
     const spec=await p.resolveCalendarNoteSpecAsync("daily",date);
     const seed=await p.buildCalendarNoteContent(spec);
     const existed=!!p.app.vault.getAbstractFileByPath(spec.path);
     let previousText,text;
     await p.processTextAtVaultPath(spec.path,current=>{assertCurrentDay(p,request.expectedToday);previousText=current;let source=current || (existed?"":seed),record=request;
       if(request.config.recordField){const field=p.records?.definitions().find(f=>f.property===request.config.recordField);if(!field)throw Error("The linked record field is unavailable");
+        if(p.records.details?.(source,field).multiple)throw Error('请打开关联记录的明细后修改 / Edit the linked record entries');
         const {writeProperty}=require("./record-properties.js"),{parseYaml}=require("obsidian");source=writeProperty(source,field,request.value===""?null:Number(request.value),parseYaml);record={...request,value:""};}
       text=writeHabitMarkdown(source,{...record,heading:p.t("workbench.habits") });return text;});
     if(request.refresh!==false)p.requestNoriaRefresh("tasks","diary-habit-record");

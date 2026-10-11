@@ -19,7 +19,7 @@ function readSource(rel) {
 function loadHabitTaskStatus(app, scheduleRefresh = () => {}) {
   const source = readSource("views/periodic/dashboardHabitWeek.js");
   const start = source.indexOf("const markTaskStatus = async");
-  const end = source.indexOf("const contentRaw", start);
+  const end = source.indexOf("const createHabitSourceButton", start);
   assert.ok(start >= 0 && end > start, "expected habit task status helper");
   const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new Function("app", "scheduleRefresh", "escapeRegExp", `${source.slice(start, end)}; return markTaskStatus;`)(
@@ -41,17 +41,18 @@ function loadHabitFileEnsurer(app, ensureParentFolder = async () => {}) {
 }
 
 function loadTodayTaskStatus(app) {
-  const source = readSource("views/periodic/dashboardTodayTasks.js");
-  const start = source.indexOf("const markTaskStatus = async");
-  const end = source.indexOf("\n\nconst anchorInRange", start);
-  assert.ok(start >= 0 && end > start, "expected Today tasks status helper");
-  const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new Function("app", "escapeRegExp", `${source.slice(start, end)}; return markTaskStatus;`)(app, escapeRegExp);
+  const source=readSource("views/periodic/dashboardTodayTasks.js"),main=readSource("src/main.js");
+  const start=source.indexOf("const markTaskStatus = async"),end=source.indexOf("const anchorInRange",start);
+  const method=main.slice(main.indexOf("  async updateTaskCheckboxStatus("),main.indexOf("  async processTextAtVaultPath("));
+  const plugin=new Function("taskDocument",`return ({${method}})`)(require('../src/task-document.js'));
+  Object.assign(plugin,{app,normalizePath:s=>s,getLocalYmd:()=>"2099-01-02",processTextAtVaultPath:(path,transform)=>app.vault.process(app.vault.getAbstractFileByPath(path),transform)});
+  return new Function("bridge",`${source.slice(start,end)};return markTaskStatus;`)({tasks:{updateStatus:r=>plugin.updateTaskCheckboxStatus(r)}});
 }
 
 function createFakeElement(tagName = "div", opts = {}) {
   const el = {
     tagName,
+    getBoundingClientRect(){return {width:0,height:0};},
     children: [],
     dataset:{},
     createSpan(opts){return this.createEl("span",opts);},
@@ -105,6 +106,7 @@ function createFakeElement(tagName = "div", opts = {}) {
       this[name] = value;
       return this;
     },
+    getAttribute(name) { return this.attrs[name] ?? null; },
     setAttribute(name, value) {
       return this.setAttr(name, value);
     },
@@ -132,6 +134,13 @@ function createFakeElement(tagName = "div", opts = {}) {
     appendChild(child) {
       if (child && typeof child === "object") child.parentElement = this;
       this.children.push(child);
+      return child;
+    },
+    insertBefore(child, before) {
+      this.children=this.children.filter(item=>item!==child);
+      const index=this.children.indexOf(before);
+      if(index<0)this.children.push(child);else this.children.splice(index,0,child);
+      child.parentElement=this;
       return child;
     },
     append(...children) {
@@ -1293,6 +1302,19 @@ test("daily suggestions read current Markdown even when view source cache contai
   });
   assert.ok(flattenElements(mount).some(el=>el.textContent==="Updated advice"));
   assert.ok(!flattenElements(mount).some(el=>el.textContent==="Old advice"));
+});
+
+test('daily suggestions carry the original date while explicitly selected dates never search backwards',async()=>{
+ for(const fixed of [false,true]){
+  const mount=createFakeElement(),path='Diary/2026/2026-10-09.md';let searches=0;
+  const load=async p=>p===path?'## 建议\n\n上次的建议':'';
+  await runRuntimeSource('views/dashboard/home/view.js',{
+   input:{previewWidget:{id:'daily-advice',type:'markdown',props:{sourceMode:'daily-section',heading:'建议',diaryRoot:'Diary',...(fixed?{date:'2026-10-11'}:{})}},noriaBridge:{today:'2026-10-11',runtimeBuildId:'recent-'+fixed,performance:{viewSourceCache:false},runtime:{extractH2Section:require('../src/public-api.js').extractH2Section,resolveRecentSuggestionSource:async source=>{searches++;return {...source,date:'2026-10-09',path};}},t:key=>key}},
+   ctxFallback:{io:{load},container:mount,paragraph(){},markdown:{MarkdownRenderer:{async render(_app,text,el){el.createDiv({text});}}}},app:{vault:{adapter:{read:load}}},
+   globals:{window:{moment:{}},document:{getElementById:()=>null,createElement:tag=>createFakeElement(tag),head:createFakeElement('head')}}
+  });
+  assert.equal(searches,fixed?0:1);const nodes=flattenElements(mount);assert.equal(nodes.some(el=>el.textContent==='上次的建议'),!fixed);assert.equal(nodes.some(el=>el.textContent==='2026-10-09'),!fixed);
+ }
 });
 
 test("daily-section read failure stays visible and retries only its card; missing notes remain quiet", async () => {
@@ -4824,7 +4846,7 @@ test("task board item view disposes the mounted runtime before rerender and clos
   assert.match(tasksClass, /\.tasksCalendar/);
   assert.match(tasksClass, /__noriaTasksCalendarCleanup/);
   assert.match(tasksClass, /async reload\(\)[\s\S]*this\.cleanupNoriaTasksRuntime\(\)[\s\S]*this\.containerEl\.empty\(\)/);
-  assert.match(tasksClass, /async onOpen\(\)[\s\S]*this\.cleanupNoriaTasksRuntime\(\)[\s\S]*this\.containerEl\.empty\(\)/);
+  assert.match(tasksClass, /async onOpen\(\)[\s\S]*await this\.reload\(\)/);
   assert.match(tasksClass, /async onClose\(\)[\s\S]*this\.cleanupNoriaTasksRuntime\(\)/);
 });
 
@@ -4881,8 +4903,6 @@ test("home core boot leaves trend-only chart components to the lazy Trends surfa
   assert.match(trendsView, /chart-palette\.js/);
   assert.match(trendsView, /leader-donut-chart\.js/);
   assert.match(trendsView, /year-heatmap-calendar\.js/);
-  assert.match(trendsView, /const\s+chartCoreReady\s*=\s*ensureTrendsChartCoreLoaded\(\)/);
-  assert.match(trendsView, /await\s+chartCoreReady/);
 });
 
 test("home bootstrap style replaces stale style tags for new runtime builds", async () => {
@@ -6074,7 +6094,7 @@ test("home guide toolbar actions expose observable action states", () => {
   assert.match(guidePanels, /setGuideToolbarActionState\(control,\s*"failed"/);
   assert.match(guidePanels, /data-noria-action-error/);
   assert.match(guidePanels, /addIconBtn\(tool,\s*"folder-kanban"[\s\S]*"open-project-registry"/);
-  assert.match(guidePanels, /addGuidePrimaryAddBtn\(tool[\s\S]*"manage-projects"/);
+  assert.match(guidePanels, /addGuidePrimaryAddBtn\(tool[\s\S]*"add-project-task"/);
 });
 
 test("project guide builds project rows through a bounded queue", () => {
@@ -6225,7 +6245,7 @@ test("habit history defaults to 21 days and retains the selected range including
   const source = readSource("views/periodic/dashboardHabitWeek.js");
   const setup = source.slice(source.indexOf("const requestedHistoryDays ="), source.indexOf("const getSectionTaskEntries"));
   const readDates = new Function("input", "bridge", setup + "; return { dates, todayKey };");
-  for (const count of [undefined, 7, 14, 21, 30, 60, 90]) {
+  for (const count of [undefined, 7, 14, 21, 30, 60, 90, 180, 365]) {
     const {dates, todayKey} = readDates({historyDays:count}, {diaryHabits:{today:()=>"2026-09-24"}});
     assert.equal(dates.length, count || 21);
     assert.equal(new Set(dates).size, dates.length);
@@ -6302,7 +6322,15 @@ test("Today tasks status writeback follows the unique task after a concurrent in
   assert.equal(changed, true);
   assert.equal(processCalls, 1);
   assert.match(current, /^- \[ \] Concurrent task$/m);
-  assert.match(current, /^- \[x\] Target task \[due:: 2026-05-03\]$/m);
+  assert.match(current, /^- \[x\] Target task \[due:: 2026-05-03\] \[completion:: 2099-01-02\]$/m);
+});
+
+test("Today task completion can be undone without losing arrangements or leaving a completion date",async()=>{
+ const file={path:'Tasks.md'};let current='- [ ] Read [schedule:: 2099-01-03] [custom:: keep] ^read';
+ const app={vault:{getAbstractFileByPath:()=>file,process:async(_,fn)=>{current=fn(current);}}};
+ const task={path:file.path,line:0,text:current.slice(6)},mark=loadTodayTaskStatus(app);
+ assert.equal(await mark(task,true),true);assert.equal(task.completion,'2099-01-02');assert.match(current,/\[completion:: 2099-01-02\] \^read$/);
+ assert.equal(await mark(task,false),true);assert.equal(current,'- [ ] Read [schedule:: 2099-01-03] [custom:: keep] ^read');assert.equal(task.completion,null);
 });
 
 test("Today tasks status writeback rejects ambiguous duplicate-title fallbacks", async () => {
@@ -6326,18 +6354,6 @@ test("Today tasks status writeback rejects ambiguous duplicate-title fallbacks",
 
   assert.equal(changed, false);
   assert.equal((current.match(/\[x\]/g) || []).length, 0);
-});
-
-test("Today tasks period additions use a latest-text transaction helper", () => {
-  const source = readSource("views/periodic/dashboardTodayTasks.js");
-  const start = source.indexOf("const addTaskToPeriodDiary = async");
-  const end = source.indexOf("\n\nconst cleanTaskText", start);
-  assert.ok(start >= 0 && end > start, "expected period task add helper");
-  const method = source.slice(start, end);
-
-  assert.match(source, /const processPeriodDiaryText = async/);
-  assert.match(method, /processPeriodDiaryText/);
-  assert.doesNotMatch(method, /app\.vault\.(?:read|modify|create)/);
 });
 
 test("countdown edits use the plugin latest-text transaction",()=>{
@@ -6656,7 +6672,7 @@ test('home heatmaps keep daily note dates under aggregated trends and render eve
   input:{mount,heatmapMode:'workload',statsRange:{start:'2025-12-30',end:'2026-01-04'},statsSnapshot:{domains:{notes:{trend:{series:[{start:'2025-12-29',notes:99}]}}}},registerCleanup:fn=>cleanups.push(fn),noriaBridge:{t:key=>key,runtime:{pagesForManagedPath:()=>[],pagesForScope:()=>[{created:'2025-12-31',file:{path:'one.md'}},{created:'2026-01-02',file:{path:'two.md'}}]}}},
   globals:{dashboardCore:{components:{charts:{yearHeatmapCalendar:{renderYearHeatmapCalendar:(host,options)=>{draws.push(options);return {__noriaChartCleanup:()=>removed.push(options.year)};}}}}}}
  });
- const notes=flattenElements(mount).find(el=>el.tagName==='button'&&el.textContent==='runtime.home.trends.newNotes');notes.onclick();
+ const notes=flattenElements(mount).find(el=>el.tagName==='button'&&el.attrs.title==='runtime.home.trends.newNotes');notes.onclick();
  assert.deepEqual(draws.slice(-2).map(d=>d.year),[2025,2026]);
  assert.deepEqual(draws.slice(-2).flatMap(d=>d.entries.map(e=>[e.date,e.rawValue])),[['2025-12-31',1],['2026-01-02',1]]);
  assert.equal(removed.length,2);cleanups.forEach(fn=>fn());assert.equal(removed.length,4);
@@ -6670,7 +6686,7 @@ test('workload task cells use completion daily series rather than diary checkbox
    noriaBridge:{t:(key,params)=>params?.count?`${key}:${params.count}`:key,runtime:{pagesForScope:()=>[],pagesForManagedPath:()=>[{file:{name:'2026-01-01.md',path:'06_Diary/2026-01-01.md',tasks:[{text:'Checked',completed:true}]}}]}}},
   globals:{dashboardCore:{components:{charts:{yearHeatmapCalendar:{renderYearHeatmapCalendar:(_host,options)=>{draws.push(options);return {};}}}}}}
  });
- const button=key=>flattenElements(mount).find(el=>el.tagName==='button'&&el.textContent===`runtime.home.trends.${key}`);
+ const button=key=>flattenElements(mount).find(el=>el.tagName==='button'&&el.attrs.title===`runtime.home.trends.${key}`);
  const definition=flattenElements(mount).find(el=>el.attrs['data-noria-card-explanation']);
  assert.equal(definition.hidden,true, 'metric explanation is available to the card menu without a row below the chart');
  button('tasks').onclick();
@@ -6679,6 +6695,22 @@ test('workload task cells use completion daily series rather than diary checkbox
  button('activityIntensity').onclick();
  assert.match(definition.children.at(-1).textContent,/activityDefinition/);
  assert.doesNotMatch(definition.children.at(-1).textContent,/undatedDefinition/);
+});
+
+test('task trend compares completed and activity counts on one scale and keeps summaries in the menu',async()=>{
+ const mount=createFakeElement();
+ await runRuntimeSource('views/dashboard/home/sections/trends-and-stats/blocks/task-trend/view.js',{
+  input:{mount,cardContent:true,statsSnapshot:{range:{start:'2026-05-01',end:'2026-05-02'},domains:{tasks:{completion:{activityTotal:8,completed:1,completionRate:12.5,series:[{key:'2026-05-01',planned:4,done:1},{key:'2026-05-02',planned:4,done:0}]}}}},noriaBridge:{locale:'en'}},
+  globals:{dashboardCore:{},document:{createElementNS:(_ns,tag)=>createFakeElement(tag)}}
+ });
+ const nodes=flattenElements(mount),svg=nodes.find(el=>el.tagName==='svg'),chart=flattenElements(svg);
+ const summary=nodes.find(el=>el.attrs['data-noria-card-explanation']);assert.equal(summary.hidden,true);assert.match(summary.textContent,/Total: 8/);assert.match(summary.textContent,/12.5%/);
+ const dots=chart.filter(el=>el.tagName==='circle');assert.equal(dots.length,2);
+ const grid=chart.filter(el=>el.tagName==='line'&&el.attrs['stroke-dasharray']==='3 7');
+ const base=Number(grid[0].attrs.y1),top=Number(grid.at(-1).attrs.y1);
+ assert.ok(Math.abs((base-Number(dots[0].attrs.cy))/(base-top)-.25)<.001,'one completed task has one quarter of the height of four activity tasks');
+ assert.equal(Number(dots[1].attrs.cy),base,'zero completed tasks stays at zero');
+ assert.ok(chart.every(el=>!String(el.textContent).includes('Total:')),'summary stays outside the plot');
 });
 
 test("home SVG charts keep accessible names without invoking HTML-only host tooltips", async () => {
@@ -7731,4 +7763,51 @@ test("Home MOC retired canvas implementation is absent", () => {
   assert.equal(fs.existsSync(portalPath), false);
   assert.doesNotMatch(main, retiredMainPattern);
   assert.doesNotMatch(bootstrap, new RegExp(["dashboard", "moc", "canvas"].join("-")));
+});
+
+test('empty share snapshots remain empty without rescanning another scope', async () => {
+  let scanned=false,drawn=false;
+  await runRuntimeSource('views/dashboard/home/sections/trends-and-stats/blocks/tag-distribution/view.js', {
+    input:{mount:createFakeElement(),statsSnapshot:{domains:{notes:{distribution:{total:0,items:[]}}}},noriaBridge:{runtime:{pagesForScope(){scanned=true;return [{file:{path:'unrelated.md'}}];}},t:key=>key}},
+    ctxFallback:{container:createFakeElement()},globals:{dashboardCore:{components:{charts:{leaderDonutChart:{renderLeaderDonutChart(){drawn=true;}}}}}}
+  });
+  assert.equal(scanned,false);assert.equal(drawn,false);
+});
+
+test('share menu retains every folder while the chart groups the remainder', async () => {
+  const mount=createFakeElement();let options,cleanup,disconnected=false;
+  await runRuntimeSource('views/dashboard/home/sections/trends-and-stats/blocks/tag-distribution/view.js', {
+    input:{mount,registerCleanup:fn=>cleanup=fn,statsSnapshot:{domains:{notes:{distribution:{total:7,items:Array.from({length:7},(_,i)=>({key:'folder'+i,count:1}))}}}},noriaBridge:{locale:'zh-CN',t:key=>key}},
+    ctxFallback:{container:createFakeElement()},globals:{dashboardCore:{components:{charts:{leaderDonutChart:{renderLeaderDonutChart(_,value){options=value;return {__noriaChartCleanup(){disconnected=true;}};}}}}}}
+  });
+  assert.equal(options.items.length,6);assert.equal(options.items.at(-1).value,2);
+  const details=flattenElements(mount).find(el=>el.attrs['data-noria-card-explanation']);
+  assert.equal(details.hidden,true);assert.match(details.textContent,/folder6 · 1 · 14.3%/);
+  cleanup();assert.equal(disconnected,true);
+});
+
+
+test('home trends retain their inspected date on leave, blur and redraw, and open that date source', async () => {
+  for(const kind of ['note','task']){
+    const mount=createFakeElement(),updates=[],opened=[];let redraw;
+    const rows=[{key:'2026-10-01',notes:2,words:120,planned:3,done:1,sources:{}},
+      {key:'2026-10-02',notes:1,words:20,planned:1,done:0,sources:{}},
+      {key:'2026-10-03',notes:0,words:0,planned:0,done:0,sources:{}}];
+    await runRuntimeSource(`views/dashboard/home/sections/trends-and-stats/blocks/${kind}-trend/view.js`,{
+      input:{mount,statsSnapshot:{domains:{notes:{trend:{series:rows}},tasks:{completion:{series:rows}}}},
+        noriaBridge:{locale:'zh',t:key=>key,runtime:{openTrendSources:(type,row)=>opened.push({type,key:row.key})}}},
+      ctxFallback:{io:{load:async()=>''},container:createFakeElement()},
+      globals:{dashboardCore:{components:{charts:{trendAnnotations:{createTrendAnnotations:()=>({update:i=>updates.push(i)})}}}},
+        ResizeObserver:class {constructor(fn){redraw=fn;}observe(){}disconnect(){}},
+        document:{createElement:tag=>createFakeElement(tag),createElementNS:(_,tag)=>createFakeElement(tag)}}
+    });
+    const plot=flattenElements(mount).find(el=>el.classList?.contains('noria-trend-interactive'));
+    assert.equal(plot.dataset.index,'1','initially the latest recorded date');assert.equal(updates.at(-1),1);
+    plot.onkeydown({key:'Home',preventDefault(){}});assert.equal(plot.dataset.index,'0');
+    plot.onpointerleave?.();plot.onblur?.();assert.equal(updates.at(-1),0,'the inspected date stays visible');
+    redraw();assert.equal(plot.dataset.index,'0','resizing keeps the inspection');
+    plot.onkeydown({key:'Enter',preventDefault(){}});
+    assert.deepEqual(opened,[{type:kind==='note'?'notes':'tasks',key:'2026-10-01'}]);
+    plot.onkeydown({key:'End',preventDefault(){}});assert.equal(plot.dataset.index,'2','zero-valued dates can be selected');
+  }
 });

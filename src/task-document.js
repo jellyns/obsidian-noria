@@ -36,10 +36,19 @@ function parseTaskLine(raw) {
   const title=prose.map(p=>body.slice(p.start,p.end)).join(" ").replace(/\s+/g," ").trim();
   const read=key=>tokens.find(t=>(dateAliases[key]||[key]).includes(t.key))?.value||"";
   const status=Object.keys(statusMarks).find(key=>statusMarks[key].toLowerCase()===match[2].toLowerCase())||match[2];
-  return {raw,prefix:match[1],mark:match[2],body,tokens,prose,title,status,start:read("start"),due:read("due"),scheduled:read("scheduled"),created:read("created"),completion:read("completion"),cancelled:read("cancelled"),tags:tokens.filter(t=>t.key==="tag").map(t=>t.value).join(" "),priority:read("priority")||"normal",repeat:read("repeat"),id:read("id"),dependsOn:read("dependson")};
+  const schedules=scheduleTokens(tokens).map((t,index)=>{
+    try{return {index,source:t.key,raw:t.value,...(t.key==="scheduled"?validateSchedule(t.value):parseScheduleValue(t.value)),error:""};}
+    catch(_){return {index,source:t.key,raw:t.value,start:"",end:"",error:"invalid-schedule"};}
+  });
+  return {raw,prefix:match[1],mark:match[2],body,tokens,prose,title,status,start:read("start"),due:read("due"),scheduled:read("scheduled"),schedules,created:read("created"),completion:read("completion"),cancelled:read("cancelled"),tags:tokens.filter(t=>t.key==="tag").map(t=>t.value).join(" "),priority:read("priority")||"normal",repeat:read("repeat"),id:read("id"),dependsOn:read("dependson")};
 }
 
 function taskIdentity(value){return String(value||"").replace(/^[ \t]*[-*+][ \t]*\[[^\]]*\][ \t]*/,"").trim();}
+function readTaskScheduling(task){
+  const raw=task?.rawLine||task?.source?.rawLine||task?.rawText||task?.text?.raw||(typeof task?.text==="string"?task.text:"");
+  const p=parseTaskLine(/^[ \t]*[-*+]\s+\[[^\]]\]/.test(raw)?raw:"- [ ] "+raw);
+  return {schedules:p.schedules,start:p.start||(!raw?task?.start||task?.dates?.start||"":""),due:p.due||(!raw?task?.due||task?.dates?.due||"":"")};
+}
 function readTaskLines(source) {
   return scanMarkdownLines(source,{listContent:true}).filter(row=>row.eligible&&/^[ \t]*[-*+]\s+\[[^\]]\]/.test(row.visible));
 }
@@ -52,21 +61,89 @@ function locateTask(source, request) {
   if(request.rawText&&/^[ \t]*[-*+]\s+\[[^\]]\]/.test(request.rawText)&&parseTaskLine(request.rawText).mark!==parseTaskLine(matches[0].text).mark)throw new Error("task-changed");
   return matches[0];
 }
+// Conversion requires an exact eligible source line; repeated paragraphs are ambiguous.
+function locateTaskConversion(source,request){
+  const rows=scanMarkdownLines(source,{listContent:true}),raw=String(request.rawText??"");
+  const matches=rows.filter(row=>row.eligible&&row.text===raw&&(!raw.trim()?row.line===Number(request.line):true));
+  if(matches.length!==1)throw Error(matches.length?"ambiguous-task":"task-changed");
+  return matches[0];
+}
 function validateTaskDate(value){
   if(!value)return "";
   const s=String(value).replace("T"," ").trim(),m=/^(\d{4}-\d{2}-\d{2})(?: ([01]\d|2[0-3]):([0-5]\d))?$/.exec(s);
   if(!m||!Number.isFinite(Date.parse(m[1]+"T12:00:00Z"))||new Date(m[1]+"T12:00:00Z").toISOString().slice(0,10)!==m[1])throw new Error("invalid-date");
   return s;
 }
+const scheduleTokens=tokens=>tokens.filter(t=>t.key==="schedule"||t.key==="scheduled");
+function validateSchedule(start,end=""){
+  try{
+    if(typeof start!=="string"||!start.trim()||typeof end!=="string")throw new Error();
+    start=validateTaskDate(start);end=validateTaskDate(end);
+    if(end&&((start.length>10)!==(end.length>10)||end<start||(start.length>10&&end===start)))throw new Error();
+    return {start,end};
+  }catch(_){throw new Error("invalid-schedule");}
+}
+function parseScheduleValue(value){
+  const parts=value.split(/\s*\/\s*/);
+  if(parts.length>2||(parts.length===2&&!parts[1]))throw new Error("invalid-schedule");
+  return validateSchedule(parts[0],parts[1]||"");
+}
+function appendTaskToken(parsed,token){
+  const tail=/(?:[ \t]+\^[A-Za-z0-9-]+)?[ \t]*$/.exec(parsed.body)[0];
+  return parsed.prefix+parsed.body.slice(0,parsed.body.length-tail.length)+" "+token+tail;
+}
+// An index is scoped to the exact source line, never a persistent task identity.
+// editTaskDocument/saveTaskEditor guard that source before writing it back.
+function patchTaskSchedule(raw,change){
+  if(Array.isArray(change)){
+    const indices=new Set();
+    for(const item of change){
+      if(!item||!["add","update","remove"].includes(item.action))throw new Error("invalid-schedule-action");
+      if(item.action!=="add"){
+        if(!Number.isInteger(item.index)||indices.has(item.index))throw new Error("invalid-schedule-index");
+        indices.add(item.index);
+      }
+    }
+    // All selectors refer to the original line. Higher indices are applied
+    // first so removing one row cannot redirect another row's edit.
+    const existing=change.filter(c=>c.action!=="add").sort((a,b)=>b.index-a.index);
+    return [...existing,...change.filter(c=>c.action==="add")].reduce(patchTaskSchedule,raw);
+  }
+  const p=parseTaskLine(raw),tokens=scheduleTokens(p.tokens);
+  if(!change||!["add","update","remove"].includes(change.action))throw new Error("invalid-schedule-action");
+  const {action,index}=change;
+  if(action!=="add"&&(!Number.isInteger(index)||index<0||index>=tokens.length))throw new Error("invalid-schedule-index");
+  const target=tokens[index];
+  if(action==="remove")return p.prefix+p.body.slice(0,target.start)+p.body.slice(target.end);
+  const next=validateSchedule(change.start,change.end===undefined?"":change.end);
+  if(action==="update"){
+    const previous=p.schedules[index];
+    if(!previous.error&&previous.start===next.start&&previous.end===next.end)return raw;
+  }
+  const value=next.start+(next.end?" / "+next.end:"");
+  if(action==="add")return appendTaskToken(p,`[schedule:: ${value}]`);
+  const token=p.body.slice(target.start,target.end),field=/^(\[[^\]]*?::[ \t]*)([\s\S]*?)([ \t]*\])$/.exec(token);
+  // Keep old scheduled syntax for a single date; a range has an explicit field
+  // so readers of the traditional scheduled date never mistake it for a date.
+  const replacement=target.key==="scheduled"&&next.end?`[schedule:: ${value}]`
+    :field?field[1]+value+field[3]
+    :token.replace(/\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?/,value);
+  return p.prefix+p.body.slice(0,target.start)+replacement+p.body.slice(target.end);
+}
+function guardSingleScheduledEdit(raw){
+  const tokens=scheduleTokens(parseTaskLine(raw).tokens);
+  if(tokens.length>1||tokens.some(t=>t.key==="schedule"))throw new Error("schedule-update-required");
+}
 function setTaskField(raw,key,value,render=value=>`[${key}:: ${value}]`){
   const p=parseTaskLine(raw),matches=p.tokens.filter(t=>(dateAliases[key]||[key.toLowerCase()]).includes(t.key));
   let body=p.body;
   for(const t of matches.slice().reverse())body=body.slice(0,t.start)+(t===matches[0]&&value?render(value):"")+body.slice(t.end);
-  if(!matches.length&&value){const tail=/(?:[ \t]+\^[A-Za-z0-9-]+)?[ \t]*$/.exec(body)[0];body=body.slice(0,body.length-tail.length)+" "+render(value)+tail;}
+  if(!matches.length&&value)return appendTaskToken({...p,body},render(value));
   return p.prefix+body;
 }
 // Date operations edit only parsed field values, retaining aliases and emoji syntax.
 function patchTaskDates(raw, patch) {
+  if(Object.hasOwn(patch,"scheduled"))guardSingleScheduledEdit(raw);
   let next=raw;
   for(const key of ["start","due","scheduled","completion","cancelled","created"]){
     if(!Object.hasOwn(patch,key))continue;
@@ -84,7 +161,10 @@ function patchTaskDates(raw, patch) {
   return next;
 }
 function patchTaskLine(raw,patch,today){
+  if(Object.hasOwn(patch,"schedule")&&Object.hasOwn(patch,"scheduled"))throw new Error("conflicting-schedule-patch");
+  if(Object.hasOwn(patch,"scheduled"))guardSingleScheduledEdit(raw);
   let next=raw,p=parseTaskLine(raw);
+  if(Object.hasOwn(patch,"schedule")){next=patchTaskSchedule(next,patch.schedule);p=parseTaskLine(next);}
   if(Object.hasOwn(patch,"title")&&patch.title!==p.title){
     const title=String(patch.title||"").replace(/[\r\n]+/g," ").trim();if(!title)throw new Error("empty-title");
     const spans=p.prose.map(s=>{const text=p.body.slice(s.start,s.end),trim=text.trim();return trim?{start:s.start+text.indexOf(trim),end:s.start+text.indexOf(trim)+trim.length}:null;}).filter(Boolean);
@@ -134,4 +214,4 @@ function appendProjectTask(source,line,heading=""){
   const text=prefix+line+eol+(after?eol:"")+after;
   return {text,line:prefix.split(/\r?\n/).length-1,rawText:line,changed:true};
 }
-module.exports={parseTaskLine,readTaskLines,locateTask,patchTaskLine,patchTaskDates,editTaskDocument,appendProjectTask};
+module.exports={parseTaskLine,readTaskScheduling,readTaskLines,locateTask,locateTaskConversion,patchTaskLine,patchTaskDates,editTaskDocument,appendProjectTask};

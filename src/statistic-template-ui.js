@@ -16,6 +16,8 @@ function styleSample(host,style){
   else if(style==='history'||style==='records'){for(let row=0;row<3;row++){add('circle',{cx:8,cy:8+row*13,r:4,fill:'currentColor',opacity:.7});for(let col=0;col<10;col++)add('rect',{x:24+col*13,y:4+row*13,width:10,height:8,rx:2,fill:'currentColor',opacity:[.2,.55,.9,.35][(row+col)%4]});}}
   else if(style==='line')add('path',{d:'M 3 31 L 27 20 L 50 25 L 77 8 L 101 17 L 128 12 L 156 20',fill:'none',stroke:'currentColor','stroke-width':2.5,'stroke-linejoin':'round'});
   else if(style==='composition'){let x=3;[70,49,35].forEach((width,i)=>{add('rect',{x,y:13,width:width-2,height:16,rx:2,fill:'currentColor',opacity:[1,.6,.3][i]});x+=width;});}
+  else if(style==='progress-rings'){for(const [i,r]of [17,11].entries()){add('circle',{cx:80,cy:21,r,fill:'none',stroke:'currentColor','stroke-width':3,opacity:.15});add('circle',{cx:80,cy:21,r,fill:'none',stroke:'currentColor','stroke-width':3,'stroke-dasharray':`${2*Math.PI*r*(i?.45:.7)} ${2*Math.PI*r}`,transform:'rotate(-90 80 21)'});}}
+  else if(style==='time-ring'){add('circle',{cx:80,cy:21,r:17,fill:'none',stroke:'currentColor','stroke-width':3,opacity:.2});add('circle',{cx:80,cy:21,r:17,fill:'none',stroke:'currentColor','stroke-width':4,'stroke-dasharray':'20 12 15 60',transform:'rotate(-90 80 21)'});}
   else if(style==='donut'){add('circle',{cx:80,cy:21,r:15,fill:'none',stroke:'currentColor','stroke-width':8,opacity:.2});add('circle',{cx:80,cy:21,r:15,fill:'none',stroke:'currentColor','stroke-width':8,'stroke-dasharray':'62 95',transform:'rotate(-90 80 21)'});}
   else if(style==='heatmap'||style==='states'){for(let i=0;i<21;i++)add('rect',{x:4+(i%7)*22,y:2+Math.floor(i/7)*14,width:17,height:10,rx:2,fill:'currentColor',opacity:[.2,.5,.8,.35][i%4]});}
   else if(style==='strip'){for(let i=0;i<12;i++)add('rect',{x:3+i*13,y:14,width:10,height:14,rx:2,fill:'currentColor',opacity:[.25,.6,.85,.4][i%4]});}
@@ -35,7 +37,7 @@ function templateGallery(catalog,tab='recommended'){
   navigation.createDiv({cls:'noria-card-secondary noria-stat-template-note',text:t('选择模板后，可配置并预览真实数据。下方图形为样式示意。','Choose a template to configure and preview your data. Illustrations below show chart types.')});
   const gallery=contentEl.createDiv({cls:'noria-stat-template-gallery'}),groups=stats.templateGroups();
   const dashboard=dashboardTemplates(plugin.buildRuntimeBridgeConfig().homeWidgetDefaults||[],t);
-  const periodic=require('./periodic-stat-cards.js').periodicTemplates(t);
+  const periodic=[require('./period-overview-card.js').overviewTemplate(t),...require('./periodic-stat-cards.js').periodicTemplates(t)];
   const acceptsDashboard=catalog.context.page==='home'||catalog.custom;
   const paint=()=>{
     catalog.statNavigation={tab,query:search.value};gallery.empty();for(const b of tabs.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.tab===tab));

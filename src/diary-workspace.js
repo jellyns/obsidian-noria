@@ -1,10 +1,11 @@
 "use strict";
 const obsidian = require("obsidian");
 const { DiaryDocumentStore, mergeKnownLineChange } = require("./diary-document.js");
+const {projectDiaryRecord,decorateDiaryTasks}=require('./diary-prose.js');
 const { createReviewMarkdownEditor } = require("./review-markdown-editor.js");
-const { prepareReviewPreview, readReviewDocument, reviewPresentation } = require("./review-document.js");
+const { prepareReviewPreview } = require("./review-document.js");
 const {projectDiaryTasks, diaryRange, diaryNavigationItems} = require("./diary-tasks.js");
-const {DiaryHabitStore,withoutHabitRecords} = require("./diary-habits.js");
+const {DiaryHabitStore} = require("./diary-habits.js");
 const {renderDiaryHabitRow} = require("./diary-habit-view.js");
 const {DiaryCardLayout} = require("./diary-card-layout.js");
 const {setActionIcon} = require("./workbench-controls.js");
@@ -40,7 +41,6 @@ class DiaryWorkspace {
     this.feedback = this.article.createDiv({cls: "noria-diary-feedback", attr: {"aria-live": "polite"}});
     this.cardHost = this.article.createDiv({cls:"dashboard-home-root noria-diary-cards"});
     this.cards = new DiaryCardLayout(workbench, this.cardHost);
-    this.focusHost = this.cards.add("focus", "noria-diary-tasks");
     this.taskHost = this.cards.add("tasks", "noria-diary-tasks");
     this.habitHost = this.cards.add("habits", "noria-diary-habits");
     this.recordSection = this.article.createEl("section",{cls:"noria-diary-module noria-diary-record-section",attr:{"aria-label":this.t("record")}});
@@ -54,8 +54,6 @@ class DiaryWorkspace {
     this.recordMenuButton.setAttribute("aria-haspopup","menu");
     this.recordBody=this.recordSection.createDiv({cls:"noria-diary-record-body"});
     this.summaryHost = this.recordBody.createDiv({cls:"noria-diary-period-summary"});
-    this.statsHost = this.recordBody.createDiv({cls:"noria-diary-statistics"});
-    this.statsHost.hidden = true;
     this.stateHost = this.recordBody.createDiv({cls:"noria-diary-state"});
     this.captureHost = this.recordBody.createDiv({cls:"noria-diary-capture-host"});
     this.content = this.recordBody.createDiv({cls: "noria-diary-content"});
@@ -63,6 +61,7 @@ class DiaryWorkspace {
       context:()=>this.session?{key:this.session.model.path,path:this.session.model.path,selection:this.selection,intent:"record",editor:this.editor,
         blocked:this.session.dirty||this.session.needsAdoption||this.session.blocked}:null,
       flush:()=>this.flush(),afterSaved:result=>this.adoptOwnWrite(this.session,result),report:error=>this.report(error)});
+    this.taskAdoption.bindMoreButton(this.recordMenuButton,true);
     this.draftsHost = this.recordBody.createDiv({cls: "noria-diary-drafts"});
     this.reviewSection = this.article.createEl("section",{cls:"noria-diary-module noria-diary-review-section",attr:{"aria-label":this.t("review")}});
     this.reviewHeader=this.reviewSection.createDiv({cls:"noria-diary-module-header noria-diary-review-header"});
@@ -73,16 +72,26 @@ class DiaryWorkspace {
     this.reviewMenuButton=this.button(this.reviewHeader,this.cards.system.text("更多操作","More actions"),button=>this.openModuleMenu("review",button),"","ellipsis");
     this.reviewMenuButton.setAttribute("aria-haspopup","menu");
     this.reviewHost = this.reviewSection.createDiv({cls:"noria-diary-review"});
-
+    this.cards.adopt("record",this.recordSection,this.recordBody,this.recordHeader,this.recordTools,this.recordMenuButton);
+    this.cards.adopt("review",this.reviewSection,this.reviewHost,this.reviewHeader,this.reviewTools,this.reviewMenuButton);
+    this.sourceEvents=new obsidian.Component();this.sourceEvents.load();
+    const sourceChanged=(file,oldPath)=>{if(this.session&&(file.path===this.session.model.path||oldPath===this.session.model.path))this.scheduleDocumentRefresh();};
+    for(const event of ['modify','create','delete','rename'])this.sourceEvents.registerEvent(this.plugin.app.vault.on(event,sourceChanged));
+    this.sourceEvents.registerDomEvent(this.root,'compositionend',()=>this.scheduleDocumentRefresh(),true);
   }
   t(key, params) { return this.plugin.t("workbench." + key, params); }
   openModuleMenu(kind,button) {
     this.moduleMenu?.hide();
     const menu=this.moduleMenu=new obsidian.Menu();
     const body=kind==="record"?this.recordBody:this.reviewHost;
-    menu.addItem(item=>item.setTitle(this.cards.system.t(body.hidden?"expand":"collapse"))
-      .setIcon(body.hidden?"chevron-right":"chevron-down")
-      .onClick(()=>this.toggleModule(kind).catch(error=>this.report(error))));
+    if(kind==='record'){
+      this.taskAdoption.addMenuItems(menu,this.taskAdoption.takeMenuSelection());
+      menu.addSeparator();
+      const context=this.cards.catalogContext();
+      menu.addItem(item=>item.setTitle(this.cards.system.text('管理记录项目','Manage record fields')).setIcon('settings-2').onClick(()=>this.plugin.records.manage(false,context)));
+      menu.addSeparator();
+    }
+    this.cards.addModuleMenuItems(menu,kind);
     button.setAttribute("aria-expanded","true");
     menu.onHide(()=>{button.setAttribute("aria-expanded","false");button.focus({preventScroll:true});if(this.moduleMenu===menu)this.moduleMenu=null;});
     const rect=button.getBoundingClientRect();menu.showAtPosition({x:rect.right,y:rect.bottom,left:true},button.ownerDocument);
@@ -93,6 +102,13 @@ class DiaryWorkspace {
     const tools=kind==="record"?this.recordTools:this.reviewTools;
     if(!section)return;
     body.hidden=collapsed;tools.hidden=collapsed;section.dataset.collapsed=String(collapsed);
+    if(kind==="review")this.reviewMenuButton.hidden=!!this.review&&!collapsed;
+    if(this.cards?.layout?.cards[kind]){this.cards.layout.cards[kind].collapsed=collapsed;this.cards.layout.cards[kind].hidden=false;section.hidden=false;}
+  }
+  async prepareLayoutConceal(){
+    if(this.editor?.isComposing()||this.review?.reviewWorkspace?.editor?.isComposing())return false;
+    const session=this.session;await this.flush();
+    return session===this.session&&!session?.dirty&&!session?.blocked&&!this.review?.state.final.dirty&&!this.review?.state.final.blocked;
   }
   async toggleModule(kind) {
     const body=kind==="record"?this.recordBody:this.reviewHost;
@@ -102,6 +118,7 @@ class DiaryWorkspace {
       await this.flush();
       if(session!==this.session||session?.dirty||session?.blocked||this.review?.state.final.dirty||this.review?.state.final.blocked)return;
     }
+    if(this.cards)await this.cards.change(kind,"collapsed",collapsed);
     this.setModuleCollapsed(kind,collapsed);
   }
   button(host, label, action, cls = "", icon = "") {
@@ -166,10 +183,11 @@ class DiaryWorkspace {
     this.intent = intent;
     this.workbench && (this.workbench.intent = intent);
     const sideCalendars=this.plugin.app?.workspace?.getLeavesOfType("noria-calendar")||[];
-    if(sideCalendars.length){Object.assign(globalThis.__noriaCalendarState||(globalThis.__noriaCalendarState={}),require("./diary-navigation.js").pickerState(selection));for(const leaf of sideCalendars)void leaf.view.reload?.();}
+    if(sideCalendars.length){const calendarState=globalThis.__noriaCalendarState||(globalThis.__noriaCalendarState={});Object.assign(calendarState,require("./diary-navigation.js").pickerState(selection,calendarState.mode));for(const leaf of sideCalendars)void leaf.view.reload?.();}
     this.renderToolbar();
+    const cardsReady=this.cards.setSelection(selection);
     this.renderContent();
-    await Promise.all([this.cards.setSelection(selection), this.contentReady, this.refreshTasks?.()]);
+    await Promise.all([cardsReady, this.contentReady, this.refreshTasks?.()]);
     await this.renderIntent?.();
     } finally {if (token === this.generation) this.root.inert = false;}
   }
@@ -195,8 +213,8 @@ class DiaryWorkspace {
     controls.appendChild(this.actions);
     for(const item of diaryNavigationItems(this.selection)){
       const date=new Date(item.anchorDate+"T12:00:00Z"),daily=item.mode==="daily";
-      const label=daily?date.toLocaleDateString(locale,{weekday:"short",timeZone:"UTC"}):item.mode==="weekly"?item.period.slice(0,4):item.mode==="monthly"?item.period.slice(0,4):"";
-      const value=daily?String(date.getUTCDate()):item.mode==="weekly"?item.period.slice(5):item.mode==="monthly"?date.toLocaleDateString(locale,{month:"short",timeZone:"UTC"}):item.period;
+      const label=daily?date.toLocaleDateString(locale,{weekday:"short",timeZone:"UTC"}):"";
+      const value=daily?String(date.getUTCDate()):item.mode==="weekly"?(locale==="zh-CN"?`第${Number(item.period.slice(6))}周`:item.period.slice(5)):item.mode==="monthly"?date.toLocaleDateString(locale,{month:"short",timeZone:"UTC"}):item.period;
       const button=this.button(strip,item.period,()=>this.select(item),"noria-diary-date-item");button.empty();
       if(label)button.createSpan({cls:"noria-diary-date-caption",text:label});
       button.createSpan({text:value});button.setAttribute("aria-label",item.period);
@@ -230,6 +248,8 @@ class DiaryWorkspace {
     if(!this.review) this.review = await this.plugin.renderReviewCenterInHost(this.reviewHost,{selection:this.selection,expanded:true,workspacePage:true,sharedDateNavigation:true,toolbarHost:this.reviewTools,beforeEdit:()=>this.prepareReviewEdit()});
     else if(["mode","period","anchorDate"].some(k=>this.selection[k] !== this.review.selection[k])) await this.review.setSelection(this.selection);
     else await this.review.reload();
+    this.review.moduleMenuItems=menu=>this.cards.addModuleMenuItems(menu,"review");
+    this.reviewMenuButton.hidden=this.reviewSection.dataset.collapsed!=="true";
   }
   async prepareReviewEdit() {
     const session=this.session;
@@ -253,40 +273,36 @@ class DiaryWorkspace {
   clearContent() { this.editor?.dispose(); this.editor = null; this.component?.unload(); this.component = null; this.content.empty(); }
   renderActions() {
     this.actions.empty();
+    this.recordTools.querySelectorAll(".noria-diary-recovery-action").forEach(button=>button.remove());
     const s = this.session;
     if(this.recordEditButton)setActionIcon(this.recordEditButton,s.editing?"book-open":"pencil",this.t(s.editing?"readDiary":"editDiary"));
-    if (s.editing) {
-      this.button(this.actions, this.t("readDiary"), () => this.toggleEditing(),"","book-open");
-    } else this.button(this.actions, this.t("editDiary"), () => this.startEditing(),"","pencil");
-    this.outlineButton = this.button(this.actions,this.t("outline"),button=>this.showOutline(button),"","list");
-    this.outlineButton.setAttribute("aria-haspopup","menu");
+    this.button(this.actions,this.cards.system.text("添加卡片","Add a card"),()=>this.plugin.cards.catalog(this.cards.catalogContext()),"","plus");
     this.sourceButton = this.button(this.actions, this.t(s.model.exists?"source":"createSource"), async () => {
       await this.flush();
       if(s.model.exists) await this.plugin.openCalendarNoteFile(s.model.path,{newLeaf:true});
       else if(!s.dirty) {await this.plugin.openCalendarPeriodNote({period:s.model.selection.mode,date:s.model.selection.anchorDate,source:true,newLeaf:true});await this.refreshDocument();}
     },"","file-text");
-    if (s.needsAdoption || s.blocked) this.button(this.actions,this.t(s.needsAdoption?"useDraft":"retrySave"),()=>this.save({acceptRecovery:true,retry:true}),"","save");
-    if (s.needsAdoption || s.blocked) this.button(this.actions, this.t("copy"), async () => {
+    if (s.needsAdoption || s.blocked) this.button(this.recordTools,this.t(s.needsAdoption?"useDraft":"retrySave"),()=>this.save({acceptRecovery:true,retry:true}),"noria-diary-recovery-action","save");
+    if (s.needsAdoption || s.blocked) this.button(this.recordTools, this.t("copy"), async () => {
       this.capture(); await navigator.clipboard.writeText(s.body); this.feedback.setText(this.t("copied"));
-    },"","copy");
-    this.button(this.actions, this.t("reload"), async () => {
-      await this.flush();
-      this.sessions.delete(`${this.selection.mode}:${this.selection.period}`);
-      await this.select(this.selection);
-    },"","refresh-cw");
-    if(this.selection.mode==="daily") {
-      const capture=this.button(this.actions,this.t("quickCapture"),()=>this.toggleCapture(),"","sticky-note");
-      capture.setAttribute("aria-expanded",String(!!this.captureComposer && !this.captureHost.hidden));
-    }
-    const secondary=[...this.actions.querySelectorAll("button")].slice(1);secondary.forEach(b=>b.addClass("noria-diary-secondary-action"));
-    const more=this.button(this.actions,this.plugin.t("review.document.more"),button=>{
-      const menu=new obsidian.Menu();
-      for(const action of secondary)menu.addItem(item=>item.setTitle(action.getAttribute("aria-label")||action.textContent).setDisabled(action.disabled).onClick(()=>action.click()));
-      this.taskAdoption.addMenuItems(menu,this.taskAdoption.takeMenuSelection());
-      const rect=button.getBoundingClientRect();menu.showAtPosition({x:rect.right,y:rect.bottom,left:true},button.ownerDocument);
-    },"","ellipsis");
+    },"noria-diary-recovery-action","copy");
+    const more=this.button(this.actions,this.cards.system.text("日记操作","Diary actions"),button=>this.openPageMenu(button),"","ellipsis");
     more.setAttribute("aria-haspopup","menu");
-    this.taskAdoption.bindMoreButton(more,true);
+  }
+  openPageMenu(button){
+    const menu=new obsidian.Menu();
+    menu.addItem(item=>item.setTitle(this.t("outline")).setIcon("list").onClick(()=>this.showOutline(button)));
+    if(this.selection.mode==="daily")menu.addItem(item=>item.setTitle(this.t("quickCapture")).setIcon("sticky-note").onClick(()=>this.toggleCapture()));
+    menu.addItem(item=>item.setTitle(this.cards.system.text('编辑模板','Edit template')).setIcon('file-pen-line').onClick(async()=>{
+      const selection={...this.selection};
+      try{const spec=await this.plugin.resolveCalendarNoteSpecAsync(selection.mode,selection.anchorDate);await require('./template-file.js').openMarkdownTemplate(this.plugin,spec.templatePath);}catch(error){this.report(error);}
+    }));
+    menu.addItem(item=>item.setTitle(this.cards.system.text('更换模板','Change template')).setIcon('file-cog').onClick(()=>{
+      try{require('./template-file.js').openDiaryTemplateSettings(this.plugin,this.selection.mode);}catch(error){this.report(error);}
+    }));
+    menu.addItem(item=>item.setTitle(this.t("reload")).setIcon("refresh-cw").onClick(async()=>{try{if(!await this.prepareLayoutConceal())return;this.sessions.delete(`${this.selection.mode}:${this.selection.period}`);await this.select(this.selection);}catch(error){this.report(error);}}));
+    button.setAttribute("aria-expanded","true");menu.onHide(()=>{button.setAttribute("aria-expanded","false");button.focus({preventScroll:true});});
+    const rect=button.getBoundingClientRect();menu.showAtPosition({x:rect.right,y:rect.bottom,left:true},button.ownerDocument);
   }
   async toggleEditing() {
     if(this.editor?.isComposing())return;
@@ -311,12 +327,22 @@ class DiaryWorkspace {
   }
   renderDailyState() {
     this.stateHost.empty();
+    this.recordTools.querySelector('[data-noria-record-settings]')?.remove();
+    this.recordTools.querySelector('[data-noria-record-range]')?.remove();
     if(this.selection.mode!=="daily")return;
     const session=this.session;
-    renderDailyStateControls({plugin:this.plugin,host:this.stateHost,date:this.selection.anchorDate,raw:session.model.raw,
-      context:{page:"diary",mode:this.selection.mode,selection:{...this.selection}},
+    renderDailyStateControls({plugin:this.plugin,host:this.stateHost,toolsHost:this.recordTools,date:this.selection.anchorDate,raw:session.model.raw,recent:false,settings:false,
+      context:this.cards.catalogContext(),
       beforeSave:async()=>{await this.flush();return session===this.session && !session.dirty && !session.blocked && !session.needsAdoption;},
+      refresh:async()=>{await this.refreshDocument();if(session===this.session)this.renderDailyState();},
       onSaved:async result=>{await this.adoptOwnWrite(session,result.write);this.renderDailyState();},report:e=>this.report(e)});
+  }
+  refreshReadingScope(){
+    if(!this.session||this.session.editing)return;
+    const top=this.content.scrollTop;
+    this.renderContent();
+    const session=this.session;
+    void this.contentReady.then(()=>{if(this.session===session)this.content.scrollTop=top;});
   }
   renderContent() {
     this.capture(); this.clearContent(); this.renderActions();
@@ -339,14 +365,17 @@ class DiaryWorkspace {
     } else {
       const prose = this.content.createDiv({cls: "markdown-rendered noria-diary-prose"});
       this.component = new obsidian.Component(); this.component.load();
-      let displayed = s.body;
-      try {
-        const heading=this.plugin.getReviewFinalSectionHeading(this.selection.mode,s.model.raw);
-        const review=readReviewDocument(displayed,[heading]);
-        if(review.exists) displayed=displayed.slice(0,review.start)+reviewPresentation(review.markdown,heading).leading+displayed.slice(review.end);
-      } catch (_) { /* Ambiguous boundaries remain visible in the native document. */ }
-      if(this.selection.mode === "daily" && this.selection.anchorDate<=this.plugin.getLocalYmd()) displayed=withoutHabitRecords(displayed,this.selection.anchorDate);
-      const safe = prepareReviewPreview(displayed, {sourcePath: s.model.path, viewLabel: this.t("source")});
+      let reviewHeading;try{reviewHeading=this.plugin.getReviewFinalSectionHeading(this.selection.mode,s.model.raw);}catch(_){/* Keep ambiguous review boundaries visible. */}
+      const projection=projectDiaryRecord(s.body,{
+        sections:(this.cards?.layout||this.plugin.cards.layout(this.selection.mode)).cards.record.sections,reviewHeading,
+        habitDate:this.selection.mode==='daily'&&this.selection.anchorDate<=this.plugin.getLocalYmd()?this.selection.anchorDate:undefined,
+        lineOffset:(s.model.prefix?.match(/\r\n|\r|\n/g)||[]).length
+      });
+      const zh=this.plugin.getNoriaLocale()==='zh';
+      for(const [names,label] of [[projection.missing,zh?'未找到章节：':'Sections not found: '],[projection.ambiguous,zh?'标题重复，暂不展示：':'Duplicate headings, not displayed: ']]){
+        if(names.length)prose.createDiv({cls:'noria-card-secondary',text:label+names.join('、'),attr:{role:'status'}});
+      }
+      const safe = prepareReviewPreview(projection.markdown, {sourcePath: s.model.path, viewLabel: this.t("source"), allowBases: true});
       prose.addEventListener("click", event => {
         if (event.target.closest?.('input[type="checkbox"]')) {event.preventDefault();event.stopImmediatePropagation();}
       }, true);
@@ -355,6 +384,14 @@ class DiaryWorkspace {
         if (link?.dataset.href) {event.preventDefault(); void this.plugin.app.workspace.openLinkText(link.dataset.href, s.model.path, true).catch(e => this.report(e));}
       });
       this.contentReady = Promise.resolve(obsidian.MarkdownRenderer.render(this.plugin.app, safe, prose, s.model.path, this.component)).then(() => {
+        if(this.session!==s||!prose.isConnected)return;
+        decorateDiaryTasks(prose,projection.tasks,{
+          label:this.plugin.getNoriaLocale()==='zh'?'任务详情':'Task details',
+          open:(task,anchor)=>this.plugin.openTaskDetails({...task,path:s.model.path,text:task.rawText},{anchor,
+            beforeEdit:()=>this.flush(),beforeSave:()=>this.flush(),
+            onSaved:async result=>{await this.adoptOwnWrite(s,result);await this.refreshTasks();}
+          }),onError:error=>this.report(error)
+        });
         if(s.model.selection.mode==="daily")decorateDiaryQuickNotes(prose,this.t("quickCaptureUntimed"));
         prose.querySelectorAll('input[type="checkbox"]').forEach(el => {el.disabled = true;});
       }).catch(e => this.report(e));
@@ -403,6 +440,7 @@ class DiaryWorkspace {
         }
         if(s===this.session && !this.disposed){this.renderActions?.();this.feedback.setText(s.model.recoveryCleared===false?this.t("savedDraftRetained"):"");}
         if(s.dirty && !this.disposed){clearTimeout(this.timer);this.timer=setTimeout(()=>{void this.flush().catch(e=>this.report(e));},400);}
+        if(s===this.session)await this.cards?.refreshNoteCards?.();
         return !s.dirty;
       } catch(error){s.blocked=true;await this.store.preserve(s.model,s.body);if(s===this.session && !this.disposed){this.report(error);this.renderActions?.();}return false;}
     })();
@@ -414,15 +452,35 @@ class DiaryWorkspace {
     await this.review?.reload();
   }
   async refreshDocument() {
-    const s = this.session;
-    if (!s || s.dirty || this.saving) return;
-    const latest = await this.store.load(s.model.selection);
-    if (s !== this.session || s.dirty || this.saving) return;
-    if (latest.path !== s.model.path || latest.raw !== s.model.raw || latest.exists !== s.model.exists) {
+    this.capture?.();const s=this.session,model=s?.model,body=s?.body;
+    const protectedState=()=>this.disposed||s!==this.session||s?.dirty||s?.blocked||s?.needsAdoption||this.saving||this.editor?.isComposing();
+    if (!s || protectedState()) return;
+    const token=this.documentGeneration=(this.documentGeneration||0)+1;
+    const latest = await this.store.load(model.selection);
+    this.capture?.();
+    if (token!==this.documentGeneration||protectedState()||s.model!==model||s.body!==body) return;
+    if (latest.path !== model.path || latest.raw !== model.raw || latest.exists !== model.exists) {
+      // A recovery draft must remain an explicit choice, never an automatic replacement.
+      if(latest.recoveryDraft)return;
       const top = this.host.scrollTop;
-      await this.select(s.model.selection);
+      s.model=latest;s.body=editorText(latest.body);
+      if(this.editor&&s.editing){
+        const position=this.editor.getPosition();this.editor.setValue(s.body);
+        this.editor.editor.setSelection(position.anchor,position.head||position.anchor);
+        this.editor.setFile?.(this.plugin.app.vault.getAbstractFileByPath(latest.path));
+        this.renderActions();this.renderDailyState();this.renderDrafts();
+      }else this.renderContent();
       this.host.scrollTop = top;
+      await this.cards?.refreshNoteCards();
     }
+  }
+  scheduleDocumentRefresh(){
+    clearTimeout(this.sourceTimer);if(this.disposed)return;
+    this.sourceTimer=setTimeout(()=>{
+      if(this.disposed)return;
+      if(this.saving){this.scheduleDocumentRefresh();return;}
+      void this.refreshDocument().catch(error=>{if(!this.disposed)this.report(error);});
+    },120);
   }
   showOutline(button = this.outlineButton) {
     this.setModuleCollapsed("record",false);
@@ -451,15 +509,6 @@ class DiaryWorkspace {
     })));
     show(menu);
   }
-  async toggleStatistics(force = false) {
-    if(!force) this.statsHost.hidden=!this.statsHost.hidden;
-    if(this.statsHost.hidden) return;
-    this.statsHost.empty();
-    const range=diaryRange(this.selection);
-    this.statsHost.createDiv({cls:"noria-diary-section-heading",text:this.t("statistics")});
-    const mount=this.statsHost.createDiv();
-    await this.plugin.runNoriaView("periodicStats",{scope:this.selection.mode,preset:this.selection.mode,dateRange:range},mount,this.session.model.path);
-  }
   async refreshTasks() {
     if(!this.taskHost || !this.selection) return;
     const generation=++this.taskGeneration, selection={...this.selection}, path=this.session.model.path;
@@ -469,7 +518,6 @@ class DiaryWorkspace {
       this.tasks=projectDiaryTasks(tasks,selection,path,this.plugin.getLocalYmd());
       this.renderTasks();
       await Promise.all([this.refreshHabits(),this.refreshPeriodSummary()]);
-      if(!this.statsHost.hidden) await this.toggleStatistics(true);
     } catch(error){if(generation === this.taskGeneration) this.report(error);}
   }
   renderTasks() {
@@ -477,22 +525,30 @@ class DiaryWorkspace {
     const expanded=this.session.taskExpanded || (this.session.taskExpanded={});
     const opened=this.taskHost.querySelector("details")?.open;
     this.root.dataset.currentPeriod=String(data.current);
-    const group=(id,title,rows)=>{
-      const section=this.cards.section(id,title,rows.length),area=section.body;
-      if(section.tools){const add=this.button(section.tools,this.plugin.t("runtime.tasksCalendar.editor.createTask"),button=>openDiaryTaskCreate(this,button),"","plus");section.tools.insertBefore(add,section.tools.firstChild);}
-      const list=area.createDiv({cls:"noria-diary-task-list"});
-      rows.slice(0,expanded[id]?undefined:3).forEach(row=>this.renderTaskRow(list,row));
-      if(rows.length>3&&!expanded[id]) {
-        const more=this.button(area,this.t("allTasks",{count:rows.length}),()=>{expanded[id]=true;more.remove();rows.slice(3).forEach(row=>this.renderTaskRow(list,row));});
+    this.cards.setAvailable("tasks",true);
+    const section=this.cards.section('tasks',this.cards.system.text('待办','Tasks')),area=section.body;
+    const add=this.button(section.tools,this.plugin.t("runtime.tasksCalendar.editor.createTask"),button=>openDiaryTaskCreate(this,button),"","plus");section.tools.insertBefore(add,section.tools.firstChild);
+    const list=(parent,key,rows)=>{
+      const host=parent.createDiv({cls:'noria-diary-task-list'});
+      rows.slice(0,expanded[key]?undefined:3).forEach(row=>this.renderTaskRow(host,row));
+      if(rows.length>3&&!expanded[key]){
+        const more=this.button(parent,this.t('allTasks',{count:rows.length}),()=>{expanded[key]=true;more.remove();rows.slice(3).forEach(row=>this.renderTaskRow(host,row));});
+        more.addClass('noria-diary-task-more');
       }
-      return area;
     };
-    this.cards.setAvailable("focus",!!data.focus.length);
-    this.cards.setAvailable("tasks",!!data.pending.length||!!data.done.length||!data.focus.length);
-    if(data.focus.length)group("focus",this.t("focus."+this.selection.mode),data.focus);
-    const pending=group("tasks",this.t(data.focus.length?"otherTasks":"tasks"),data.pending);
-    if(!data.focus.length&&!data.pending.length)pending.createDiv({cls:"noria-diary-task-empty",text:this.t("noTasks")});
-    if(data.done.length){const done=pending.createEl("details");done.open=opened===true||this.taskFocus?.completed===true;done.createEl("summary",{text:this.t("completedTasks",{count:data.done.length})});data.done.forEach(row=>this.renderTaskRow(done,row));}
+    const group=(key,title,rows)=>{
+      const host=area.createDiv({cls:'noria-diary-task-group',attr:{'data-task-group':key}});
+      const heading=host.createEl('h3',{cls:'noria-diary-task-group-title'});
+      heading.createSpan({text:title});heading.createSpan({cls:'noria-card-secondary',text:String(rows.length)});
+      list(host,key,rows);
+    };
+    if(data.focus.length)group('focus',this.t('focus.'+this.selection.mode),data.focus);
+    if(data.pending.length)group('tasks',data.focus.length?this.t('otherTasks'):this.cards.system.text('未完成','Pending'),data.pending);
+    if(!data.focus.length&&!data.pending.length&&!data.done.length)area.createDiv({cls:'noria-diary-task-empty',text:this.t('noTasks')});
+    if(data.done.length){
+      const done=area.createEl('details',{cls:'noria-diary-task-completed'});done.open=opened!==false||this.taskFocus?.completed===true;
+      done.createEl('summary',{text:this.t('completedTasks',{count:data.done.length})});list(done,'done',data.done);
+    }
     if(this.taskFocus) {
       const target=this.taskFocus;
       const row=[...this.root.querySelectorAll(".noria-workbench-task-row")].find(el=>el.dataset.sourcePath===target.path&&Number(el.dataset.sourceLine)===target.line);
@@ -504,8 +560,8 @@ class DiaryWorkspace {
     if(!this.habitHost || !this.selection) return;
     const selection={...this.selection}, generation=++this.habitGeneration;
     const available=selection.mode !== "daily" || selection.anchorDate<=this.plugin.getLocalYmd();
-    this.cards.setAvailable("habits",available);
-    if(!available) return;
+    this.cards.setAvailable("habits",true);
+    if(!available){this.cards.section('habits',this.t('habits')).body.createDiv({cls:'noria-card-secondary',text:this.cards.system.text('还未到这一天','This day is still ahead')});return;}
     if(selection.mode!=="daily"){
       const service=await this.plugin.createDataService({});
       const [snapshot,registry]=await Promise.all([service.getSnapshot({range:{mode:"custom",...diaryRange(selection)},include:["habits"]}),this.plugin.loadTextFromVault(this.plugin.getManagedPath('habitRegistry'))]);
@@ -542,7 +598,8 @@ class DiaryWorkspace {
     this.button(heading,this.t("habitBackfill"),()=>{
       const menu=new obsidian.Menu();
       data.active.filter(c=>!names.includes(c.name)).forEach(cfg=>menu.addItem(item=>item.setTitle(cfg.name).onClick(()=>{names.push(cfg.name);this.renderHabitRow(list,cfg,null,selection.anchorDate);})));
-      if(!data.active.some(c=>!names.includes(c.name))) menu.addItem(item=>item.setTitle(this.plugin.t("runtime.habits.editParams")).onClick(()=>this.plugin.openCalendarNoteFile(data.registryPath,{newLeaf:true})));
+      if(data.active.some(c=>!names.includes(c.name)))menu.addSeparator();
+      menu.addItem(item=>item.setTitle(this.cards.system.text("管理习惯","Manage habits")).setIcon("settings-2").onClick(()=>this.habitStore.manage()));
       const rect=heading.getBoundingClientRect();menu.showAtPosition({x:rect.right-160,y:rect.bottom});
     },"","plus");
     const list=card.body.createDiv({cls:"noria-diary-habit-list"});
@@ -552,22 +609,21 @@ class DiaryWorkspace {
   async refreshPeriodSummary() {
     if(!this.summaryHost) return;
     const selection={...this.selection};
-    this.summaryHost.hidden=selection.mode === "daily";
-    if(this.summaryHost.hidden) return;
     const generation=++this.summaryGeneration;
+    this.summaryHost.empty();this.summaryHost.hidden=true;
+    if(selection.mode === "daily") return;
     const service=await this.plugin.createDataService({});
     const snapshot=await service.getSnapshot({range:{mode:"custom",...diaryRange(selection)},include:["tasks","habits","notes"]});
     if(generation !== this.summaryGeneration || this.selection.mode !== selection.mode || this.selection.period !== selection.period) return;
     this.summaryHost.empty();
     const values=[['periodTasks',snapshot.domains.tasks?.completion?.completed],['periodHabits',snapshot.domains.habits?.summary?.checked],['periodWords',snapshot.domains.notes?.diaryWords?.total]];
     const summary=values.filter(([,count])=>Number(count)>0).map(([key,count])=>this.t(key,{count:new Intl.NumberFormat(this.plugin.getNoriaLocale()).format(count)})).join(' · ');
-    if(summary)this.summaryHost.createSpan({text:summary});
-    this.button(this.summaryHost,this.t("statistics"),()=>this.toggleStatistics());
+    if(summary){this.summaryHost.hidden=false;this.summaryHost.createSpan({text:summary});}
   }
   renderHabitRow(parent,config,record,date) {
-    return renderDiaryHabitRow({parent,plugin:this.plugin,config,record,date,onSave:async(done,value)=>{
+    return renderDiaryHabitRow({parent,plugin:this.plugin,config,record,date,onSave:async(done,value,options)=>{
       const session=this.session;
-      try {await this.flush();const result=await this.habitStore.write({config,date,done,value});await this.adoptOwnWrite(session,result);await this.refresh();
+      try {await this.flush();const result=await this.habitStore.write({config,date,done,value,...options});await this.adoptOwnWrite(session,result);await this.refresh();
         [...this.habitHost.querySelectorAll(".noria-diary-habit-row")].find(row=>row.dataset.habit===config.name)?.querySelector("button")?.focus({preventScroll:true});return true;}
       catch(error){this.report(error);return false;}
     }});
@@ -593,6 +649,7 @@ class DiaryWorkspace {
     });
   }
   dispose() {
+    this.sourceEvents?.unload();clearTimeout(this.sourceTimer);++this.documentGeneration;
     this.moduleMenu?.hide();
     this.cards.dispose();
     this.captureComposer?.dispose();

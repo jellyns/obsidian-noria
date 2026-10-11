@@ -109,7 +109,7 @@ const habitRegistryTemplate = () => {
   return titles.map((title) => `## ${title}\n`).join("\n");
 };
 const requestedHistoryDays = Number(input?.historyDays || bridge.homeSettings?.widgets?.find(widget => widget.id === "habit-history-card")?.props?.historyDays || 21);
-const HABIT_WINDOW_DAYS = Math.max(7, Math.min(90, Math.round(requestedHistoryDays) || 21));
+const HABIT_WINDOW_DAYS = Math.max(7, Math.min(365, Math.round(requestedHistoryDays) || 21));
 
 const toDateStr = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -229,6 +229,7 @@ const inferHabitConfig = (text) => {
   const fields = parseInlineFields(text);
   const base = { name, id: fields["habit-id"] || "", aliases: fields.aliases || "", recordField: fields["record-field"] || "" };
   for(const key of ["icon","color","weekdays","plan"])if(fields[key])base[key]=fields[key];
+  if(fields["target-plan"])base.targetPlan=fields["target-plan"];
   ["type", "target", "value", "unit"].forEach((key) => {
     if (fields[key] != null && String(fields[key]).trim() !== "") base[key] = String(fields[key]).trim();
   });
@@ -270,6 +271,7 @@ const serializeHabitConfig = (cfg) => {
   if(cfg.id)parts.push(`[habit-id:: ${cfg.id}]`);
   if(cfg.aliases)parts.push(`[aliases:: ${cfg.aliases}]`);
   if(cfg.recordField)parts.push(`[record-field:: ${cfg.recordField}]`);
+  if(cfg.targetPlan)parts.push(`[target-plan:: ${cfg.targetPlan}]`);
   return parts.join(" ");
 };
 const getSectionHabitConfigs = (content, title) =>
@@ -520,44 +522,11 @@ const eveningMinutes = (clock) => {
   const minutes = h * 60 + m;
   return minutes <= 12 * 60 ? minutes + 24 * 60 : minutes;
 };
-const clockMinutes = (clock) => {
-  const t = normalizeClockValue(clock);
-  if (!t) return null;
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-};
 const isSleepBeforeTarget = (value, target = "00:30") => {
   const actual = eveningMinutes(value);
   const limit = eveningMinutes(target || "00:30");
   return actual != null && limit != null && actual <= limit;
 };
-const addDays = (dateStr, days) => {
-  const m = String(dateStr || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return "";
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  d.setDate(d.getDate() + Number(days || 0));
-  return toDateStr(d);
-};
-const minutesBetween = (startClock, endClock) => {
-  const start = eveningMinutes(startClock);
-  const endRaw = eveningMinutes(endClock);
-  if (start == null || endRaw == null) return 0;
-  let end = endRaw;
-  if (end <= start) end += 24 * 60;
-  return Math.max(0, end - start);
-};
-const buildSleepTimelineLine = ({ date, start = "23:30", end = "07:00", target = "00:30", completed = false } = {}) => {
-  const d = String(date || "").trim();
-  const startClock = normalizeClockValue(start) || "23:30";
-  const endClock = normalizeClockValue(end) || "07:00";
-  const startRaw = clockMinutes(startClock);
-  const endRaw = clockMinutes(endClock);
-  const startDate = startRaw != null && startRaw <= 12 * 60 ? addDays(d, 1) : d;
-  const dueDate = endRaw != null && startRaw != null && endRaw <= startRaw ? addDays(startDate, 1) : startDate;
-  const duration = minutesBetween(startClock, endClock) || 450;
-  return `- [${completed ? "x" : " "}] 睡眠 [start:: ${startDate} ${startClock}] [due:: ${dueDate} ${endClock}] [duration_min:: ${duration}] #tl/sleep`;
-};
-const getDailyNotePath = (dateStr) => `${diaryRoot}/${String(dateStr || "").slice(0, 4)}/${dateStr}.md`;
 const ensureParentFolder = async (path) => {
   const normalized = normPath(path);
   const slash = normalized.lastIndexOf("/");
@@ -592,59 +561,6 @@ const ensureHabitFileWithSeed = async (path, seed) => {
     return file;
   }
 };
-const insertLineIntoTodayTasks = (content, line) => {
-  const text = String(content || "");
-  const lines = text.split("\n");
-  let heading = lines.findIndex((ln) => /^###\s*今日任务\s*$/.test(String(ln || "").trim()));
-  if (heading < 0) {
-    const todoIdx = lines.findIndex((ln) => /^##\s*待办\s*$/.test(String(ln || "").trim()));
-    if (todoIdx >= 0) {
-      lines.splice(todoIdx + 1, 0, "", "### 今日任务", "", line);
-      return lines.join("\n").replace(/\n{3,}/g, "\n\n");
-    }
-    return `${text.trimEnd()}\n\n## 待办\n\n### 今日任务\n\n${line}\n`;
-  }
-  let insertAt = lines.length;
-  for (let i = heading + 1; i < lines.length; i++) {
-    if (/^##\s+/.test(lines[i])) {
-      insertAt = i;
-      break;
-    }
-  }
-  while (insertAt > heading + 1 && String(lines[insertAt - 1] || "").trim() === "") insertAt--;
-  lines.splice(insertAt, 0, line);
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
-};
-const upsertSleepTimelineTask = async ({ date, start, end, target, pathHint = "" }) => {
-  const path = normPath(pathHint || getDailyNotePath(date));
-  const line = buildSleepTimelineLine({ date, start, end, target });
-  const file = await ensureHabitFileWithSeed(path, `## 待办\n\n### 今日任务\n\n${line}\n`);
-  const transform = (raw) => {
-    const lines = String(raw || "").split("\n");
-    let updated = false;
-    for (let i = 0; i < lines.length; i++) {
-      const src = String(lines[i] || "");
-      if (!/#tl\/sleep\b/i.test(src)) continue;
-      const rawStart = getInlineField(src, "start");
-      const sleepDate = getSleepHabitDate(rawStart);
-      if (sleepDate !== date) continue;
-      const completed = /^\s*-\s+\[[xX]\]/.test(src);
-      lines[i] = buildSleepTimelineLine({ date, start, end, target, completed });
-      updated = true;
-      break;
-    }
-    return updated ? lines.join("\n") : insertLineIntoTodayTasks(raw, line);
-  };
-  if (typeof app.vault.process === "function") {
-    await app.vault.process(file, transform);
-  } else {
-    const raw = await app.vault.read(file);
-    const next = transform(raw);
-    if (next !== raw) await app.vault.modify(file, next);
-  }
-  scheduleRefresh();
-  return true;
-};
 const REFRESH_KEY = "__dashboard_refresh_timer_habit";
 const scheduleRefresh = (delay = 140) => {
   try {
@@ -659,113 +575,6 @@ const scheduleRefresh = (delay = 140) => {
       try { globalThis.__noriaHomeRefreshBus?.emit?.("habits", 20); } catch (_) {}
     }, delay);
   } catch (_) {}
-};
-
-const getManagerUiKit = () => globalThis?.dashboardCore?.components?.ui?.managerPanel || globalThis?.__noriaManagerUiKit || null;
-
-const makeOverlayForm = (title, fields, onSubmit) => {
-  const ui = getManagerUiKit();
-  if (ui?.openPanel) {
-    const inputs = {};
-    let firstInput = null;
-    ui.openPanel({
-      title,
-      size: "sm",
-      render: ({ body, footer, close }) => {
-        fields.forEach((f) => {
-          const row = body.appendChild(document.createElement("label"));
-          row.style.cssText = "display:flex;flex-direction:column;gap:5px;margin:0 0 9px 0;";
-          const lb = row.appendChild(document.createElement("span"));
-          lb.textContent = f.label;
-          lb.style.cssText = "font-size:.78em;color:var(--text-muted);";
-          const ip = ui.input({ value: f.value || "", placeholder: f.placeholder || "" });
-          ip.style.width = "100%";
-          row.appendChild(ip);
-          inputs[f.key] = ip;
-          if (!firstInput) firstInput = ip;
-        });
-        const cancel = ui.button(runtimeT("runtime.common.cancel"), "neutral");
-        const ok = ui.button(runtimeT("runtime.common.save"), "primary");
-        footer.append(cancel, ok);
-        cancel.onclick = close;
-        const runSubmit = async () => {
-          const data = Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, String(v.value || "").trim()]));
-          const done = await onSubmit(data);
-          if (done) close();
-        };
-        ok.onclick = () => runSubmit();
-        Object.values(inputs).forEach((ip) => {
-          ip.addEventListener("keydown", (ev) => {
-            if (ev.key === "Enter") {
-              ev.preventDefault();
-              runSubmit();
-            }
-          });
-        });
-      }
-    });
-    setTimeout(() => firstInput?.focus(), 0);
-    return;
-  }
-  const overlay = document.createElement("div");
-  overlay.style.cssText =
-    "position:fixed;inset:0;background:rgba(15,23,42,.35);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;";
-  const panel = document.createElement("div");
-  panel.style.cssText =
-    "width:min(420px,92vw);background:var(--background-primary);border:1px solid rgba(99,102,241,.24);border-radius:12px;box-shadow:0 12px 34px rgba(15,23,42,.3);padding:12px 12px 10px;";
-  overlay.appendChild(panel);
-  const h = document.createElement("div");
-  h.textContent = title;
-  h.style.cssText = "font-size:.95em;font-weight:760;color:var(--text-normal);margin:0 0 10px 0;";
-  panel.appendChild(h);
-  const inputs = {};
-  fields.forEach((f) => {
-    const row = document.createElement("label");
-    row.style.cssText = "display:flex;flex-direction:column;gap:4px;margin:0 0 8px 0;";
-    const lb = document.createElement("span");
-    lb.textContent = f.label;
-    lb.style.cssText = "font-size:.78em;color:var(--text-muted);";
-    const ip = document.createElement("input");
-    ip.type = "text";
-    ip.value = f.value || "";
-    ip.placeholder = f.placeholder || "";
-    ip.style.cssText =
-      "height:30px;border-radius:8px;border:1px solid rgba(99,102,241,.26);background:var(--background-primary);color:var(--text-normal);padding:0 8px;font-size:.86em;outline:none;";
-    row.append(lb, ip);
-    panel.appendChild(row);
-    inputs[f.key] = ip;
-  });
-  const actions = document.createElement("div");
-  actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:8px;";
-  const cancel = document.createElement("button");
-  cancel.textContent = runtimeT("runtime.common.cancel");
-  cancel.style.cssText = "height:30px;padding:0 12px;border-radius:8px;border:1px solid rgba(99,102,241,.22);background:transparent;cursor:pointer;";
-  const ok = document.createElement("button");
-  ok.textContent = runtimeT("runtime.common.save");
-  ok.style.cssText =
-    "height:30px;padding:0 14px;border-radius:8px;border:1px solid rgba(67,56,202,.35);background:rgba(99,102,241,.14);cursor:pointer;";
-  actions.append(cancel, ok);
-  panel.appendChild(actions);
-  const close = () => overlay.remove();
-  cancel.onclick = close;
-  overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
-  const runSubmit = async () => {
-    const data = Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, String(v.value || "").trim()]));
-    const done = await onSubmit(data);
-    if (done) close();
-  };
-  ok.onclick = () => runSubmit();
-  Object.values(inputs).forEach((ip) => {
-    ip.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        runSubmit();
-      }
-    });
-  });
-  document.body.appendChild(overlay);
-  const first = fields[0]?.key;
-  if (first && inputs[first]) setTimeout(() => inputs[first].focus(), 0);
 };
 
 const updateBulletSection = (text, title, updater) => {
@@ -874,10 +683,10 @@ const findHabitConfigInRegistry = (src, habitName) => {
 
 const sameHabit = (lineOrName, key) => canonicalHabitName(lineOrName) === key;
 
-const writeHabitRecord = async ({ config, date, done, value = "", target = "", unit = "", expectedToday = "" }) => {
+const writeHabitRecord = async ({ config, date, done, value = "", target = "", unit = "", expectedToday = "", historicalTarget = "", recordOperation }) => {
   const cfg = inferHabitConfig(config?.name ? serializeHabitConfig(config) : config || "");
   if (!cfg.name || !date) return false;
-  const result=await bridge.diaryHabits.write({config:{...cfg,target:target || cfg.target,unit:unit || cfg.unit},date,done,value,expectedToday,refresh:false});
+  const result=await bridge.diaryHabits.write({config:{...cfg,target:target || cfg.target,unit:unit || cfg.unit},date,done,value,historicalTarget,expectedToday,recordOperation,refresh:false});
   return !!result?.ok;
 };
 
@@ -888,25 +697,6 @@ const deleteHabitRecord = async ({ config, date }) => {
 };
 
 const openHabitStatusPanel = (initial=false) => bridge.diaryHabits.manage(initial);
-
-const openSleepRecordEditor = ({ date, cfg, record, onSaved }) => {
-  makeOverlayForm(runtimeT("runtime.habits.recordSleepTitle"), [
-    { key: "start", label: runtimeT("runtime.habits.sleepStart"), value: record?.value || "23:30", placeholder: "23:30" },
-    { key: "end", label: runtimeT("runtime.habits.sleepEnd"), value: record?.end || "07:00", placeholder: "07:00" },
-    { key: "target", label: runtimeT("runtime.habits.sleepTarget"), value: record?.target || cfg?.target || "00:30", placeholder: "00:30" }
-  ], async (data) => {
-    const start = normalizeClockValue(data.start) || "23:30";
-    const end = normalizeClockValue(data.end) || "07:00";
-    const target = normalizeClockValue(data.target) || "00:30";
-    const ok = await upsertSleepTimelineTask({ date, start, end, target, pathHint: record?.task?._path || "" });
-    if (!ok) {
-      new Notice(runtimeT("runtime.habits.noticeSleepSaveFailed"), 2200);
-      return false;
-    }
-    if (typeof onSaved === "function") onSaved({ start, end, target });
-    return true;
-  });
-};
 
 const markTaskStatus = async (task, done = true) => {
   try {
@@ -966,6 +756,15 @@ const markTaskStatus = async (task, done = true) => {
   }
 };
 
+const createHabitSourceButton=(parent,icon)=>{
+  const button=parent.createEl('button',{cls:'clickable-icon dashboard-guide-icon-btn',attr:{type:'button','aria-label':runtimeT('runtime.habits.noActiveAction'),title:runtimeT('runtime.habits.noActiveAction')}});
+  const paint=globalThis.dashboardCore?.utils?.applyLucideIcon;
+  if(paint)paint(button,icon);else button.setText('↗');
+  button.onclick=()=>openFilePath(habitRegistryPath);
+  return button;
+};
+const habitHeadingIcon=input?.actionsHost?.closest?.('.dashboard-home-trends-habit-history__head')?.querySelector('.dashboard-card-heading-icon');
+if(habitHeadingIcon){const button=createHabitSourceButton(input.actionsHost,'circle-check');button.addClass('dashboard-card-heading-icon','noria-card-open');habitHeadingIcon.replaceWith(button);}
 const contentRaw = await ctx.io.load(habitRegistryPath);
 let content = migrateHabitStatusTags(contentRaw || "");
 if (!content) {
@@ -1036,15 +835,18 @@ for (const t of sourceTasks) {
 }
 
 const sleepCfg = activeHabitConfigs.find((x) => x.type === "sleep");
+const timelineSleepRecords = new Map();
 // Date-note records override legacy registry rows, including an explicit withdrawal.
-const datedRecords=new Set();
+const datedRecords=new Set(),datedPaths=new Map();
+const trackDaySources=day=>{for(const path of day.sourcePaths){if(!datedPaths.has(path))datedPaths.set(path,new Set());datedPaths.get(path).add(day.spec.date);}};
 if(bridge.diaryHabits?.load) {
-  const days=await Promise.all(dates.map(date=>bridge.diaryHabits.load(date,{registryText:content})));
-  for(const day of days) for(const record of day.records) {
+  const days=[];
+  for(let i=0;i<dates.length;i+=12)days.push(...await Promise.all(dates.slice(i,i+12).map(date=>bridge.diaryHabits.load(date,{registryText:content}))));
+  for(const day of days) {trackDaySources(day);for(const record of day.records) {
     if(!habitMap.has(record.name)) continue;
     habitMap.get(record.name)[record.date]={...record,type:record.type || habitConfigMap.get(record.name)?.type || ""};
     if(record.path !== habitRegistryPath) datedRecords.add(`${record.name}|${record.date}`);
-  }
+  }}
 }
 if (sleepCfg && habitMap.has(sleepCfg.name)) {
   const diaryPages = habitWeekToArray(bridge.runtime?.pagesForManagedPath?.("diaryRoot", ctx)).filter((p) => {
@@ -1060,11 +862,10 @@ if (sleepCfg && habitMap.has(sleepCfg.name)) {
       const startParts = getSleepStartParts(rawStart);
       const dueParts = getSleepStartParts(rawDue);
       const habitDate = getSleepHabitDate(rawStart);
-      if (!startParts || !habitDate || !inRange(habitDate)) continue;
-      if(datedRecords.has(`${sleepCfg.name}|${habitDate}`)) continue;
+      if (!startParts || !habitDate || habitDate>todayKey) continue;
       const fields = parseInlineFields(txt);
       const target = fields.target || sleepCfg.target || "00:30";
-      habitMap.get(sleepCfg.name)[habitDate] = {
+      const record = {
         done: isSleepBeforeTarget(startParts.time, target),
         value: startParts.time,
         end: dueParts?.time || "",
@@ -1073,6 +874,8 @@ if (sleepCfg && habitMap.has(sleepCfg.name)) {
         source: "tl",
         task: { ...t, _path: p.file?.path || "" }
       };
+      timelineSleepRecords.set(habitDate,record);
+      if(inRange(habitDate)&&!datedRecords.has(`${sleepCfg.name}|${habitDate}`))habitMap.get(sleepCfg.name)[habitDate]=record;
     }
   }
 }
@@ -1090,11 +893,11 @@ const syncSleepHabitsFromTimeline = async () => {
 };
 
 const wrap = host.createDiv({cls:"noria-habit-history"});
-const viewKey=String(input?.widgetInstanceId||"habit-history");
+const viewKey=`${bridge.statisticsPageId||"home"}:${input?.widgetInstanceId||"habit-history"}`;
 const viewState=bridge.diaryHabits.historyViewState?.get(viewKey)||{expanded:false,atRecentEdge:true,scrollLeft:0};
 bridge.diaryHabits.historyViewState?.set(viewKey,viewState);
 wrap.dataset.expanded=String(viewState.expanded);
-const historicalDates=dates.filter(date=>date!==todayKey),decorators=[];
+const historicalDates=dates.filter(date=>date!==todayKey),decorators=[],appendDates=[],recordViews=new Map();
 const completeHistory=bridge.diaryHabits.history?await bridge.diaryHabits.history(activeHabitConfigs):{};
 const plan=bridge.diaryHabits.plan;
 habitActionMirror=wrap;setHabitAttr(wrap,"data-noria-action-source","home-habit-checkin");mirrorHabitAction();
@@ -1103,61 +906,154 @@ const summary=namesColumn.createDiv({cls:"noria-habit-column-head"});
 const scroll=wrap.createDiv({cls:"noria-habit-scroll",attr:{tabindex:"0",role:"region","aria-label":runtimeT("runtime.home.habits.historyRange")}});
 const history=scroll.createDiv({cls:"noria-habit-history-grid"});history.style.setProperty("--habit-days",String(dates.length-1));
 const historyHeader=history.createDiv({cls:"noria-habit-history-row noria-habit-column-head"});
-for(const date of historicalDates)historyHeader.createSpan({text:getDayNumber(date),attr:{title:date}});
-const todayColumn=wrap.createDiv({cls:"noria-habit-today"});todayColumn.createDiv({cls:"noria-habit-column-head",text:habitSectionsUseChinese?"今天":"Today"});
-const syncSummary=()=>{const scheduled=habits.filter(name=>!plan||plan.due(habitConfigMap.get(name)||{},todayKey));summary.setText(scheduled.length?runtimeT("runtime.home.habits.todayProgress",{done:scheduled.filter(name=>habitMap.get(name)?.[todayKey]?.done).length,total:scheduled.length}):(habitSectionsUseChinese?"今天休息":"Rest day"));};
+const addDateHeading=date=>{const cell=historyHeader.createSpan({text:date.endsWith("-01")?`${Number(date.slice(5,7))}/1`:getDayNumber(date),attr:{title:date}});cell.dataset.date=date;return cell;};
+for(const date of historicalDates)addDateHeading(date);
+const todayColumn=wrap.createDiv({cls:"noria-habit-today"});todayColumn.createDiv({cls:"noria-habit-column-head",text:getDayNumber(todayKey),attr:{title:todayKey,"aria-label":`${habitSectionsUseChinese?"今天":"Today"} · ${todayKey}`,"aria-current":"date"}});
+let dayWidth=24,visibleDates=historicalDates;
+const syncSummary=()=>{
+  if(viewState.expanded){
+    const index=Math.min(visibleDates.length-1,Math.max(0,Math.floor((scroll.scrollLeft||0)/dayWidth)));
+    const date=visibleDates[index];
+    summary.setText(habitSectionsUseChinese?`${date.slice(0,4)}年${Number(date.slice(5,7))}月`:date.slice(0,7));
+    summary.title=date;
+    return;
+  }
+  summary.title="";
+  const scheduled=habits.filter(name=>!plan||plan.due(habitConfigMap.get(name)||{},todayKey));
+  summary.setText(scheduled.length?runtimeT("runtime.home.habits.todayProgress",{done:scheduled.filter(name=>habitMap.get(name)?.[todayKey]?.done).length,total:scheduled.length}):(habitSectionsUseChinese?"今天休息":"Rest day"));
+};
 for(const name of habits){
   const cfg=habitConfigMap.get(name)||{name},visual=plan?.visual(cfg),label=namesColumn.createDiv({cls:"noria-habit-name-cell",attr:{title:name}});
   if(visual)label.style.setProperty("--noria-habit-color",visual.color);
   const picture=label.createSpan({cls:"noria-habit-picture"});bridge.diaryHabits.renderPicture(picture,visual?.icon||"sparkles");
-  const words=label.createDiv({cls:"noria-habit-label"});words.createSpan({text:name});const detail=words.createSpan({cls:"noria-habit-streak"});
-  const syncDetail=()=>{if(!plan)return;const records={...completeHistory[name],...habitMap.get(name)},s=plan.summary(cfg,records,todayKey);detail.setText(plan.summaryText(s,habitSectionsUseChinese));detail.title=plan.summaryDetail(s,habitSectionsUseChinese);};syncDetail();
-  label.setAttribute("role","button");label.tabIndex=0;label.title=habitSectionsUseChinese?`${name} · 编辑习惯`:`${name} · Edit habit`;
+  const words=label.createDiv({cls:"noria-habit-label"});words.createSpan({text:name});
+  const syncDetail=()=>{if(!plan)return;const records={...completeHistory[name],...habitMap.get(name)},s=plan.summary(cfg,records,todayKey);label.title=`${name}\n${plan.summaryText(s,habitSectionsUseChinese)}\n${plan.summaryDetail(s,habitSectionsUseChinese)}`;label.setAttribute('aria-description',label.title);};syncDetail();
+  label.setAttribute("role","button");label.tabIndex=0;label.setAttribute('aria-label',habitSectionsUseChinese?`${name} · 编辑习惯`:`${name} · Edit habit`);
   label.onclick=()=>bridge.diaryHabits.manage(cfg.id||name);label.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();label.click();}};
   const historical=history.createDiv({cls:"noria-habit-history-row"}),cells=[];
   const decorate=()=>bridge.diaryHabits.decorateHistory(cells,cfg,{...completeHistory[name],...habitMap.get(name)},todayKey,viewState.expanded);decorators.push(decorate);
-  for(const date of dates){
+  const addDate=(date,prepend=false)=>{
     const recordMap=habitMap.get(name)||{},config=habitConfigMap.get(name)||{name},record=recordMap[date]||null;
     const parent=date===todayKey?todayColumn.createDiv({cls:"noria-habit-today-cell"}):historical.createDiv();
-    cells.push({date,parent});
-    const render=()=>{parent.empty();bridge.diaryHabits.renderRow({parent,config,record:recordMap[date]||null,compact:true,showValue:date===todayKey,date,
+    parent.dataset.date=date;
+    if(prepend){historical.insertBefore(parent,historical.firstChild);cells.unshift({date,parent});}else cells.push({date,parent});
+    const render=()=>{parent.empty();const row=bridge.diaryHabits.renderRow({parent,config,record:recordMap[date]||null,compact:true,showValue:date===todayKey,date,
       beforeAct:()=>{if(date===todayKey)bridge.diaryHabits.assertToday(todayKey);},
-      onSave:async(done,value)=>{
+      onSave:async(done,value,options)=>{
         setHabitActionState(parent,"pending");mirrorHabitAction({state:"pending",kind:"toggle-habit-checkin",habit:name,date,path:habitRegistryPath});
-        try{const current=recordMap[date]||{};const ok=await writeHabitRecord({config:{...config,...(current.type?{type:current.type}:{} )},date,done,value,target:current.target,unit:current.unit,expectedToday:date===todayKey?todayKey:""});
+        try{const current=recordMap[date]||{};const ok=await writeHabitRecord({config:{...config,...(current.type?{type:current.type}:{} )},date,done,value,target:current.target,unit:current.unit,...options,expectedToday:date===todayKey?todayKey:""});
           if(!ok)throw Error(runtimeT("runtime.habits.noticeHabitSaveFailed"));recordMap[date]={...current,done,value};syncSummary();syncDetail();setTimeout(decorate,0);
           bridge.refresh?.requestRefresh?.('tasks','habit-checkin-saved');
           setHabitActionState(parent,"ok");mirrorHabitAction({state:"ok",kind:"toggle-habit-checkin",habit:name,date,path:habitRegistryPath});return true;
         }catch(e){new Notice(e.message);setHabitActionState(parent,"failed",e.message);mirrorHabitAction({state:"failed",kind:"toggle-habit-checkin",habit:name,date,error:e.message});return false;}
-      },
-      onSleep:record?.source==="tl"?()=>openSleepRecordEditor({date,cfg:config,record:recordMap[date],onSaved:({start,end,target})=>{recordMap[date]={...recordMap[date],value:start,end,target,done:isSleepBeforeTarget(start,target)};render();syncSummary();syncDetail();}}):undefined
-    });};render();
-  }
+      }
+    });recordViews.set(`${name}|${date}`,next=>{row.updateHabitRecord(next);syncDetail();});};render();
+  };
+  for(const date of dates)addDate(date);
+  appendDates.push(extra=>{for(const date of [...extra].reverse())addDate(date,true);});
   decorate();
 }
+let disposed=false,loadTimer=0,loading=false,requestedCount=dates.length;
+const loadWiderRange=async()=>{
+  if(disposed||loading||requestedCount<=historicalDates.length+1)return;
+  loading=true;
+  try{
+    const extra=buildRecentDates(fromDateStr(todayKey),requestedCount).filter(date=>date<historicalDates[0]);
+    const days=[];
+    for(let i=0;i<extra.length;i+=12)days.push(...await Promise.all(extra.slice(i,i+12).map(date=>bridge.diaryHabits.load(date,{registryText:content}))));
+    if(disposed)return;
+    for(const date of extra)for(const name of habits){const record=completeHistory[name]?.[date];if(record)habitMap.get(name)[date]={...record};}
+    for(const day of days){trackDaySources(day);for(const record of day.records){
+      if(habitMap.has(record.name))habitMap.get(record.name)[record.date]={...record,type:record.type||habitConfigMap.get(record.name)?.type||""};
+      if(record.path!==habitRegistryPath)datedRecords.add(`${record.name}|${record.date}`);
+    }}
+    if(sleepCfg)for(const date of extra){const record=timelineSleepRecords.get(date);if(record&&!datedRecords.has(`${sleepCfg.name}|${date}`))habitMap.get(sleepCfg.name)[date]={...record};}
+    for(const date of [...extra].reverse()){const cell=addDateHeading(date);historyHeader.insertBefore(cell,historyHeader.firstChild);}
+    historicalDates.unshift(...extra);
+    appendDates.forEach(add=>add(extra));
+    syncRange();decorators.forEach(decorate=>decorate());
+  }catch(error){if(!disposed)new Notice(error.message||String(error));}
+  finally{loading=false;}
+};
 const syncRange=()=>{
-  const recentCount=Math.min(6,Math.max(1,Math.floor((scroll.clientWidth||192)/32)));
-  const count=viewState.expanded?historicalDates.length:Math.min(recentCount,historicalDates.length);
+  if(disposed||!wrap.clientWidth)return;
+  const nameWidth=Math.max(0,...[...namesColumn.querySelectorAll('.noria-habit-label>span:first-child')].map(label=>label.scrollWidth))+40;
+  const fit=bridge.diaryHabits.fitGrid(wrap.clientWidth,nameWidth,viewState.expanded?HABIT_WINDOW_DAYS:undefined);
+  dayWidth=fit.dayWidth;
+  wrap.style.setProperty('--habit-name-width',`${fit.nameWidth}px`);
+  wrap.style.setProperty('--habit-day-width',`${dayWidth}px`);
+  scroll.style.width=`${(fit.days-1)*dayWidth}px`;
+  requestedCount=Math.max(HABIT_WINDOW_DAYS,fit.days);
+  if(requestedCount>historicalDates.length+1){clearTimeout(loadTimer);loadTimer=setTimeout(()=>void loadWiderRange(),120);}
+  const count=Math.min(historicalDates.length,viewState.expanded?HABIT_WINDOW_DAYS-1:fit.days-1);
+  visibleDates=historicalDates.slice(-count);
   wrap.dataset.expanded=String(viewState.expanded);history.style.setProperty("--habit-days",String(count));
   for(const row of history.children)for(let i=0;i<row.children.length;i++)row.children[i].hidden=i<historicalDates.length-count;
   if(viewState.atRecentEdge)scroll.scrollLeft=scroll.scrollWidth;else scroll.scrollLeft=viewState.scrollLeft;
+  syncSummary();
 };
 syncSummary();syncRange();requestAnimationFrame(()=>{if(scroll.isConnected)syncRange();});
 // Keep the inspected range across refreshes; resizing recent mode only adjusts its visible days.
 if(typeof input?.registerCleanup==='function'){
-  const trackPosition=()=>{viewState.atRecentEdge=scroll.scrollWidth-scroll.clientWidth-scroll.scrollLeft<2;viewState.scrollLeft=scroll.scrollLeft;};
+  const trackPosition=()=>{viewState.atRecentEdge=scroll.scrollWidth-scroll.clientWidth-scroll.scrollLeft<2;viewState.scrollLeft=scroll.scrollLeft;syncSummary();};
   scroll.addEventListener('scroll',trackPosition);
-  const resize=new scroll.ownerDocument.defaultView.ResizeObserver(syncRange);resize.observe(scroll);
-  input.registerCleanup(()=>{resize.disconnect();scroll.removeEventListener('scroll',trackPosition);});
+  const resize=new scroll.ownerDocument.defaultView.ResizeObserver(syncRange);resize.observe(wrap);
+  input.registerCleanup(()=>{disposed=true;clearTimeout(loadTimer);resize.disconnect();scroll.removeEventListener('scroll',trackPosition);});
+
+  // Refresh only the affected date. The original buttons and history viewport stay in place.
+  let recordTimer=0;
+  const pendingDates=new Set(),revisions=new Map();
+  const refreshDates=async()=>{
+    const pending=[...pendingDates];pendingDates.clear();
+    for(const date of pending){
+      const revision=revisions.get(date);
+      try{
+        const day=await bridge.diaryHabits.load(date);
+        if(disposed||revision!==revisions.get(date))continue;
+        for(const name of habits){
+          const next=day.records.find(record=>record.name===name)||null;
+          const map=habitMap.get(name);if(next)map[date]=next;else delete map[date];
+          if(completeHistory[name])delete completeHistory[name][date];
+          recordViews.get(`${name}|${date}`)?.(next);
+        }
+        syncSummary();decorators.forEach(decorate=>decorate());
+      }catch(error){if(!disposed)new Notice(error.message||String(error));}
+    }
+  };
+  const queueDate=path=>{
+    if(path===habitRegistryPath){scheduleRefresh();return;}
+    const affected=datedPaths.get(path);if(!affected)return;
+    for(const date of affected){pendingDates.add(date);revisions.set(date,(revisions.get(date)||0)+1);}
+    clearTimeout(recordTimer);recordTimer=setTimeout(()=>void refreshDates(),100);
+  };
+  const refs=[
+    [app.vault,app.vault.on('modify',file=>queueDate(file.path))],
+    [app.vault,app.vault.on('create',file=>queueDate(file.path))],
+    [app.vault,app.vault.on('delete',file=>queueDate(file.path))],
+    [app.vault,app.vault.on('rename',(file,oldPath)=>{queueDate(oldPath);queueDate(file.path);})],
+    [app.metadataCache,app.metadataCache.on('changed',file=>queueDate(file.path))]
+  ];
+  input.registerCleanup(()=>{clearTimeout(recordTimer);refs.forEach(([owner,ref])=>owner.offref(ref));});
 }
 const actionsHost=input?.actionsHost||wrap;
-const setIcon=globalThis.dashboardCore?.utils?.applyLucideIcon;
+const paintHabitIcon=globalThis.dashboardCore?.utils?.applyLucideIcon;
 const rangeBtn=actionsHost.createEl('button',{cls:'clickable-icon dashboard-guide-icon-btn noria-habit-history-toggle',attr:{type:'button'}});
-const syncRangeButton=()=>{const label=viewState.expanded?(habitSectionsUseChinese?"收起历史":"Show recent days"):(habitSectionsUseChinese?`查看近 ${dates.length} 天`:`Show ${dates.length} days`);rangeBtn.title=label;rangeBtn.setAttribute('aria-label',label);rangeBtn.setAttribute('aria-expanded',String(viewState.expanded));};
-if(setIcon)setIcon(rangeBtn,'history');else rangeBtn.setText('↶');syncRangeButton();
-rangeBtn.onclick=()=>{viewState.expanded=!viewState.expanded;viewState.atRecentEdge=true;syncRange();syncRangeButton();decorators.forEach(decorate=>decorate());};
-const sourceBtn=actionsHost.createEl('button',{cls:'clickable-icon dashboard-guide-icon-btn',attr:{type:'button','aria-label':runtimeT('runtime.habits.noActiveAction'),title:runtimeT('runtime.habits.noActiveAction')}});
-if(setIcon)setIcon(sourceBtn,'file-text');else sourceBtn.setText('↗');sourceBtn.onclick=()=>openFilePath(habitRegistryPath);
+const syncRangeButton=()=>{const label=viewState.expanded?(habitSectionsUseChinese?"收起历史":"Show recent days"):(habitSectionsUseChinese?`查看近 ${HABIT_WINDOW_DAYS} 天`:`Show ${HABIT_WINDOW_DAYS} days`);rangeBtn.title=label;rangeBtn.setAttribute('aria-label',label);rangeBtn.setAttribute('aria-expanded',String(viewState.expanded));};
+if(paintHabitIcon)paintHabitIcon(rangeBtn,'noria-range');else rangeBtn.setText('↔');syncRangeButton();
+const rangeSelect=actionsHost.createEl('select',{cls:'noria-habit-history-range',attr:{'aria-label':habitSectionsUseChinese?'历史范围':'History range'}});
+actionsHost.insertBefore(rangeSelect,rangeBtn);
+for(const days of [7,14,21,30,60,90,180,365])rangeSelect.createEl('option',{value:String(days),text:habitSectionsUseChinese?`${days} 天`:`${days} days`});
+rangeSelect.value=String(HABIT_WINDOW_DAYS);rangeSelect.hidden=!viewState.expanded;
+rangeSelect.disabled=!!input?.previewWidget||!input?.widgetInstanceId||typeof bridge.diaryHabits.saveHistoryDays!=='function';
+rangeSelect.onchange=async()=>{
+  rangeSelect.disabled=true;viewState.atRecentEdge=true;
+  try{await bridge.diaryHabits.saveHistoryDays(input.widgetInstanceId,Number(rangeSelect.value));}
+  catch(error){rangeSelect.value=String(HABIT_WINDOW_DAYS);new Notice(error.message||String(error));}
+  finally{rangeSelect.disabled=false;}
+};
+
+rangeBtn.onclick=()=>{viewState.expanded=!viewState.expanded;viewState.atRecentEdge=true;syncRange();syncRangeButton();rangeSelect.hidden=!viewState.expanded;decorators.forEach(decorate=>decorate());};
+if(!habitHeadingIcon)createHabitSourceButton(actionsHost,'file-text');
 const addBtn=actionsHost.createEl("button",{cls:"clickable-icon dashboard-guide-icon-btn dashboard-guide-toolbar-plus",attr:{type:"button",title:runtimeT("runtime.habits.addHabit"),"aria-label":runtimeT("runtime.habits.addHabit")}});
-if(setIcon)setIcon(addBtn,"plus");else addBtn.setText("+");addBtn.onclick=()=>openHabitStatusPanel(true);
+if(paintHabitIcon)paintHabitIcon(addBtn,"plus");else addBtn.setText("+");addBtn.onclick=()=>openHabitStatusPanel(true);
 const habitShell=host.closest?.(".dashboard-home-widget-shell");if(habitShell)habitShell._noriaConfigureWidget=()=>openHabitStatusPanel();

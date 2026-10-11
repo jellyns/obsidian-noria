@@ -5,7 +5,7 @@ const en=(zh,en)=>en;
 test('every distinct style has a compatible complete default, using configured fields when available',()=>{
  const fields=[{id:'mood',name:'Mood',property:'feeling',type:'option'},{id:'energy',name:'Energy',property:'energy_level',type:'level'}];
  const {styles,recommended}=builtInTemplates(fields,en);
- assert.equal(styles.length,11);assert.equal(new Set(styles.map(t=>t.props.display)).size,11);
+ assert.equal(styles.length,13);assert.equal(new Set(styles.map(t=>t.props.display)).size,13);
  assert.deepEqual(styles.map(t=>t.props.display),STYLES.map(t=>t[0]));
  for(const t of styles){const p=t.props,field=fields.find(f=>f.property===p.property);assert.ok(chartOptions(p,field).includes(p.display),t.id);assert.ok(p.source&&p.calculate&&p.scope);}
  assert.equal(styles.find(t=>t.style==='line').props.property,'energy_level');
@@ -44,4 +44,10 @@ test('saved dashboard statistics survive storage and create independent card pla
  const first=widgetFromTemplate(loaded),second=widgetFromTemplate(loaded);assert.notEqual(first.id,second.id);assert.notEqual(first.id,card.id);assert.equal(first.builtinId,card.builtinId);assert.equal(first.props.historyDays,14);assert.equal(first.props.picture,card.props.picture);assert.equal(first.props.cardHeight,undefined);
  await store.remove(saved.id);assert.equal(first.props.historyDays,14);assert.equal(store.read().length,0);
  assert.throws(()=>templateFromWidget({id:'inbox-card',type:'builtin',props:{}},'Inbox'),/Only statistics/);
+});
+test('overview templates retain their provider and independent placements',()=>{
+ const {templateFromWidget,widgetFromTemplate}=require('../src/statistic-templates.js');
+ const saved=templateFromWidget({type:'extension',source:'noria:period-overview',size:'full',props:{row1:'focus',row2:'habits',scope:'fixed',start:'2026-01-01',end:'2026-12-31'}},'概览','overview');
+ assert.equal(saved.kind,'overview');const widget=widgetFromTemplate(saved,{id:'new-overview'},true);
+ assert.equal(widget.source,'noria:period-overview');assert.equal(widget.props.scope,'follow');assert.equal(widget.size,'full');
 });

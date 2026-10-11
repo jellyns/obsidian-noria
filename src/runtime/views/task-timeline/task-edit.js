@@ -107,14 +107,27 @@
 
   function buildDraggedTaskLine(line, event, drag, options = {}) {
     const dates = normalizeDragDates(event, drag, options);
-    const startText = formatDateTime(dates.start);
-    const endText = formatDateTime(dates.end);
+    const format = options.formatDateTime || formatDateTime;
+    const startText = format(dates.start);
+    const endText = format(dates.end);
     if (!startText) return String(line || "");
+
+    const meta = event && (event.noria || event.payload?.noria);
+    if (Number.isInteger(meta?.scheduleIndex)) {
+      const schedule = root.taskDocument.parseTaskLine(line).schedules[meta.scheduleIndex];
+      if (!schedule || schedule.error || schedule.start !== meta.scheduleStart || schedule.end !== meta.scheduleEnd) throw new Error("task-changed");
+      const dateOnly = schedule.start.length === 10;
+      const value = text => dateOnly ? text.slice(0,10) : text;
+      return root.taskDocument.patchTaskLine(line, {schedule:{
+        action:"update",index:meta.scheduleIndex,start:value(startText),
+        end:schedule.end ? value(endText || format(addMinutes(dates.start, options.minDurationMin || 5))) : ""
+      }});
+    }
 
     if (eventIsDuration(event)) {
       return root.taskDocument.patchTaskDates(line, {
         start: startText,
-        due: endText || formatDateTime(addMinutes(dates.start, options.minDurationMin || 5))
+        due: endText || format(addMinutes(dates.start, options.minDurationMin || 5))
       });
     }
 

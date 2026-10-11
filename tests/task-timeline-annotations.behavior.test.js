@@ -14,6 +14,16 @@ function editor() {
   return context.noriaTaskTimeline.annotationEditor;
 }
 
+test('annotation civil input follows the selected zone and rejects DST gaps and repeats',()=>{
+ const api=editor(),{timelineClock}=require('../src/task-calendar-zone.js');
+ const tokyo=timelineClock({timeZone:'Asia/Tokyo'}),raw={title:'Review',type:'span',start:'2026-10-11T00:30',end:'2026-10-11T01:30'};
+ const converted=api.prepareDraft(raw,tokyo);assert.equal(converted.error,'');assert.equal(converted.annotation.start,'2026-10-10T15:30:00.000Z');assert.equal(converted.annotation.end,'2026-10-10T16:30:00.000Z');
+ const ny=timelineClock({timeZone:'America/New_York'});
+ assert.equal(api.prepareDraft({...raw,type:'point',start:'2026-03-08T02:30'},ny).error,'time');
+ assert.equal(api.prepareDraft({...raw,type:'point',start:'2026-11-01T01:30'},ny).error,'time');
+ assert.equal(api.prepareDraft({...raw,type:'point',start:'2026-11-01T05:30:21.000Z'},ny).annotation.start,'2026-11-01T05:30:21.000Z');
+});
+
 function store() {
   const source = fs.readFileSync(path.join(__dirname, "../src/main.js"), "utf8");
   const methods = source.slice(source.indexOf("  sanitizeTimelineAnnotationColor(value) {"), source.indexOf("  getPlannerLabControlsMeta() {"));

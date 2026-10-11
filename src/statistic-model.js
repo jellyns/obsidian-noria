@@ -14,6 +14,8 @@ function priorRange(range,today){
  return {current:{start:range.start,end},previous:{start:shift(range.start,-length),end:shift(range.start,-1)},partial:end!==range.end};
 }
 function chartOptions(config,field){
+ if(config.source==='goals')return ['progress-rings'];
+ if(config.source==='focus')return ['time-ring'];
  const category=field?['option','toggle'].includes(field.type):config.calculate==='distribution';
  const grouped=!!config.group||config.calculate==='distribution',rate=config.calculate==='rate';
  if(rate)return ['metric','progress','comparison'];

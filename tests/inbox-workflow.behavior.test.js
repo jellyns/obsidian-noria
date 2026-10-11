@@ -50,6 +50,7 @@ function loadPluginClass(options = {}) {
       }
       if (id === "child_process") return {};
       if (id === "crypto") return require("node:crypto");
+      if (id === "./home-focus-defaults.js") return require("../src/home-focus-defaults.js");
       throw new Error(`Unexpected require: ${id}`);
     },
     __notices: [],

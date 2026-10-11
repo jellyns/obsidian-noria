@@ -131,10 +131,12 @@ const createdToday = metricPages.filter((p) => {
 }).length;
 
 const metricsCache = getMetricsCacheState();
-if (!metricsCache.byPath || typeof metricsCache.byPath !== "object" || Array.isArray(metricsCache.byPath)) {
+if (metricsCache.version !== 2 || !metricsCache.byPath || typeof metricsCache.byPath !== "object" || Array.isArray(metricsCache.byPath)) {
   metricsCache.byPath = {};
+  metricsCache.version = 2;
 }
 let charCount = 0;
+let unreadCount = 0;
 const seenMetricPaths = new Set();
 const overviewMetricReadJobs = [];
 for (const p of metricPages) {
@@ -148,22 +150,25 @@ for (const p of metricPages) {
     continue;
   }
   overviewMetricReadJobs.push(async () => {
-    let length = 0;
     try {
       const c = await ctx.io.load(pathText);
-      if (c) length = String(c).length;
-    } catch (_) {}
-    metricsCache.byPath[pathText] = { mtime, length };
-    charCount += length;
+      if (c == null) throw new Error("Note content unavailable");
+      const length = String(c).length;
+      metricsCache.byPath[pathText] = { mtime, length };
+      charCount += length;
+    } catch (_) {
+      delete metricsCache.byPath[pathText];
+      unreadCount++;
+    }
   });
 }
 await runOverviewMetricReadQueue(overviewMetricReadJobs);
 for (const pathText of Object.keys(metricsCache.byPath)) {
   if (!seenMetricPaths.has(pathText)) delete metricsCache.byPath[pathText];
 }
-metricsCache.charCount = charCount;
+metricsCache.charCount = unreadCount ? null : charCount;
 const metricsLocale = String(metricsBridge?.locale || metricsBridge?.i18n?.locale || "en").trim() || "en";
-const charStr = charCount >= 1000
+const charStr = unreadCount ? "—" : charCount >= 1000
   ? new Intl.NumberFormat(metricsLocale, { notation: "compact", maximumFractionDigits: 2 }).format(charCount)
   : new Intl.NumberFormat(metricsLocale).format(charCount);
 
@@ -239,7 +244,7 @@ const renderMetricRows = (rows, style) => {
   const surface = style?.background || style?.gradient || fallbackStyle.background || fallbackStyle.gradient || "var(--dash-surface-raised, var(--background-primary))";
   const accent = style?.accent || (isHero ? "var(--noria-module-home,var(--interactive-accent))" : "#f8fafc");
   const labelColor = style?.labelColor || (isHero ? "rgba(51,65,85,.8)" : "rgba(248,250,252,.93)");
-  const minH = isHero ? (rows.length < 2 ? 72 : 88) : rows.length < 2 ? 74 : 86;
+  const minH = rows.length===1 ? 96 : isHero ? 88 : 86;
   const pad = isHero ? "11px 11px" : "11px 13px";
   const r = isHero ? "12px" : "13px";
   const border = isHero
@@ -248,16 +253,16 @@ const renderMetricRows = (rows, style) => {
   const card = host.createDiv();
   card.addClass("dashboard-metric-card");
   if (isHero) card.addClass("dashboard-metric-card--hero");
-  const stretch = isHero ? "align-self:stretch;height:100%;" : "";
+  const stretch = "display:flex;flex-direction:column;align-self:stretch;height:100%;container-type:inline-size;";
   card.style.cssText = `position:relative;overflow:hidden;border-radius:${r};padding:${pad};min-height:${minH}px;${stretch}background:${surface};box-shadow:${metricsShadow};border:${border};`;
   const body = card.createDiv();
   body.style.cssText =
     "position:relative;display:flex;flex-direction:column;gap:" +
     (isHero ? "6px" : "6px") +
     ";" +
-    (isHero ? "justify-content:center;flex:1;min-height:0;" : "justify-content:center;height:100%;");
+    "justify-content:center;flex:1;min-height:0;";
   const labelFs = isHero ? "11px" : "12px";
-  const bigFs = isHero ? "clamp(21px,2.35vw,28px)" : "34px";
+  const bigFs = rows.length===1 ? "clamp(40px,42cqw,58px)" : isHero ? "clamp(21px,2.35vw,28px)" : "34px";
   const smFs = isHero ? "clamp(17px,1.9vw,22px)" : "26px";
   rows.forEach((rowSpec) => {
     const row = body.createDiv();
@@ -271,15 +276,27 @@ const renderMetricRows = (rows, style) => {
     const valWt = isHero ? "700" : "800";
     const wrapGuard = isHero ? "white-space:nowrap;max-width:100%;overflow:visible;text-overflow:clip;" : "";
     n.style.cssText = `font-size:${rowSpec.big ? bigFs : smFs};line-height:1.06;color:${accent};text-shadow:${valSh};text-align:center;font-weight:${valWt};${wrapGuard}`;
+    if(rows.length===1){
+      // Fit the actual glyphs, including long values, inside both dimensions.
+      const fit=()=>{n.style.fontSize=bigFs;const available=body.clientHeight-labelFs.replace('px','')*1.2-6;
+        const size=parseFloat(getComputedStyle(n).fontSize),width=body.clientWidth;
+        if(width>0&&available>0)n.style.fontSize=Math.max(12,Math.min(size,size*width/Math.max(1,n.scrollWidth),available/1.06))+'px';};
+      const observer=new ResizeObserver(fit);observer.observe(card);
+      input?.registerCleanup?.(()=>observer.disconnect());
+      requestAnimationFrame(fit);
+    }
   });
 };
 
 const currentHint = metricText("当前快照，不代表所选区间的历史总量。", "Current snapshot, not a historical total for the selected period.");
+const charactersHint = unreadCount
+  ? metricText(`${unreadCount} 篇笔记未能读取，刷新后重试。`, `${unreadCount} notes could not be read. Refresh to retry.`)
+  : currentHint;
 const periodHint = period ? `${period.start} — ${period.end}` : "";
 const metricRowsSpec = [
   [{ key:"daysUsed", label: metricsT("runtime.home.metrics.daysUsed"), value: daysUsed, big: true }, { key:"usageStreak", label: metricsT("runtime.home.metrics.usageStreak"), value: streak, big: true }],
   [{ key:"totalNotes", label: metricsT("runtime.home.metrics.totalNotes"), value: metricPages.length, big: true, hint:currentHint }, { key:"todayNotes", label: period ? metricText("区间新建笔记", "Notes created in period") : metricsT("runtime.home.metrics.todayNotes"), value: `+${createdToday}`, big: true, hint:periodHint }],
-  [{ key:"totalWords", label: metricText("当前字符量", "Current characters"), value: charStr, big: true, hint:currentHint }, { key:"completedTasks", label: period ? metricText("区间完成事项", "Tasks completed in period") : metricsT("runtime.home.metrics.completedTasks"), value: completedTaskCount, big: true, hint:periodHint }],
+  [{ key:"totalWords", label: metricText("当前字符量", "Current characters"), value: charStr, big: true, hint:charactersHint }, { key:"completedTasks", label: period ? metricText("区间完成事项", "Tasks completed in period") : metricsT("runtime.home.metrics.completedTasks"), value: completedTaskCount, big: true, hint:periodHint }],
   [{ key:"missingTags", label: metricsT("runtime.home.metrics.missingTags"), value: tagMissing, big: true, hint:currentHint }, { key:"brokenLinks", label: metricsT("runtime.home.metrics.brokenLinks"), value: unresolvedCount, big: true, hint:currentHint }]
 ];
 const selectedFields = Array.isArray(input?.overviewFields) ? new Set(input.overviewFields) : null;

@@ -1,0 +1,49 @@
+filters:
+  and:
+    - file.ext == "md"
+    - "/^(\\d{4}-\\d{2}-\\d{2})(?: ((?:[01]\\d|2[0-3])[0-5]\\d))? (.+)$/.matches(file.name)"
+    - "!/^\\d{4}-\\d{2}-\\d{2} 2[4-9][0-5]\\d /.matches(file.name)"
+    - formula.day.format("YYYY-MM-DD") == file.name.slice(0, 10)
+formulas:
+  day: date(file.name.slice(0, 10))
+  contextName: this.file.name
+  contextPath: this.file.path
+  standalone: this.file.ext == "base"
+  periodFormat: "if(/^\\d{4}-\\d{2}-\\d{2}(?: |$)/.matches(formula.contextName), \"YYYY-MM-DD\", if(/^\\d{4}-W\\d{2}(?: |$)/.matches(formula.contextName), \"GGGG-[W]WW\", if(/^\\d{4}-\\d{2}(?: |$)/.matches(formula.contextName), \"YYYY-MM\", if(/^\\d{4}(?: |$)/.matches(formula.contextName), \"YYYY\", \"\"))))"
+  group: "if(/^\\d{4}-\\d{2}-\\d{2}(?: |$)/.matches(formula.contextName), \"\", formula.day.format(\"YYYY-MM-DD\"))"
+  source: "link(file.path, file.name.slice(if(/^\\d{4}-\\d{2}-\\d{2} (?:[01]\\d|2[0-3])[0-5]\\d /.matches(file.name), 16, 11)))"
+  time: "if(/^\\d{4}-\\d{2}-\\d{2} (?:[01]\\d|2[0-3])[0-5]\\d /.matches(file.name), file.name.slice(11, 13) + \":\" + file.name.slice(13, 15), \"\")"
+properties:
+  formula.source:
+    displayName: Source
+  formula.group:
+    displayName: Date
+  formula.time:
+    displayName: Time
+  formula.day:
+    displayName: Date
+views:
+  - type: list
+    name: Records
+    filters:
+      and:
+        - "formula.standalone || (formula.periodFormat != \"\" && formula.day.format(formula.periodFormat) == formula.contextName.split(\" \")[0])"
+        - file.path != formula.contextPath
+    order:
+      - formula.source
+      - formula.time
+    groupBy:
+      property: formula.group
+      direction: DESC
+    sort:
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: All
+    order:
+      - formula.day
+      - file.name
+      - related
+    sort:
+      - property: formula.day
+        direction: DESC

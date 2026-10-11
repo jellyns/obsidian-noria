@@ -1,7 +1,9 @@
 "use strict";
-const { Notice, Scope } = require("obsidian");
-const { FIELD, parseWork, updateWork, moveFile, undoMove } = require("./inbox-work.js");
+const { Notice, Scope, Menu, setIcon } = require("obsidian");
+const { FIELD, parseWork, updateWork } = require("./inbox-work.js");
 const { ACTIONS, selectItems, actionCount, sectors, preview } = require("./inbox-card-model.js");
+const { createInboxReader } = require("./inbox-reading.js");
+const { loadEntries, assignEntry, editEntry, appendEntry, moveWithEntry, undoWithEntry } = require("./inbox-entries.js");
 
 async function renderInboxCard(plugin, host, { actionsHost } = {}) {
   host.__noriaInboxCleanup?.();
@@ -19,7 +21,16 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
   const on = (el, event, fn) => el.addEventListener(event, fn, options);
   let disposed = false, actorFilter = "", actionFilter = "", limit = 10, active = null, press = null;
   let items = [], ignoreClick = 0, busy = false, undo = null, scope = null, lastHit = null;
+  let entries = [], storeFile = null, refreshVersion = 0, readingEntry = null, showStore = false, loadError = "";
   const rows = new Map();
+  const reader = createInboxReader(plugin, host);
+  function syncReading() {
+    const path = reader.currentPath();
+    for (const [key, row] of rows) {
+      if (key === path || (row.item.entry && row.item.sourcePath === path && row.item.entry.line === readingEntry)) row.title.setAttribute("aria-current", "true");
+      else row.title.removeAttribute("aria-current");
+    }
+  }
   const button = (parent, text, cls, run) => {
     const el = parent.createEl("button", { text, cls, type: "button" });
     el.type = "button";
@@ -35,8 +46,19 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     });
     control.dataset.actorFilter = actor;
   }
-  const actionSelect = tools.createEl("select", { cls: "noria-inbox-action-filter", attr: { "aria-label": t("动作筛选", "Filter actions") } });
-  on(actionSelect, "change", () => { actionFilter = actionSelect.value; limit = 10; renderList(true); });
+  let actionMenu = null;
+  const actionSelect = button(tools, "", "clickable-icon noria-inbox-action-filter", () => {
+    actionMenu?.hide();
+    const menu = actionMenu = new Menu();
+    const values = [...new Set([...items.map(item => parseWork(item.work).action).filter(Boolean), ...(actionFilter ? [actionFilter] : [])])];
+    for (const value of ["", ...values]) menu.addItem(item => item.setTitle(value ? word(value) : t("全部", "All")).setChecked(value === actionFilter).onClick(() => {
+      actionFilter = value; limit = 10; renderList(true);
+    }));
+    actionSelect.setAttribute("aria-expanded", "true");
+    menu.onHide(() => { actionSelect.setAttribute("aria-expanded", "false"); actionMenu = null; actionSelect.focus({preventScroll:true}); });
+    const rect = actionSelect.getBoundingClientRect(); menu.showAtPosition({x:rect.left,y:rect.bottom});
+  });
+  setIcon(actionSelect, "filter"); actionSelect.setAttribute("aria-haspopup", "menu");
   const list = host.createDiv({ cls: "noria-inbox-list" });
   let position = { top: 0, anchors: [] }, restorePending = false;
   function rememberPosition() {
@@ -59,11 +81,29 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
 
   function collect() {
     const previous = new Map(items.map(item => [item.path, item]));
-    items = plugin.filesUnderRoots([rootPath], [".md"]).map(file => ({
+    items = plugin.filesUnderRoots([rootPath], [".md"]).filter(file => file !== storeFile || showStore).map(file => ({
       path: file.path, name: file.basename, mtime: file.stat.mtime,
       work: parseWork(app.metadataCache.getFileCache(file)?.frontmatter?.[FIELD]).value,
       preview: previous.get(file.path)?.preview ?? null
-    })).sort((a, b) => b.mtime - a.mtime || a.path.localeCompare(b.path));
+    })).concat(entries.map(entry => ({
+      path: storeFile.path+"#"+entry.line, sourcePath: storeFile.path, entry,
+      name: entry.name, work: entry.work, mtime: storeFile.stat.mtime,
+      preview: preview(entry.raw.replace(/\[inbox-work::[^\]]*\]/g,"").replace(/^[-*+] /,""), entry.name.replace(/[`*_~]/g,""))
+    }))).sort((a, b) => b.mtime - a.mtime || a.path.localeCompare(b.path));
+  }
+  async function refreshEntries() {
+    const version = ++refreshVersion;
+    try {
+      const result = await loadEntries(plugin);
+      if (disposed || version !== refreshVersion) return;
+      storeFile = result.file; entries = result.entries; showStore = result.showFile; loadError = "";
+    } catch (error) {
+      if (disposed || version !== refreshVersion) return;
+      entries = []; storeFile = null;
+      if (error.message !== loadError) new Notice(error.message);
+      loadError = error.message;
+    }
+    collect(); renderList();
   }
   function workLabel(work) {
     const parsed = parseWork(work);
@@ -80,12 +120,9 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
   }
   function syncFilters() {
     actors.querySelectorAll("button").forEach(el => el.setAttribute("aria-pressed", String(el.dataset.actorFilter === actorFilter)));
-    const values = [...new Set(items.map(item => parseWork(item.work).action).filter(Boolean))];
-    if (actionFilter && !values.includes(actionFilter)) values.push(actionFilter);
-    actionSelect.replaceChildren();
-    actionSelect.createEl("option", { text: t("全", "All") }).value = "";
-    values.forEach(value => { actionSelect.createEl("option", { text: word(value) }).value = value; });
-    actionSelect.value = actionFilter;
+    const label = t("筛选动作", "Filter actions") + " · " + (actionFilter ? word(actionFilter) : t("全部", "All"));
+    actionSelect.title = label; actionSelect.setAttribute("aria-label", label);
+    actionSelect.setAttribute("aria-pressed", String(!!actionFilter));
   }
   async function fillPreviews(visible) {
     const pending = visible.filter(item => item.preview === null);
@@ -118,23 +155,34 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
       marker.setAttribute("aria-label", t(`安排${item.name}`, `Assign ${item.name}`));
       marker.setAttribute("aria-haspopup", "dialog");
       on(title, "keydown", event => {
+        if (["ArrowUp", "ArrowDown"].includes(event.key) && !event.altKey && !event.ctrlKey && !event.metaKey && !active) {
+          event.preventDefault();
+          const paths = [...rows.keys()], index = paths.indexOf(item.path);
+          const next = rows.get(paths[index + (event.key === "ArrowDown" ? 1 : -1)]);
+          if (next) { next.title.focus({ preventScroll: true }); next.row.scrollIntoView({ block: "nearest" }); next.title.click(); }
+          return;
+        }
         if ((event.altKey && event.key === "Enter") || event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
           event.preventDefault(); showWheel(item, true);
         }
       });
       on(title, "contextmenu", event => { event.preventDefault(); showWheel(item, true); });
-      rows.set(item.path, { row, title, marker, excerpt }); updateRow(item);
+      rows.set(item.path, { row, title, marker, excerpt, item }); updateRow(item);
     }
     if (matches.length > limit) button(list, t(`再显示 ${Math.min(20, matches.length - limit)} 项`, "Show more"), "noria-inbox-more", () => { limit += 20; renderList(); });
     void fillPreviews(visible);
+    syncReading();
     restorePosition();
     if (focusedPath) rows.get(focusedPath)?.title.focus({ preventScroll: true });
   }
   async function openSource(item, event) {
     try {
       rememberPosition();
-      const result = await plugin.openHomeSource(item.path, { event });
+      readingEntry = item.entry?.line ?? null;
+      const result = await reader.open(item.sourcePath || item.path, event, item.entry ? { line: item.entry.line } : {});
+      if (result?.cancelled || disposed) return;
       if (result?.ok === false) throw Error(t("笔记已移动或不存在。", "The note was moved or is missing."));
+      syncReading();
     } catch (error) { new Notice(error.message); }
   }
   function closeWheel(focus = true) {
@@ -182,7 +230,7 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     const center = wheel.createDiv({ cls: "noria-inbox-center" });
     center.createDiv({ text: active.item.name, cls: "noria-inbox-origin" });
     button(wheel, t("取消", "Cancel"), "noria-inbox-cancel", () => closeWheel());
-    const exit = button(wheel, t("移出 Inbox", "Move out"), "noria-inbox-exit", () => { if (Date.now() >= ignoreClick) moveForm(); }); exit.dataset.exit = "true";
+    const exit = button(wheel, active.item.entry ? t("完成", "Done") : t("移出 Inbox", "Move out"), "noria-inbox-exit", () => { if (Date.now() >= ignoreClick) moveForm(); }); exit.dataset.exit = "true";
   }
   function targetAt(x, y) {
     const hit = doc.elementFromPoint(x, y)?.closest(".noria-inbox-sector,.noria-inbox-exit");
@@ -207,9 +255,9 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     notice.createEl("span", { text: message });
     if (path) button(notice, t("查看笔记", "Open note"), "", () => void openSource({ path }));
     if (undo) button(notice, t("撤销", "Undo"), "", async event => {
-      if (busy) return; busy = true; event.currentTarget.disabled = true;
-      try { await undo(); undo = null; notice.hidden = true; collect(); renderList(); }
-      catch (error) { new Notice(error.message); event.currentTarget.disabled = false; }
+      if (busy) return; busy = true; const control = event.currentTarget; control.disabled = true;
+      try { await undo(); undo = null; notice.hidden = true; await refreshEntries(); }
+      catch (error) { new Notice(error.message); control.disabled = false; }
       finally { busy = false; }
     });
   }
@@ -218,10 +266,14 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     if (value === expected) { closeWheel(); return true; }
     busy = true; layer.setAttribute("aria-busy", "true");
     try {
-      const result = await updateWork(plugin, { path: item.path, currentWork: expected, work: value });
+      const file = item.entry && app.vault.getAbstractFileByPath(item.sourcePath);
+      const updated = item.entry && await editEntry(plugin, file, item.entry, assignEntry(item.entry, value));
+      const result = item.entry ? { ok: true, work: updated.work, previousWork: expected }
+        : await updateWork(plugin, { path: item.path, currentWork: expected, work: value });
       if (!result.ok) throw Error(result.reason === "conflict" ? t("安排已变化，请重新选择。", "Assignment changed. Choose again.") : t("笔记已移动，请重新打开。", "The note moved. Reopen it."));
-      item.work = result.work; closeWheel(false); form.hidden = true; renderList();
+      item.work = result.work; closeWheel(false); form.hidden = true; await refreshEntries();
       showReceipt(workLabel(result.work) || t("已清除安排", "Assignment cleared"), async () => {
+        if (item.entry) { await editEntry(plugin, file, updated, item.entry.raw); return; }
         const restored = await updateWork(plugin, { path: item.path, currentWork: result.work, work: result.previousWork });
         if (!restored.ok) throw Error(t("安排已被修改，未覆盖新内容。", "Assignment changed; it was not overwritten."));
       });
@@ -247,7 +299,9 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
   }
   function moveForm() {
     if (!active || busy) return;
-    const item = active.item; closeWheel(false); form.empty(); form.hidden = false;
+    const item = active.item;
+    if (item.entry) { void finishEntry(item); return; }
+    closeWheel(false); form.empty(); form.hidden = false;
     const editor = form.createEl("form"); editor.createEl("label", { text: t(`将“${item.name}”移到`, `Move “${item.name}” to`) });
     const select = editor.createEl("select", { attr: { "aria-label": t("目标目录", "Destination folder"), required: "" } });
     select.createEl("option", { text: t("选择目录", "Choose folder") }).value = "";
@@ -255,18 +309,32 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     folders.sort((a, b) => a.path.localeCompare(b.path)).forEach(folder => { select.createEl("option", { text: folder.path }).value = folder.path; });
     const controls = editor.createDiv({ cls: "noria-inbox-form-actions" });
     button(controls, t("取消", "Cancel"), "", () => { form.hidden = true; });
+    const keepLabel = editor.createEl("label", { cls: "noria-inbox-keep" });
+    const keep = keepLabel.createEl("input", { type: "checkbox" }); keep.checked = false;
+    keepLabel.createSpan({ text: t("留在 Inbox", "Keep in Inbox") });
+    editor.insertBefore(keepLabel, controls);
     const submit = button(controls, t("移出", "Move"), "mod-cta"); submit.type = "submit";
     on(editor, "submit", async event => {
       event.preventDefault(); if (!select.value || busy) return;
       busy = true; submit.disabled = true;
       try {
-        const receipt = await moveFile(plugin, item.path, select.value);
-        form.hidden = true; collect(); renderList();
-        showReceipt(t("已移出 Inbox", "Moved out of Inbox"), () => undoMove(plugin, receipt), receipt.target);
+        const receipt = await moveWithEntry(plugin, item.path, select.value, { keep: keep.checked });
+        form.hidden = true; await refreshEntries();
+        showReceipt(t("已移出 Inbox", "Moved out of Inbox"), () => undoWithEntry(plugin, receipt), receipt.target);
       } catch (error) { new Notice(error.message); }
       finally { busy = false; submit.disabled = false; }
     });
     select.focus();
+  }
+  async function finishEntry(item) {
+    busy = true; closeWheel(false);
+    try {
+      const file = app.vault.getAbstractFileByPath(item.sourcePath);
+      await editEntry(plugin, file, item.entry, "");
+      await refreshEntries();
+      showReceipt(t("已完成，资料保留", "Done; sources kept"), () => appendEntry(plugin, file, item.entry.raw));
+    } catch (error) { new Notice(error.message); }
+    finally { busy = false; }
   }
   on(card, "pointerdown", event => {
     if (event.button !== 0 || active || busy) return;
@@ -305,12 +373,15 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     if (event.shiftKey && doc.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1).focus(); }
     else if (!event.shiftKey && doc.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0].focus(); }
   });
-  collect(); renderList();
+  await refreshEntries();
   const refs = [
+    [app.workspace, app.workspace.on("layout-change", syncReading)],
+    [app.workspace, app.workspace.on("active-leaf-change", syncReading)],
     [app.metadataCache, app.metadataCache.on("changed", (file, text, metadata) => {
       if (!file.path.startsWith(rootPath)) return;
+      if (file === storeFile || file.path === rootPath+"Inbox.md") { void refreshEntries(); return; }
       let item = items.find(item => item.path === file.path);
-      if (!item) { collect(); renderList(); return; }
+      if (!item) { void refreshEntries(); return; }
       const previous = item.work;
       item.work = parseWork(metadata?.frontmatter?.[FIELD]).value; item.preview = preview(text, item.name);
       if (previous !== item.work && (actorFilter || actionFilter)) renderList(); else { updateRow(item); syncFilters(); }
@@ -319,7 +390,7 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
     ...["delete", "rename"].map(event => [app.vault, app.vault.on(event, (file, oldPath) => {
       if (!file.path.startsWith(rootPath) && !oldPath?.startsWith(rootPath)) return;
       if (active?.item.path === (oldPath || file.path)) closeWheel(false);
-      collect(); renderList();
+      void refreshEntries();
     })])
   ];
   const resize = new win.ResizeObserver(() => { if (restorePending) restorePosition(); if (active) paintWheel(); }); resize.observe(card); if (viewport) resize.observe(viewport);
@@ -327,8 +398,9 @@ async function renderInboxCard(plugin, host, { actionsHost } = {}) {
   observer.observe(doc.body, { childList: true, subtree: true });
   function cleanup() {
     if (disposed) return; disposed = true;
+    reader.dispose();
     if (press) win.clearTimeout(press.timer);
-    closeWheel(false); abort.abort(); refs.forEach(([events, ref]) => events.offref(ref));
+    actionMenu?.hide(); closeWheel(false); abort.abort(); refs.forEach(([events, ref]) => events.offref(ref));
     observer.disconnect(); resize.disconnect(); tools.remove(); layer.remove(); card.classList.remove("noria-inbox-card");
     if (host.__noriaInboxCleanup === cleanup) delete host.__noriaInboxCleanup;
   }

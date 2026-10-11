@@ -83,3 +83,12 @@ test('shared trend axes do not duplicate integer ticks for empty or single-count
   for(const x of ['50','852']){const ticks=svg.children.filter(e=>e.tag==='text'&&e.attrs.x===x).map(e=>e.textContent);assert.deepEqual(ticks,['0','1']);}
  }
 });
+
+test('dense directory labels retain distinguishing suffixes and separate percentage text',()=>{
+ const {fitLabel}=require('../src/runtime/views/dashboard/core/components/charts/leader-donut-chart.js')._test;
+ const results=['Noria/Diary/2025','Noria/Diary/2026'].map(name=>{
+  const label={textContent:'',getComputedTextLength(){return Array.from(this.textContent).length*6;}};
+  fitLabel(label,name,' 1.5%',72);assert.ok(label.getComputedTextLength()<=72);assert.ok(label.textContent.includes('…'));assert.ok(label.textContent.endsWith(name.slice(-3)+' 1.5%'));return label.textContent;
+ });assert.notEqual(results[0],results[1]);
+ const short={textContent:'',getComputedTextLength(){return this.textContent.length*6;}};fitLabel(short,'Life','',72);assert.equal(short.textContent,'Life');
+});

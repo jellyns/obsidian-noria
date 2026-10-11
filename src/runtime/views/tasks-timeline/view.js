@@ -51,9 +51,7 @@ let noriaTlPlannerLabSaveTimer = null;
 let noriaTlLocalRefreshTimer = null;
 let noriaTlNowMarkerRefreshTimer = null;
 let noriaTlPomodoroRefreshTimer = null;
-let noriaTlPomodoroSaveTimer = null;
 let noriaTlPomodoroLocalState = null;
-let noriaTlPomodoroPersistSeq = 0;
 const NORIA_TL_TIMER_ATTACH_TOKEN = "noria/timeline-timer-attach";
 const NORIA_TL_TIMER_ATTACH_MIME = "application/x-noria-timer-attach";
 const NORIA_TL_POMODORO_EMOJI = "\u{1F345}";
@@ -1193,15 +1191,24 @@ function noriaTlNormalizePomodoroState(raw) {
       path: String(rec.path || ""),
       lineHint: Number.isFinite(lineHint) && lineHint >= 0 ? Math.floor(lineHint) : -1,
       textFingerprint: String(rec.textFingerprint || ""),
+      ...(rec.taskId ? {taskId:String(rec.taskId)} : {}),
       titleSnapshot: String(rec.titleSnapshot || ""),
       actual: Number.isFinite(actual) && actual > 0 ? Math.floor(actual) : 0,
       expected: Number.isFinite(expected) && expected > 0 ? Math.floor(expected) : 0,
       sessions: Array.isArray(rec.sessions)
         ? rec.sessions.map((seg) => ({
           mode: String(seg && seg.mode || "WORK").toUpperCase() === "BREAK" ? "BREAK" : "WORK",
+          ...(seg?.timerMode === "stopwatch" ? {timerMode:"stopwatch"} : {}),
+          ...(seg?.recording === true ? {recording:true} : {}),
+          ...(seg?.recordRef?.path && seg?.recordRef?.id && seg?.recordRef?.day ? {recordRef:{path:String(seg.recordRef.path),id:String(seg.recordRef.id),day:String(seg.recordRef.day)}} : {}),
           start: String(seg && seg.start || ""),
           end: String(seg && seg.end || ""),
           durationMin: Math.max(0, Math.floor(Number(seg && seg.durationMin) || 0)),
+          ...(Number.isFinite(seg && seg.durationMs) ? { durationMs: Math.max(0, Math.floor(seg.durationMs)) } : {}),
+          ...(Array.isArray(seg && seg.segments) ? { segments: seg.segments
+            .filter(span => span && Number.isFinite(Date.parse(span.start)) && Date.parse(span.end) > Date.parse(span.start))
+            .map(span => ({ start: String(span.start), end: String(span.end) })) } : {}),
+          ...(["completed", "stopped", "abandoned"].includes(seg && seg.outcome) ? { outcome: seg.outcome } : {}),
           completed: (seg && seg.completed) === true
         })).filter((seg) => seg.start)
         : []
@@ -1221,6 +1228,7 @@ function noriaTlNormalizePomodoroState(raw) {
       out.active = {
         taskKey,
         mode: String(out.active.mode || "WORK").toUpperCase() === "BREAK" ? "BREAK" : "WORK",
+        ...(out.active.timerMode === "stopwatch" ? {timerMode:"stopwatch"} : {}),
         status: String(out.active.status || "running").toLowerCase() === "paused" ? "paused" : "running",
         startedAt: String(out.active.startedAt || ""),
         elapsedMs: Number.isFinite(elapsedMs) && elapsedMs > 0 ? Math.floor(elapsedMs) : 0,
@@ -1287,11 +1295,14 @@ function noriaTlPomodoroMetaFromTask(tk, opts) {
   const rawLineHint = options.lineHint != null ? options.lineHint : taskLineIndex(tk);
   const lineHint = Number(rawLineHint);
   const short = noriaTlParsePomodoroShort(line);
+  const shared = noriaTlPomodoroEngine().taskPomodoroMeta({title:options.title,noria:{path,line:lineHint,task:{rawLine:line}}});
   return {
-    taskKey: String(options.taskKey || "").trim(),
+    ...shared,
+    taskKey: String(options.taskKey || shared?.taskKey || "").trim(),
     path,
     lineHint: Number.isFinite(lineHint) && lineHint >= 0 ? Math.floor(lineHint) : -1,
-    textFingerprint: noriaTlBuildTaskFingerprint(line),
+    textFingerprint: shared?.textFingerprint || noriaTlBuildTaskFingerprint(line),
+    legacyTextFingerprint: noriaTlBuildTaskFingerprint(line),
     actual: short.actual,
     expected: short.expected,
     title: String(options.title || stripForDisplay(line) || "")
@@ -1315,6 +1326,7 @@ function noriaTlResolvePomodoroTaskRecord(tkOrMeta, state) {
   const s = noriaTlNormalizePomodoroState(state);
   const meta = tkOrMeta && (tkOrMeta.textFingerprint || tkOrMeta.lineHint != null || tkOrMeta.title)
     ? {
+      ...tkOrMeta,
       taskKey: String(tkOrMeta.taskKey || "").trim(),
       path: String(tkOrMeta.path || "").replace(/\\/g, "/"),
       lineHint: Number.isFinite(Number(tkOrMeta.lineHint)) ? Math.floor(Number(tkOrMeta.lineHint)) : -1,
@@ -1329,10 +1341,11 @@ function noriaTlResolvePomodoroTaskRecord(tkOrMeta, state) {
     const key = keys[i];
     const rec = s.tasks[key];
     if (!rec || String(rec.path || "").replace(/\\/g, "/") !== meta.path) continue;
-    if (Number(rec.lineHint) === meta.lineHint && rec.textFingerprint && rec.textFingerprint === meta.textFingerprint) {
+    if (meta.taskId && rec.taskId === meta.taskId) return { taskKey:key, record:rec, meta };
+    if (Number(rec.lineHint) === meta.lineHint && rec.textFingerprint && [meta.textFingerprint,meta.legacyTextFingerprint].includes(rec.textFingerprint)) {
       return { taskKey: key, record: rec, meta };
     }
-    if (rec.textFingerprint && rec.textFingerprint === meta.textFingerprint) {
+    if (rec.textFingerprint && rec.textFingerprint === meta.legacyTextFingerprint) {
       if (fingerprintMatch) return { taskKey: "", record: null, meta };
       fingerprintMatch = { taskKey: key, record: rec, meta };
     }
@@ -1343,7 +1356,7 @@ function noriaTlResolvePomodoroTaskRecord(tkOrMeta, state) {
 function noriaTlEnsurePomodoroRecord(state, meta) {
   const s = noriaTlNormalizePomodoroState(state);
   const resolved = noriaTlResolvePomodoroTaskRecord(meta, s);
-  const taskKey = String((meta && meta.taskKey) || (resolved && resolved.taskKey) || noriaTlCreatePomodoroTaskKey(`${meta && meta.path || ""}:${meta && meta.lineHint != null ? meta.lineHint : ""}:${meta && meta.textFingerprint || ""}`)).trim();
+  const taskKey = String((resolved && resolved.taskKey) || (meta && meta.taskKey) || noriaTlCreatePomodoroTaskKey(`${meta && meta.path || ""}:${meta && meta.lineHint != null ? meta.lineHint : ""}:${meta && meta.textFingerprint || ""}`)).trim();
   if (!taskKey) return { state: s, record: null };
   const prev = s.tasks[taskKey] && typeof s.tasks[taskKey] === "object" ? s.tasks[taskKey] : {};
   const parsedActual = Number(meta && meta.actual);
@@ -1352,6 +1365,7 @@ function noriaTlEnsurePomodoroRecord(state, meta) {
     path: String(meta && meta.path || prev.path || ""),
     lineHint: Number.isFinite(Number(meta && meta.lineHint)) && Number(meta.lineHint) >= 0 ? Math.floor(Number(meta.lineHint)) : (Number.isFinite(Number(prev.lineHint)) ? Math.floor(Number(prev.lineHint)) : -1),
     textFingerprint: String(meta && meta.textFingerprint || prev.textFingerprint || ""),
+    ...(meta?.taskId || prev.taskId ? {taskId:String(meta?.taskId || prev.taskId)} : {}),
     titleSnapshot: String(meta && meta.title || prev.titleSnapshot || ""),
     actual: Math.max(Number.isFinite(parsedActual) ? Math.floor(parsedActual) : 0, Number(prev.actual) || 0),
     expected: Number.isFinite(parsedExpected) && parsedExpected > 0 ? Math.floor(parsedExpected) : Math.max(0, Number(prev.expected) || 0),
@@ -1424,90 +1438,26 @@ function noriaTlActiveElapsedMs(active, nowIso) {
   return elapsed;
 }
 
+function noriaTlPomodoroEngine() {
+  return bridge.pomodoroEngine || globalThis.noriaTaskTimeline.pomodoroState;
+}
 function noriaTlCloseActivePomodoroSession(state, nowIso, completed) {
-  const s = noriaTlNormalizePomodoroState(state);
-  const active = s.active;
-  if (!active || !s.tasks[active.taskKey]) return s;
-  const rec = s.tasks[active.taskKey];
-  const sessions = Array.isArray(rec.sessions) ? rec.sessions : [];
-  const last = sessions.length ? sessions[sessions.length - 1] : null;
-  const elapsedMs = noriaTlActiveElapsedMs(active, nowIso);
-  const durationMin = Math.max(0, Math.floor(elapsedMs / 60000));
-  if (last && !last.end && last.mode === active.mode) {
-    last.end = String(nowIso || new Date().toISOString());
-    last.durationMin = completed ? Math.max(last.durationMin || 0, Math.round(Number(active.durationMin) || durationMin)) : durationMin;
-    last.completed = completed === true;
-  }
-  if (completed === true && active.mode === "WORK") {
-    rec.actual = Math.max(0, Math.floor(Number(rec.actual) || 0)) + 1;
-  }
-  s.activeAttachTaskKey = active.taskKey;
-  s.active = null;
-  return s;
+  return noriaTlPomodoroEngine().closeActivePomodoroSession(noriaTlNormalizePomodoroState(state), nowIso, completed);
 }
-
 function noriaTlStartPomodoroWork(state, meta, nowIso) {
-  const iso = String(nowIso || new Date().toISOString());
-  let s = noriaTlNormalizePomodoroState(state);
-  if (s.active) s = noriaTlCloseActivePomodoroSession(s, iso, false);
-  const ensured = noriaTlEnsurePomodoroRecord(s, meta);
-  s = ensured.state;
-  const rec = ensured.record;
-  if (!rec) return s;
-  rec.sessions.push({ mode: "WORK", start: iso, end: "", durationMin: 0, completed: false });
-  const ensuredKey = Object.keys(s.tasks).find((key) => s.tasks[key] === rec) || String(meta.taskKey || "");
-  s.active = {
-    taskKey: ensuredKey,
-    mode: "WORK",
-    status: "running",
-    startedAt: iso,
-    elapsedMs: 0,
-    durationMin: s.workLen
-  };
-  s.activeAttachTaskKey = ensuredKey;
-  return s;
+  const ensured = noriaTlEnsurePomodoroRecord(state, meta);
+  if (!ensured.record) return ensured.state;
+  const taskKey = Object.keys(ensured.state.tasks).find(key => ensured.state.tasks[key] === ensured.record);
+  return noriaTlPomodoroEngine().startPomodoroWorkState(ensured.state, { ...meta, taskKey }, nowIso);
 }
-
 function noriaTlPausePomodoro(state, nowIso) {
-  const s = noriaTlNormalizePomodoroState(state);
-  if (!s.active || s.active.status !== "running") return s;
-  s.active.elapsedMs = noriaTlActiveElapsedMs(s.active, nowIso);
-  s.active.status = "paused";
-  s.active.startedAt = "";
-  return s;
+  return noriaTlPomodoroEngine().pausePomodoroState(noriaTlNormalizePomodoroState(state), nowIso);
 }
-
 function noriaTlResumePomodoro(state, nowIso) {
-  const s = noriaTlNormalizePomodoroState(state);
-  if (!s.active || s.active.status !== "paused") return s;
-  s.active.status = "running";
-  s.active.startedAt = String(nowIso || new Date().toISOString());
-  return s;
+  return noriaTlPomodoroEngine().resumePomodoroState(noriaTlNormalizePomodoroState(state), nowIso);
 }
-
 function noriaTlTickPomodoro(state, nowIso) {
-  let s = noriaTlNormalizePomodoroState(state);
-  const active = s.active;
-  if (!active || active.status !== "running") return s;
-  const targetMs = Math.max(1, Math.round(Number(active.durationMin) || (active.mode === "BREAK" ? s.breakLen : s.workLen))) * 60000;
-  if (noriaTlActiveElapsedMs(active, nowIso) < targetMs) return s;
-  const completedMode = active.mode;
-  const taskKey = active.taskKey;
-  s = noriaTlCloseActivePomodoroSession(s, nowIso, true);
-  if (completedMode === "WORK" && s.breakLen > 0 && s.tasks[taskKey]) {
-    const rec = s.tasks[taskKey];
-    rec.sessions.push({ mode: "BREAK", start: String(nowIso || new Date().toISOString()), end: "", durationMin: 0, completed: false });
-    s.active = {
-      taskKey,
-      mode: "BREAK",
-      status: s.autostartBreak ? "running" : "paused",
-      startedAt: s.autostartBreak ? String(nowIso || new Date().toISOString()) : "",
-      elapsedMs: 0,
-      durationMin: s.breakLen
-    };
-    s.activeAttachTaskKey = taskKey;
-  }
-  return s;
+  return noriaTlPomodoroEngine().advancePomodoroState(noriaTlNormalizePomodoroState(state), nowIso);
 }
 
 function noriaTlStopPomodoro(state, nowIso) {
@@ -1814,13 +1764,12 @@ function noriaTlEnsurePomodoroDock(card, tk, taskKey, state, timeMeta) {
 }
 
 function noriaTlReadPomodoroState() {
-  if (noriaTlPomodoroLocalState) return noriaTlNormalizePomodoroState(noriaTlPomodoroLocalState);
   try {
     if (bridge && typeof bridge.getPomodoroState === "function") {
       return noriaTlNormalizePomodoroState(bridge.getPomodoroState());
     }
   } catch (_) {}
-  return noriaTlNormalizePomodoroState(bridge && bridge.pomodoro);
+  return noriaTlNormalizePomodoroState(noriaTlPomodoroLocalState || bridge && bridge.pomodoro);
 }
 
 function noriaTlSetLocalPomodoroState(nextState) {
@@ -1830,50 +1779,11 @@ function noriaTlSetLocalPomodoroState(nextState) {
   return state;
 }
 
-function noriaTlSchedulePomodoroPersist(state, options) {
-  const opts = options && typeof options === "object" ? options : {};
-  const delay = Math.max(30, Math.min(1200, Number(opts.delayMs) || 260));
-  const seq = ++noriaTlPomodoroPersistSeq;
-  if (noriaTlPomodoroSaveTimer) {
-    try { clearTimeout(noriaTlPomodoroSaveTimer); } catch (_) {}
-    noriaTlPomodoroSaveTimer = null;
-  }
-  const run = async () => {
-    if (seq !== noriaTlPomodoroPersistSeq) return;
-    noriaTlPomodoroSaveTimer = null;
-    try {
-      if (bridge && typeof bridge.savePomodoroState === "function") {
-        const res = await bridge.savePomodoroState(state, { refreshRuntime: opts.refreshRuntime === true });
-        const saved = res && res.pomodoro ? res.pomodoro : state;
-        noriaTlSetLocalPomodoroState(saved);
-      }
-    } catch (err) {
-      console.warn("[noria tasksTimeline] save pomodoro state failed", err);
-      if (typeof opts.onError === "function") {
-        try { opts.onError(err); } catch (_) {}
-      } else {
-        noriaTlNotice(noriaTlRuntimeT("runtime.timeline.pomodoro.saveFailed", { message: err && err.message ? err.message : err }), 3200);
-      }
-    }
-  };
-  const timerHost = (typeof window !== "undefined" && window.setTimeout) ? window : globalThis;
-  noriaTlPomodoroSaveTimer = timerHost.setTimeout(run, delay);
-}
-
 async function noriaTlSavePomodoroState(nextState, options) {
   const opts = options && typeof options === "object" ? options : {};
   const state = noriaTlSetLocalPomodoroState(nextState);
   try {
     if (bridge && typeof bridge.savePomodoroState === "function") {
-      if (opts.flush !== "immediate") {
-        noriaTlSchedulePomodoroPersist(state, opts);
-        return state;
-      }
-      noriaTlPomodoroPersistSeq++;
-      if (noriaTlPomodoroSaveTimer) {
-        try { clearTimeout(noriaTlPomodoroSaveTimer); } catch (_) {}
-        noriaTlPomodoroSaveTimer = null;
-      }
       const res = await bridge.savePomodoroState(state, { refreshRuntime: opts.refreshRuntime === true });
       const saved = res && res.pomodoro ? res.pomodoro : state;
       return noriaTlSetLocalPomodoroState(saved);

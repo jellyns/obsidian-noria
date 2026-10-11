@@ -5,7 +5,7 @@ function moment(value){
  const d=new Date(value?.valueOf?.() instanceof Number?+value:value instanceof Object?+value:String(value).replace(' ','T')+'Z');
  return {valueOf:()=>+d,isValid:()=>Number.isFinite(+d),clone(){return moment(this)},add(n,u){d.setTime(+d+n*(u==='days'?86400000:60000));return this},subtract(n,u){return this.add(-n,u)},diff(o,u){return (+d-+o)/(u==='days'?86400000:60000)},isBefore:o=>+d<+o,isAfter:o=>+d>+o,hours:()=>d.getUTCHours(),minutes:()=>d.getUTCMinutes(),format(f){const s=d.toISOString();return f==='YYYY-MM-DD'?s.slice(0,10):f==='HH:mm'?s.slice(11,16):s.slice(0,16).replace('T',' ')}};
 }
-function dragFixture(){
+function dragFixture(start=0,end=1440){
  const listeners=new Map(),saved=[],attrs=new Map(Object.entries({'data-start-date':'2026-09-26','data-start-time':'09:00','data-due-date':'2026-09-26','data-due-time':'09:10'}));
  const style={top:'37.5%',height:'2.5%'};
  const lane={getBoundingClientRect:()=>({top:0,height:1440}),appendChild(el){el.parentElement=this},scrollHeight:1440,clientHeight:1440,parentElement:null};
@@ -17,7 +17,7 @@ function dragFixture(){
  const doc={querySelectorAll:()=>tooltips,addEventListener:(k,v)=>listeners.set(k,v),removeEventListener:k=>listeners.delete(k)};
  task.ownerDocument=doc;
  const context=vm.createContext({createCalendarDragFeedback:()=>({update(){},close(){}}),showCalendarDragUndo(){},tasksCalendarRuntimeLocale:()=>"zh-CN",document:doc,rootNode:{classList:{contains:()=>true}},moment,isTimelineCalendarView:()=>true,editModeActive:false,pendingDeleteMode:false,plannerChromeInteractionActive:false,
-  normalizeTimeStr:s=>s, getPlannerChromeTimelineStartMin:()=>0,getPlannerChromeTimelineEndMin:()=>1440,tcEnsureTimeLaneHost:()=>lane,getCellFromPoint:(x,y)=>y>=0&&y<1440?cell:null,
+  normalizeTimeStr:s=>s, getPlannerChromeTimelineStartMin:()=>start,getPlannerChromeTimelineEndMin:()=>end,tcEnsureTimeLaneHost:()=>lane,getCellFromPoint:(x,y)=>y>=0&&y<1440?cell:null,
   roundMinutesToStep:(n,s)=>Math.round(n/s)*s,toDayMoment:(date,min)=>moment(date+' 00:00').add(min,'minutes'),computePlannerChromeExpandedSlotBounds:(a,b,s,e)=>({s,e}),
   minutesToTimeStr:n=>`${Math.floor(n/60)}:${n%60}`,PLANNER_CHROME_MIN_VISUAL_RANGE_MIN:30,PLANNER_CHROME_COMPACT_MAX_MIN:30,
   requestAnimationFrame:()=>1,cancelAnimationFrame(){},setTimeout(){},mdTaskAdapter:{saveDateTime:async(el,s,e)=>saved.push([s.format('HH:mm'),e.format('HH:mm')])},
@@ -26,6 +26,12 @@ function dragFixture(){
  const event=y=>({button:0,currentTarget:task,target:task,clientX:10,clientY:y,pointerId:1,preventDefault(){},stopPropagation(){}});
  return {context,event,listeners,saved,task,tooltips};
 }
+test('drag uses the actual active-hour span, including partial hours, and preserves original duration',async()=>{
+ const f=dragFixture(450,1380),y=(540-450)/930*1440;
+ f.context.onTaskPointerDown(f.event(y));f.listeners.get('pointermove')(f.event(y+60/930*1440));await f.listeners.get('pointerup')(f.event(y+60/930*1440));
+ assert.deepEqual(f.saved,[['10:00','10:10']]);
+});
+
 test('moving a ten-minute task preserves duration and the grabbed position',async()=>{
  const f=dragFixture();f.context.onTaskPointerDown(f.event(565));f.listeners.get('pointermove')(f.event(625));await f.listeners.get('pointerup')(f.event(625));
  assert.deepEqual(f.saved,[['10:00','10:10']]);
@@ -57,8 +63,8 @@ test('month drag edits the original note, preserves children and block links, an
   ['- [ ] Read ^reading','- [ ] Read  [scheduled:: 2026-09-28] ^reading'],
   ['- [ ] Read [scheduled:: 2026-09-26 08:15]','- [ ] Read [scheduled:: 2026-09-28 08:15]']]){
   const path='Diary/2026-09-26.md',original=`## Tasks\r\n${before}\r\n  - [ ] Child\r\n  Attached paragraph\r\n`,files=new Map([[path,original]]),writes=[];
-  let cached=original;
-  const c=vm.createContext({moment,processTaskMarkdownFile:async(p,fn)=>{writes.push(p);files.set(p,fn(files.get(p)))},
+  let cached=original;const notifications=[];
+  const c=vm.createContext({moment,app:{workspace:{trigger:(name,payload)=>{assert.equal(cached,files.get(path));notifications.push([name,payload.path,payload.reason]);}}},processTaskMarkdownFile:async(p,fn)=>{writes.push(p);files.set(p,fn(files.get(p)))},
    pickTaskLineIndex:lines=>lines.findIndex(l=>l===before),patchGlobalTasksFromSavedLine(){},
    normalizeVaultRelPath:p=>p,getConfiguredDailyNoteYmdFromPath:()=> '2026-09-26',buildDailyNotePath:d=>`Diary/${d}.md`,
    saveTaskDateTimeRelocateBetweenDailyNotes:()=>{throw Error('must not relocate the task')},
@@ -74,6 +80,7 @@ test('month drag edits the original note, preserves children and block links, an
   assert.equal(files.get(path),original.replace(before,after));assert.equal(receipt.path,path);
   assert.equal(cached,files.get(path),'successful writes must invalidate cached dates before refresh, without relying on vault events');
   await c.restoreCalendarDragLine(receipt);assert.equal(files.get(path),original);
+  assert.deepEqual(notifications,[['noria:tasks-invalidated',path,'calendar-write'],['noria:tasks-invalidated',path,'calendar-undo']]);
  }
 });
 test('drag keeps refresh frozen until the write settles, including a failed write',async()=>{
@@ -96,6 +103,7 @@ test('calendar uses the diary date only until an explicit task date is assigned'
   getTaskKey:t=>t.id,sortTasksByYmdField:t=>t,taskIsOpenForCalendar:t=>!t.completed,isTimelineTaggedTask:()=>false,
   coerceTemporalToYmd:v=>v||'',taskDateSameDay:(a,b)=>a===b,taskDateBeforeDay:(a,b)=>a<b,taskDateAfterDay:(a,b)=>a>b});
  let i=source.indexOf('function taskUsesDiaryDate(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);
+ i=source.indexOf('function getCalendarTaskEntries(');vm.runInContext(source.slice(i,source.indexOf('\nfunction ',i+10)),c);
  i=source.indexOf('var taskQueryAdapter =');vm.runInContext(source.slice(i,source.indexOf('\nawait initialize();',i)),c);
  i=source.indexOf('function getTasks(date)');vm.runInContext(source.slice(i,source.indexOf('\nfunction getTasksViaAdapter',i)),c);
  for(const date of ['2026-09-26','2026-09-28']){
@@ -166,4 +174,43 @@ test('undo refresh reads the restored file even without a vault change event',as
  settle();await pending;
  assert.equal(model,'before','the subsequent refresh must not restore stale cached dates');
  assert.deepEqual(snapshots,['tasks']);
+});
+
+
+test('dragging the next-day segment of an overnight task preserves the grabbed instant and duration',async()=>{
+ for(const [drop,start,end,localStart,localEnd] of [
+  [30,'2026-09-25 23:45','2026-09-26 00:45',0,45],
+  [75,'2026-09-26 00:30','2026-09-26 01:30',30,90]]){
+  const f=dragFixture(),saved=[];
+  f.task.setAttribute('data-start-date','2026-09-25');f.task.setAttribute('data-start-time','23:30');
+  f.task.setAttribute('data-due-date','2026-09-26');f.task.setAttribute('data-due-time','00:30');
+  f.context.mdTaskAdapter.saveDateTime=async(el,s,e)=>saved.push([s.format('YYYY-MM-DD HH:mm'),e.format('YYYY-MM-DD HH:mm')]);
+  f.context.onTaskPointerDown(f.event(15));f.listeners.get('pointermove')(f.event(drop));await f.listeners.get('pointerup')(f.event(drop));
+  assert.deepEqual(saved,[[start,end]]);
+  assert.equal(f.task.getAttribute('data-start-min'),String(localStart));
+  assert.equal(f.task.getAttribute('data-end-min'),String(localEnd));
+ }
+});
+
+
+test('waiting task drops at the pointer time with a one-hour arrangement, not its deadline duration', async()=>{
+ const f=dragFixture();f.task.setAttribute('data-slot','waiting');f.task.setAttribute('data-lane','waiting');
+ f.task.setAttribute('data-due-date','2026-10-20');f.task.setAttribute('data-due-time','18:00');
+ let options;f.context.mdTaskAdapter.saveDateTime=async(el,s,e,o)=>{f.saved.push([s.format('HH:mm'),e.format('HH:mm')]);options=o;};
+ f.context.onTaskPointerDown(f.event(20));assert.equal(typeof f.listeners.get('pointermove'),'function');
+ f.listeners.get('pointermove')(f.event(600));await f.listeners.get('pointerup')(f.event(600));
+ assert.deepEqual(f.saved,[['10:00','11:00']]);assert.equal(options.addSchedule,true);assert.equal(f.task.getAttribute('data-lane'),'time');
+});
+
+test('waiting drag cancels outside the time lane and restores lane attributes and position',async()=>{
+ for(const mode of ['escape','outside','waiting','tiny']){
+  const f=dragFixture();f.task.setAttribute('data-slot','waiting');f.task.setAttribute('data-lane','waiting');
+  const lane=f.task.parentElement;lane.getBoundingClientRect=()=>({top:100,height:1340});
+  f.context.onTaskPointerDown(f.event(20));assert.equal(typeof f.listeners.get('pointermove'),'function');
+  f.listeners.get('pointermove')(f.event(mode==='tiny'?21:600));
+  if(mode==='escape')f.listeners.get('keydown')({key:'Escape',preventDefault(){},stopPropagation(){}});
+  else await f.listeners.get('pointerup')(f.event(mode==='outside'?1500:mode==='waiting'?30:21));
+  assert.deepEqual(f.saved,[],mode);assert.equal(f.task.getAttribute('data-slot'),'waiting');assert.equal(f.task.getAttribute('data-lane'),'waiting');
+  assert.equal(f.task.style.top,'37.5%');assert.equal(f.task.parentElement,lane);
+ }
 });

@@ -40,6 +40,7 @@
     const repo = text(source.repo);
     const line = Number(source.line);
     if (path) out.path = path.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (text(source.anchor)) out.anchor = text(source.anchor);
     if (Number.isFinite(line) && line >= 0) out.line = line;
     if (hash) out.hash = hash;
     if (repo) out.repo = repo;
@@ -190,7 +191,14 @@
     const tags = normalizeList(query.includeTags || query.tags || query.tag);
     const excludedTags = normalizeList(query.excludeTags || query.excludedTags);
     const needle = parsed.text;
+    const sourceRoot = text(query.sourceRoot).replace(/\\/g,"/").replace(/\/$/,"");
     return (event, additionalText = "") => {
+      if (sourceRoot) {
+        // Project membership follows the task; opening a focus event still
+        // follows its diary record. These paths deliberately have different jobs.
+        const path=text((event.layer === "pomodoro" && event.payload?.pomodoro?.taskPath) || event.source?.path).replace(/\\/g,"/");
+        if(path!==sourceRoot && (/\.md$/i.test(sourceRoot)||!path.startsWith(sourceRoot+"/")))return false;
+      }
       if (layers.length && !layers.includes(event.layer)) return false;
       if (parsed.layers.length && !parsed.layers.includes(event.layer)) return false;
       if (parsed.excludedLayers.length && parsed.excludedLayers.includes(event.layer)) return false;

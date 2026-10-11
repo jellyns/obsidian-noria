@@ -5,6 +5,15 @@ vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../src/diary-workspace.j
   module: moduleContext, require: id => id==="./diary-navigation.js"?require("../src/diary-navigation.js"):({}), clearTimeout, setTimeout
 });
 const {DiaryWorkspace} = moduleContext.exports;
+
+test('changing reading scope preserves an active full-note editor and only refreshes reading content',async()=>{
+ const d=Object.create(DiaryWorkspace.prototype),editor={draft:'完整草稿'};let renders=0;
+ d.session={editing:true};d.editor=editor;d.content={scrollTop:80};
+ d.renderContent=()=>{renders++;d.content.scrollTop=0;d.contentReady=Promise.resolve();};
+ d.refreshReadingScope();assert.equal(renders,0);assert.equal(d.editor,editor);assert.equal(editor.draft,'完整草稿');
+ d.session.editing=false;d.refreshReadingScope();await d.contentReady;
+ assert.equal(renders,1);assert.equal(d.content.scrollTop,80);
+});
 test("folding a diary module cannot conceal a failed save or a newly selected date",async()=>{
   const d=Object.create(DiaryWorkspace.prototype),folds=[];
   d.recordBody={hidden:false};d.session={dirty:true};
@@ -25,7 +34,8 @@ test("record and review stay visible together and share the selected period",asy
   const d=Object.create(DiaryWorkspace.prototype),calls=[];d.article={hidden:true};d.reviewHost={hidden:true};d.root={dataset:{}};
   d.session={model:{selection:{mode:"daily",period:"2026-09-22",anchorDate:"2026-09-22"}}};d.intent="record";
   d.plugin={renderReviewCenterInHost:async(_host,options)=>{calls.push(options);return {selection:options.selection,reload:async()=>calls.push("reload")};}};
-  await d.renderIntent();assert.equal(d.article.hidden,false);assert.equal(d.reviewHost.hidden,false);assert.equal(typeof calls[0].beforeEdit,"function");
+  d.reviewMenuButton={hidden:false};d.reviewSection={dataset:{}};
+  await d.renderIntent();assert.equal(d.reviewMenuButton.hidden,true);assert.equal(typeof d.review.moduleMenuItems,"function");assert.equal(d.article.hidden,false);assert.equal(d.reviewHost.hidden,false);assert.equal(typeof calls[0].beforeEdit,"function");
   d.intent="review";await d.renderIntent();assert.equal(d.article.hidden,false);assert.equal(d.reviewHost.hidden,false);assert.equal(calls[1],"reload");
 });
 test("review editing waits for diary save and does not proceed through conflicts",async()=>{
@@ -90,11 +100,64 @@ test("unrelated data refresh leaves the current document and calendar DOM intact
 
 test("the expanded diary task list stays expanded after a task refresh",()=>{
   const d=Object.create(DiaryWorkspace.prototype),rendered=[],buttons=[];
-  const area={createDiv:()=>area,createEl:()=>area};
-  d.session={};d.root={dataset:{},querySelectorAll:()=>[]};d.taskHost={querySelector:()=>null};d.focusHost={};
+  const area={createDiv:()=>area,createEl:()=>area,createSpan:()=>area,insertBefore(){}};
+  d.session={};d.root={dataset:{},querySelectorAll:()=>[]};d.taskHost={querySelector:()=>null};d.plugin={t:k=>k};
   d.tasks={current:false,focus:[],pending:[1,2,3,4,5],done:[]};
-  d.t=k=>k;d.cards={section:()=>({body:area}),setAvailable(){}};
-  d.renderTaskRow=(_,row)=>rendered.push(row);d.button=(_,label,fn)=>{buttons.push(fn);return{remove(){}};};
+  d.t=k=>k;d.cards={system:{text:zh=>zh},section:()=>({body:area,tools:area}),setAvailable(){}};
+  d.renderTaskRow=(_,row)=>rendered.push(row);d.button=(_,label,fn)=>{if(label==='allTasks')buttons.push(fn);return{remove(){},addClass(){}};};
   d.renderTasks();assert.equal(rendered.length,3);buttons[0]();assert.equal(rendered.length,5);
   rendered.length=0;buttons.length=0;d.renderTasks();assert.equal(rendered.length,5);assert.equal(buttons.length,0);
+});
+
+test('priorities, other tasks and visible completions render once inside the same task card',()=>{
+ const d=Object.create(DiaryWorkspace.prototype),rendered=[],sections=[],groups=[];
+ const area={createDiv:options=>{if(options?.attr?.['data-task-group'])groups.push(options.attr['data-task-group']);return area;},createEl:()=>area,createSpan:()=>area,insertBefore(){}};
+ Object.assign(d,{session:{model:{selection:{mode:'daily'}}},root:{dataset:{},querySelectorAll:()=>[]},taskHost:{querySelector:()=>null},plugin:{t:k=>k},
+   tasks:{current:true,focus:[1,2,3],pending:[4,5,6,7],done:[8,9,10,11]},t:k=>k,
+   cards:{system:{text:zh=>zh},section:(id,title)=>{sections.push([id,title]);return{body:area,tools:area};},setAvailable(){}},
+   renderTaskRow:(_,row)=>rendered.push(row),button:()=>({addClass(){}})});
+ d.renderTasks();
+ assert.deepEqual(sections,[['tasks','待办']]);assert.deepEqual(groups,['focus','tasks']);
+ assert.deepEqual(rendered,[1,2,3,4,5,6,8,9,10]);assert.equal(area.open,true);
+});
+
+test('collapsed review retains a single visible menu route back to its content',()=>{
+  const d=Object.create(DiaryWorkspace.prototype);
+  Object.assign(d,{review:{},reviewHost:{hidden:false},reviewTools:{hidden:false},reviewSection:{dataset:{}},reviewMenuButton:{hidden:true}});
+  d.setModuleCollapsed('review',true);
+  assert.equal(d.reviewHost.hidden,true);assert.equal(d.reviewTools.hidden,true);assert.equal(d.reviewMenuButton.hidden,false);
+  d.setModuleCollapsed('review',false);
+  assert.equal(d.reviewHost.hidden,false);assert.equal(d.reviewTools.hidden,false);assert.equal(d.reviewMenuButton.hidden,true);
+});
+
+test('external prose refresh replaces a clean reading model without reselecting the page',async()=>{
+ const d=Object.create(DiaryWorkspace.prototype),selection={mode:'daily',anchorDate:'2085-06-12'},old={selection,path:'day.md',raw:'old',body:'old',exists:true},latest={...old,raw:'new',body:'new'};
+ d.session={model:old,body:'old',dirty:false};d.store={load:async()=>latest};d.host={scrollTop:50};let renders=0;
+ d.renderContent=()=>renders++;d.select=()=>assert.fail('Refresh must not rebuild the period or card layout');
+ await d.refreshDocument();assert.equal(d.session.body,'new');assert.equal(d.session.model,latest);assert.equal(renders,1);assert.equal(d.host.scrollTop,50);
+});
+
+test('clean editor refresh keeps its instance and selection',async()=>{
+ const d=Object.create(DiaryWorkspace.prototype),model={selection:{},path:'day.md',raw:'old',body:'old',exists:true};
+ d.session={model,body:'old',dirty:false,editing:true};d.store={load:async()=>({...model,raw:'new',body:'new'})};d.host={scrollTop:25};d.plugin={app:{vault:{getAbstractFileByPath:()=>({path:'day.md'})}}};
+ const position={anchor:{line:0,ch:1},head:{line:0,ch:2}},calls=[];
+ const editor=d.editor={isComposing:()=>false,getPosition:()=>position,setValue:value=>calls.push(value),setFile:file=>calls.push(file.path),editor:{getValue:()=>d.session.body,setSelection:(a,b)=>calls.push([a,b])}};
+ d.renderActions=()=>{};d.renderDailyState=()=>{};d.renderDrafts=()=>{};d.renderContent=()=>assert.fail('Do not replace the editor');d.select=()=>assert.fail('Do not reselect');
+ await d.refreshDocument();assert.equal(d.editor,editor);assert.deepEqual(calls,['new',[position.anchor,position.head],'day.md']);assert.equal(d.session.body,'new');
+});
+
+test('automatic refresh leaves dirty, blocked, recovery and composing sessions untouched',async()=>{
+ for(const flag of ['dirty','blocked','needsAdoption','composing']){
+  const d=Object.create(DiaryWorkspace.prototype);d.session={model:{body:flag==='dirty'?'old':'draft'},body:'draft',[flag]:true};d.editor={isComposing:()=>flag==='composing',getPosition:()=>({}),editor:{getValue:()=>d.session.body}};d.store={load:()=>assert.fail('Protected content must not reload')};
+  await d.refreshDocument();assert.equal(d.session.body,'draft');
+ }
+});
+
+test('an external refresh result cannot overwrite a newer draft or a changed session',async()=>{
+ for(const change of ['draft','session','baseline']){
+  const d=Object.create(DiaryWorkspace.prototype),model={selection:{},path:'day.md',raw:'old',body:'old',exists:true};d.session={model,body:'old',dirty:false};let resolve;
+  d.store={load:()=>new Promise(r=>resolve=r)};d.select=d.renderContent=()=>assert.fail('Stale load must not render');
+  const pending=d.refreshDocument();if(change==='draft'){d.session.body='typing';d.session.dirty=true;}else if(change==='session')d.session={...d.session};else d.session.model={...model,raw:'own write'};
+  const current=d.session;resolve({...model,raw:'external',body:'external'});await pending;assert.equal(d.session,current);assert.notEqual(d.session.body,'external');
+ }
 });

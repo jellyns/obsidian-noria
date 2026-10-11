@@ -92,6 +92,19 @@ function makePlugin(input = {}) {
   return plugin;
 }
 
+test("active hours round-trip with mode and reject invalid ranges without changing the saved settings", () => {
+ const plugin=makePlugin();
+ assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.tasksCalendar.activeHours)),{start:360,end:1440});
+ plugin.updateTasksCalendarPreferenceInSettings('activeHours',{start:450,end:1380,fullDay:true});
+ const restored=plugin.normalizeSettings(JSON.parse(JSON.stringify(plugin.settings))).tasksCalendar;
+ assert.deepEqual(JSON.parse(JSON.stringify(restored.activeHours)),{start:450,end:1380});assert.equal(restored.showEarlyHours,true);
+ for(const value of [{start:-1,end:1380},{start:1400,end:1500},{start:800,end:700},{start:450.5,end:1380},{start:450,end:480}]) {
+  assert.throws(()=>plugin.updateTasksCalendarPreferenceInSettings('activeHours',value));
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.tasksCalendar.activeHours)),{start:450,end:1380});
+  assert.deepEqual(JSON.parse(JSON.stringify(plugin.normalizeSettings({tasksCalendar:{activeHours:value}}).tasksCalendar.activeHours)),{start:360,end:1440});
+ }
+});
+
 test("vertical saved views retain their own filters and metadata across settings reload and rename",()=>{
  const plugin=makePlugin(),verticalFilter={tasks:true,records:false,showDone:false,ctime:false,mtime:true,query:"path:Projects status:open"};
  const saved=plugin.addTimelinePresetInSettings({label:"Review queue",orientation:"vertical",verticalFilter,verticalMetadata:"tags"});
@@ -236,7 +249,7 @@ test("settings search hands off to stable rendered targets instead of only chang
     "inboxWorkflow.${key}",
     "tasksCalendar.openingBehavior",
     "tasksCalendar.taskTimelineOpenMode",
-    "tasksCalendar.taskColorMode",
+    "tasksCalendar.categoryColors",
     "timelineView.scaleMode",
     "timelineView.timelineTagPlacement",
     "timelineView.defaultLayers",
@@ -324,8 +337,11 @@ test("release settings schema exposes standard workspace home defaults and task 
 
   assert.equal(settings.tasksCalendar.defaultView, "month");
   assert.equal(settings.tasksCalendar.calendarDensity, "useGlobal");
-  assert.equal(settings.tasksCalendar.taskColorMode, "statusFirst");
+  assert.equal(Object.hasOwn(settings.tasksCalendar, "taskColorMode"), false);
   assert.equal(settings.tasksCalendar.showSourceChips, false);
+  assert.equal(settings.tasksCalendar.showWeather, true);
+  assert.equal(settings.tasksCalendar.weatherPastDays, 7);
+  assert.equal(settings.tasksCalendar.weatherFutureDays, 7);
   assert.equal(settings.tasksCalendar.showCompletedTasks, "dim");
   assert.equal(settings.tasksCalendar.monthOverflowBehavior, "scroll");
   assert.equal(settings.tasksCalendar.rememberLastView, true);
@@ -453,7 +469,7 @@ test("settings renderers include release control center anchors", () => {
     "settings.home.rememberBlockSelections",
     "settings.tasks.openingBehavior",
     "settings.tasks.calendarDensity",
-    "settings.tasks.taskColorMode",
+    "settings.tasks.taskColors",
     "settings.tasks.showSourceChips",
     "settings.tasks.showCompletedTasks",
     "settings.tasks.monthOverflowBehavior",
@@ -557,6 +573,35 @@ test("task tag filters normalize suggestions and explicit include or exclude edi
   assert.deepEqual(JSON.parse(JSON.stringify(plugin.setTaskTagFilterTags("exclude", "habit, #archive"))), ["#habit", "#archive"]);
   assert.deepEqual(JSON.parse(JSON.stringify(plugin.settings.taskTagFilter.excludeTags)), ["#habit", "#archive"]);
   assert.equal(plugin.settings.taskTagFilter.excludeTagsUserConfigured, true);
+});
+
+test("project timeline presets retain grouping through creation, reload and update", () => {
+  const plugin = makePlugin();
+  const created = plugin.addTimelinePresetInSettings({
+    label: "Projects", orientation: "horizontal", groupBy: "projects", projectRoot: "Projects/Research",
+    expandedProjects: ["Projects/Research", "Projects/Writing"], layers: ["task"]
+  });
+  assert.equal(created.groupBy, "projects");
+  assert.equal(created.projectRoot, "Projects/Research");
+  assert.deepEqual(Array.from(created.expandedProjects), ["Projects/Research", "Projects/Writing"]);
+  const restored = makePlugin({ settings: JSON.parse(JSON.stringify(plugin.settings)) });
+  assert.equal(restored.getTimelineViewSettings().presets[0].groupBy, "projects");
+  assert.equal(restored.getTimelineViewSettings().presets[0].projectRoot, "Projects/Research");
+  const updated = restored.updateTimelinePresetInSettings(created.id, { groupBy: "free", expandedProjects: [] });
+  assert.equal(updated.groupBy, undefined);
+  assert.equal(updated.expandedProjects, undefined);
+  assert.equal(updated.projectRoot, "Projects/Research");
+  assert.equal(restored.updateTimelinePresetInSettings(created.id, {projectRoot:""}).projectRoot, undefined);
+});
+
+test("free timeline presets preserve an independent project scope with focus enabled", () => {
+  const plugin=makePlugin();
+  plugin.addTimelinePresetInSettings({label:"Actual work",groupBy:"free",projectRoot:"Projects/Research",layers:["task","pomodoro"]});
+  const restored=makePlugin({settings:JSON.parse(JSON.stringify(plugin.settings))});
+  const preset=restored.getTimelineViewSettings().presets[0];
+  assert.equal(preset.projectRoot,"Projects/Research");
+  assert.deepEqual(Array.from(preset.layers),["task","pomodoro"]);
+  assert.equal(preset.groupBy,undefined);
 });
 
 test("timeline preset settings operations preserve normalized schema and explicit order", () => {
@@ -841,6 +886,9 @@ test("appearance preferences and tag colors validate through one settings API", 
   assert.equal(plugin.settings.appearance.tagColorMap.research, "#aabbcc");
   assert.equal(plugin.settings.colorPalette.tagColorMap.research, "#aabbcc");
   assert.equal(plugin.setAppearanceTagColor("bad tag", "red"), null);
+  assert.equal(plugin.setAppearanceTagColor("#研究/阅读", "#123456").tag, "研究/阅读");
+  assert.equal(plugin.setAppearanceTagColor("work//deep", "#123456"), null);
+  assert.equal(plugin.setAppearanceTagColor("work/", "#123456"), null);
   assert.equal(plugin.removeAppearanceTagColor("research"), true);
   assert.equal(Object.prototype.hasOwnProperty.call(plugin.settings.appearance.tagColorMap, "research"), false);
   assert.equal(plugin.removeAppearanceTagColor("research"), false);
@@ -879,10 +927,11 @@ test("weather settings are searchable by their task in both languages", () => {
 test("task display settings are searchable by visible labels and common queries", () => {
   for (const locale of ["zh", "en"]) {
     const plugin=makePlugin({locale});
-    for (const key of ["calendarDensity","taskColorMode","showSourceChips","showCompletedTasks","monthOverflowBehavior"]) {
+    for (const key of ["calendarDensity","weatherPastDays","weatherFutureDays","showSourceChips","showWeather","showCompletedTasks","monthOverflowBehavior"]) {
       const label=plugin.t(`settings.tasks.${key}`);
       assert.ok(plugin.searchSettingsRegistry(label).some(e=>e.id===`tasksCalendar.${key}`),`${locale}: ${label}`);
     }
+    assert.ok(plugin.searchSettingsRegistry(plugin.t("settings.tasks.taskColors")).some(e=>e.id==="tasksCalendar.categoryColors"));
     assert.ok(plugin.searchSettingsRegistry("隐藏完成").some(e=>e.id==="tasksCalendar.showCompletedTasks"));
     assert.ok(plugin.searchSettingsRegistry("overflow").some(e=>e.id==="tasksCalendar.monthOverflowBehavior"));
   }
@@ -900,4 +949,12 @@ test("conditional calendar search follows the active owner without changing mode
     assert.equal(r.tab,mode === "noria" ? "overview" : "calendar");
     assert.equal(plugin.settings.calendar.calendarIntegrationMode,mode);
   }
+});
+
+test("task weather range settings keep disabled and follow-calendar values through normalization", () => {
+ const plugin=makePlugin();plugin.settings=plugin.normalizeSettings({tasksCalendar:{weatherPastDays:-1,weatherFutureDays:0}});
+ assert.equal(plugin.settings.tasksCalendar.weatherPastDays,-1);assert.equal(plugin.settings.tasksCalendar.weatherFutureDays,0);
+ plugin.updateTasksCalendarPreferenceInSettings('weatherPastDays',90);assert.equal(plugin.settings.tasksCalendar.weatherPastDays,90);
+ plugin.updateTasksCalendarPreferenceInSettings('weatherFutureDays',14);assert.equal(plugin.settings.tasksCalendar.weatherFutureDays,14);
+ plugin.updateTasksCalendarPreferenceInSettings('weatherPastDays',999);assert.equal(plugin.settings.tasksCalendar.weatherPastDays,7);
 });

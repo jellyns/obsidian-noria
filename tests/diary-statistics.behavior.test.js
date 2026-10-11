@@ -41,3 +41,22 @@ test('embedded diary record controls read and update their own period layout',as
  assert.deepEqual(received.context,{page:'diary',mode:'daily',selection});assert.equal(received.getWidget(widget.id),widget);
  await received.saveWidget({...widget,props:{dailyRecordFields:['sleep']}});assert.equal(savedMode,'daily');assert.deepEqual(layout.widgets[0].props.dailyRecordFields,['sleep']);
 });
+
+test('independent diary trends and daily records leave range rendering to their own header',async()=>{
+ for(const builtinId of ['note-trend-card','task-trend-card','daily-state-card']){
+  const created=[],container={createDiv:options=>{created.push(options);return {dataset:{}};}};
+  const plugin={buildRuntimeBridgeConfig:()=>({runtime:{}}),createDataService:async()=>({resolveRange:r=>r}),runNoriaView:async()=>{}};
+  await renderDiaryStatistic(plugin,{id:'a',builtinId,props:{statsRange:{mode:'custom',start:'2026-09-01',end:'2026-09-30'}}},container,{mode:'daily',anchorDate:'2026-10-06'},{register(){}});
+  assert.deepEqual(created,[{cls:'noria-diary-statistic'}]);
+ }
+});
+
+test('independent diary heatmaps show their range once in header and remove it on disposal',async()=>{
+ let label,disposed,position;const menu={};
+ const tools={createSpan:options=>(label={...options,remove(){disposed=true;}}),querySelector:()=>menu,insertBefore:(el,before)=>position=[el,before]};
+ const container={closest:()=>({querySelector:()=>tools}),createDiv:()=>({dataset:{}})},cleanups=[];
+ const plugin={buildRuntimeBridgeConfig:()=>({runtime:{}}),createDataService:async()=>({resolveRange:r=>r}),getNoriaLocale:()=> 'zh-CN',runNoriaView:async()=>{}};
+ await renderDiaryStatistic(plugin,{id:'heat',builtinId:'habit-heatmap-card',props:{statsRange:{mode:'custom',start:'2026-09-01',end:'2026-09-30'}}},container,{mode:'daily',anchorDate:'2026-10-06'},{register:fn=>cleanups.push(fn)});
+ assert.equal(label.attr.title,'2026-09-01 — 2026-09-30');assert.deepEqual(position,[label,menu]);
+ cleanups.forEach(fn=>fn());assert.equal(disposed,true);
+});

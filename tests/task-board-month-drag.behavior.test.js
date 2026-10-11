@@ -125,7 +125,7 @@ test('single-day rows expose real date endpoints before any drag; continuation s
     ['[start:: 2026-09-26] [due:: 2026-09-29]','end',['due']]
   ]) {
     const children=[],classes=new Set();
-    const row={classList:{toggle:(name,on)=>on?classes.add(name):classes.delete(name)},getAttribute:()=>encodeURIComponent(raw),querySelectorAll:()=>[...children],appendChild:h=>children.push(h),
+    const row={classList:{toggle:(name,on)=>on?classes.add(name):classes.delete(name)},getAttribute:key=>key==='data-tc-sig'?encodeURIComponent(raw):null,querySelectorAll:()=>[...children],appendChild:h=>children.push(h),
       ownerDocument:{createElement:()=>({attrs:{},setAttribute(k,v){this.attrs[k]=v},remove(){children.splice(children.indexOf(this),1)}})}};
     context.syncMonthTaskDateHandles(row,pos);context.syncMonthTaskDateHandles(row,pos);
     assert.deepEqual(children.map(h=>h.attrs['data-edge']),wanted);

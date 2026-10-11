@@ -32,11 +32,14 @@ function checkMediaDemo(root) {
   const {listMedia} = require('../src/media-catalog.js');
   const data = JSON.parse(read(root, '.obsidian/plugins/noria/data.json'));
   const pages = normalizePages(data.workbenchPages);
-  const page = pages.pages.find(page => page.id === 'page-media');
+  const page = pages.pages.find(page => page.id === 'media');
   assert.ok(page && !page.hidden, 'demo needs a visible media page');
+  assert.equal(pages.pages.some(page => page.id === 'page-media'), false, 'no duplicate legacy media page');
   assert.equal(pages.defaultPage, 'home');
-  const card = page.widgets.find(card => card.source === 'noria:media');
+  const card = page.widgets.find(card => card.source === 'noria:media-library');
   assert.ok(card && card.enabled);
+  assert.ok(page.widgets.some(card => card.source === 'noria:media-summary' && card.enabled));
+  assert.ok(page.widgets.some(card => card.source === 'noria:media-distribution' && card.enabled));
   const directory = path.join(root, ...card.props.folder.split('/'));
   const files = filesUnder(directory).filter(file => file.endsWith('.md')).map(file => ({
     path: path.relative(root, file).replace(/\\/g, '/'), basename: path.basename(file, '.md')
@@ -52,14 +55,21 @@ function checkMediaDemo(root) {
     app: {vault: {getAbstractFileByPath: folder => folder === card.props.folder ? {children: []} : null},
       metadataCache: {getFileCache: file => ({frontmatter: values.get(file.path)})}}};
   const all = listMedia(plugin, {folder: card.props.folder});
-  const current = listMedia(plugin, {folder: card.props.folder, status: card.props.status});
-  assert.equal(all.total, 5);
+  const current = listMedia(plugin, {folder: card.props.folder, status: /Locale: zh-CN/.test(read(root, '.noria-demo-vault')) ? '进行中' : 'In progress'});
+  assert.equal(all.total, 6);
   assert.equal(current.total, 3);
   assert.deepEqual(current.items.flatMap(item => item.kinds).sort(), ['book', 'game', 'movie']);
   const book = current.items.find(item => item.kinds.includes('book'));
   assert.equal(book.properties.pageprogress, 36);
   assert.equal(book.properties.pagecount, 160);
   assert.equal(listMedia(plugin, {folder: card.props.folder, kind: 'book'}).total, 2);
+  assert.equal(listMedia(plugin, {folder: card.props.folder, kind: 'music'}).total, 1);
+  assert.deepEqual(data.shortcuts, [{kind:'media',target:book.path}]);
+  const destination = values.get(book.path)['media-open'].slice(2,-2);
+  assert.ok(fs.existsSync(path.join(root, ...destination.split('/'))), 'Read must open an included document');
+  const related = files.filter(file => values.get(file.path).related?.includes(`[[${book.path}]]`));
+  assert.equal(related.length, 1, 'one ordinary dated note is associated with the work');
+  assert.ok(!all.items.some(item => item.path === related[0].path), 'reading note must not become another work');
   for (const item of all.items) {
     for (const field of ['rating', 'grade', 'finishedAt', 'playtime', 'viewtime']) assert.equal(field in item.properties, false);
     assert.ok(item.tags.includes('noria-demo'));

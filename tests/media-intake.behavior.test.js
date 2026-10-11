@@ -32,6 +32,14 @@ test('intake creates only supplied facts and concurrent retries find the same un
   assert.equal(f.contents.size, 1);
 });
 
+test('nonbook intake stores supplied creator and year facts without personal history',async()=>{
+ for(const [kind,key] of [['movie','director'],['music','artist'],['game','developer']]){
+  const f=fixture(),result=await f.api.media.create({folder:'Media',kind,title:'A work',metadata:{[key]:'A creator',year:2024}});
+  const raw=f.contents.get(result.path),properties=parse(raw);
+  assert.deepEqual(properties[key],['A creator']);assert.equal(properties.year,2024);assert.doesNotMatch(raw,/status|rating|finishedAt/);
+ }
+});
+
 test('title matches return all existing editions without changing personal content or status', async () => {
   const f = fixture(); f.add('Media/old.md', '《Ａ Book》', 'book'); f.add('Media/new.md', 'A  Book', 'book', false); f.add('Elsewhere/other.md', 'A Book', 'book');
   const before = [...f.contents]; const result = await f.api.media.create({folder: 'Media', kind: 'book', title: 'a book', status: '想读'});
@@ -43,7 +51,7 @@ test('intake does not overwrite collisions or create folders and rejects invente
   const f = fixture();f.add('Media/Occupied.md', 'Something else', 'game'); const before = [...f.contents];
   await assert.rejects(f.api.media.create({folder: 'Media', kind: 'book', title: 'New', filename: 'Occupied.md'}), e => e.code === 'conflict');
   await assert.rejects(f.api.media.create({folder: 'Missing', kind: 'book', title: 'New'}), e => e.code === 'not-found');
-  for (const patch of [{title: ''}, {title: 'a\nb'}, {filename: '../x.md'}, {filename: 'CON.md'}, {filename: '.md'}, {folder: '../Media'}, {kind: 'music'}, {rating: 0}, {status: ''}]) await assert.rejects(f.api.media.create({folder: 'Media', kind: 'book', title: 'New', ...patch}), e => e.code === 'invalid-input');
+  for (const patch of [{title: ''}, {title: 'a\nb'}, {filename: '../x.md'}, {filename: 'CON.md'}, {filename: '.md'}, {folder: '../Media'}, {kind: 'podcast'}, {rating: 0}, {status: ''}]) await assert.rejects(f.api.media.create({folder: 'Media', kind: 'book', title: 'New', ...patch}), e => e.code === 'invalid-input');
   assert.deepEqual([...f.contents], before); assert.equal(f.writes, 0);
   f.plugin._noriaPluginDisposed = true; await assert.rejects(f.api.media.create({folder: 'Media', kind: 'book', title: 'New'}), e => e.code === 'unsupported');
 });
@@ -56,6 +64,9 @@ test('actual MCP intake writes once and returns the existing source on replay', 
   const first = await client.callTool(request); assert.equal(first.structuredContent.created, true);
   const second = await client.callTool(request); assert.equal(second.structuredContent.created, false); assert.equal(second.structuredContent.matches[0].path, first.structuredContent.path);
   assert.equal(f.writes, 1); assert.equal(parse(f.contents.get(first.structuredContent.path)).status, '想玩');
+  const music=await client.callTool({name:'noria_media_create',arguments:{folder:'Media',title:'One Day',kind:'music'}});
+  assert.equal(music.isError,undefined);assert.equal(music.structuredContent.created,true);
+  assert.deepEqual(parse(f.contents.get(music.structuredContent.path)),{title:'One Day',tags:['music']});
 });
 
 

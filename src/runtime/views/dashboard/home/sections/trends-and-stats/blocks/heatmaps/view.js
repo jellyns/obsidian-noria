@@ -430,7 +430,7 @@ const longestStreak = (m) => {
 const renderBottomStats = (parent, m, showPeakValues = true) => {
   parent.empty();
   parent.className = "dashboard-heatmap-bottom-stats";
-  parent.style.cssText = "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:auto auto;gap:3px 8px;align-items:baseline;margin-top:7px;padding:6px 2px 0;min-width:0;";
+  parent.style.cssText = "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:auto auto;gap:3px 8px;align-items:baseline;margin-top:4px;padding:0 2px;min-width:0;";
   const statAccent = "color-mix(in srgb,var(--dash-heatmap-habit-level-5,#42bd95) 78%,var(--interactive-accent,#2563eb) 22%)";
   const formatStatParts = (value) => {
     if (value && typeof value === "object") return value;
@@ -473,14 +473,15 @@ const renderBottomStats = (parent, m, showPeakValues = true) => {
 };
 const createChartRow = (parent) => {
   const row = parent.createDiv();
-  row.style.cssText = "display:block;";
+  row.style.cssText = "display:flex;flex:1 0 auto;min-width:0;";
   const host = row.createDiv();
   host.style.cssText =
-    "flex:1;min-width:0;padding:5px 4px;border-radius:12px;overflow:hidden;background:transparent;border:0;box-shadow:none;";
+    "flex:1;min-width:0;padding:2px 0;overflow:auto;background:transparent;border:0;box-shadow:none;display:flex;flex-direction:column;justify-content:safe center;";
   return { host };
 };
 const wrap = root.createDiv();
 wrap.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr));gap:10px;width:100%;margin-bottom:8px;";
+if (heatmapMode !== 'all') { wrap.style.height = '100%'; wrap.style.marginBottom = '0'; wrap.style.gridTemplateRows = 'minmax(0,1fr)'; }
 const heatmapModeButtonBase =
   "appearance:none;-webkit-appearance:none;min-height:28px;height:28px;padding:0 9px;border:0;border-radius:8px;box-shadow:none;outline:none;font-size:13px;line-height:1;letter-spacing:0;";
 const setHeatmapModeButton = (b, active) => {
@@ -495,7 +496,7 @@ const setHeatmapModeButton = (b, active) => {
 if (showHabit) {
 const habitCard = wrap.createDiv();
 habitCard.addClass('noria-home-heatmap-card');
-habitCard.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:start;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
+habitCard.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:stretch;height:100%;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
 if (input?.cardContent) Object.assign(habitCard.style, {padding:"0",border:"0",boxShadow:"none",background:"transparent"});
 const habitHead = habitCard.createDiv();
 habitHead.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;min-width:0;flex-wrap:wrap;";
@@ -538,7 +539,7 @@ drawHabit(MODE_OVERVIEW);
 if (showWorkload) {
 const workCard = wrap.createDiv();
 workCard.addClass('noria-home-heatmap-card');
-workCard.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:start;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
+workCard.style.cssText = `padding:12px;border-radius:${topPanelRadius};background:${topPanelBg};border:${topPanelBorder};box-shadow:${topPanelShadow};align-self:stretch;height:100%;width:100%;display:flex;flex-direction:column;min-width:0;min-height:0;`;
 if (input?.cardContent) Object.assign(workCard.style, {padding:"0",border:"0",boxShadow:"none",background:"transparent"});
 const workHead = workCard.createDiv();
 workHead.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;min-width:0;flex-wrap:wrap;";
@@ -574,7 +575,8 @@ const draw = (mode) => {
   btnRefs.forEach((x) => setHeatmapModeButton(x.btn, x.mode === mode));
 };
 [MODE_ACTIVITY, MODE_NEW_NOTES, MODE_TASKS, MODE_WORDS].forEach((mode, i) => {
-  const b = bar.createEl("button", { text: mode });
+  const label = [MODE_OVERVIEW, heatmapT("runtime.home.trends.notesShort"), heatmapT("runtime.home.trends.tasksShort"), heatmapT("runtime.home.trends.wordsShort")][i];
+  const b = bar.createEl("button", { text: label, attr: {title: mode, "aria-label": mode} });
   b.type = "button";
   b.onclick = () => draw(mode);
   btnRefs.push({ mode, btn: b });

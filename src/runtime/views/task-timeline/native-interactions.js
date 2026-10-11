@@ -38,16 +38,17 @@
     const role = roleInput === "instant" ? "move" : roleInput || "move";
     const minDurationMs = Math.max(1, finite(input.minDurationMinutes, 5)) * MINUTE;
     const currentPx = finite(input.currentPx, finite(input.pointerPx, viewport.widthPx / 2));
-    const originPx = finite(input.originPx, currentPx);
+    const endpointMs=role==='end'&&isDuration?parsedEnd:startMs;
+    const originPx = finite(input.originPx,role==='move'?currentPx:viewportApi.dateMsToPx(viewport,endpointMs));
     const currentMs = viewportApi.pxToDateMs(viewport, currentPx);
     const originMs = viewportApi.pxToDateMs(viewport, originPx);
     let nextStart = startMs;
     let nextEnd = isDuration ? parsedEnd : null;
 
     if (role === "start" && isDuration) {
-      nextStart = Math.min(snapTime(currentMs, input.snapMinutes), parsedEnd - minDurationMs);
+      nextStart = Math.min(snapTime(startMs+currentMs-originMs, input.snapMinutes), parsedEnd - minDurationMs);
     } else if (role === "end" && isDuration) {
-      nextEnd = Math.max(snapTime(currentMs, input.snapMinutes), startMs + minDurationMs);
+      nextEnd = Math.max(snapTime(parsedEnd+currentMs-originMs, input.snapMinutes), startMs + minDurationMs);
     } else {
       const unsnappedStart = startMs + (currentMs - originMs);
       nextStart = snapTime(unsnappedStart, input.snapMinutes);
@@ -330,12 +331,14 @@
 
     const onKeyDown = (event) => {
       if (event.defaultPrevented) return;
+      if(ancestor(event.target,node=>String(node.className||'').includes('noria-timeline-project-labels')))return;
       if (event.key === "Escape" && state.active) {
         cancelActive("cancelled", event);
         event.preventDefault?.();
         return;
       }
       if (state.active || event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) return;
+      if((event.key==='Enter'||event.key===' ')&&ancestor(event.target,node=>attr(node,'data-noria-task-visual-role')==='record-summary'))return;
       const annotation = ancestor(event.target, node => !!attr(node, "data-noria-annotation-id"));
       if (annotation && (event.key === "Enter" || event.key === " ")) {
         options.openAnnotation?.(attr(annotation, "data-noria-annotation-id"), event);
@@ -359,6 +362,7 @@
     };
 
     const onWheel = (event) => {
+      if((host?.getAttribute?.('data-noria-project-view')||host?.getAttribute?.('data-noria-scrollable-content'))&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&Math.abs(event.deltaY)>Math.abs(event.deltaX))return;
       if (state.active) return;
       const viewport = getViewport();
       if (!viewport) return;
@@ -386,6 +390,8 @@
     };
 
     const onPointerDown = (event) => {
+      if(ancestor(event.target,node=>String(node.tagName||'').toLowerCase()==='button'))return;
+      if(ancestor(event.target,node=>String(node.className||'').includes('noria-timeline-project-labels')))return;
       if (event.button != null && event.button !== 0) return;
       if (state.active) {
         event.preventDefault?.();
@@ -439,12 +445,13 @@
       }
       const taskSurface = ancestor(event.target, (node) => (
         ACTIVATION_ROLES.has(attr(node, "data-noria-task-visual-role")) ||
+        attr(node, "data-noria-task-visual-role") === "record-summary" ||
         !!attr(node, "data-noria-task-handle-zone")
       ));
       if (taskSurface) return;
       const band = ancestor(event.target, (node) => !!attr(node, "data-noria-timeline-band"));
       const bandKind = attr(band, "data-noria-timeline-band");
-      if (bandKind !== "main" && bandKind !== "overview") return;
+      if (bandKind !== "main" && bandKind !== "overview" && bandKind !== "axis") return;
       const viewport = getViewport();
       if (!viewport) return;
       if (bandKind === "overview") band.focus?.({ preventScroll: true });

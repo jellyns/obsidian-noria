@@ -3,29 +3,6 @@ const habitTags = ["#habit", "#健康", "#运动", "#作息"];
 const now = new Date();
 const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 const bridge = input?.noriaBridge || globalThis.__noriaRuntimeBridge || {};
-const normalizeVaultPath = (value) =>
-  String(value || "")
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "");
-const getConfiguredDiaryRoot = () =>
-  normalizeVaultPath(bridge?.paths?.diaryRoot || bridge?.settings?.managedPaths?.diaryRoot || "06_Diary") || "06_Diary";
-const ensureParentFolder = async (filePath) => {
-  const normalized = normalizeVaultPath(filePath);
-  const slash = normalized.lastIndexOf("/");
-  if (slash <= 0) return;
-  const parts = normalized.slice(0, slash).split("/").filter(Boolean);
-  let cursor = "";
-  for (const part of parts) {
-    cursor = cursor ? `${cursor}/${part}` : part;
-    if (!app.vault.getAbstractFileByPath(cursor)) {
-      try {
-        await app.vault.createFolder(cursor);
-      } catch (_) {}
-    }
-  }
-};
 const periodicTasksT = (key, params = {}) => {
   try {
     if (bridge && typeof bridge.t === "function") return bridge.t(key, params);
@@ -81,106 +58,6 @@ const PERIOD_RANGES = {
   month: { start: monthStartStr, end: monthEndStr },
   year: { start: yearStartStr, end: yearEndStr }
 };
-const PERIOD_TASK_HEADINGS = {
-  day: "今日任务",
-  week: "本周任务",
-  month: "本月任务",
-  year: "本年任务"
-};
-const getDiaryPathByPeriod = (periodKey) => {
-  const y = now.getFullYear();
-  const root = getConfiguredDiaryRoot();
-  if (periodKey === "day") return `${root}/${y}/${todayStr}.md`;
-  if (periodKey === "week") return `${root}/${y}/${y}-W${String(isoWeek(now)).padStart(2, "0")}.md`;
-  if (periodKey === "month") return `${root}/${y}/${y}-${pad2(now.getMonth() + 1)}.md`;
-  return `${root}/${y}/${y}.md`;
-};
-/** 任务日期：日与起止同日；周/月/年为该周期末日（与周期计划语义一致） */
-const buildDiaryTaskLine = (lineRaw, periodKey) => {
-  const taskText = String(lineRaw || "").trim().replace(/\n/g, " ");
-  if (!taskText) return "";
-  let s;
-  let d;
-  if (periodKey === "day") {
-    s = todayStr;
-    d = todayStr;
-  } else if (periodKey === "week") {
-    s = weekEndStr;
-    d = weekEndStr;
-  } else if (periodKey === "month") {
-    s = monthEndStr;
-    d = monthEndStr;
-  } else {
-    s = yearEndStr;
-    d = yearEndStr;
-  }
-  return `- [ ] ${taskText} [start:: ${s}] [due:: ${d}]`;
-};
-const appendTaskLineToDiary = (text, heading, fullLine) => {
-  const line = String(fullLine || "").trim();
-  if (!line) return String(text || "");
-  const re = new RegExp(`^(###\\s*${heading}\\s*(?:\\r?\\n)+)([\\s\\S]*?)(?=^(?:###|##)\\s|^\\\`\\\`\\\`)`, "m");
-  if (re.test(text)) {
-    return String(text || "").replace(re, (_, head, body) => `${head}${String(body || "").trimEnd()}\n${line}\n`);
-  }
-  const todo = /^(##\s*待办\s*(?:\r?\n)+)/m;
-  if (todo.test(text)) {
-    return String(text || "").replace(todo, `$1\n### ${heading}\n\n${line}\n\n`);
-  }
-  return String(text || "").trimEnd() + `\n\n## 待办\n\n### ${heading}\n\n${line}\n`;
-};
-const processPeriodDiaryText = async (path, seed, transform) => {
-  let file = app.vault.getAbstractFileByPath(path);
-  const apply = (current) => {
-    const source = String(current || "");
-    const next = transform(source);
-    return next == null ? source : String(next);
-  };
-  if (!file) {
-    await ensureParentFolder(path);
-    const initial = apply(seed);
-    try {
-      file = await app.vault.create(path, initial);
-      return { file, text: initial, created: true };
-    } catch (error) {
-      const message = String(error?.message || error || "");
-      file = app.vault.getAbstractFileByPath(path);
-      if (!file && /File already exists|already exists/i.test(message)) {
-        await Promise.resolve();
-        file = app.vault.getAbstractFileByPath(path);
-      }
-      if (!file) throw error;
-    }
-  }
-  let nextText = "";
-  let currentText = "";
-  if (typeof app.vault.process === "function") {
-    await app.vault.process(file, (current) => {
-      currentText = String(current || "");
-      nextText = apply(currentText);
-      return nextText;
-    });
-  } else {
-    currentText = String(await app.vault.read(file) || "");
-    nextText = apply(currentText);
-    if (nextText !== currentText) await app.vault.modify(file, nextText);
-  }
-  return { file, text: nextText, created: false, unchanged: nextText === currentText };
-};
-const addTaskToPeriodDiary = async (periodKey, taskText) => {
-  const path = getDiaryPathByPeriod(periodKey);
-  const built = buildDiaryTaskLine(taskText, periodKey);
-  if (!built) return false;
-  const seed = `---\ntags:\n  - daily-plan\n---\n\n`;
-  await processPeriodDiaryText(path, seed, (current) => {
-    return appendTaskLineToDiary(current, PERIOD_TASK_HEADINGS[periodKey] || "今日任务", built);
-  });
-  try {
-    globalThis.__noriaRuntimeBridge?.refresh?.requestRefresh?.("home", "dashboard-period-task-add");
-  } catch (_) {}
-  return true;
-};
-
 const cleanTaskText = (txt) =>
   String(txt || "")
     .replace(/(?:^|\s)[#＃][^\s#＃]+/g, " ")
@@ -214,7 +91,7 @@ const getTaskDates = (t) => {
 };
 const getDoneDate = (t) => {
   const txt = String(t?.text || "");
-  return toDate(t?.completion) || getInlineDate(txt, "done");
+  return toDate(t?.completion) || getInlineDate(txt, "completion") || getInlineDate(txt, "done");
 };
 
 /** 从正文解析 [due:: …] 的可选时间；无时间则返回 null */
@@ -375,55 +252,16 @@ const taskHoverTitle = (task, label, d, done = !!task?.completed) => {
 const escapeRegExp = (s) => String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const markTaskStatus = async (task, done = true) => {
   try {
-    const path = String(task?.path || task?._page?.file?.path || "");
-    if (!path) return false;
-    const file = app.vault.getAbstractFileByPath(path);
-    if (!file) return false;
-    let updated = false;
-    const expectedText = String(task?.rawText || task?.text || "")
-      .trim()
-      .replace(/^\s*[-*]\s*\[[^\]\r\n]?\]\s*/, "")
-      .trim();
-    if (!expectedText) return false;
-    const applyMutation = (current) => {
-      updated = false;
-      const source = String(current || "");
-      const lines = source.split(/\r?\n/);
-      const stateRe = done ? /^\s*[-*]\s*\[\s\]\s*/ : /^\s*[-*]\s*\[[xX]\]\s*/;
-      const normalize = (line) => String(line || "")
-        .replace(/^\s*[-*]\s*\[[^\]\r\n]?\]\s*/, "")
-        .trim();
-      const matches = (idx) => idx >= 0
-        && idx < lines.length
-        && stateRe.test(lines[idx])
-        && normalize(lines[idx]) === expectedText;
-      const candidates = [];
-      for (let i = 0; i < lines.length; i += 1) {
-        if (matches(i)) candidates.push(i);
-      }
-      if (candidates.length !== 1) return source;
-      const idx = candidates[0];
-      lines[idx] = done
-        ? lines[idx].replace(/^(\s*[-*]\s*)\[\s\]/, "$1[x]")
-        : lines[idx].replace(/^(\s*[-*]\s*)\[[xX]\]/, "$1[ ]");
-      updated = true;
-      return lines.join("\n");
-    };
-    if (typeof app.vault.process === "function") {
-      await app.vault.process(file, applyMutation);
-    } else {
-      const raw = await app.vault.read(file);
-      const next = applyMutation(raw);
-      if (updated) await app.vault.modify(file, next);
+    const result=await bridge.tasks.updateStatus({...task,path:String(task.path||task._page?.file?.path||""),done,recordCompletion:true,captureWrite:true});
+    if(!result?.ok)return false;
+    if(result.text!=null){
+      task.line=result.line;task.rawText=result.text.split("\n")[result.line];
+      task.text=task.rawText.replace(/^\s*[-*+]\s*\[[^\]]*\]\s*/,"");
     }
-    if (!updated) return false;
-    try {
-      globalThis.__noriaRuntimeBridge?.refresh?.requestRefresh?.("home", "dashboard-task-status");
-    } catch (_) {}
+    task.completed=done;
+    task.completion=done?(/\[(?:completion|done)::\s*(\d{4}-\d{2}-\d{2})/.exec(task.text)?.[1]||task.completion):null;
     return true;
-  } catch (e) {
-    return false;
-  }
+  }catch(_){return false;}
 };
 
 const anchorInRange = (t, start, end) => {
@@ -502,7 +340,12 @@ const periodHost = input?.periodHost && typeof input.periodHost.createDiv === "f
 const tabLeft = (periodHost || shell).createDiv();
 tabLeft.addClass("dashboard-segment-tabs");
 if (periodHost) tabLeft.style.padding = "0";
-let currentPeriod = "day";
+const stateKey=host.closest?.('[data-noria-widget-id]')?.dataset.noriaWidgetId||input?.widgetId||'today-tasks-card';
+const cardState=bridge.tasks.cardViewState?.get(stateKey)||{period:input?.todoPeriod||'day',completedExpanded:{}};
+bridge.tasks.cardViewState?.set(stateKey,cardState);
+let currentPeriod = cardState.period;
+const compactPeriod=(periodHost||shell).createEl('select',{cls:'noria-todo-period-select',attr:{'aria-label':periodicTasksT('runtime.tasksCalendar.nav.group')}});
+for(const period of PERIODS)compactPeriod.createEl('option',{value:period.key,text:period.label});
 const addBtn = (actionsHost || shell).createEl("button", { text: "+" });
   globalThis.dashboardCore?.utils?.applyLucideIcon?.(addBtn, "plus");
 addBtn.type = "button";
@@ -514,77 +357,26 @@ if (!actionsHost) {
   addBtn.style.height = "24px";
   addBtn.style.alignSelf = "flex-end";
 }
-const openAddPanel = () => {
-  const _dates = buildDiaryTaskLine("·", currentPeriod).match(/\[start:: ([^\]]+)\] \[due:: ([^\]]+)\]/);
-  const _dh =
-    _dates && _dates[1] === _dates[2]
-      ? `[start]/[due] 均为 ${_dates[1]}`
-      : _dates
-        ? `[start] ${_dates[1]} · [due] ${_dates[2]}`
-        : "";
-  const ui = globalThis.dashboardCore?.components?.ui?.managerPanel || globalThis.__noriaManagerUiKit;
-  if (ui?.openPanel) {
-    let inputEl = null;
-    const api = ui.openPanel({
-      title: periodicTasksT("runtime.periodic.todayTasks.addTitle", {
-        period: PERIODS.find((p) => p.key === currentPeriod)?.label || periodicTasksT("runtime.tasksCalendar.view.shortDay")
-      }),
-      subtitle: `${getDiaryPathByPeriod(currentPeriod)} · ${PERIOD_TASK_HEADINGS[currentPeriod]} · ${_dh}`,
-      size: "sm",
-      hideFooter: true,
-      render: ({ body, close }) => {
-        inputEl = ui.input({ placeholder: periodicTasksT("runtime.periodic.todayTasks.inputPlaceholder") });
-        inputEl.style.width = "100%";
-        inputEl.style.height = "34px";
-        const meta = body.appendChild(document.createElement("div"));
-        meta.className = "noria-manager-muted";
-        meta.textContent = periodicTasksT("runtime.periodic.todayTasks.metadata");
-        meta.style.marginTop = "7px";
-        body.insertBefore(inputEl, meta);
-        inputEl.onkeydown = async (ev) => {
-          if (ev.key === "Enter") {
-            ev.preventDefault();
-            const v = String(inputEl.value || "").trim();
-            if (!v) return;
-            const ok = await addTaskToPeriodDiary(currentPeriod, v);
-            if (ok) close();
-          }
-        };
-      }
-    });
-    setTimeout(() => inputEl?.focus(), 0);
-    return api;
-  }
-  const v = window.prompt(periodicTasksT("runtime.periodic.todayTasks.addTitle", {
-    period: PERIODS.find((p) => p.key === currentPeriod)?.label || periodicTasksT("runtime.tasksCalendar.view.shortDay")
-  }));
-  if (String(v || "").trim()) {
-    addTaskToPeriodDiary(currentPeriod, String(v || "").trim());
-  }
+addBtn.onclick = async () => {
+  addBtn.disabled = true;
+  try {
+    await bridge.runtime.openPeriodTaskCreate({mode:({day:"daily",week:"weekly",month:"monthly",year:"yearly"})[currentPeriod],date:todayStr,anchor:addBtn});
+  } finally { addBtn.disabled = false; }
 };
-addBtn.onclick = () => openAddPanel();
 
 const scroll = shell.createDiv();
 scroll.addClass("dashboard-period-task-scroll");
 scroll.style.cssText = "flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:2px;";
 
-const countPeriod = (periodKey) => {
-  const tasks = allTasks.filter((t) => matchesPeriod(t, periodKey));
-  const done = tasks.filter((t) => t.completed).length;
-  const total = tasks.length;
-  return { done, total };
-};
-
 const renderForPeriod = (periodKey) => {
   scroll.empty();
   const tasks = allTasks.filter((t) => matchesPeriod(t, periodKey));
   const meta = PERIODS.find((p) => p.key === periodKey) || PERIODS[0];
-  const cc = countPeriod(periodKey);
+  input?.summaryHost?.querySelector?.(".noria-task-totals")?.remove();
 
   if (tasks.length === 0) {
     const empty = scroll.createDiv({ text: meta.empty });
     empty.addClass("dashboard-period-task-empty");
-    return;
   }
 
   const sorted = [...tasks].sort((a, b) => {
@@ -596,7 +388,8 @@ const renderForPeriod = (periodKey) => {
   });
 
   const openTasks = sorted.filter((t) => !t.completed);
-  const doneTasks = sorted.filter((t) => t.completed);
+  const completionKey=t=>`${t.path||t._page?.file?.path||""}:${t.line}`;
+  const doneTasks = sorted.filter((t) => t.completed).sort((a,b)=>Number(completionKey(b)===cardState.justCompleted)-Number(completionKey(a)===cardState.justCompleted)||(getDoneDate(b)||"").localeCompare(getDoneDate(a)||""));
   const wrap = scroll.createDiv();
   wrap.addClass("dashboard-period-task-list");
   wrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
@@ -634,6 +427,7 @@ const renderForPeriod = (periodKey) => {
     row.setAttr("data-noria-task-date", dateHint);
     row.setAttr("data-noria-task-priority", String(priorityScore(task)));
     row.setAttr("data-noria-task-source-path", path);
+    row.setAttr("data-noria-task-line",String(task.line));
     row.title = taskHoverTitle(task, fullLabel, d, done);
     const textRow = row.createDiv();
     textRow.addClass("dashboard-task-row__content");
@@ -653,6 +447,7 @@ const renderForPeriod = (periodKey) => {
       void openTaskAtLine(task);
     });
     textRow.appendChild(textMain);
+    bridge.tasks?.bindFocusDrag?.(textMain,()=>({...task,path,completed:done}));
     row.appendChild(textRow);
 
     if (done) {
@@ -675,6 +470,11 @@ const renderForPeriod = (periodKey) => {
         row.setAttr("data-noria-task-overdue", nextOverdue ? "true" : "false");
         row.title = taskHoverTitle(task, fullLabel, d, done);
         textMain.setAttr("aria-label", row.title);
+        if(done)cardState.justCompleted=completionKey(task);
+        const position=scroll.scrollTop,hadFocus=document.activeElement===btn;
+        renderForPeriod(currentPeriod);scroll.scrollTop=position;
+        if(hadFocus){const next=[...scroll.querySelectorAll('.dashboard-task-row')].find(el=>el.dataset.noriaTaskSourcePath===path&&el.dataset.noriaTaskLine===String(task.line));next?.querySelector('input')?.focus({preventScroll:true});}
+        bridge.refresh?.requestRefresh?.("home","dashboard-task-status");
       } else {
         btn.checked = done;
         syncCheckVisual();
@@ -683,19 +483,7 @@ const renderForPeriod = (periodKey) => {
     };
   };
 
-  const summaryRow = wrap.createDiv();
-  summaryRow.addClass("dashboard-period-task-summary");
-  const summaryMain = summaryRow.createDiv();
-  summaryMain.addClass("dashboard-period-task-summary-main");
-  const summaryMeta = summaryMain.createDiv({
-    text: periodicTasksT("runtime.periodic.todayTasks.openSummary", {
-      open: openTasks.length,
-      done: cc.done,
-      total: cc.total
-    })
-  });
-  summaryMeta.addClass("dashboard-period-task-summary-meta");
-
+  let firstGroup=true;
   const groupedOpenTasks = openTasks.reduce((acc, task) => {
     const kind = taskRhythmKind(task);
     if (!acc[kind]) acc[kind] = [];
@@ -718,29 +506,28 @@ const renderForPeriod = (periodKey) => {
     count.addClass("dashboard-inline-count");
     count.addClass("dashboard-period-task-count");
     count.addClass("dashboard-period-task-group-count");
+    if(firstGroup){
+      const description=String(bridge.locale||'en').startsWith('zh')?`当前范围未完成 ${openTasks.length}`:`Open tasks in this range: ${openTasks.length}`;
+      labelWrap.createSpan({cls:'noria-task-group-total',text:`· ${openTasks.length}`,attr:{title:description,'aria-label':description}});firstGroup=false;
+    }
     const body = groupEl.createDiv();
     body.addClass("dashboard-period-task-group-body");
     items.forEach((t) => renderTask(t, body));
   };
   TASK_GROUPS.forEach(renderTaskGroup);
 
-  if (doneTasks.length > 0) {
-    const doneWrap = wrap.createDiv();
-    doneWrap.addClass("dashboard-period-task-completed");
-    doneWrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
-    const head = doneWrap.createEl("button", { text: `${periodicTasksT("runtime.periodic.todayTasks.completed", { count: doneTasks.length })} ▸` });
-    head.addClass("dashboard-period-task-completed-toggle");
-    const body = doneWrap.createDiv();
-    body.addClass("dashboard-period-task-completed-list");
-    body.style.cssText = "display:none;flex-direction:column;gap:3px;";
-    doneTasks.forEach((t) => renderTask(t, body));
-    let expanded = false;
-    head.onclick = () => {
-      expanded = !expanded;
-      head.textContent = `${periodicTasksT("runtime.periodic.todayTasks.completed", { count: doneTasks.length })} ${expanded ? "▾" : "▸"}`;
-      body.style.display = expanded ? "flex" : "none";
-    };
+  const doneWrap=wrap.createDiv({cls:'dashboard-period-task-completed'});
+  const head=doneWrap.createDiv({cls:'dashboard-period-task-completed-heading',text:periodicTasksT("runtime.periodic.todayTasks.completed",{count:doneTasks.length})});
+  const body=doneWrap.createDiv({cls:'dashboard-period-task-completed-list'});
+  let expanded=cardState.completedExpanded[periodKey]===true;
+  const paintCompleted=()=>{body.empty();doneTasks.slice(0,expanded?undefined:3).forEach(t=>renderTask(t,body));};
+  paintCompleted();
+  if(doneTasks.length>3){
+    const more=doneWrap.createEl('button',{cls:'dashboard-period-task-completed-toggle',attr:{type:'button'}});
+    const sync=()=>{more.textContent=String(bridge.locale||'en').startsWith('zh')?(expanded?'收起':`查看全部 ${doneTasks.length} 项`):(expanded?'Show less':`Show all ${doneTasks.length}`);more.setAttr('aria-expanded',String(expanded));};
+    more.onclick=()=>{expanded=!expanded;cardState.completedExpanded[periodKey]=expanded;paintCompleted();sync();};sync();
   }
+
 };
 
 const tabButtons = [];
@@ -752,7 +539,7 @@ PERIODS.forEach((p) => {
   tabButtons.push({ key: p.key, btn });
   btn.onclick = () => {
     tabButtons.forEach((x) => setTabStyle(x.btn, x.key === p.key));
-    currentPeriod = p.key;
+    currentPeriod = cardState.period = p.key;compactPeriod.value=p.key;
     renderForPeriod(p.key);
   };
 });
@@ -762,8 +549,9 @@ if (periodHost === actionsHost && periodHost && tabLeft.parentNode === periodHos
   periodHost.insertBefore(tabLeft, periodHost.firstChild);
 }
 
-let initial = String(input?.todoPeriod || "day");
+compactPeriod.onchange=()=>tabButtons.find(item=>item.key===compactPeriod.value)?.btn.click();
+let initial = String(cardState.period || "day");
 if (!PERIOD_RANGES[initial]) initial = "day";
 tabButtons.forEach((x) => setTabStyle(x.btn, x.key === initial));
-currentPeriod = initial;
+currentPeriod = initial;compactPeriod.value=initial;
 renderForPeriod(initial);

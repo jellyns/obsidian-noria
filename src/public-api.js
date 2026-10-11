@@ -46,15 +46,19 @@ function createPublicApi(plugin){
       {name:'tasks.update',effect:'write',input:{required:['ref','patch'],ref:{path:'vault-relative Markdown path',line:'zero-based hint',rawText:'exact original task line'},patch:{start:'YYYY-MM-DD[ HH:mm] or empty',due:'YYYY-MM-DD[ HH:mm] or empty',scheduled:'YYYY-MM-DD[ HH:mm] or empty',status:'todo | in_progress | done | cancelled'}},output:'{ok, changed, ref}'},
       {name:'reviews.read',effect:'read',input:{required:['mode','anchorDate'],optional:['yearlyVariant']},output:'Saved review and separate external analysis for the selected calendar period; excludes recovery drafts and unrelated diary sections'},
       {name:'reviews.prepare',effect:'write',input:{required:['mode','anchorDate'],optional:['yearlyVariant']},output:'Current reading material, prompt, evidence hash and generated file paths; prepares support files, does not run an Agent or change final review'},
+      {name:'reviews.submitAnalysis',effect:'write',input:{required:['mode','anchorDate','revision','evidenceHash','markdown'],optional:['yearlyVariant']},output:'{ok, changed, selection, path, revision, refreshError?}; saves separate analysis after revision and material checks; never adopts it into final review'},
       {name:'records.fields',effect:'read',input:{},output:'{items}: configured field IDs, property names, types, choices, units and presentation; disabled fields remain readable'},
       {name:'media.lookup',effect:'read',input:{required:['kind','query'],optional:['limit','offset']},output:'External Open Library candidates with work/edition identity and source URL; no vault reads or writes'},
       {name:'media.list',effect:'read',input:{required:['folder'],optional:['kind','status','query','recursive','offset','limit']},output:'{folder, items, total, unindexed, nextOffset}; existing tagged works and original media properties; no inferred rating source, progress or experience dates'},
       {name:'media.create',effect:'write',input:{required:['folder','kind','title'],optional:['status','filename','searchFolder','metadata','separate']},output:'{created:true,path,title,kinds} or {created:false,matches}; same-type ISBN/source matches always return originals; separate allows distinct same-title editions; files never overwritten; no rating or experience generated'},
-      {name:'media.read',effect:'read',input:{required:['path']},output:'Current media properties with revision for status/page and metadataRevision for book metadata; reads one existing note'},
+      {name:'media.read',effect:'read',input:{required:['path']},output:'Current media properties with revision for status/page and metadataRevision for work metadata; reads one existing note'},
       {name:'media.update',effect:'write',input:{required:['path','revision','patch'],patch:'status: text|null; pageprogress: nonnegative integer|null (books)'},output:'{ok, changed, path, title, kinds, properties, revision}; no date, rating, reading volume or experience generated'},
-      {name:'media.updateMetadata',effect:'write',input:{required:['path','revision','patch'],revision:'metadataRevision from media.read',patch:'Explicit book author, publisher, ISBN, publication text, page count, source or cover; null clears'},output:'{ok, changed, path, properties, revision, metadataRevision}; independent progress and personal content preserved'},
-      {name:'records.read',effect:'read',input:{required:['date'],date:'YYYY-MM-DD'},output:'{date, path, exists, items:[{fieldId, value, revision}]}; daily values, no note creation'},
-      {name:'records.update',effect:'write',input:{required:['date','fieldId','revision','value'],value:'number | string | boolean | null; must match the field type'},output:'{ok, changed, date, path, fieldId, value, revision}; replaces one actual daily value through the UI write path, including bound habits; no invented entries or Agent execution'},
+      {name:'media.updateMetadata',effect:'write',input:{required:['path','revision','patch'],revision:'metadataRevision from media.read',patch:'Explicit type-appropriate author, publisher, ISBN, publication, page count, director, artist, developer, year, source or cover; null clears'},output:'{ok, changed, path, properties, revision, metadataRevision}; independent progress and personal content preserved'},
+      {name:'media.readExperiences',effect:'read',input:{required:['path','date']},output:'Selected work and explicitly linked dated experience notes across the vault, with revision and unreadable dated notes; no creation'},
+      {name:'media.addExperience',effect:'write',input:{required:['path','date','revision','body'],optional:['title','time'],time:'HH:mm only when known and useful'},output:'Create a dated note beside the work, linked through related; no diary write, inferred experience or overwrite'},
+      {name:'media.listExperiences',effect:'read',input:{required:['path','start','end']},output:'Explicitly linked experiences across the vault in the supplied date range, source paths and lines, and unreadable dated notes; maximum 367 days'},
+      {name:'records.read',effect:'read',input:{required:['date'],date:'YYYY-MM-DD'},output:'{date, path, exists, items:[{fieldId, value, multiple, aggregation, entries, revision}]}; daily summaries and timed or untimed entries, no note creation'},
+      {name:'records.update',effect:'write',input:{required:['date','fieldId','revision'],optional:['value','operation','entry','time'],value:'Typed value; required except for delete. For multiple entries use operation append/edit/delete, zero-based entry for edit/delete, optional HH:mm time'},output:'{ok, changed, date, path, fieldId, value, multiple, aggregation, entries, revision}; shared atomic write including bound habits; no inferred entries or Agent execution'},
       {name:'suggestions.read',effect:'read',input:{required:['date'],date:'YYYY-MM-DD'},output:'{path, date, exists, markdown, revision}'},
       {name:'suggestions.update',effect:'write',input:{required:['date','revision','markdown'],date:'YYYY-MM-DD',revision:'from suggestions.read',markdown:'body of the level-2 建议 section'},output:'{ok, changed, path, date, exists, markdown, revision}'},
       {name:'suggestionReplies.read',effect:'read',input:{required:['date']},output:'Readable saved replies for this exact suggestion source; does not create a note'},
@@ -63,9 +67,10 @@ function createPublicApi(plugin){
       {name:'suggestionReplies.claim',effect:'write',input:{required:['conversationId','replyId','replyRevision','sourceRevision','requestId','agent']},output:'Five-minute claim; renew with the same requestId while active. An expired claim needs outcome review and acknowledgeUncertain:true'},
       {name:'suggestionReplies.respond',effect:'write',input:{required:['conversationId','replyId','replyRevision','sourceRevision','claimId','requestId','markdown']},output:'Idempotent response to one claimed reply; not proof of business-operation success'}
     ].concat(['list','read','publish','submit','claim','respond'].map(name=>({name:'interactions.'+name,effect:['list','read'].includes(name)?'read':'write',input:'See docs/AGENT-API.md and noria_interactions_'+name+' MCP schema',output:'Stable interaction ID; definitions and submissions stored in Noria/Conversations Markdown. No implicit Agent invocation.'}))),errors:['invalid-input','not-found','conflict','unsupported','io-error'],requires:'Obsidian running with Noria loaded'};},
-    reviews:Object.freeze({read:request=>run(()=>require('./review-api.js').readReview(plugin,request)),prepare:request=>run(()=>require('./review-api.js').prepareReview(plugin,request))}),
+    reviews:Object.freeze({read:request=>run(()=>require('./review-api.js').readReview(plugin,request)),prepare:request=>run(()=>require('./review-api.js').prepareReview(plugin,request)),submitAnalysis:request=>run(()=>require('./review-api.js').submitAnalysis(plugin,request))}),
     media:Object.freeze({
-      lookup(request){return run(()=>require('./media-lookup.js').lookupMedia(plugin,request));},create:request=>run(()=>require('./media-intake.js').createMedia(plugin,request)),list:request=>run(()=>require('./media-catalog.js').listMedia(plugin,request)),read:request=>run(()=>require('./media-record.js').readMedia(plugin,request)),update:request=>run(()=>require('./media-record.js').updateMedia(plugin,request)),updateMetadata:request=>run(()=>require('./media-record.js').updateMediaMetadata(plugin,request))}),
+      lookup(request){return run(()=>require('./media-lookup.js').lookupMedia(plugin,request));},create:request=>run(()=>require('./media-intake.js').createMedia(plugin,request)),list:request=>run(()=>require('./media-catalog.js').listMedia(plugin,request)),read:request=>run(()=>require('./media-record.js').readMedia(plugin,request)),update:request=>run(()=>require('./media-record.js').updateMedia(plugin,request)),updateMetadata:request=>run(()=>require('./media-record.js').updateMediaMetadata(plugin,request)),
+      readExperiences:request=>run(()=>require('./media-experiences.js').readExperienceDay(plugin,request)),listExperiences:request=>run(()=>require('./media-experiences.js').listExperiences(plugin,request)),addExperience:request=>run(async()=>{const {write,...result}=await require('./media-experiences.js').addExperience(plugin,request);return result;})}),
     tasks:Object.freeze({
       list(request={}){return run(async()=>{const service=await plugin.createDataService(),result=await service.getTasks(request);return {...result,items:result.items.map(item=>({...item,ref:refOf(item)}))};});},
       update(request){return run(async()=>{
@@ -89,14 +94,15 @@ function createPublicApi(plugin){
       update(request){return run(async()=>{
         const date=dateOf(request);
         if(date>plugin.getLocalYmd())throw fail('invalid-input','Actual records cannot be entered for a future date');
-        if(typeof request.fieldId!=='string'||typeof request.revision!=='string'||!request.revision||!Object.hasOwn(request,'value')||request.value===undefined)throw fail('invalid-input','Supply a fieldId, revision and value from records.read; use null to clear');
+        if(typeof request.fieldId!=='string'||typeof request.revision!=='string'||!request.revision||request.operation!=='delete'&&(!Object.hasOwn(request,'value')||request.value===undefined))throw fail('invalid-input','Supply a fieldId, revision and value from records.read; delete requires an entry index');
         const field=plugin.records.definitions().find(field=>field.id===request.fieldId);
         if(!field)throw fail('not-found','Record field no longer exists; read records.fields again');
         try{require('./record-properties.js').validateValue(field,request.value);}catch(error){throw fail('invalid-input',error.message);}
         const current=await api.records.read({date}),item=current.items.find(row=>row.fieldId===field.id);
         if(!item||item.revision!==request.revision)throw fail('conflict','Record or field definition changed; read it again');
-        if(JSON.stringify(item.value)===JSON.stringify(request.value))return {ok:true,changed:false,date,path:current.path,...item};
-        const result=await plugin.records.save(date,field,request.value,{expected:{revision:request.revision}});
+        if(item.multiple&&!['append','edit','delete'].includes(request.operation)||!item.multiple&&request.operation)throw fail('invalid-input','Use append, edit or delete for multiple entries; replace only single daily values');
+        if(!item.multiple&&JSON.stringify(item.value)===JSON.stringify(request.value))return {ok:true,changed:false,date,path:current.path,...item};
+        const result=await plugin.records.save(date,field,request.value,{expected:{revision:request.revision},operation:request.operation,entry:request.entry,time:request.time});
         return {ok:true,changed:result.write.text!==result.write.previousText,date,path:result.path,...plugin.records.snapshot(date,result.path,result.write.text,field)};
       });}
     }),
@@ -118,7 +124,7 @@ function createPublicApi(plugin){
           if(!state.exists||state.markdown!==markdown)throw fail('conflict','Suggestions cannot be isolated in this source; repair its Markdown boundaries first');
           changed=next!==raw;return next;
         });
-        if(changed)plugin.requestNoriaRefresh('home','api:suggestions-update');
+        if(changed)plugin.requestNoriaRefresh('home','api:suggestions-update:'+state.revision);
         return {ok:true,changed,...state};
       });}
     })

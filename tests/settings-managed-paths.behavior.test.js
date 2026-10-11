@@ -62,6 +62,7 @@ function loadPluginClass(options = {}) {
       if (id === "os") return options.os || require("node:os");
       if (id === "path") return options.path || require("node:path");
       if (id === "crypto") return require("node:crypto");
+      if (id === "./home-focus-defaults.js") return require("../src/home-focus-defaults.js");
       throw new Error(`Unexpected require: ${id}`);
     },
     navigator: options.navigator,
@@ -377,6 +378,31 @@ test("runtime bridge keeps the Git trace contract without executing local comman
   assert.deepEqual(plain(traces.git.commits), []);
   assert.equal(traces.meta.scope, "human-markdown");
   assert.equal(traces.meta.noiseFiltered, true);
+});
+
+test("timeline note traces use scoped file metadata, filter each timestamp, and skip unrequested sources", async () => {
+  const plugin = makePlugin();
+  plugin.settings = plugin.normalizeSettings({});
+  let scans = 0;
+  plugin.filesForScope = scope => {
+    assert.equal(scope, "notes"); scans++;
+    return [
+      {path:"Noria/Projects/写作.md",basename:"写作",stat:{ctime:new Date("2026-06-11T12:00:00").getTime(),mtime:new Date("2026-06-12T14:00:00").getTime()}},
+      {path:"Noria/Projects/未来.md",stat:{ctime:Date.now()+86400000,mtime:0}}
+    ];
+  };
+  plugin.app.vault.cachedRead = () => { throw new Error("note bodies must not be read"); };
+  plugin.collectTimelineCacheTraces = () => { throw new Error("unrequested cache must not be collected"); };
+  const traces = await plugin.collectTimelineTraces({layers:["note"],range:{start:"2026-06-12",end:"2026-06-12"}});
+  assert.equal(traces.notes.length,1);
+  assert.equal(traces.notes[0].created,"");
+  assert.equal(traces.notes[0].modified,new Date("2026-06-12T14:00:00").toISOString());
+  assert.equal(traces.notes[0].title,"写作");
+  assert.equal(scans,1);
+  const git = await plugin.collectTimelineTraces({layers:["git"]});
+  assert.equal(scans,1);
+  assert.equal(git.notes.length,0);
+  assert.equal(git.git.available,false);
 });
 
 test("runtime bridge exposes review evidence cache traces by timeline range", async () => {
@@ -1176,7 +1202,7 @@ test("Noria Calendar picker models expose month and year note markers", async ()
 test("Noria Calendar date task writeback creates daily notes and uses start due fields", async () => {
   const plugin = makePlugin({ language: "zh-CN" });
   plugin.settings = plugin.normalizeSettings({});
-  const files = new Map();
+  const files = new Map([["Noria/Templates/Daily template.md", "## 记录\n\n## 计划\n\n"]]);
   const folders = new Set();
   plugin.app.vault = {
     adapter: {
@@ -1277,16 +1303,17 @@ test("Noria Calendar date task writeback preserves English task headings", () =>
 
 test("quick capture uses the chosen date's template variables and configured target, without refilling existing empty notes",async()=>{
   const plugin=makePlugin({language:"zh-CN"});plugin.settings=plugin.normalizeSettings({});
-  const files=new Map([["Custom/2098-02-04.md",""]]);
-  plugin.app.vault={getAbstractFileByPath:p=>files.has(p)?{path:p}:null};
+  const files=new Map([["Custom/2098-02-04.md",""],["Templates/day.md","## {{title}}\n\n{{date}} / {{period}}\n"]]);
+  plugin.app.vault={getAbstractFileByPath:p=>files.has(p)?{path:p}:null,
+    adapter:{async read(p){if(!files.has(p))throw new Error("missing");return files.get(p);}}};
   plugin.resolveCalendarNoteSpecAsync=async(mode,date)=>({period:mode,date,periodId:date,path:`Custom/${date}.md`,templatePath:"Templates/day.md"});
-  plugin.loadTextFromVault=async()=>"## {{title}}\n\n{{date}} / {{period}}\n";
   plugin.ensureDiaryDayBlocks=async()=>({normalizeYmd:v=>v,appendDiaryInboxLine:(text,value)=>text+"\n"+value});
   plugin.processTextAtVaultPath=async(p,fn)=>files.set(p,fn(files.get(p)||""));
   plugin.requestNoriaRefresh=()=>{};
   const missing=await plugin.appendHomeQuickCapture({date:"2098-02-03",text:"A real capture"});
   assert.equal(missing.path,"Custom/2098-02-03.md");
   assert.equal(files.get(missing.path),"## 2098-02-03\n\n2098-02-03 / 2098-02-03\n\nA real capture");
+  files.delete("Templates/day.md");
   await plugin.appendHomeQuickCapture({date:"2098-02-04",text:"Preserve my empty note"});
   assert.equal(files.get("Custom/2098-02-04.md"),"\nPreserve my empty note");
 });
@@ -1294,7 +1321,7 @@ test("quick capture uses the chosen date's template variables and configured tar
 test("Home quick capture writes today's diary Inbox through shared diary block helper", async () => {
   const plugin = makePlugin({ language: "zh-CN" });
   plugin.settings = plugin.normalizeSettings({});
-  const files = new Map();
+  const files = new Map([["Noria/Templates/Daily template.md", "## 记录\n\n## 计划\n\n"]]);
   const folders = new Set();
   plugin.app.vault = {
     adapter: {
@@ -2123,12 +2150,12 @@ test("ribbon registration uses the custom Home mark or only its house fallback",
 
   plugin._noriaHomeIconRegistered = true;
   plugin.registerCoreRibbons();
-  assert.deepEqual(icons, ["noria-home", "list-checks", "chart-gantt", "calendar-days"]);
+  assert.deepEqual(icons, ["noria-home", "list-todo", "noria-task-timeline", "calendar-days"]);
 
   icons.length = 0;
   plugin._noriaHomeIconRegistered = false;
   plugin.registerCoreRibbons();
-  assert.deepEqual(icons, ["house", "list-checks", "chart-gantt", "calendar-days"]);
+  assert.deepEqual(icons, ["house", "list-todo", "noria-task-timeline", "calendar-days"]);
 });
 
 test("MOC settings keep rich entries and compatibility paths synchronized", async () => {

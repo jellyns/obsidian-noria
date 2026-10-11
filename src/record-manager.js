@@ -49,12 +49,14 @@ class RecordManager extends Modal {
     const cancel=footer.createEl("button",{text:this.text("取消","Cancel")});cancel.onclick=()=>this.discard(()=>this.list());
     const save=footer.createEl("button",{cls:"mod-cta",text:remove?(this.options.removeLabel||this.text("移除入口","Remove entry")):this.text("保存","Save")});
     save.onclick=async()=>{
-      if(save.disabled)return;save.disabled=true;this.errorEl.hidden=true;
+      if(this.saving||save.disabled)return;this.errorEl.hidden=true;
       try{
         if(!remove)for(const [key,input] of this.inputs)if(!input.reportValidity())throw Error(this.text("请检查输入","Check the input"));
+        this.saving=true;save.disabled=true;save.setText(this.text("正在保存…","Saving…"));this.contentEl.inert=true;
         await (remove?this.options.remove(this.original):this.options.save(clone(this.draft),this.original));
         this.dirty=false;await this.load();this.list();
-      }catch(e){this.error(e);save.disabled=false;}
+      }catch(e){this.error(e);}
+      finally{this.saving=false;this.contentEl.inert=false;save.disabled=false;save.setText(remove?(this.options.removeLabel||this.text("移除入口","Remove entry")):this.text("保存","Save"));}
     };
     form.addEventListener("keydown",event=>{if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();save.click();}});
     this.inputs.values().next().value?.focus();
@@ -65,7 +67,7 @@ class RecordManager extends Modal {
       if(field.when&&!field.when(this.draft))continue;
       if(field.render){field.render(parent,this.draft,()=>{this.dirty=true;});continue;}
       if(field.type==="picture"){require("./picture-picker.js").pictureField(this.plugin,parent,this.draft[field.key],value=>{this.draft[field.key]=value;this.dirty=true;field.onChange?.(this.draft,this.inputs);},field.label);continue;}
-      const label=parent.createEl("label",{cls:"noria-card-field"});label.createSpan({text:field.label});
+      const label=parent.createEl("label",{cls:field.type==="checkbox"?"noria-card-field noria-card-field-check":"noria-card-field"});label.createSpan({text:field.label});
       let input;
       if(field.type==="select"){
         input=label.createEl("select");for(const option of field.options||[])input.createEl("option",{value:option.value,text:option.label});
@@ -81,8 +83,9 @@ class RecordManager extends Modal {
       if(field.description)label.createSpan({cls:"noria-card-secondary",text:field.description});
       this.inputs.set(field.key,input);
       const change=()=>{
+        const previousValue=this.draft[field.key];
         this.draft[field.key]=field.type==="checkbox"?input.checked:field.type==="number"?(input.value===""?null:Number(input.value)):input.value;this.dirty=true;
-        field.onChange?.(this.draft,this.inputs);
+        field.onChange?.(this.draft,this.inputs,previousValue);
         if(field.refresh){parent.empty();this.inputs.clear();this.renderFields(parent);this.inputs.get(field.key)?.focus();}
       };
       input.addEventListener(field.type==="select"||field.type==="checkbox"||field.refresh?"change":"input",change);
@@ -95,13 +98,14 @@ class RecordManager extends Modal {
     }
   }
   discard(action){
+    if(this.saving)return;
     if(!this.dirty){action();return;}
     if(this.discardEl?.isConnected)return;
     this.discardEl=this.contentEl.createDiv({cls:"noria-card-discard",attr:{role:"alert"}});this.discardEl.createSpan({text:this.text("有尚未保存的修改。","There are unsaved changes.")});
     const keep=this.discardEl.createEl("button",{text:this.text("继续编辑","Keep editing")});keep.onclick=()=>this.discardEl.remove();
     const discard=this.discardEl.createEl("button",{text:this.text("放弃修改","Discard changes")});discard.onclick=()=>{this.dirty=false;action();};keep.focus();
   }
-  close(force=false){if(force){this.dirty=false;super.close();}else this.discard(()=>super.close());}
+  close(force=false){if(this.saving&&!force)return;if(force){this.dirty=false;super.close();}else this.discard(()=>super.close());}
   onClose(){this.untrack?.();}
 }
 module.exports={RecordManager};

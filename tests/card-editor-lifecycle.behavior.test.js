@@ -46,3 +46,19 @@ test('preview context is transient and retains the page that owns the draft',asy
  await m.preview();assert.equal(received.preview,true);assert.equal(received.page,'diary');assert.equal(received.mode,'monthly');
  assert.equal(m.context.preview,undefined);assert.equal(m.draft.preview,undefined);assert.equal(m.draft.props.preview,undefined);
 });
+
+test('normal diary actions are note-owned and only the explicit defaults context changes defaults',async()=>{
+ const {normalizeDiaryCards}=actual('./card-layout-model.js'),m=editor();let note=[],shared=normalizeDiaryCards(),noteWrites=0,sharedWrites=0;
+ m.context={page:'diary',mode:'weekly',noteCards:{layout:()=>shared,items:()=>note,async update(change){note=change(note);noteWrites++;}}};
+ m.system.layout=()=>shared;m.system.updateLayout=async(mode,change)=>{assert.equal(mode,'weekly');shared=change(shared);sharedWrites++;return true;};
+ m.addScope='note';await m.save();assert.equal(noteWrites,1);assert.equal(sharedWrites,0);assert.equal(note[0].source,'test:card');assert.equal(m.closed,true);
+ m.closed=false;delete m.context.noteCards;await m.save();assert.equal(noteWrites,1);assert.equal(sharedWrites,1);assert.equal(shared.widgets[0].id,'card-a');
+});
+
+test('editing an existing note card stays note-owned even when a shared scope was used previously',async()=>{
+ const model=actual('./diary-cards-document.js'),m=editor();let note=model.addNoteCard([],{source:'test:card',title:'Original',props:{}}),writes=0;
+ m.draft={id:'note:Original',source:'test:card',title:'Updated',props:{}};m.originalNote=structuredClone(note[0]);m.addScope='shared';
+ m.context={page:'diary',mode:'daily',noteCards:{layout:()=>model.noteCardsLayout({},note),items:()=>note,async update(change){note=change(note);writes++;}}};
+ m.system.updateLayout=()=>assert.fail('must not update shared settings');
+ await m.save();assert.equal(writes,1);assert.equal(note[0].title,'Updated');assert.equal(note[0].id,'Original');
+});

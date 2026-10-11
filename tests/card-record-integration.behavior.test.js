@@ -38,7 +38,7 @@ test("card actions retain the owning page in diary, custom pages and previews",a
  }
 });
 test("direct daily controls detect a changed value while allowing unrelated edits and exact increments",async()=>{
- const {RecordFields}=load("record-fields.js",{"obsidian":{parseYaml:parse},"./record-manager.js":{},"./record-popover.js":{},"./card-controls.js":{iconButton(){}},"./picture-picker.js":{renderPicture(){}}});
+ const {RecordFields}=load("record-fields.js",{"obsidian":{parseYaml:parse},"./record-manager.js":{},"./record-popover.js":{},"./card-controls.js":{iconButton(parent){return parent.createEl("button");}},"./picture-picker.js":{renderPicture(){}}});
  class Control{
   constructor(){this.children=[];this.style={setProperty(){}};this.dataset={};}
   addClass(){}setAttribute(){}setText(){}focus(){}
@@ -49,14 +49,14 @@ test("direct daily controls detect a changed value while allowing unrelated edit
  let raw='---\nminutes: 10\n---\nKeep my notes.\n',refreshes=0,editor;
  const p={app:{vault:{getAbstractFileByPath:()=>({})}},settings:{recordFields:[field]},getNoriaLocale:()=>"en",getLocalYmd:()=>"2026-10-06",getManagedPath:()=>"Habits.md",resolveCalendarNoteSpecAsync:async()=>({path:"Diary.md"}),loadTextFromVault:async()=>"",processTextAtVaultPath:async(_,mutate)=>{raw=mutate(raw);},requestNoriaRefresh(){refreshes++;}};
  const records=new RecordFields(p);records.edit=(_,__,options)=>{editor=options;};
- const open=()=>{const host=new Control();records.render({host,date:"2026-10-06",raw});host.children[0].onclick();};
- open();raw=raw.replace("minutes: 10","minutes: 15");const changed=raw;
+ const open=async()=>{const host=new Control();records.render({host,date:"2026-10-06",raw});await host.children[0].onclick();};
+ await open();raw=raw.replace("minutes: 10","minutes: 15");const changed=raw;
  await assert.rejects(()=>editor.onSave(20),/changed elsewhere/);assert.equal(raw,changed);assert.equal(refreshes,0);
  await assert.rejects(()=>editor.onSave(null),/changed elsewhere/);assert.equal(raw,changed);
- open();raw+='An independent note.\n';await editor.onSave(5,{increment:true});
+ await open();raw+='An independent note.\n';await editor.onSave(5,{increment:true});
  assert.equal(records.read(raw,field),20);assert.ok(raw.endsWith('Keep my notes.\nAn independent note.\n'));assert.equal(refreshes,1);
- open();await editor.onSave(0);assert.equal(records.read(raw,field),0);
- open();await editor.onSave(null);assert.equal(records.read(raw,field),null);
+ await open();await editor.onSave(0);assert.equal(records.read(raw,field),0);
+ await open();await editor.onSave(null);assert.equal(records.read(raw,field),null);
 });
 test("sleep after midnight belongs to the previous day and an explicit record wins",async()=>{
  let diary="",registry="## Active habits\n- Bedtime [type:: sleep] [target:: 00:30]\n";

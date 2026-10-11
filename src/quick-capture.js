@@ -13,9 +13,9 @@ class QuickCaptureComposer {
     this.input=this.root.createEl("textarea",{cls:"noria-quick-capture-input",attr:{rows:"3","aria-label":this.t("quickCapture"),placeholder:this.t("quickCapturePlaceholder")}});
     const footer=this.root.createDiv({cls:"noria-quick-capture-footer"});
     const modifier=O.Platform?.isMacOS?"⌘":"Ctrl";
-    footer.createSpan({cls:"noria-quick-capture-hint",text:this.t(date===plugin.getLocalYmd()?"quickCaptureHint":"quickCapturePastHint",{modifier})});
+    this.input.title=this.t(date===plugin.getLocalYmd()?"quickCaptureHint":"quickCapturePastHint",{modifier});
     this.submit=footer.createEl("button",{cls:"clickable-icon noria-workbench-icon",attr:{type:"button"}});
-    setActionIcon(this.submit,"arrow-up",this.t("quickCaptureSave"));
+    setActionIcon(this.submit,"arrow-up",this.t("quickCaptureSave")+` · ${modifier}+Enter`);
     this.feedback=this.root.createDiv({cls:"noria-quick-capture-status",attr:{"aria-live":"polite"}});
     this.submit.disabled=true;
     this.input.addEventListener("input",()=>{this.submit.disabled=this.busy||!this.input.value.trim();clearTimeout(this.timer);this.timer=setTimeout(()=>{void this.preserve().catch(e=>this.report(e));},250);});

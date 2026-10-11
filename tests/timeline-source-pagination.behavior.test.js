@@ -1,10 +1,15 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const {ContinuousTimeline}=require('../src/timeline-continuous.js');
-const ctx={module:{exports:{}},require:id=>id==='./timeline-continuous.js'?{ContinuousTimeline}:id==='./timeline-stream-model.js'?require('../src/timeline-stream-model.js'):{}};
+const ctx={module:{exports:{}},require:id=>id==='./timeline-continuous.js'?{ContinuousTimeline}:['./timeline-stream-model.js','./runtime/views/task-timeline/time-window.js'].includes(id)?require('../src/'+id.slice(2)):{}};
 vm.runInNewContext(fs.readFileSync(require.resolve('../src/timeline-workspace.js'),'utf8'),ctx);
 test('horizontal window changes leave the vertical reader, anchor and scroll untouched',()=>{
-  const t=new ctx.module.exports.TimelineWorkspace({plugin:{}}),reader={id:1},anchor={date:'2026-09-20',offset:-20};t.reader=reader;t.savedAnchor=anchor;t.scroll=400;t.updateScaleLabel=()=>{};
-  t.windowChanged();assert.equal(t.reader,reader);assert.equal(t.savedAnchor,anchor);assert.equal(t.scroll,400);
+  const windows=require('../src/runtime/views/task-timeline/time-window.js');
+  const t=new ctx.module.exports.TimelineWorkspace({plugin:{}}),reader={id:1},anchor={date:'2026-09-20',offset:-20};t.reader=reader;t.savedAnchor=anchor;t.scroll=400;
+  const focus=new Date(2026,8,20,12).getTime();let selected=windows.at(focus,{amount:1,unit:'day'});
+  t.backend={getWindow:()=>selected,getFocus:()=>focus,setWindow:value=>{selected=value;}};
+  t.setScale({amount:1,unit:'week'});
+  assert.equal(selected.scale.unit,'week');assert.ok(selected.startMs<=focus&&selected.endMs>focus);
+  assert.equal(t.reader,reader);assert.equal(t.savedAnchor,anchor);assert.equal(t.scroll,400);
 });
 test('a cancelled initialization cannot dispose the newer vertical reader',async()=>{
   const t=new ctx.module.exports.TimelineWorkspace({plugin:{}});let reject,disposed=false;

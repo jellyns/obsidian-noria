@@ -29,6 +29,47 @@ function loadDataService(extra = {}) {
   return {...data,createDataService:options=>data.createDataService({...options,bridge:{tasks:require('../src/task-document.js'),...options.bridge}})};
 }
 
+test('task queries match any arrangement and overlapping dates without duplicating tasks or completions',async()=>{
+ const tasks=[
+  {path:'P.md',line:0,text:'Read [schedule:: 2026-10-08] [schedule:: 2026-10-12 09:00 / 2026-10-14 10:00] [due:: 2026-10-20]'},
+  {path:'P.md',line:1,text:'Done [schedule:: 2026-10-08] [completion:: 2026-10-10]',completed:true},
+  {path:'Diary/2026-10-07.md',line:0,text:'Broken [schedule:: invalid]'}
+ ];
+ const service=loadDataService().createDataService({bridge:{paths:{diaryRoot:'Diary'},runtime:{tasksForScope:()=>tasks,pagesForScope:()=>[]}},now:'2026-10-07'});
+ for(const bucketBy of ['board','timeline','scheduled']){
+  const result=await service.getTasks({bucketBy,range:{mode:'custom',start:'2026-10-13',end:'2026-10-13'}});
+  assert.equal(result.items.length,1,bucketBy);assert.equal(result.items[0].identity.line,0);assert.equal(result.items[0].schedules.length,2);
+  assert.equal(result.items[0].bucketDate,'2026-10-13');assert.equal(result.summary.total,1);
+ }
+ const due=await service.getTasks({bucketBy:'due',range:{mode:'custom',start:'2026-10-13',end:'2026-10-13'}});assert.equal(due.items.length,0);
+ const done=await service.getTasks({bucketBy:'completion',range:{mode:'custom',start:'2026-10-08',end:'2026-10-14'}});assert.equal(done.summary.done,1);assert.equal(done.items[0].bucketDate,'2026-10-10');
+ const broken=await service.getTasks({bucketBy:'board',range:{mode:'custom',start:'2026-10-07',end:'2026-10-07'}});assert.equal(broken.items.length,0);
+ const snapshot=await service.getSnapshot({include:['tasks'],range:{mode:'custom',start:'2026-10-13',end:'2026-10-13'}});
+ assert.equal(snapshot.domains.tasks.completion.open,1);assert.equal(snapshot.domains.tasks.completion.series[0].open,1);assert.equal(snapshot.domains.tasks.completion.series[0].sources.open.length,1);
+});
+
+test('failed diary reads reject snapshots and retry without caching a false zero', async () => {
+  const page={file:{path:'Diary/2026-05-02.md',name:'2026-05-02',mtime:1}};
+  let fail=true,reads=0;
+  const service=loadDataService().createDataService({ctx:{readText:async()=>{reads++;if(fail)throw Error('unavailable');return 'a b\n中';}},bridge:{paths:{diaryRoot:'Diary'},runtime:{pagesForScope:()=>[page],pagesForManagedPath:()=>[page],tasksForScope:()=>[]}}});
+  const query={include:['notes'],range:{mode:'custom',start:'2026-05-02',end:'2026-05-02'}};
+  await assert.rejects(service.getSnapshot(query),/Could not read diary: Diary\/2026-05-02.md/);
+  fail=false;
+  const snapshot=await service.getSnapshot(query);
+  assert.equal(snapshot.domains.notes.trend.totalDiaryWords,3);
+  assert.equal(snapshot.domains.notes.trend.series[0].sources.diary[0].value,3);
+  await service.getSnapshot(query);assert.equal(reads,2);
+});
+
+test('empty diary content is valid and an alternate successful reader remains usable', async () => {
+  for(const value of ['', 'a b']) {
+    const page={file:{path:'Diary/2026-05-02.md',name:'2026-05-02',mtime:1}};
+    const service=loadDataService().createDataService({ctx:{readText:async()=>{throw Error('context unavailable');}},app:{vault:{adapter:{read:async()=>value}}},bridge:{paths:{diaryRoot:'Diary'},runtime:{pagesForScope:()=>[page],pagesForManagedPath:()=>[page],tasksForScope:()=>[]}}});
+    const snapshot=await service.getSnapshot({include:['notes'],range:{mode:'custom',start:'2026-05-02',end:'2026-05-02'}});
+    assert.equal(snapshot.domains.notes.trend.totalDiaryWords,value.replace(/\s/g,'').length);
+  }
+});
+
 test("trend sources retain every contributing task and distinguish note creation from diary characters", async () => {
   const tasks=Array.from({length:85},(_,line)=>({path:'Projects/tasks.md',line,text:`Done ${line} [completion:: 2026-05-02]`,completed:true}));
   tasks.push({path:'Projects/tasks.md',line:85,text:'Open [due:: 2026-05-02]',completed:false},{path:'Projects/tasks.md',line:86,text:'Cancelled [due:: 2026-05-02]',status:'-',completed:false});
@@ -472,6 +513,24 @@ test("data service collects projects domain from registry and task facts", async
   assert.equal(items.get("Beta").stale, true);
   assert.equal(items.get("Gamma").stage, "planned");
   assert.equal(projects.evidence.staleProjects[0].name, "Beta");
+});
+
+test("project snapshots discover managed single-file projects without reviving hidden entries", async () => {
+  const data=loadDataService();
+  const bridge={runtimeBuildId:"project-file-discovery",paths:{projectsRoot:"Projects",projectRegistryPath:"Registry.md"},runtime:{
+    toArray:value=>Array.from(value||[]),tasksForScope:()=>[],pagesForScope:()=>[],
+    filesForManagedPath:key=>key==="projectsRoot"?[
+      {path:"Projects/Book.md"},{path:"Projects/Research/Research.md"},{path:"Projects/Research/Note.md"},
+      {path:"Projects/Hidden.md"},{path:"Projects/_archive/Old.md"}]:[]
+  }};
+  const service=data.createDataService({bridge,app:{},now:"2026-05-08",ctx:{readText:async p=>p==="Registry.md"?"## Hidden projects\n- Hidden\n":""}});
+  const snapshot=await service.getSnapshot({include:["projects"]});
+  const items=JSON.parse(JSON.stringify(snapshot.domains.projects.items));
+  assert.equal(items.filter(p=>p.name==="Hidden").length,1);
+  assert.equal(items.find(p=>p.name==="Hidden").stage,"hidden");
+  assert.equal(items.find(p=>p.name==="Book").root,"Projects/Book.md");
+  assert.equal(items.filter(p=>p.name==="Research").length,1);
+  assert.ok(!items.some(p=>p.root.includes('_archive')));
 });
 
 test("data service accepts English registry headings and project links followed by descriptions", async () => {
@@ -957,7 +1016,7 @@ test("data service resolves ranges and builds schema-versioned home and review s
       }
     }
   };
-  const service = data.createDataService({ bridge, app: {}, now: "2026-05-08" });
+  const service = data.createDataService({ bridge, app: {}, ctx:{readText:async()=>''}, now: "2026-05-08" });
 
   assert.equal(service.resolveRange({ mode: "homeCurrent" }).start, "2026-05-01");
   assert.equal(service.resolveRange({ range: { mode: "year", anchor: "2026-05-08" }, granularity: "month" }).granularity, "month");

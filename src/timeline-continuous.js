@@ -2,6 +2,7 @@
 const {createActivityReader,validDate,fileActivities}=require('./activity-model.js');
 const {buildStream,dateKey,normalizeFilter}=require('./timeline-stream-model.js');
 const {shiftDate}=require('./diary-tasks.js');
+const {timelineClock}=require('./task-calendar-zone.js');
 
 // Match the same numeric tokens supported by formatCalendarPattern, then verify
 // the complete resolved path. Never infer a diary from a date-like basename alone.
@@ -41,20 +42,20 @@ async function dailyDates(plugin,signal){
 function cancelled(){const e=new Error('Timeline request cancelled');e.name='AbortError';return e;}
 
 class ContinuousTimeline {
-  constructor(plugin,model,filter){this.plugin=plugin;this.model=model;this.filter=normalizeFilter(filter);this.controller=new AbortController();this.cache=new Map();this.pageSize=7;this.maxDates=35;}
+  constructor(plugin,model,filter){this.plugin=plugin;this.model=model;this.clock=timelineClock(plugin.settings?.tasksCalendar);this.filter=normalizeFilter(filter);this.controller=new AbortController();this.cache=new Map();this.pageSize=7;this.maxDates=35;}
   async init(anchor){
-    this.anchor=validDate(anchor)||this.plugin.getLocalYmd();
+    this.anchor=validDate(anchor)||this.clock.day(Date.now());
     const {dates,ambiguous}=this.filter.records?await dailyDates(this.plugin,this.controller.signal):{dates:[],ambiguous:false};
     this.recordDates=dates;this.ambiguous=ambiguous;
-    const taskDates=buildStream(this.model,[],{startMs:+new Date('0001-01-01T00:00:00'),endMs:+new Date('9999-12-31T23:59:59')},this.filter).items.map(e=>e.date).filter(validDate);
-    const activity=this.filter.ctime||this.filter.mtime?fileActivities(this.plugin.filesUnderRoots(this.plugin.getScopeSpec('notes').roots,['.md']),{start:'0001-01-01',end:'9999-12-31'},this.filter,d=>this.plugin.getLocalYmd(d),this.plugin.getLocalYmd()):[];
-    this.dates=[...new Set([...dates,...(this.filter.tasks?taskDates:[]),...activity.map(e=>e.date),this.anchor,this.plugin.getLocalYmd()])].sort();
+    const taskDates=buildStream(this.model,[],{startMs:+new Date('0001-01-01T00:00:00'),endMs:+new Date('9999-12-31T23:59:59'),startDate:'0001-01-01',endDate:'9999-12-31'},this.filter,this.clock).items.map(e=>e.date).filter(validDate);
+    const activity=this.filter.ctime||this.filter.mtime?fileActivities(this.plugin.filesUnderRoots(this.plugin.getScopeSpec('notes').roots,['.md']),{start:'0001-01-01',end:'9999-12-31'},this.filter,d=>this.plugin.getLocalYmd(d),this.clock.day(Date.now()),this.clock):[];
+    this.dates=[...new Set([...dates,...(this.filter.tasks?taskDates:[]),...activity.map(e=>e.date),this.anchor,this.clock.day(Date.now())])].sort();
     const index=this.dates.indexOf(this.anchor);this.start=Math.max(0,index-this.pageSize);this.end=Math.min(this.dates.length,index+this.pageSize+1);
     await this.read(this.start,this.end);return this;
   }
   async read(start,end){
     const dates=this.dates.slice(start,end),missing=dates.filter(date=>!this.cache.has(date));if(!missing.length)return;
-    const reader=await createActivityReader(this.plugin,{range:{start:missing[0],end:missing.at(-1)},recordDates:this.recordDates.filter(date=>missing.includes(date)),includeDates:missing,onlyDates:missing,config:{...this.filter,tasks:false},order:'asc',signal:this.controller.signal});
+    const reader=await createActivityReader(this.plugin,{range:{start:missing[0],end:missing.at(-1)},recordDates:this.recordDates.filter(date=>missing.includes(date)),includeDates:missing,onlyDates:missing,config:{...this.filter,tasks:false},order:'asc',signal:this.controller.signal,clock:this.clock});
     const page=await reader.next(missing.length);
     if(this.controller.signal.aborted)throw cancelled();
     // Commit only a complete page: retry after an I/O failure cannot drop dates.
@@ -74,8 +75,8 @@ class ContinuousTimeline {
   }
   snapshot(){
     const dates=this.dates.slice(this.start,this.end),first=dates[0],last=dates.at(-1);
-    const window={startMs:+new Date(first+'T00:00:00'),endMs:+new Date(shiftDate(last,1)+'T00:00:00')};
-    const result=buildStream(this.model,dates.flatMap(date=>this.cache.get(date)||[]),window,this.filter);
+    const window={startMs:this.clock.fromDisplay(first+' 00:00'),endMs:this.clock.fromDisplay(shiftDate(last,1)+' 00:00'),startDate:first,endDate:last};
+    const result=buildStream(this.model,dates.flatMap(date=>this.cache.get(date)||[]),window,this.filter,this.clock);
     return {...result,dates,anchor:this.anchor,earlier:this.start>0,later:this.end<this.dates.length,ambiguous:this.ambiguous};
   }
   dispose(){this.controller.abort();}

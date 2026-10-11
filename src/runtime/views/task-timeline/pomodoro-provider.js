@@ -44,12 +44,14 @@
     return text(raw)
       .replace(/^\s*[-*]\s+\[[ xX/-]\]\s*/, "")
       .replace(/^\s*Pomodoro\s*[:：-]\s*/i, "")
+      .replace(/\s*\[[a-zA-Z_][a-zA-Z0-9_-]*::[^\]]*\]/g, " ")
+      .replace(/(?:^|\s)#[^\s#]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
 
   function taskTitle(taskKey, record) {
-    return cleanTaskTitle(record.titleSnapshot || record.title || record.text || taskKey) || taskKey || "Pomodoro";
+    return cleanTaskTitle(record.titleSnapshot || record.title || record.text);
   }
 
   function taskSource(record) {
@@ -76,20 +78,24 @@
     return Number.isFinite(minutes) && minutes > 0 ? Math.max(1, Math.round(minutes)) : 0;
   }
 
-  function sessionTitle(kind, start, end, session) {
-    const prefix = kind === "break" ? "Break" : "Pomo";
-    const minutes = durationMinutes(start, end, session && session.durationMin);
-    return minutes ? `${prefix} ${minutes}m` : prefix;
+  function sessionTitle(kind, start, end, session, title, options={}) {
+    const zh=/^zh/.test(options.locale||''),prefix=kind==='break'?(zh?'休息':'Break'):(title||(zh?'自由专注':'Free focus'));
+    return prefix;
+  }
+  function durationLabel(start,end,options={}) {
+    const zh=/^zh/.test(options.locale||'');
+    const seconds=Math.max(0,Math.floor((dateMs(end)-dateMs(start))/1000));
+    const duration=seconds<60?`${seconds}${zh?'秒':'s'}`:`${Math.floor(seconds/60)}${zh?'分钟':'m'}`;
+    return Number.isFinite(seconds)?duration:'';
   }
 
   function sessionColor(kind, active) {
-    if (active) return kind === "break" ? "#16a34a" : "#ef4444";
-    return kind === "break" ? "#22c55e" : "#f97316";
+    return "";
   }
 
   function sessionOutcome(session) {
     const outcome = text(session && session.outcome).toLowerCase();
-    if (outcome === "completed" || outcome === "abandoned") return outcome;
+    if (["completed", "stopped", "abandoned"].includes(outcome)) return outcome;
     if (session && session.completed === true) return "completed";
     return "";
   }
@@ -119,13 +125,13 @@
     return rows.join("\n");
   }
 
-  function buildSessionEvent(taskKey, record, session, index) {
+  function buildSessionEvent(taskKey, record, session, index, options={}) {
     const start = text(session && session.start);
     if (!start) return null;
     const kind = sessionMode(session && session.mode);
     const end = text(session && session.end) || addMinutesIso(start, session && session.durationMin);
-    const title = taskTitle(taskKey, record);
-    const label = sessionTitle(kind, start, end, session);
+    const title = cleanTaskTitle(session?.title) || taskTitle(taskKey, record);
+    const label = sessionTitle(kind, start, end, session, title, options);
     const durationEvent = !!end && Number.isFinite(dateMs(start)) && Number.isFinite(dateMs(end)) && dateMs(end) > dateMs(start);
     const id = `pomodoro-${taskKey}-${index}-${hashText(`${start}|${end}|${kind}`)}`;
     return {
@@ -139,11 +145,12 @@
       isInstant: !durationEvent,
       status: sessionStatus(session),
       color: sessionColor(kind, false),
-      source: taskSource(record),
+      source: session.recordRef ? {type:'markdown',path:session.recordRef.path,line:session.line,anchor:session.recordRef.id} : taskSource(record),
       tags: ["#pomodoro"],
       payload: {
         pomodoro: {
           taskKey,
+          taskPath: taskSource(record).path || "",
           sessionIndex: index,
           mode: session && session.mode || "WORK",
           active: false,
@@ -152,6 +159,7 @@
         }
       },
       presentation: {
+        durationLabel: durationLabel(start,end,options),
         classname: sessionClassname(kind, false, session),
         hoverText: hoverText(kind, label, title, start, end, record, session)
       }
@@ -177,8 +185,8 @@
       : null;
     const mode = sessionMode(active.mode);
     const end = activeEnd(active, options || {});
-    const title = record ? taskTitle(activeTaskKey, record) : text(active.titleSnapshot || active.title) || "Unassigned";
-    const label = sessionTitle(mode, text(active.startedAt), end, active);
+    const title = record ? taskTitle(activeTaskKey, record) : text(active.titleSnapshot || active.title);
+    const label = sessionTitle(mode, text(active.startedAt), end, active, title, options);
     const durationEvent = !!end && Number.isFinite(dateMs(active.startedAt)) && Number.isFinite(dateMs(end)) && dateMs(end) > dateMs(active.startedAt);
     const eventTaskKey = activeTaskKey || "unassigned";
     return {
@@ -197,6 +205,7 @@
       payload: {
         pomodoro: {
           taskKey: activeTaskKey,
+          taskPath: taskSource(record).path || "",
           mode: active.mode || "WORK",
           active: true,
           unassigned: !activeTaskKey || !record,
@@ -205,6 +214,7 @@
         }
       },
       presentation: {
+        durationLabel: durationLabel(text(active.startedAt),end,options),
         classname: sessionClassname(mode, true, active),
         hoverText: hoverText(mode, label, title, text(active.startedAt), end, record, { completed: false, unassigned: !activeTaskKey || !record })
       }
@@ -227,13 +237,26 @@
       const sessions = Array.isArray(record.sessions) ? record.sessions : [];
       sessions.forEach((session, index) => {
         const active = source.active && source.active.taskKey === taskKey ? source.active : null;
-        if (active && !text(session && session.end) && text(session && session.start) === text(active.startedAt)) return;
-        const event = buildSessionEvent(taskKey, record, session, index);
+        if (Array.isArray(session && session.segments)) {
+          session.segments.forEach((segment, segmentIndex) => {
+            if (!(dateMs(segment.end) > dateMs(segment.start))) return;
+            const event = buildSessionEvent(taskKey, record, { ...session, start: segment.start, end: segment.end }, index, options);
+            if (!event) return;
+            event.id += `-segment-${segmentIndex}`;
+            event.payload.pomodoro.session = { ...session };
+            event.payload.pomodoro.segmentIndex = segmentIndex;
+            if (active && !session.end) event.status = text(active.status);
+            events.push(event);
+          });
+          return;
+        }
+        if (active && !text(session && session.end) && index === sessions.length - 1) return;
+        const event = buildSessionEvent(taskKey, record, session, index, options);
         if (event) events.push(event);
       });
     });
     const activeEvent = buildActiveEvent(source, options);
-    if (activeEvent) events.push(activeEvent);
+    if (activeEvent && source.active.status === "running" && dateMs(activeEvent.end) > dateMs(activeEvent.start)) events.push(activeEvent);
     return { dateTimeFormat: "iso8601", events: sortEvents(events), unplaced: [] };
   }
 

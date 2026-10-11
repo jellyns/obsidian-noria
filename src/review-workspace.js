@@ -122,11 +122,12 @@ class ReviewWorkspace {
     }
     this.renderer.finalSaveButton=null;
     if(this.state.needsAdoption || this.state.blocked)this.renderer.finalSaveButton=this.iconAction(actions,this.plugin.t(this.state.needsAdoption?"workbench.useDraft":"workbench.retrySave"),"save",()=>this.renderer.saveReviewFinal());
+    const secondaryStart=actions.children.length;
     const outline = this.iconAction(actions, this.plugin.t("workbench.outline"), "list", button => this.showOutline(button));
     outline.setAttribute("aria-haspopup", "menu");
     outline.disabled = !parts.length;
     const exists=!!this.app.vault.getAbstractFileByPath(this.state.model.targetPath);
-    this.iconAction(actions, this.plugin.t(exists?"workbench.source":"workbench.createSource"), "file-text", async () => {
+    if(!this.renderer.beforeEdit)this.iconAction(actions, this.plugin.t(exists?"workbench.source":"workbench.createSource"), "file-text", async () => {
       await this.renderer.flushReviewEdits();
       if(this.app.vault.getAbstractFileByPath(this.state.model.targetPath))await this.plugin.openReviewSourceFile(this.state.model.targetPath);
       else if(!this.state.dirty){await this.plugin.openCalendarPeriodNote({period:this.renderer.selection.mode,date:this.renderer.selection.anchorDate,source:true,newLeaf:true});await this.renderer.reload();}
@@ -137,19 +138,23 @@ class ReviewWorkspace {
     });
     const reference = this.referenceButton = this.iconAction(actions, this.t("reference"), "panel-right-open", () => this.renderer.setSupportMode("evidence"));
     reference.setAttribute("aria-expanded", this.renderer.state.support.mode && this.renderer.state.support.mode !== "drafts" ? "true" : "false");
+    const secondary=[...actions.children].slice(secondaryStart);
+    secondary.forEach(button=>{button.style.display="none";});
     const drafts = this.state.model.preservedRecoveryDrafts || [];
     if (drafts.length) this.action(actions, this.t("drafts", { count: drafts.length }), () => this.renderer.setSupportMode("drafts"));
     const more = this.iconAction(actions, this.t("more"), "ellipsis", button => {
       const menu = new obsidian.Menu();
+      for(const action of secondary)menu.addItem(item=>item.setTitle(action.getAttribute("aria-label")||action.textContent).setDisabled(action.disabled).onClick(()=>action===outline?this.showOutline(button):action.click()));
       this.taskAdoption.addMenuItems(menu,this.taskAdoption.takeMenuSelection());
       if(this.mode==="edit"){
         if (this.editPart) menu.addItem(item => item.setTitle(this.t("editWhole")).setIcon("pencil").onClick(() => this.startEditing(-1)));
         menu.addItem(item => item.setTitle(this.t("prompt")).setIcon("list-plus").onClick(() => this.insertPrompt()));
       }
+      this.renderer.moduleMenuItems?.(menu);
       this.showMenu(button, menu);
     });
     more.setAttribute("aria-haspopup", "menu");
-    this.taskAdoption.bindMoreButton(more,this.mode==="edit");
+    this.taskAdoption.bindMoreButton(more,true);
     this.renderer.syncFinalSaveUi();
   }
   async startEditing(index = -1) {
@@ -298,6 +303,36 @@ class ReviewWorkspace {
     this.renderer.markFinalDirty();
     this.editPart = null; this.mode = "edit"; this.renderDocument(); this.editor?.focus();
   }
+  async restoreDraft(entry) {
+    if (this.restoringDraft) return;
+    const state = this.state;
+    const current = () => !this.disposed && this.state === state;
+    this.restoringDraft = true;
+    this.content.inert = this.toolbar.inert = this.reference.inert = true;
+    this.reference.setAttribute('aria-busy', 'true');
+    try {
+      await state.pendingSave;
+      if (!current()) return;
+      await this.renderer.flushReviewRecoveryDraft();
+      const existing = await this.plugin.readReviewRecoveryStore(true);
+      if (!current()) return;
+      state.model.preservedRecoveryDrafts = (existing.entries?.[state.model.targetKey] || []).filter(d => d.draftId !== entry.draftId);
+      state.model.draftId = createReviewDraftId();
+      state.model.recoveryDraft = entry;
+      state.payload = D.normalizeReviewPayload(entry.payload, state.model.sectionHeading, state.model.savedPayload.body);
+      this.renderer.markFinalDirty("recovered");
+      this.editPart = null; this.mode = "edit";
+      this.renderer.state.support = { ...this.renderer.state.support, mode: "" };
+      this.renderDocument();
+    } catch (error) {
+      if (current()) { state.saveState = "error"; state.error = String(error.message || error); }
+    } finally {
+      this.restoringDraft = false;
+      this.content.inert = this.toolbar.inert = this.reference.inert = false;
+      this.reference.setAttribute('aria-busy', 'false');
+      if (current()) { this.update(); this.editor?.focus(); }
+    }
+  }
   renderDrafts(parent) {
     const drafts = this.state.model.preservedRecoveryDrafts || [];
     if (!drafts.length) { parent.createDiv({ text: this.t("noDrafts") }); return; }
@@ -309,18 +344,7 @@ class ReviewWorkspace {
     const entry = drafts.find(d => d.draftId === this.selectedDraft);
     const payload = D.normalizeReviewPayload(entry.payload, this.state.model.sectionHeading, this.state.model.savedPayload.body);
     const actions = parent.createDiv({ cls: "noria-review-draft-actions" });
-    this.action(actions, this.t("useDraft"), async () => {
-      await this.renderer.flushReviewRecoveryDraft();
-      const existing = await this.plugin.readReviewRecoveryStore(true);
-      this.state.model.preservedRecoveryDrafts = (existing.entries?.[this.state.model.targetKey] || []).filter(d => d.draftId !== entry.draftId);
-      this.state.model.draftId = createReviewDraftId();
-      this.state.model.recoveryDraft = entry;
-      this.state.payload = payload;
-      this.renderer.markFinalDirty("recovered");
-      this.editPart = null; this.mode = "edit";
-      this.renderer.state.support = { ...this.renderer.state.support, mode: "" };
-      this.renderDocument(); this.update(); this.editor?.focus();
-    });
+    this.action(actions, this.t("useDraft"), () => this.restoreDraft(entry));
     this.action(actions, this.plugin.t("review.final.copyRecovery"), async () => {
       try { await navigator.clipboard.writeText(payload.body); }
       catch (_) { const input = parent.createEl("textarea"); input.value = payload.body; input.focus(); input.select(); }
@@ -372,9 +396,9 @@ class ReviewWorkspace {
       this.mode = this.state.dirty ? "edit" : "browse";
       this.renderDocument();
     }
-    this.content.inert = false;
-    this.toolbar.inert = false;
-    this.reference.inert = false;
+    this.content.inert = !!this.restoringDraft;
+    this.toolbar.inert = !!this.restoringDraft;
+    this.reference.inert = !!this.restoringDraft;
     this.renderReference();
     this.referenceButton?.setAttribute("aria-expanded", this.renderer.state.support.mode && this.renderer.state.support.mode !== "drafts" ? "true" : "false");
     this.errorActions.empty();
@@ -446,6 +470,7 @@ class ReviewWorkspace {
     }).catch(error => { if (box.isConnected) content.setText(String(error.message || error)); });
   }
   dispose() {
+    this.disposed = true;
     this.toolbar?.remove();
     this.taskAdoption.dispose();
     this.editor?.dispose(); this.editor = null;

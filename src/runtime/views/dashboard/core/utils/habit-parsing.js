@@ -108,6 +108,7 @@
     if(fields["habit-id"])out.id=fields["habit-id"];
     if(fields.aliases)out.aliases=fields.aliases;
     if(fields["record-field"])out.recordField=fields["record-field"];
+    if(fields["target-plan"])out.targetPlan=fields["target-plan"];
     for(const key of ["icon","color","weekdays","plan"])if(fields[key])out[key]=fields[key];
     return out;
   }
@@ -141,6 +142,7 @@
     if (config?.id) parts.push(`[habit-id:: ${config.id}]`);
     if (config?.aliases) parts.push(`[aliases:: ${config.aliases}]`);
     if (config?.recordField) parts.push(`[record-field:: ${config.recordField}]`);
+    if (config?.targetPlan) parts.push(`[target-plan:: ${config.targetPlan}]`);
     for(const key of ["icon","color","weekdays","plan"])if(config?.[key])parts.push(`[${key}:: ${config[key]}]`);
     return parts.join(" ");
   }

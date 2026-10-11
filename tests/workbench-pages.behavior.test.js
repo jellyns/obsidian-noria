@@ -5,6 +5,19 @@ const fixture=()=>{
   const plugin={settings:{home:{widgets:[{id:'existing',props:{cardHeight:190}}]},cardLayouts:{periods:{daily:{order:['tasks','habits','focus']}}}},getNoriaLocale:()=> 'en',async saveSettings(){disk.settings=structuredClone(this.settings);}};
   return {plugin,disk,store:new WorkbenchPages(plugin)};
 };
+
+test('removed custom cards survive reload with configuration and undo preserves subsequent edits',async()=>{
+ const {plugin,disk,store}=fixture();
+ const card={id:'card-reading',title:'Reading',source:'noria:note',props:{path:'Reading.base',cardHeight:240},size:'wide',order:20,enabled:true};
+ await store.update(config=>config.pages.push({id:'page-reading',title:'Reading',widgets:[card]}));
+ const undo=await store.removeCard('page-reading',card.id);plugin.settings=structuredClone(disk.settings);
+ assert.deepEqual(store.get('page-reading').widgets,[{...card,enabled:false}]);
+ await store.editCard('page-reading',card.id,{title:'Books'});await undo();
+ assert.deepEqual(store.get('page-reading').widgets,[{...card,title:'Books'}]);
+ const save=plugin.saveSettings;plugin.saveSettings=async()=>{throw Error('disk full');};
+ await assert.rejects(store.removeCard('page-reading',card.id),/disk full/);
+ assert.equal(store.get('page-reading').widgets[0].enabled,true);plugin.saveSettings=save;
+});
 test('navigation configuration survives reload without changing legacy layouts',async()=>{
  const {plugin,disk,store}=fixture(),before=structuredClone(plugin.settings),base=store.read(),draft=structuredClone(base);
  draft.pages.find(p=>p.id==='home').title='Start';draft.pages.find(p=>p.id==='calendar').hidden=true;
@@ -42,4 +55,15 @@ test('queued edits retain both independent cards',async()=>{
  const {store}=fixture();await store.update(config=>config.pages.push({id:'page-new',title:'New',widgets:[]}));
  await Promise.all([store.saveCard('page-new',{id:'a',props:{path:'A.md'}}),store.saveCard('page-new',{id:'b',props:{path:'B.md'}})]);
  assert.deepEqual(store.get('page-new').widgets.map(w=>w.id),['a','b']);
+});
+
+test('composition events carry the previous page and a failed save never mutates the live layout',async()=>{
+ const {plugin,store}=fixture();plugin.app={workspace:{iterateAllLeaves(){}}};
+ await store.update(config=>config.pages.push({id:'page-new',title:'New',widgets:[{id:'a',order:0},{id:'b',order:10}]}));
+ const previous=store.get('page-new'),events=[];store.subscribe(event=>events.push(event));
+ await store.compose('page-new','b','stack',{target:'a',after:true});
+ assert.equal(events[0].layoutOnly,true);assert.equal(events[0].pageId,'page-new');assert.deepEqual(events[0].previousPage,previous);
+ const saved=store.get('page-new');plugin.saveSettings=async()=>{throw Error('disk full');};
+ await assert.rejects(store.compose('page-new','b','unstack'),/disk full/);
+ assert.deepEqual(store.get('page-new'),saved);assert.equal(events.length,1);
 });

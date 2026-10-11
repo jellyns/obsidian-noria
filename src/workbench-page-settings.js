@@ -38,6 +38,7 @@ class PageSettings extends Modal {
     create.onsubmit=event=>{event.preventDefault();if(!name.value.trim()){name.focus();return;}
       const ids=['task-trend-card','habit-history-card','note-trend-card','daily-state-card'];
       const widgets=template.value==='trends'?(this.plugin.buildRuntimeBridgeConfig().homeWidgetDefaults||[]).filter(w=>ids.includes(w.id)).map((w,i)=>({...structuredClone(w),id:`card-${crypto.randomUUID()}`,builtinId:w.id,enabled:true,order:i*10})):[];
+      if(template.value==='trends')widgets.push({id:`card-${crypto.randomUUID()}`,type:'extension',schemaVersion:3,enabled:true,order:widgets.length*10,size:'medium',title:this.text('专注回看','Focus review'),source:'noria:statistics',props:{source:'focus',display:'time-ring',calculate:'sum',scope:'all',initialDay:'today',showSchedule:true,cardHeight:360}});
       const id=`page-${crypto.randomUUID()}`;this.draft.pages.push({id,title:name.value.trim(),picture:template.value==='trends'?'chart-no-axes-combined':'panels-top-left',hidden:false,widgets});this.created=id;this.dirty=true;this.paint();};
     this.error=this.contentEl.createDiv({cls:'noria-card-error',attr:{role:'alert'}});
     const footer=this.contentEl.createDiv({cls:'noria-card-form-footer'});

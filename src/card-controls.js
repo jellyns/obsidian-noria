@@ -1,5 +1,5 @@
 "use strict";
-const {setIcon, setTooltip, Notice} = require("obsidian");
+const {setIcon, setTooltip, Notice, Menu, Modal} = require("obsidian");
 let activeMenu = null;
 
 function iconButton(parent, icon, label, action) {
@@ -9,82 +9,62 @@ function iconButton(parent, icon, label, action) {
   return button;
 }
 
-// Shared, anchored card controls. Content actions stay separate from layout.
-function openCardMenu({anchor, title, state, actions=[], move, size, collapse, hide, height, copy, getAnchor, t}) {
-  activeMenu?.();
-  const doc=anchor.ownerDocument, win=doc.defaultView;
-  const root=doc.body.createDiv({cls:"noria-card-menu",attr:{role:"dialog","aria-label":title}});
-  let closed=false, busy=false;
-  const currentAnchor=()=>getAnchor?.() || anchor;
-  const close=(focus=true)=>{
-    if(closed)return;closed=true;
-    doc.removeEventListener("pointerdown",outside,true);doc.removeEventListener("keydown",keys,true);
-    win.removeEventListener("resize",position);doc.removeEventListener("scroll",position,true);root.remove();
-    anchor.setAttribute("aria-expanded","false");currentAnchor()?.setAttribute("aria-expanded","false");
-    if(focus)currentAnchor()?.focus({preventScroll:true});
-    if(activeMenu===close)activeMenu=null;
+// Every card uses Obsidian's native menu and the same layout submenu.
+function addCardLayoutMenuItems(menu,{state,openWidth,move,height,collapse,copy,remove,stackTargets,stack,unstack,t,run}){
+  const value=state();
+  menu.addItem(item=>{
+    item.setTitle(t("layout")).setIcon("layout-dashboard");const sub=item.setSubmenu();
+    sub.addItem(entry=>entry.setTitle(t("width")).setIcon("move-horizontal").onClick(()=>run(openWidth)));
+    sub.addSeparator();
+    for(const direction of ["up","down"])sub.addItem(entry=>entry.setTitle(t(direction)).setIcon("arrow-"+direction).setDisabled(direction==="up"?value.first===true:value.last===true).onClick(()=>run(()=>move(direction))));
+    const targets=stackTargets?.()||[];
+    if(stack&&targets.length)sub.addItem(entry=>{entry.setTitle(t('stack')).setIcon('panels-top-left');const choices=entry.setSubmenu();for(const target of targets)choices.addItem(option=>{
+      option.setTitle(target.title).setIcon('square');const positions=option.setSubmenu();
+      for(const after of [false,true])positions.addItem(position=>position.setTitle(t(after?'stackBelow':'stackAbove')).setIcon(after?'panel-bottom':'panel-top').onClick(()=>run(()=>stack(target.id,after))));
+    });});
+    if(unstack)sub.addItem(entry=>entry.setTitle(t('unstack')).setIcon('columns-2').onClick(()=>run(unstack)));
+    if(height)sub.addItem(entry=>entry.setTitle(t("autoHeight")).setIcon("fold-vertical").onClick(()=>run(()=>height(null))));
+    sub.addItem(entry=>entry.setTitle(t(value.collapsed?"expand":"collapse")).setIcon(value.collapsed?"chevron-down":"chevron-up").onClick(()=>run(()=>collapse(!value.collapsed))));
+    if(copy||remove)sub.addSeparator();
+    if(copy)sub.addItem(entry=>entry.setTitle(t("copy")).setIcon("copy").onClick(()=>run(copy)));
+    if(remove)sub.addItem(entry=>entry.setTitle(t("remove")).setIcon("circle-minus").onClick(()=>run(remove)));
+  });
+}
+
+function openCardMenu({app,anchor,title,state,actions=[],move,width,collapse,height,copy,remove,stackTargets,stack,unstack,getAnchor,t}){
+  activeMenu?.(false);
+  const menu=new Menu(),doc=anchor.ownerDocument;
+  let closed=false,busy=false,restoreFocus=true;
+  const currentAnchor=()=>getAnchor?.()||anchor;
+  const close=(focus=true)=>{restoreFocus=focus;if(!closed)menu.hide();};
+  const run=async action=>{
+    if(busy)return;busy=true;close(false);
+    try{await action();}catch(error){new Notice(error.message||String(error));}
+    finally{busy=false;const active=doc.activeElement;if(!active||active===doc.body)currentAnchor()?.focus({preventScroll:true});}
   };
-  const outside=event=>{if(!event.composedPath().includes(root)&&!event.composedPath().includes(currentAnchor()))close(false);};
-  const keys=event=>{
-    if(event.key==="Escape"){event.preventDefault();event.stopPropagation();close();return;}
-    if(!["ArrowDown","ArrowUp","Tab"].includes(event.key))return;
-    if(event.target?.type==="range"&&event.key!=="Tab")return;
-    const nodes=[...root.querySelectorAll("button:not(:disabled),input:not(:disabled)")];
-    if(!nodes.length)return;const index=nodes.indexOf(doc.activeElement);
-    const backward=event.key==="ArrowUp"||(event.key==="Tab"&&event.shiftKey);
-    event.preventDefault();nodes[(index+(backward?nodes.length-1:1))%nodes.length].focus();
-  };
-  function position(){
-    const a=currentAnchor();if(!a?.isConnected){close(false);return;}
-    const r=a.getBoundingClientRect(), box=root.getBoundingClientRect();
-    root.style.left=`${Math.max(8,Math.min(r.right-box.width,win.innerWidth-box.width-8))}px`;
-    root.style.top=`${Math.max(8,r.bottom+box.height+6>win.innerHeight?r.top-box.height-6:r.bottom+6)}px`;
-  }
-  const error=root.createDiv({cls:"noria-card-menu-error",attr:{role:"alert"}});error.hidden=true;
-  async function run(action, keep=false){
-    if(busy)return;busy=true;error.hidden=true;root.setAttribute("aria-busy","true");
-    const focusKey=doc.activeElement?.dataset.control;
-    try{await action();if(keep&&!closed){paintLayout();position();if(focusKey)root.querySelector(`[data-control="${focusKey}"]`)?.focus();}else close(false);}
-    catch(e){error.setText(e?.message||String(e));error.hidden=false;position();}
-    finally{busy=false;root.removeAttribute("aria-busy");}
-  }
-  const contents=root.createDiv({cls:"noria-card-menu-content"});
-  for(const action of actions){
-    const button=contents.createEl("button",{cls:"noria-card-menu-action",attr:{type:"button"}});
-    setIcon(button.createSpan(),action.icon||"settings-2");button.createSpan({text:action.label});
-    button.addEventListener("click",()=>{close(false);Promise.resolve().then(action.run).catch(e=>new Notice(e.message||String(e)));});
-  }
   const card=anchor.closest('.noria-diary-card,.dashboard-home-widget-shell');
+  let hasContents=false;
+  for(const action of [...actions,...card?._noriaRecordActions||[]]){
+    hasContents=true;
+    menu.addItem(item=>item.setTitle(action.label).setIcon(action.icon||'settings-2').onClick(()=>run(action.run)));
+  }
   for(const source of card?.querySelectorAll('[data-noria-card-explanation]')||[]){
-    const label=source.dataset.noriaCardExplanation;
-    const button=contents.createEl('button',{cls:'noria-card-menu-action',attr:{type:'button','aria-expanded':'false'}});
-    setIcon(button.createSpan(),'info');button.createSpan({text:label});
-    const explanation=contents.createDiv({cls:'noria-card-menu-explanation',attr:{role:'region','aria-label':label}});explanation.hidden=true;
-    button.addEventListener('click',()=>{explanation.textContent=source.textContent;explanation.hidden=!explanation.hidden;button.setAttribute('aria-expanded',String(!explanation.hidden));position();});
+    hasContents=true;
+    menu.addItem(item=>item.setTitle(source.dataset.noriaCardExplanation).setIcon('info').onClick(()=>run(()=>{
+      const modal=new Modal(app);modal.setTitle(source.dataset.noriaCardExplanation);
+      modal.contentEl.createDiv({cls:'noria-card-explanation',text:source.textContent});modal.open();
+    })));
   }
-  const layout=root.createDiv({cls:"noria-card-menu-layout"});
-  function paintLayout(){
-    const value=state();layout.empty();
-    const widths=layout.createDiv({cls:"noria-card-width-slider"});
-    widths.createSpan({text:t("width")});
-    const sizes=["small","medium","wide","full"], slider=widths.createEl("input",{attr:{type:"range",min:"0",max:"3",step:"1","aria-label":t("width"),"data-control":"width"}});
-    slider.value=String(Math.max(0,sizes.indexOf(value.size)));
-    const output=widths.createSpan({cls:"noria-card-width-value"});
-    const describe=()=>{const label=t(sizes[Number(slider.value)]);output.setText(label);slider.setAttribute("aria-valuetext",label);};describe();
-    slider.addEventListener("input",describe);
-    slider.addEventListener("change",()=>run(()=>size(sizes[Number(slider.value)]),true));
-    const tools=layout.createDiv({cls:"noria-card-layout-actions"});
-    const tool=(icon,key,action)=>{const button=iconButton(tools,icon,t(key),action);button.dataset.control=key;return button;};
-    const up=tool("arrow-up","up",()=>run(()=>move("up"),true));up.disabled=value.first===true;
-    const down=tool("arrow-down","down",()=>run(()=>move("down"),true));down.disabled=value.last===true;
-    tool(value.collapsed?"chevron-right":"chevron-down",value.collapsed?"expand":"collapse",()=>run(()=>collapse(!value.collapsed),true));
-    if(height)tool("fold-vertical","autoHeight",()=>run(()=>height(null),true));
-    if(copy)tool("copy","copy",()=>run(copy));
-    tool(value.enabled===false?"eye":"eye-off",value.enabled===false?"show":"hide",()=>run(hide));
-  }
-  paintLayout();position();anchor.setAttribute("aria-expanded","true");
-  doc.addEventListener("pointerdown",outside,true);doc.addEventListener("keydown",keys,true);win.addEventListener("resize",position);doc.addEventListener("scroll",position,true);
-  activeMenu=close;root.querySelector("button")?.focus({preventScroll:true});return close;
+  if(hasContents)menu.addSeparator();
+  addCardLayoutMenuItems(menu,{state,openWidth:()=>require("./card-width-picker.js").openCardWidth({anchor:currentAnchor(),state,width,t,getAnchor}),move,height,collapse,copy,remove,stackTargets,stack,unstack,t,run});
+  menu.onHide(()=>{
+    if(closed)return;closed=true;anchor.setAttribute('aria-expanded','false');currentAnchor()?.setAttribute('aria-expanded','false');
+    if(restoreFocus)currentAnchor()?.focus({preventScroll:true});if(activeMenu===close)activeMenu=null;
+  });
+  anchor.setAttribute('aria-haspopup','menu');anchor.setAttribute('aria-expanded','true');
+  const rect=anchor.getBoundingClientRect();activeMenu=close;
+  menu.showAtPosition({x:rect.right,y:rect.bottom,left:true},doc);
+  return close;
 }
 
 function attachCardResize(host,getHeight,saveHeight,label){
@@ -101,4 +81,4 @@ function attachCardResize(host,getHeight,saveHeight,label){
   handle.onkeydown=event=>{if(event.key==="Home"){event.preventDefault();Promise.resolve(saveHeight(null)).catch(e=>new Notice(e.message));return;}if(["ArrowUp","ArrowDown"].includes(event.key)){event.preventDefault();const value=Math.round(host.getBoundingClientRect().height)+(event.key==="ArrowUp"?-16:16);Promise.resolve(saveHeight(value)).catch(e=>new Notice(e.message));}};
   return()=>{cancel();host.ownerDocument.removeEventListener("keydown",key,true);handle.remove();};
 }
-module.exports={iconButton,openCardMenu,attachCardResize};
+module.exports={iconButton,openCardMenu,addCardLayoutMenuItems,attachCardResize};

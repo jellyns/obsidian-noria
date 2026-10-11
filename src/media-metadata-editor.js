@@ -3,6 +3,7 @@ const {Notice} = require('obsidian');
 const {recordPopover} = require('./record-popover.js');
 const {updateMediaMetadata} = require('./media-record.js');
 const {mediaLookupResults, editionMetadata} = require('./media-lookup-ui.js');
+const {metadataFieldsFor, metadataListFields} = require('./media-metadata.js');
 
 function mediaMetadataEditor(plugin, anchor, snapshot, {onSaved, onClose, preferredImage} = {}) {
   const text = (zh, en) => plugin.getNoriaLocale() === 'zh' ? zh : en;
@@ -11,6 +12,7 @@ function mediaMetadataEditor(plugin, anchor, snapshot, {onSaved, onClose, prefer
     host.addClass('noria-media-editor'); host.addClass('noria-media-metadata-editor');
     const form = host.createEl('form'); form.noValidate = true;
     const lookupSection=form.createEl('details',{cls:'noria-media-details'});
+    lookupSection.hidden=!snapshot.kinds.includes('book');
     lookupSection.createEl('summary',{text:text('查找版本资料','Find edition details')});
     const query=lookupSection.createEl('input',{attr:{type:'text','aria-label':text('名称、ISBN 或版本链接','Title, ISBN or edition link')}});
     query.value=[snapshot.properties.isbn].flat().find(value=>typeof value==='string'&&value.trim())||snapshot.title;
@@ -23,18 +25,19 @@ function mediaMetadataEditor(plugin, anchor, snapshot, {onSaved, onClose, prefer
     const links=form.createEl('details',{cls:'noria-media-details'});
     const linkSummary=links.createEl('summary',{text:text('来源与封面','Source and cover')});
     const fields = [];
-    for (const [key, zh, en] of [['author','作者','Author'], ['publisher','出版社','Publisher'], ['isbn','ISBN','ISBN'], ['pagecount','总页数','Pages'], ['publish','出版日期','Published'], ['source','来源链接','Source URL'], ['cover','封面','Cover']]) {
+    const supported = metadataFieldsFor(snapshot.kinds);
+    for (const [key, zh, en] of [['author','作者','Author'], ['publisher','出版社','Publisher'], ['isbn','ISBN','ISBN'], ['pagecount','总页数','Pages'], ['publish','出版日期','Published'], ['director','导演','Director'], ['artist','艺人','Artist'], ['developer','开发者','Developer'], ['year','年份','Year'], ['source','来源链接','Source URL'], ['cover','封面','Cover']].filter(([key])=>supported.includes(key))) {
       const label = text(zh,en), row = (['source','cover'].includes(key)?links:main).createDiv({cls:'noria-card-field'});
       row.dataset.field=key;
       const id = `noria-media-field-${crypto.randomUUID()}`;
       row.createEl('label',{text:label,attr:{for:id}});
       const initial = display(snapshot.properties[key]);
       // Keep legacy values readable and unchanged until this field is edited.
-      const input = row.createEl('input',{attr:{id,type:'text','aria-label':label,...(key==='pagecount'?{inputmode:'numeric'}:{})}});
+      const input = row.createEl('input',{attr:{id,type:'text','aria-label':label,...(['pagecount','year'].includes(key)?{inputmode:'numeric'}:{})}});
       input.value = initial;
       if(key==='cover')input.placeholder=text('库内图片路径、双链或网页链接','Vault image path, wikilink, or web URL');
       if(key==='cover' && preferredImage)row.createSpan({cls:'noria-card-secondary',text:text('当前封面优先使用原笔记的 image 属性。','The original note’s image property takes priority for the cover.')});
-      if (['author','publisher','isbn'].includes(key)) input.placeholder=text('多项用中文分号分隔','Separate values with ；');
+      if (metadataListFields.includes(key)) input.placeholder=text('多项用中文分号分隔','Separate values with ；');
       const change = row.createDiv({cls:'noria-media-field-change'}); change.hidden=true;
       const previous=change.createSpan({cls:'noria-card-secondary',text:text(`原值：${initial||'未填写'}`,`Previously: ${initial||'Not recorded'}`),attr:{id:`${id}-before`}});
       input.setAttribute('aria-describedby',previous.id);
@@ -86,15 +89,19 @@ function mediaMetadataEditor(plugin, anchor, snapshot, {onSaved, onClose, prefer
         if(key==='pagecount'&&value&&(!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<=0)) {
           input.setCustomValidity(text('总页数须为正整数。','Page count must be a positive integer.'));input.reportValidity();input.focus();return;
         }
-        patch[key]=!value?null:key==='pagecount'?Number(value):['author','publisher','isbn'].includes(key)?value.split('；').map(x=>x.trim()).filter(Boolean):value;
+        if(key==='year'&&value&&(!/^\d{1,4}$/.test(value)||Number(value)<1)) {
+          input.setCustomValidity(text('年份须为 1–9999 的整数。','Year must be an integer from 1 to 9999.'));input.reportValidity();input.focus();return;
+        }
+        patch[key]=!value?null:['pagecount','year'].includes(key)?Number(value):metadataListFields.includes(key)?value.split('；').map(x=>x.trim()).filter(Boolean):value;
       }
       invalidate();saving=true;error.setText('');query.disabled=find.disabled=true;
       for(const {input,restore} of fields)input.disabled=restore.disabled=true;
       save.disabled=cancel.disabled=true;refresh();
       try {
         const result=await updateMediaMetadata(plugin,{path:snapshot.path,revision:snapshot.metadataRevision,patch});
-        onSaved?.(result);
-        if(!host.isConnected)new Notice(text('作品资料已保存','Work details saved'));
+        const reveal=host.isConnected;
+        await onSaved?.(result,reveal);
+        if(!reveal)new Notice(text('作品资料已保存','Work details saved'));
         close();
       } catch(e) {
         const message=e.code==='conflict'?text('资料已在别处修改，当前输入未保存。请核对原笔记后重新打开。','Details changed elsewhere. Your input was not saved. Check the original note and reopen this editor.'):e.message;

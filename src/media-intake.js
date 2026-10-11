@@ -1,8 +1,9 @@
 "use strict";
 const {parseYaml} = require('obsidian');
 const {frontmatter} = require('./record-properties.js');
-const {listMedia, mediaTypes} = require('./media-catalog.js');
+const {listMedia, mediaTypes, isMediaTemplate} = require('./media-catalog.js');
 const {normalizeISBN, mediaMetadata} = require('./media-metadata.js');
+const {contentProfile,templateContent,loadTemplate}=require('./media-content-model.js');
 const queues = new WeakMap();
 const fail = (code, message) => Object.assign(new Error(message), {code});
 const titleKey = value => value.normalize('NFKC').trim().replace(/^《(.*)》$/u, '$1').replace(/\s+/gu, ' ').toLocaleLowerCase();
@@ -33,7 +34,7 @@ async function createMedia(plugin, request = {}) {
   const {folder, searchFolder = folder, kind, title, status, filename, metadata, separate = false} = request;
   if (Object.keys(request).some(key => !['folder', 'searchFolder', 'kind', 'title', 'status', 'filename', 'metadata', 'separate'].includes(key)) ||
       typeof separate !== 'boolean' || typeof title !== 'string' || !title.trim() || /[\r\n\x00-\x1f]/.test(title) ||
-      !['book', 'movie', 'game'].includes(kind) ||
+      !['book', 'movie', 'music', 'game'].includes(kind) ||
       status !== undefined && (typeof status !== 'string' || !status.trim() || /[\r\n\x00-\x1f]/.test(status))) throw fail('invalid-input', 'Supply a title, media type and optional nonempty status');
   const details = mediaMetadata(metadata, kind);
   const name = filename === undefined ? `《${title.trim().replace(/^《(.*)》$/u, '$1').replace(/[<>:"/\\|?*]/g, ' ')}》.md` : filename;
@@ -60,7 +61,7 @@ async function createMedia(plugin, request = {}) {
     } while (offset !== null);
     // Newly created notes may not yet be indexed. Read those candidates before creating another file.
     for (const file of plugin.filesUnderRoots([scope], ['.md'])) {
-      if (!file.path.startsWith(scope + '/') || /^(?:模板-|清单-)/.test(file.basename) || plugin.app.metadataCache.getFileCache(file)) continue;
+      if (!file.path.startsWith(scope + '/') || /^(?:模板-|清单-)/.test(file.basename) || isMediaTemplate(plugin, file.path) || plugin.app.metadataCache.getFileCache(file)) continue;
       const {value: fm} = frontmatter(await plugin.app.vault.read(file), parseYaml), types = mediaTypes(fm).types;
       const existingTitle = typeof fm.title === 'string' && fm.title.trim() ? fm.title : file.basename;
       if (types.includes(kind)) appendMatch({path:file.path,title:existingTitle,kinds:types,properties:fm});
@@ -70,7 +71,8 @@ async function createMedia(plugin, request = {}) {
     if (plugin.app.vault.getAbstractFileByPath(path)) throw fail('conflict', 'This filename already exists; choose another filename or open the existing note');
     const properties = {title: title.trim(), tags: [kind], ...details};
     if (status !== undefined) properties.status = status.trim();
-    const markdown = '---\n' + Object.entries(properties).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n') + '\n---\n';
+    const template=contentProfile(plugin,kind).template;
+    const markdown = template?templateContent(await loadTemplate(plugin,template),properties,{date:plugin.getLocalYmd?.(),parse:parseYaml}):'---\n' + Object.entries(properties).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n') + '\n---\n';
     if (plugin._noriaPluginDisposed) throw fail('unsupported', 'Noria is unloaded; reconnect to the current plugin instance');
     try { await plugin.app.vault.create(path, markdown); }
     catch (error) { if (plugin.app.vault.getAbstractFileByPath(path)) throw fail('conflict', 'This filename was created elsewhere; read it before retrying'); throw error; }

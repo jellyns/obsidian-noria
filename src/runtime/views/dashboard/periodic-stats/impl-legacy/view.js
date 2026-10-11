@@ -150,6 +150,12 @@ async function loadText(path) {
 }
 
 async function ensureFallbackFactories() {
+  const build=String(bridge.runtimeBuildId||'');
+  if(globalThis.__noriaPeriodicStatsFallbackBuild!==build){
+    delete globalThis.dashboardPeriodicStatsFallbackChartsFactory;
+    delete globalThis.dashboardPeriodicStatsFallbackBoardsFactory;
+    globalThis.__noriaPeriodicStatsFallbackBuild=build;
+  }
   if (!globalThis.dashboardPeriodicStatsFallbackChartsFactory) {
     const code = await loadText(".obsidian/plugins/noria/views/dashboard/periodic-stats/impl-legacy/fallbacks/charts.js");
     if (code) (0, eval)(String(code));
@@ -161,9 +167,9 @@ async function ensureFallbackFactories() {
 }
 
 function makeCard(parent, title) {
-  const card = parent.createDiv();
-  card.style.cssText = "padding:12px;border-radius:14px;background:linear-gradient(180deg,color-mix(in srgb,var(--background-primary) 94%,rgba(59,130,246,.05)),color-mix(in srgb,var(--background-secondary) 88%,rgba(59,130,246,.05)));border:1px solid color-mix(in srgb,var(--background-modifier-border) 74%,rgba(59,130,246,.18));box-shadow:0 2px 10px rgba(15,23,42,.05),inset 0 1px 0 color-mix(in srgb,var(--background-primary) 74%,transparent);";
-  card.createDiv({ text: title }).style.cssText = "font-weight:760;letter-spacing:.2px;color:var(--text-normal);margin-bottom:8px;";
+  const card = parent.createDiv({cls:'noria-period-stat-section'});
+  const head=card.createDiv({cls:'noria-period-stat-heading'});
+  head.createEl('h3',{text:title});
   return card;
 }
 
@@ -320,7 +326,7 @@ if (!createFallbackCharts || !createFallbackBoards) {
   return;
 }
 
-const chartKit = createFallbackCharts({ makeCard, addStatChips, seriesStats, chartAdapter, sharedDualAxisRenderer });
+const chartKit = createFallbackCharts({ makeCard, addStatChips, seriesStats, chartAdapter, sharedDualAxisRenderer, bridge, embedded:input?.embedded===true });
 const boardKit = createFallbackBoards({
   ctx,
   bridge,
@@ -334,7 +340,7 @@ const boardKit = createFallbackBoards({
 });
 
 const root = (input && input.mount) ? input.mount : ctx.el("div", "");
-root.style.cssText = "display:grid;grid-template-columns:1fr;gap:10px;";
+root.classList.add("noria-period-stats");
 
 const dailyWordSeries = dates.map((d) => Number(metrics[d]?.words || 0));
 const dailyNoteCountSeries = dates.map((d) => Number(metrics[d]?.notes || 0));
@@ -342,9 +348,11 @@ const dailyTaskTotalSeries = dates.map((d) => Number(metrics[d]?.taskTotal || 0)
 const dailyDoneRateSeries = dates.map((d) => {
   const total = Number(metrics[d]?.taskTotal || 0);
   const done = Number(metrics[d]?.taskDone || 0);
-  return total > 0 ? (done * 100) / total : 0;
+  return total > 0 ? (done * 100) / total : null;
 });
-const dailyLabels = dates.map((d) => d.slice(5));
+const dailyLabels = dates;
+const totalTasks=dates.reduce((sum,d)=>sum+metrics[d].taskTotal,0),totalDone=dates.reduce((sum,d)=>sum+metrics[d].taskDone,0);
+const taskStatOptions={lineHideTotal:true,barHideTotal:false,completionRate:totalTasks?100*totalDone/totalTasks:null};
 const weatherCount = Object.fromEntries(weatherDefs.map((x) => [x.key, 0]));
 const moodCount = Object.fromEntries(moodDefs.map((x) => [x.key, 0]));
 dates.forEach((d) => {
@@ -355,8 +363,7 @@ dates.forEach((d) => {
 });
 
 const trendGrid = root.createDiv();
-trendGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;";
-if ((root.clientWidth || 0) < 900) trendGrid.style.gridTemplateColumns = "1fr";
+trendGrid.classList.add("noria-period-stats-grid");
 
 if (resolvedScope === "yearly") {
   const weekRows = aggregateMetrics(dates, metrics, "week");
@@ -366,7 +373,7 @@ if (resolvedScope === "yearly") {
       title: statsT("runtime.stats.noteTrendWeek"),
       bar: weekRows.map((x) => Number(x.words || 0)),
       line: weekRows.map((x) => Number(x.notes || 0)),
-      labels: weekRows.map((x) => x.label),
+      labels: weekRows.map((x) => x.key),
       barName: statsT("runtime.stats.words"),
       lineName: statsT("runtime.stats.noteCount"),
       statOptions: { lineHideTotal: false, barHideTotal: false }
@@ -375,7 +382,7 @@ if (resolvedScope === "yearly") {
       title: statsT("runtime.stats.noteTrendMonth"),
       bar: monthRows.map((x) => Number(x.words || 0)),
       line: monthRows.map((x) => Number(x.notes || 0)),
-      labels: monthRows.map((x) => x.label),
+      labels: monthRows.map((x) => x.key),
       barName: statsT("runtime.stats.words"),
       lineName: statsT("runtime.stats.noteCount"),
       statOptions: { lineHideTotal: false, barHideTotal: false }
@@ -388,12 +395,12 @@ if (resolvedScope === "yearly") {
       line: weekRows.map((x) => {
         const total = Number(x.taskTotal || 0);
         const done = Number(x.taskDone || 0);
-        return total > 0 ? (done * 100) / total : 0;
+        return total > 0 ? (done * 100) / total : null;
       }),
-      labels: weekRows.map((x) => x.label),
+      labels: weekRows.map((x) => x.key),
       barName: statsT("runtime.stats.taskCount"),
       lineName: statsT("runtime.stats.completionRate"),
-      statOptions: { lineHideTotal: true, barHideTotal: false }
+      statOptions: taskStatOptions
     },
     month: {
       title: statsT("runtime.stats.taskTrendMonth"),
@@ -401,12 +408,12 @@ if (resolvedScope === "yearly") {
       line: monthRows.map((x) => {
         const total = Number(x.taskTotal || 0);
         const done = Number(x.taskDone || 0);
-        return total > 0 ? (done * 100) / total : 0;
+        return total > 0 ? (done * 100) / total : null;
       }),
-      labels: monthRows.map((x) => x.label),
+      labels: monthRows.map((x) => x.key),
       barName: statsT("runtime.stats.taskCount"),
       lineName: statsT("runtime.stats.completionRate"),
-      statOptions: { lineHideTotal: true, barHideTotal: false }
+      statOptions: taskStatOptions
     }
   });
 } else {
@@ -428,13 +435,12 @@ if (resolvedScope === "yearly") {
     dailyLabels,
     statsT("runtime.stats.taskCount"),
     statsT("runtime.stats.completionRate"),
-    { lineHideTotal: true, barHideTotal: false }
+    taskStatOptions
   );
 }
 
 const stateGrid = root.createDiv();
-stateGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;";
-if ((root.clientWidth || 0) < 900) stateGrid.style.gridTemplateColumns = "1fr";
+stateGrid.classList.add("noria-period-stats-grid");
 chartKit.renderDistCard(stateGrid, statsT("runtime.stats.weatherDistribution"), weatherDefs, weatherCount);
 chartKit.renderDistCard(stateGrid, statsT("runtime.stats.moodDistribution"), moodDefs, moodCount);
 
@@ -442,9 +448,8 @@ const taskHeat = Object.fromEntries(dates.map((d) => [d, Number(metrics[d].taskD
 const heatGrid = root.createDiv();
 heatGrid.style.cssText = "display:grid;grid-template-columns:1fr;gap:10px;";
 if ((root.clientWidth || 0) < 980) heatGrid.style.gridTemplateColumns = "1fr";
-await boardKit.renderHeatmap(
-  heatGrid,
-  resolvedScope === "yearly" ? statsT("runtime.stats.taskCompletionHeatmapYear") : statsT("runtime.stats.taskCompletionHeatmap"),
-  range.year,
-  taskHeat
-);
+const years=[...new Set(dates.map(date=>Number(date.slice(0,4))))];
+for(const year of years){
+  const title=resolvedScope==='yearly'?statsT('runtime.stats.taskCompletionHeatmapYear'):statsT('runtime.stats.taskCompletionHeatmap');
+  await boardKit.renderHeatmap(heatGrid,years.length>1?title+' · '+year:title,year,Object.fromEntries(Object.entries(taskHeat).filter(([date])=>Number(date.slice(0,4))===year)));
+}

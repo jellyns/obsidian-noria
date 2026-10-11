@@ -31,4 +31,34 @@ async function prepareReview(plugin,request){
     evidencePath:result.evidencePath,readingPath:result.readingPath,promptPath:result.promptPath,artifactPath:result.artifactPath,
     material:result.material,prompt:result.prompt};
 }
-module.exports={readReview,prepareReview};
+async function submitAnalysis(plugin,request){
+  if(!request||typeof request!=='object'||Array.isArray(request))throw fail('invalid-input','Specify the review selection, analysis revision, evidenceHash and Markdown');
+  const {revision:expectedRevision,evidenceHash,markdown,...selectionRequest}=request;
+  const selection=selectionOf(selectionRequest);
+  if(typeof expectedRevision!=='string'||!expectedRevision||typeof evidenceHash!=='string'||!evidenceHash||typeof markdown!=='string'||!markdown.trim()){
+    throw fail('invalid-input','Use the analysis revision from reviews.read and evidenceHash from reviews.prepare');
+  }
+  const review=await plugin.ensureReviewCenterUtils(),parsed=review.parseReviewArtifact(markdown);
+  if(parsed.meta.evidence_hash!==evidenceHash||!review.hasGeneratedReviewContent(parsed)||/%%\s*noria:review:(?:start|end)\s*%%/.test(markdown)){
+    throw fail('invalid-input','Analysis must contain content and matching evidence_hash frontmatter, without final-review boundary markers');
+  }
+  const path=await plugin.resolveReviewAnalysisArtifactPath(selection);
+  // Retries compare the complete saved artifact. No extra receipt or history file is needed.
+  const previous=await plugin.loadTextFromVault(path);
+  if(previous!==markdown&&revision(path,!!previous,previous)!==expectedRevision)throw fail('conflict','The analysis or its configured destination changed; read it again before updating');
+  const evidence=await plugin.getFullReviewEvidence(selection);
+  if(evidence.evidenceHash!==evidenceHash)throw fail('conflict','The review material changed; prepare and inspect the current material before submitting');
+  if(await plugin.resolveReviewAnalysisArtifactPath(selection)!==path)throw fail('conflict','The analysis destination changed; read it again before updating');
+  let changed=false;
+  await plugin.processTextAtVaultPath(path,current=>{
+    if(current===markdown)return current;
+    if(revision(path,!!current,current)!==expectedRevision)throw fail('conflict','The analysis changed while submitting; read it again before updating');
+    changed=true;
+    return markdown;
+  });
+  const result={ok:true,changed,selection,path,revision:revision(path,true,markdown)};
+  // A display failure must not disguise an already successful file write.
+  try{await plugin.reloadOpenNoriaViews('review');}catch(error){result.refreshError=String(error?.message||error);}
+  return result;
+}
+module.exports={readReview,prepareReview,submitAnalysis};

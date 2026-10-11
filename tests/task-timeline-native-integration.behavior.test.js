@@ -167,6 +167,7 @@ function createHarness(options = {}) {
     }
   };
   root.nativeOverview = {
+    buildDateTicks() { return []; },
     buildOverviewPlan(input) {
       calls.overviewInputs.push(input);
       return { widthPx: input.widthPx, heightPx: input.heightPx, eventItems: [], dateTicks: [] };
@@ -263,7 +264,7 @@ test("native backend is the sole renderer and consumes one already-filtered even
   assert.equal(harness.calls.overviewInputs[0].events.length, 2);
   assert.equal(harness.calls.interactionOptions.length, 1);
   assert.equal(harness.timelineEl.getAttribute("data-noria-timeline-backend"), "native");
-  assert.deepEqual(Object.keys(instance).sort(), ["centerOn", "clearAnnotationPreview", "dispose", "flushWindow", "getDiagnostics", "getFocus", "getFocusMagnification", "getWindow", "host", "previewAnnotation", "refresh", "resize", "selectAnnotation", "setFocusMagnification", "setMarkMode", "setWindow"]);
+  assert.deepEqual(Object.keys(instance).sort(), ["canFitTasks", "captureViewState", "centerOn", "clearAnnotationPreview", "dispose", "fitTasks", "flushWindow", "getDiagnostics", "getFocus", "getFocusMagnification", "getWindow", "host", "previewAnnotation", "refresh", "resize", "restoreViewState", "selectAnnotation", "setFocusMagnification", "setMarkMode", "setOverviewVisibility", "setWindow"]);
   assert.equal(instance.getDiagnostics().eventCount, 2);
   assert.equal(instance.getDiagnostics().renderCount, 1);
 
@@ -278,7 +279,7 @@ test("native backend is the sole renderer and consumes one already-filtered even
     }]));
   });
   const mainMarkers = harness.calls.renders[0].model.mainPlan.markers;
-  assert.equal(mainMarkers.find((marker) => marker.kind === "today").bounds.height, 360 - 56);
+  assert.equal(mainMarkers.find((marker) => marker.kind === "today").bounds.height, 360 - 28);
   assert.equal(mainMarkers.find((marker) => marker.kind === "now").bounds.width, 1);
 
   harness.resizeCallbacks[0]();
@@ -467,6 +468,65 @@ test("native interactions adapt task keys to source-open and existing task-edit 
   instance.dispose();
 });
 
+test("new project views fit the complete schedule and keep the range when resized",async()=>{
+  const events=[{id:"a",layer:"task",start:"2026-09-23T08:00:00+08:00",end:"2026-09-23T09:00:00+08:00"},{id:"b",layer:"task",start:"2026-10-03T08:00:00+08:00"}];
+  const h=createHarness({exact:true,events,settings:{groupBy:"projects",focusMagnification:false}});
+  const b=await h.engine.mountTimelineBackend("native",h.backendContext);h.flushFrame();
+  const window=JSON.parse(JSON.stringify(b.getWindow()));
+  assert.ok(window.startMs<Date.parse(events[0].start));
+  assert.ok(window.endMs>Date.parse(events[1].start));
+  b.resize(430,540);h.flushFrame();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.getWindow())),window);
+  assert.equal(h.calls.layoutInputs.at(-1).widthPx,430);
+  b.setWindow({startMs:Date.parse('2027-01-01'),endMs:Date.parse('2027-02-01')});h.flushFrame();
+  assert.equal(b.canFitTasks(),true);assert.equal(b.fitTasks(),true);h.flushFrame();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.getWindow())),window);
+  b.dispose();
+});
+
+test("fit scheduled tasks ignores activity dates and leaves an empty task window unchanged",async()=>{
+  const events=[{id:'note',layer:'note',start:'2020-01-01'},{id:'task',layer:'task',start:'2026-09-23T08:00:00+08:00'}];
+  const h=createHarness({exact:true,events}),b=await h.engine.mountTimelineBackend('native',h.backendContext);h.flushFrame();
+  assert.equal(b.fitTasks(),true);h.flushFrame();
+  const range=JSON.parse(JSON.stringify(b.getWindow()));assert.ok(range.startMs>Date.parse('2026-09-22'));
+  b.refresh({events:events.slice(0,1)});h.flushFrame();
+  assert.equal(b.canFitTasks(),false);assert.equal(b.fitTasks(),false);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.getWindow())),range);b.dispose();
+});
+
+test('view restoration survives another refresh before its first visible paint',async()=>{
+ const h=createHarness({exact:true,settings:{groupBy:'projects'}}),b=await h.engine.mountTimelineBackend('native',h.backendContext);
+ assert.equal(b.captureViewState(),null);
+ const pending={scrollTop:120,projectKey:'P.md',projectOffset:-10,previousProjectWindow:null};
+ b.restoreViewState(pending);
+ assert.equal(JSON.stringify(b.captureViewState()),JSON.stringify(pending));
+ h.flushFrame();assert.equal(JSON.stringify(b.captureViewState()),JSON.stringify(pending));
+ b.dispose();assert.equal(b.captureViewState(),null);
+});
+
+test('overview visibility changes available height without changing the chosen date window',async()=>{
+ const h=createHarness({exact:true,settings:{overviewVisibility:'auto'}}),b=await h.engine.mountTimelineBackend('native',h.backendContext);h.flushFrame();
+ const original=JSON.stringify(b.getWindow());
+ assert.equal(h.calls.renders.at(-1).model.overviewPlan.heightPx,0);
+ b.setOverviewVisibility('show');h.flushFrame();
+ const model=h.calls.updates.at(-1).model;
+ assert.equal(model.overviewPlan.heightPx,24);assert.equal(model.mainPlan.axisHeightPx,28);
+ assert.equal(JSON.stringify(b.getWindow()),original);
+ b.setOverviewVisibility('hide');h.flushFrame();assert.equal(h.calls.updates.at(-1).model.overviewPlan.heightPx,0);b.dispose();
+});
+
+test('project reveal fits only assigned canonical events and cannot change a disposed timeline',async()=>{
+ const events=[{id:'parent',layer:'task',start:'2026-05-01T00:00:00Z'},{id:'child',layer:'task',start:'2026-10-01T00:00:00Z'},{id:'note',layer:'note',start:'2020-01-01T00:00:00Z'}];
+ const h=createHarness({exact:true,events,settings:{groupBy:'projects'}}),b=await h.engine.mountTimelineBackend('native',h.backendContext);h.flushFrame();
+ const reveal=h.calls.renders[0].model.mainPlan.onProjectFit;
+ assert.equal(reveal({scheduledEventIds:['parent']}),true);h.flushFrame();
+ const range=JSON.parse(JSON.stringify(b.getWindow()));
+ assert.ok(range.startMs<Date.parse('2026-05-01')&&range.startMs>Date.parse('2026-04-30'));
+ assert.ok(range.endMs>Date.parse('2026-05-01')&&range.endMs<Date.parse('2026-05-02'));
+ assert.equal(reveal({scheduledEventIds:['missing']}),false);
+ b.dispose();assert.equal(reveal({scheduledEventIds:['child']}),false);assert.deepEqual(JSON.parse(JSON.stringify(b.getWindow())),range);
+});
+
 test("exact windows survive backend resize and reload, while free zoom clears the preset",async()=>{
   const w=require("../src/runtime/views/task-timeline/time-window.js"),selected=w.at(+new Date("2026-09-23T07:00:00"),{amount:18,unit:"hour"});
   const h=createHarness({exact:true,settings:{timeWindow:selected}}),b=await h.engine.mountTimelineBackend("native",h.backendContext);h.flushFrame();
@@ -603,17 +663,17 @@ test("formal task timeline loads provider modules before mounting the native bac
   );
 });
 
-test("formal task timeline derives trace range from the current event extent", () => {
+test("note-only timeline does not restrict file activity to unrelated task dates", async () => {
   const view = fs.readFileSync(sourcePath("views/task-timeline/view.js"), "utf8");
   const start = view.indexOf("async function taskTimelineCollectTraces");
-  const end = view.indexOf("\n}\n\nfunction taskTimelineNormalizeFilter", start);
-  const body = view.slice(start, end);
-
-  assert.match(body, /Date\.parse\(event\?\.start\)/);
-  assert.match(body, /Date\.parse\(event\?\.end \|\| event\?\.start\)/);
-  assert.match(body, /start:\s*starts\.length \? new Date\(Math\.min\(\.\.\.starts\)\)\.toISOString\(\) : ""/);
-  assert.match(body, /end:\s*ends\.length \? new Date\(Math\.max\(\.\.\.ends\)\)\.toISOString\(\) : ""/);
-  assert.match(body, /getTimelineTraces\(\{[\s\S]*source:\s*\{ pages: taskTimelinePages \}/);
+  const end = view.indexOf("\nfunction taskTimelineNormalizeTagList", start);
+  let request;
+  const context = { timelineTraces:null, timelineFilter:{layers:["note"]}, taskTimelinePages:'"Noria/Projects"', taskTimelineNormalizeFilter:raw=>raw, taskTimelineBridge:{data:{getTimelineTraces:async input=>{request=input;return {notes:[{path:"Noria/Projects/Today.md"}]};}}} };
+  vm.runInNewContext(view.slice(start,end),context);
+  const result = await context.taskTimelineCollectTraces([{start:"2020-01-01",end:"2020-01-02"}]);
+  assert.equal(request.range,undefined);
+  assert.deepEqual(Array.from(request.layers),["note"]);
+  assert.equal(result.notes[0].path,"Noria/Projects/Today.md");
 });
 
 test("native range previews and annotation drafts cancel without changing canonical events", async () => {

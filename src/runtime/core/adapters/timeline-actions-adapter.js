@@ -236,17 +236,14 @@
     const startTime = cfg.startTime || "";
     const dueDate = cfg.dueDate || startDate;
     const dueTime = cfg.dueTime || "";
-    const durationMin = normalizeMinutes(cfg.durationMin);
     const timelineTag = String(cfg.timelineTag || "").trim() || "#tl/custom";
     if (cfg.timelineDay === true) {
-      return "- [ ] " + label + " #tl/day";
+      return "- [ ] " + label + " [schedule:: " + startDate + "] #tl/day";
     }
     const start = startDate + (startTime ? " " + startTime : "");
     const due = dueDate + (dueTime ? " " + dueTime : "");
     return "- [ ] " + label
-      + " [start:: " + start + "]"
-      + " [due:: " + due + "]"
-      + " [duration_min:: " + durationMin + "] "
+      + " [schedule:: " + start + (due !== start ? " / " + due : "") + "] "
       + timelineTag;
   }
 

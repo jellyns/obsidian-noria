@@ -64,6 +64,49 @@ remain in `styles.css`, partly generated from the declared Home bootstrap source
 Public source history, documentation, screenshots and examples still require release
 review. No self-use loader or separate self-use build is provided by this check.
 
+## Release demo vault
+
+After building, generate a **new, empty** vault outside your personal vault:
+
+```powershell
+node scripts/prepare-release-demo-vault.mjs C:/NoriaDemo-zh --locale=zh-CN --date=2026-10-09
+node scripts/prepare-release-demo-vault.mjs C:/NoriaDemo-en --locale=en --date=2026-10-09
+node --test tests/release-demo-vault.behavior.test.js
+```
+
+The generator copies the current plugin build. Both locales use the built-in Media
+library page and its shared default statistics, six explicitly fictional works, one
+selected Home shortcut, a local Markdown reading destination and a dated linked note.
+It must not create the retired custom `page-media` page or import personal collections.
+Completion history stays empty until an explicit `finishedAt` date is supplied.
+
+The behavior test generates both vaults, scans their Markdown with the media catalog,
+checks the built-in page configuration and included links, and rejects a non-empty
+target. It does not launch Obsidian. For desktop acceptance, open a generated vault as
+a separate vault and follow its README: open the library, read the included excerpt,
+change page 36 to 40, inspect the source note and dated linked note, and use the Home
+shortcut. Also edit a work externally and check that the visible collection updates.
+Record native results separately; bundle smoke and file checks do not establish them.
+
+### Documentation screenshot coverage
+
+The 2026-10-09 refresh replaces `home-dashboard.png`, `home-card-menu.png` and
+`card-catalog.png` in both `docs/assets/en` and `docs/assets/zh-CN`. These are native
+Obsidian 1.14.4 captures of the development build in the generated demo vaults,
+using the light theme and a 1580 × 1040 window. Captures are cropped to the visible
+workspace, open menu pair or card catalog; they do not include personal vault content.
+
+To reproduce, open Home, inspect the MOC card's **… → Layout** submenu, then use
+**Page settings → Add a card to this page**. Switch Obsidian's interface language
+to match each demo and restore it afterward. Verify every captured label, submenu
+and card edge in the resulting image. The sample dates, counts and weather are not
+acceptance targets and may differ on another day.
+
+This batch shows the current icon navigation, Inbox filters, shared layout submenu
+and Statistics templates entry. Other existing screenshots still require comparison
+with the current interface; this refresh does not establish full documentation,
+theme or release acceptance.
+
 ## Reusable installed Timeline smoke
 
 `scripts/check-timeline-runtime.js` exercises the installed plugin in **NoriaTest**:
@@ -101,3 +144,20 @@ replace that assertion with a source-only check to obtain a passing report.
 Historical acceptance scripts and images remain evidence of their original batches.
 Use this maintained flow for subsequent Timeline changes instead of copying another
 dated script. It is a small starting point; extend it only for a distinct recurring risk.
+
+## Discovery and style guards
+
+The source guard distinguishes automatic queries from reviewed discovery paths.
+Explicit file/template/link pickers may enumerate vault filenames; experience lookup
+may discover notes across folders, but reads only valid filename dates within the
+requested range (at most 367 days). Keep these call sites counted in the guard and
+preserve the behavior tests for date bounds, moved links and conflict protection.
+Do not add a whole module to an unrestricted exception list.
+
+Card and calendar owners expose their layout state directly instead of querying
+changing descendants from parent CSS selectors. The one local Bases empty-heading
+selector adapts markup owned asynchronously by Obsidian; do not add an observer only
+to reproduce that decoration. Reviewed hidden-state enforcement and the ordinary
+Bases link hover affordance have exact exceptions. Decorative button overrides and
+new parent queries remain checked. Verify changed layouts in the installed host;
+passing these static guards alone does not confirm appearance.

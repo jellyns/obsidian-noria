@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import inboxSeeds from "../src/inbox-seeds.js";
+import mediaWorkspace from "../src/media-workspace-model.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -163,8 +164,13 @@ const managedPaths = {
 };
 const mediaRoot = tx("02_Areas/Media", "02_Areas/书影音游");
 const currentMediaStatus = tx("In progress", "进行中");
+const demoBookPath = `${mediaRoot}/${tx("Books", "书籍")}/${tx("The quiet notebook", "安静的笔记本")}.md`;
+const demoReadingPath = `03_Resources/${tx("Noria demo", "Noria 示例")}/${tx("The quiet notebook - excerpt", "安静的笔记本 - 节选")}.md`;
+const mediaWidgets = mediaWorkspace.libraryWidgets();
+mediaWidgets.find(widget => widget.source === 'noria:media-library').props.folder = mediaRoot;
 const pluginData = {
   managedPaths,
+  shortcuts: [{kind: "media", target: demoBookPath}],
   recordFields: [
     {id:"mood",property:"mood",name:tx("Mood","心情"),type:"option",options:isZh?["很好","稳定","一般","偏低","很差"]:["great","steady","neutral","low","rough"],icon:"smile",enabled:true,legacy:"mood"},
     {id:"energy",property:"energy",name:tx("Energy","精力"),type:"level",min:1,max:5,icon:"battery-medium",enabled:true,legacy:"energy"},
@@ -194,9 +200,7 @@ const pluginData = {
     defaultPage: "home",
     pages: [
       ...["home", "diary", "day", "calendar"].map(id => ({id})),
-      {id: "page-media", title: tx("Media library", "书影音游"), picture: "library", hidden: false,
-        widgets: [{id: "demo-media", type: "extension", source: "noria:media", title: tx("Continue", "继续读看玩"),
-          enabled: true, order: 10, size: "full", props: {folder: mediaRoot, recursive: true, kind: "", status: currentMediaStatus, display: "covers"}}]}
+      {id: "media", title: "", picture: "library", hidden: false, widgets: mediaWidgets}
     ]
   },
   tasksCalendar: { defaultView: "week", taskTimelineOpenMode: "right-sidebar" },
@@ -273,17 +277,20 @@ write("03_Resources/知识工作/行动与知识的连接.md", `---\ncreated: "$
 write("03_Resources/研究方法/证据与判断.md", `---\ncreated: "${shiftDate(anchorDate, -31)}"\ntags:\n  - research-method\n  - evidence\n---\n\n## 原则\n\n事实、推断和计划应保持清晰边界；完成状态必须由可核验产物、测试或记录支持。\n`);
 write("04_Archives/01_Projects/工作区初始化/工作区初始化.md", `---\ncreated: "${shiftDate(anchorDate, -88)}"\ncompleted: "${shiftDate(anchorDate, -76)}"\nstatus: archived\ntags:\n  - project/archive\n---\n\n## 结果\n\n完成 IPARA 根桶、Noria 入口、模板和第一批 MOC 的初始化，并将后续改进转入持续领域。\n`);
 const mediaEntries = [
-  [tx("Books", "书籍"), tx("The quiet notebook", "安静的笔记本"), "book", currentMediaStatus, {pageprogress: 36, pagecount: 160}, tx("Return to the chapter about noticing small changes.", "接着读观察细微变化的那一章。")],
+  [tx("Books", "书籍"), tx("The quiet notebook", "安静的笔记本"), "book", currentMediaStatus, {pageprogress: 36, pagecount: 160, "media-open": `[[${demoReadingPath}]]`}, tx("Return to the chapter about noticing small changes.", "接着读观察细微变化的那一章。")],
   [tx("Books", "书籍"), tx("A map of ordinary days", "日常地图"), "book", tx("Planned", "计划中"), {}, tx("Read when there is time for a new book.", "有时间开始新书时再读。")],
   [tx("Film and TV", "影视"), tx("Letters from the harbor", "港口来信"), "tv", currentMediaStatus, {}, tx("Continue with the next episode.", "接着看下一集。")],
   [tx("Film and TV", "影视"), tx("An afternoon train", "午后列车"), "movie", tx("Finished", "已完成"), {}, tx("Keep this entry for later notes; no viewing date has been recorded.", "保留作品入口供以后补充想法，尚未记录观看日期。")],
-  [tx("Games", "游戏"), tx("The clockwork garden", "发条花园"), "game", currentMediaStatus, {}, tx("Continue exploring the garden.", "继续探索花园。")]
+  [tx("Games", "游戏"), tx("The clockwork garden", "发条花园"), "game", currentMediaStatus, {}, tx("Continue exploring the garden.", "继续探索花园。")],
+  [tx("Music", "音乐"), tx("Morning refrain", "清晨副歌"), "music", "", {}, tx("A fictional song for exploring music notes. Link a recording before listening.", "用于熟悉音乐笔记的虚构歌曲。关联音源后再聆听。")]
 ];
 for (const [folder, title, kind, status, details, body] of mediaEntries) {
-  const properties = {title, tags: [kind, "noria-demo"], status, ...details};
+  const properties = {title, tags: [kind, "noria-demo"], ...(status ? {status} : {}), ...details};
   const frontmatter = Object.entries(properties).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n");
   write(`${mediaRoot}/${folder}/${title}.md`, `---\n${frontmatter}\n---\n\n## ${tx("Notes", "随记")}\n\n${body}\n`);
 }
+write(demoReadingPath, `---\ntags: ["noria-demo"]\n---\n\n## ${tx("A small observation", "一个小观察")}\n\n${tx("This short text belongs only to the fictional demo book. Notice one detail on a familiar route, write it down, and return to it tomorrow. A reading destination can be an ordinary Markdown document; it does not need another work tag.", "这段短文只属于虚构示例书。在熟悉的路上留意一个细节，把它记下来，明天再回看。阅读入口可以是普通 Markdown 正文，不需要再添加作品身份标签。")}\n`);
+write(`${mediaRoot}/${tx("Books", "书籍")}/${anchorDate} ${tx("Noticing small changes", "留意细微变化")}.md`, `---\ntags: ["noria-demo"]\nrelated: [${JSON.stringify(`[[${demoBookPath}]]`)}]\n---\n\n## ${tx("Reading note", "阅读记录")}\n\n${tx("A fictional reading note: keep one specific observation instead of a long checklist. The work page gathers this dated note through its related link.", "虚构阅读记录：先保留一个具体观察，不必列很长的清单。作品页通过 related 关联汇集这篇日期笔记。")}\n`);
 
 const demoReadme = isZh
   ? [
@@ -293,10 +300,12 @@ const demoReadme = isZh
       "",
       "## 从这里开始",
       "",
+      "把整个目录作为 Obsidian 仓库打开。首次打开会询问是否信任仓库作者；确认这是你自己生成或核验过的 Noria 示例后，选择信任并启用插件。界面语言跟随 Obsidian，示例笔记语言由生成时的 --locale 决定。",
+      "",
       "1. 打开 [[05_MOC/知识管理·MOC.md|知识管理 MOC]]，了解知识与行动如何连接。",
       "2. 使用命令面板运行 **Noria: 打开主页**，进入完整工作台。",
       "3. 从主页继续打开任务看板、任务时间轴、日历、趋势统计和复盘中心。",
-      "4. 点击顶部书架图标（悬停显示“书影音游”），继续正在读、看、玩的作品。",
+      "4. 点击顶部藏馆图标（悬停显示“藏馆”），浏览图书、影视、音乐与游戏。",
       "",
       "## 可以看到什么",
       "",
@@ -307,7 +316,17 @@ const demoReadme = isZh
       "- **习惯**：查看四项习惯的连续记录与历史变化。",
       "- **趋势统计**：从笔记、任务和日态字段计算趋势、分布与热力图。",
       "- **复盘中心**：基于日记与任务证据整理日、周、月、年复盘。",
-      "- **书影音游**：默认显示三部进行中的作品，切换全部状态可见五部。点击《安静的笔记本》的 36 / 160 页，将当前页改为 40 并保存，再打开作品核对原笔记。通过卡片菜单的编辑入口，可在显示方式中切换列表与封面；＋ 可添加作品。",
+      "- **藏馆**：默认继续三部进行中的作品，点击“全部”可见六部；下方提供近期完成与作品分布。顶部类型切换可分别查看图书、影视、音乐和游戏，作品区支持封面与详细两种视图。",
+      "",
+      "## 走一遍作品流程",
+      "",
+      "1. 在藏馆打开《安静的笔记本》，点击“阅读”，打开库内附带的 Markdown 节选。",
+      "2. 返回作品详情，将 36 / 160 页的当前页改为 40 并保存；在“关联笔记”旁点击原笔记图标，核对 pageprogress 已更新。",
+      "3. 在详情的关联笔记中打开带日期的《留意细微变化》，可看到它通过 related 链接关联作品。它是普通阅读笔记，不会成为第二部作品。",
+      "4. 主页 MOC 上方的快捷入口已放入这本书，可直接阅读；其他进行中的作品不会自动挤入主页，可按需要主动添加。",
+      "5. 直接编辑作品 Markdown 的标题、标签或进度，返回藏馆查看更新。添加作品时可选择自己的 Markdown 模板。",
+      "",
+      "示例作品未填写 finishedAt，因此近期完成图表没有完成日期数据；“已完成”状态不会被当作某天完成的证据。",
       "",
       "## IPARA 内容结构",
       "",
@@ -322,10 +341,23 @@ const demoReadme = isZh
       "| 06_Diary | 连续 90 天的任务、习惯和日态证据 |",
       "| 99_Attachment | 演示库自带头像与引用素材 |",
       "",
-      "所有统计均由库内 Markdown 与元数据重新计算，没有预写图表结果。示例内容不包含真实私人数据，五部作品均为虚构，可以自由修改、删除或替换。",
+      "所有统计均由库内 Markdown 与元数据重新计算，没有预写图表结果。示例内容不包含真实私人数据，六部作品、节选与阅读记录均为虚构，可以自由修改、删除或替换；未填个人评分或体验时长。",
       ""
     ].join("\n")
-  : "# Noria demo vault\n\nThis isolated Obsidian vault demonstrates how Noria connects daily notes, tasks, projects, knowledge, habits, statistics, and reviews. Start from [[05_MOC/知识管理·MOC.md|Knowledge management MOC]] or run **Noria: Open Home**.\n\n## Try the media library\n\nClick the library icon in the top navigation (hover for **Media library**). Three works are in progress; choose all statuses to see five. Open the **36 / 160 pages** control on *The quiet notebook*, change the current page to 40 and save, then open the note to check it. Use the card menu to edit its display setting (covers or compact list), or **+** to add a work.\n\nAll five works are fictional demo entries. They have no ratings or dated reading/viewing history. Edit or remove them freely; no personal data is included.\n";
+  : [
+      "# Noria demo vault", "",
+      "This isolated Obsidian vault connects daily notes, tasks, projects, knowledge, habits, statistics, and reviews. Start from [[05_MOC/知识管理·MOC.md|Knowledge management MOC]] or run **Noria: Open Home**.", "",
+      "Open this whole folder as an Obsidian vault. On first opening, Obsidian asks whether you trust its author. Enable the included plugin only after confirming this is the Noria demo you generated or verified. Interface language follows Obsidian; --locale selects the language of the sample notes.", "",
+      "## Try the media library", "",
+      "Click the top navigation library icon (hover for **Media library**). It starts with three In progress works; choose All to see six. Recent completions and collection distribution appear below. Switch between books, film and TV, music, and games at the top; use the cover/detail controls in the collection.", "",
+      "1. Open *The quiet notebook* and click **Read** to open its included Markdown excerpt.",
+      "2. Return to its details, change **36 / 160 pages** to page 40 and save. Use the source-note icon beside **Linked notes** to check pageprogress in the original Markdown.",
+      "3. Open the dated *Noticing small changes* note in Linked notes. Its related link associates it with the book without adding another work to the collection.",
+      "4. The Home shortcuts above MOC include this book for direct reading. Other in-progress works are not added automatically; add only the shortcuts you want.",
+      "5. Edit a work's title, tags or progress directly in Markdown and return to the library to see the update. When adding works, you can choose your own Markdown template.", "",
+      "No work has a finishedAt date, so the recent-completions chart has no dated results. A Finished status alone does not imply a completion date.", "",
+      "All six works, the excerpt and the reading note are fictional examples. No personal ratings or experience durations are supplied. Edit or remove them freely; no private data is included.", ""
+    ].join("\n");
 write("README.md", demoReadme);
 
 for (let index = 0; index < 90; index += 1) {

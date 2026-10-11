@@ -1,7 +1,8 @@
 "use strict";
 const {diaryNavigationItems,shiftPeriod,diaryRange}=require("./diary-tasks.js");
 function shiftGroup(selection,direction){return shiftPeriod(selection,direction*({daily:7,weekly:7,monthly:12,yearly:7}[selection.mode]||1));}
-function pickerState(selection){return {selectedDate:selection.anchorDate,anchor:selection.anchorDate.slice(0,7),mode:selection.mode==="monthly"?"months":selection.mode==="yearly"?"years":"days",selectionMode:selection.mode,selectedRange:diaryRange(selection),yearStart:Math.floor(Number(selection.anchorDate.slice(0,4))/12)*12,weekOffset:null};}
+// Journal scope controls the selection, not the calendar's browsing surface.
+function pickerState(selection,browseMode="days"){return {selectedDate:selection.anchorDate,anchor:selection.anchorDate.slice(0,7),mode:["days","months","years"].includes(browseMode)?browseMode:"days",selectionMode:selection.mode,selectedRange:diaryRange(selection),yearStart:Math.floor(Number(selection.anchorDate.slice(0,4))/12)*12,weekOffset:null};}
 function rangeLabel(selection,locale){
  const items=diaryNavigationItems(selection),first=diaryRange(items[0]).start,last=diaryRange(items.at(-1)).end;
  const format=d=>new Intl.DateTimeFormat(locale,{year:"numeric",month:"short",timeZone:"UTC"}).format(new Date(d+"T12:00:00Z"));

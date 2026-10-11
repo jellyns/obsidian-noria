@@ -567,7 +567,7 @@
       defaults:()=>({name:"",targetPath:"",stage:"planned",sourceMode:"existing"}),
       fields:record=>[
         ...(!record.id?[{key:"sourceMode",label:text("源笔记","Source note"),type:"select",refresh:true,options:[{value:"existing",label:text("选择已有笔记","Choose an existing note")},{value:"new",label:text("新建项目笔记","Create a project note")}]}]:[]),
-        {key:"targetPath",label:text("项目源笔记","Project source note"),type:"file",fileType:"project",required:true,when:d=>d.sourceMode!=="new",onChange:(draft,inputs)=>{if(!draft.name){const name=draft.targetPath.split("/").pop().replace(/\.(md|canvas)$/i,"");inputs.get("name").value=name;draft.name=name;}}},
+        {key:"targetPath",label:text("项目源笔记","Project source note"),type:"file",fileType:"project",required:true,when:d=>d.sourceMode!=="new",onChange:(draft,inputs,previousPath)=>{const title=path=>String(path||"").replace(/\\/g,"/").split("/").pop().replace(/\.(md|canvas)$/i,"");if(!draft.name||draft.name===title(previousPath)){const name=title(draft.targetPath);inputs.get("name").value=name;draft.name=name;}}},
         {key:"name",label:text("显示名称","Display name"),required:true},
         {key:"stage",label:text("阶段","Stage"),type:"select",options:stages,required:true}
       ],
@@ -827,9 +827,17 @@
   if (showProjects) {
   const projectPanel = makePanel(homeRuntimeT("runtime.home.project.title"), (tool) => {
     addIconBtn(tool, "folder-kanban", homeRuntimeT("runtime.home.project.openRegistry"), () => openFilePath(projectListPath), { actionKind: "open-project-registry", target: projectListPath });
-    addGuidePrimaryAddBtn(tool, homeRuntimeT("runtime.home.project.manage"), () => openManageProjectPanel(true), { actionKind: "manage-projects", target: projectsRoot });
+    addGuidePrimaryAddBtn(tool, homeRuntimeT("runtime.periodic.projects.nextPlaceholder"), () => {
+      const add=projectPanel.body._noriaAddProjectTask;
+      if(typeof add==='function')add();else openManageProjectPanel(true);
+    }, { actionKind: "add-project-task", target: projectsRoot });
   });
   projectPanel.card.addClass("dashboard-guide-projects");
+  const projectOpen = projectPanel.card.querySelector('[data-noria-action-kind="open-project-registry"]');
+  if (projectOpen) {
+    projectOpen.addClass('dashboard-card-heading-icon','noria-card-open');
+    projectPanel.card.querySelector('.dashboard-guide-card__title .dashboard-card-heading-icon').replaceWith(projectOpen);
+  }
   const projectShell=projectPanel.card.closest(".dashboard-home-widget-shell");if(projectShell)projectShell._noriaConfigureWidget=()=>openManageProjectPanel();
   projectPanel.card.style.gridColumn = "1 / -1";
   let projectRenderSeq = 0;

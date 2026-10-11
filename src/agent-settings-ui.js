@@ -5,9 +5,9 @@ function renderAgentSettings(tab, parent, {Setting,Notice,setIcon}) {
   const text=(cn,en)=>zh?cn:en;
   const host=parent.createDiv({cls:'noria-agent-settings'});
   host.createEl('h3',{text:text('外部工具连接','External tools')});
-  let busy=false,actionError='',format='json',client,toggle,copy,retry,port,save,reset;
+  let busy=false,actionError='',format='json',portDirty=false,client,toggle,copy,retry,port,save,reset;
   const row=new Setting(host).setName(text('允许本机 Agent 连接','Allow local Agent connections'))
-    .setDesc(text('启用后随本库打开。外部工具可操作任务与建议、领取补充并写回回应；无需其他插件。','Starts with this vault when enabled. External tools can work with tasks and suggestions, claim replies and respond; no other plugin is required.'))
+    .setDesc(text('让本机外部助手通过 MCP 使用 Noria；启用后随本库打开。','Let an external assistant on this computer use Noria through MCP. Starts with this vault when enabled.'))
     .addToggle(control=>{toggle=control;control.onChange(value=>void act(()=>service.setEnabled(value)));});
   tab.decorateSettingsTarget(row,'agentConnection.enabled');
   const status=host.createDiv({cls:'setting-item-description noria-agent-status',attr:{role:'status','aria-live':'polite'}});
@@ -26,8 +26,11 @@ function renderAgentSettings(tab, parent, {Setting,Notice,setIcon}) {
   const chevron=summary.createSpan({cls:'noria-settings-disclosure-chevron',attr:{'aria-hidden':'true'}});setIcon(chevron,'chevron-right');
   const portRow=new Setting(details).setName(text('本机端口','Local port'))
     .setDesc(text('首次自动分配并记住。关闭连接后可修改；0 表示重新自动分配。','Assigned automatically on first use, then remembered. Disable the connection to change it; 0 selects a new port.'))
-    .addText(control=>{port=control;control.inputEl.type='number';control.inputEl.min='0';control.inputEl.max='65535';control.inputEl.setAttribute('aria-label',text('本机端口','Local port'));})
-    .addButton(button=>{save=button;button.setButtonText(text('保存','Save')).onClick(()=>void act(()=>service.setPort(Number(port.getValue()))));});
+    .addText(control=>{port=control;control.inputEl.type='number';control.inputEl.min='0';control.inputEl.max='65535';control.inputEl.setAttribute('aria-label',text('本机端口','Local port'));control.onChange(()=>{portDirty=true;});})
+    .addButton(button=>{save=button;button.setButtonText(text('保存','Save')).onClick(()=>{
+      const value=port.getValue().trim();
+      void act(async()=>{await service.setPort(value?Number(value):NaN);portDirty=false;});
+    });});
   port.inputEl.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save.buttonEl.click();}});
   tab.decorateSettingsTarget(portRow,'agentConnection.port');
   new Setting(details).setName(text('连接凭据','Connection credential'))
@@ -51,7 +54,8 @@ function renderAgentSettings(tab, parent, {Setting,Notice,setIcon}) {
     client.setDisabled(busy);copy.setDisabled(busy||!s.canCopy);reset.setDisabled(busy||!s.available);
     retry.buttonEl.hidden=!(s.enabled&&!running);retry.setDisabled(busy);
     port.setDisabled(busy||s.enabled);save.setDisabled(busy||s.enabled);
-    if(host.ownerDocument.activeElement!==port.inputEl)port.setValue(String(s.port));
+    if(s.enabled)portDirty=false;
+    if(!portDirty&&host.ownerDocument.activeElement!==port.inputEl)port.setValue(String(s.port));
   }
   async function act(fn){
     if(busy)return;busy=true;actionError='';paint();

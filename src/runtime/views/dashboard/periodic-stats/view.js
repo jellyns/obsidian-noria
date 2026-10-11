@@ -1,4 +1,5 @@
 const coreFiles = [
+  ".obsidian/plugins/noria/views/dashboard/core/components/charts/trend-annotations.js",
   ".obsidian/plugins/noria/views/dashboard/core/theme/dashboard-theme.js",
   ".obsidian/plugins/noria/views/dashboard/core/utils/date-range.js",
   ".obsidian/plugins/noria/views/dashboard/core/utils/formatters.js",

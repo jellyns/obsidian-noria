@@ -1,4 +1,5 @@
 (function () {
+ function create(clock) {
   const units = ["hour", "day", "week", "month", "year"];
   const defaults = [{amount:1,unit:"day"},{amount:1,unit:"week"},{amount:1,unit:"month"}];
   function scale(value) {
@@ -7,6 +8,7 @@
   }
   function add(value, spec, direction=1) {
     const d=new Date(value),s=scale(spec);if(!s||!Number.isFinite(+d))return NaN;
+    if(clock)return clock.add(+d,s,direction);
     const n=s.amount*direction;
     if(s.unit==="hour")return +d+n*3600000;
     if(s.unit==="day"||s.unit==="week")d.setDate(d.getDate()+n*(s.unit==="week"?7:1));
@@ -42,7 +44,21 @@
   }
   function favorites(raw){return (Array.isArray(raw)?raw:defaults).map(scale).filter(Boolean).filter((s,i,arr)=>arr.findIndex(a=>a.unit===s.unit&&a.amount===s.amount)===i).slice(0,24);}
   function label(window,zh=true){const w=normalize(window),s=w?.scale;if(s)return zh?`${s.amount} ${{hour:"小时",day:"天",week:"周",month:"月",year:"年"}[s.unit]}`:`${s.amount} ${s.unit}${s.amount===1?"":"s"}`;if(!w)return zh?"尺度":"Scale";const h=(w.endMs-w.startMs)/3600000;return (zh?"自定 · ":"Custom · ")+(h<48?`${+h.toFixed(1)}${zh?" 小时":" h"}`:`${+(h/24).toFixed(1)}${zh?" 天":" d"}`);}
-  const api={scale,add,normalize,at,around,shift,favorites,label,defaults,units};
+  function coveringTasks(events){
+    let first=Infinity,last=-Infinity;
+    for(const event of events||[]){
+      if(event.layer!=='task'||!Number.isFinite(event.startMs))continue;
+      first=Math.min(first,event.startMs);
+      last=Math.max(last,Number.isFinite(event.endMs)?event.endMs:event.startMs);
+    }
+    if(!Number.isFinite(first))return null;
+    const padding=Math.max(3600000,(last-first)*.06);
+    return normalize({startMs:first-padding,endMs:Math.max(last,first+3600000)+padding});
+  }
+  const api={scale,add,normalize,at,around,shift,favorites,label,defaults,units,coveringTasks};
+  return api;
+ }
+ const api=create();api.withClock=create;
   (globalThis.noriaTaskTimeline||(globalThis.noriaTaskTimeline={})).timeWindow=api;
   if(typeof module!=="undefined"&&module.exports&&module!==globalThis.module)module.exports=api;
 })();

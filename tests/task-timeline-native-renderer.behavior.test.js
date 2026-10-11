@@ -142,6 +142,60 @@ function taskEvents() {
   ];
 }
 
+test("project headings stay inside the full-width timeline and task bars show their names",()=>{
+  const hooks=loadRendererHooks(),document=fakeDocument(),host=hooks.renderer.createNativeTimelineHost(document.createElement('div'));
+  const events=taskEvents().map(e=>({...e,source:{path:'Project.md'}}));
+  const model=plans(hooks,events);
+  const viewport=hooks.viewport.createViewport({centerMs:Date.parse('2026-07-11T12:00:00+08:00'),msPerPx:3600000/12,widthPx:278});
+  const unplaced={id:'later',title:'待安排的任务',source:{path:'Project.md',line:8}};
+  const mainPlan=hooks.layout.buildRenderPlan({events,unplaced:[unplaced],viewport,widthPx:278,heightPx:285,groupBy:'projects',projects:[{root:'Project.md',name:'Project'}],expandedProjects:['Project.md']});
+  let toggled,opened,unscheduled;
+  Object.assign(mainPlan,{projectMode:true,locale:'zh-CN',onProjectToggle:key=>toggled=key,onProjectOpen:row=>opened=row.path,onProjectUnscheduled:(tasks,anchor)=>unscheduled={tasks,anchor}});
+  hooks.renderer.renderNativeTimeline(host,{mainPlan,overviewPlan:model.overviewPlan,state:'ready'});
+  const rows=byClass(host,'noria-timeline-project-row'),guides=byClass(host,'noria-timeline-project-guide');
+  assert.equal(rows.length,1);assert.equal(guides.length,0);
+  assert.deepEqual(byClass(host,'noria-task-timeline-native-title').map(n=>n.textContent),events.map(e=>e.title));
+  assert.equal(byClass(host,'noria-timeline-project-gutter').length,0);
+  assert.equal(host.children.at(-1).getAttribute('data-noria-timeline-band'),'overview');
+  const toggle=byClass(rows[0],'noria-timeline-project-toggle')[0];
+  assert.equal(toggle.getAttribute('aria-label'),'收起 Project');toggle.onclick();assert.equal(toggled,'Project.md');
+  byClass(rows[0],'noria-timeline-project-name')[0].onclick();assert.equal(opened,'Project.md');
+  assert.equal(byClass(host,'noria-timeline-project-header').length,0);
+  const entry=byClass(rows[0],'noria-timeline-project-unscheduled')[0];
+  assert.equal(entry.textContent,'未安排 1');assert.equal(entry.hidden,false);
+  entry.onclick();assert.equal(unscheduled.tasks[0],unplaced);assert.equal(unscheduled.anchor,entry);
+  const reveal=byClass(rows[0],'noria-timeline-project-reveal')[0];assert.equal(reveal.hidden,true);
+  let fitted;
+  mainPlan.projectRows[0].visibleTaskCount=0;mainPlan.projectRows[0].outsideDirection='earlier';mainPlan.onProjectFit=row=>fitted=row.key;
+  hooks.renderer.updateNativeTimeline(host,{mainPlan,overviewPlan:model.overviewPlan,state:'ready'});
+  assert.equal(reveal.hidden,false);assert.match(byClass(reveal,'noria-timeline-project-reveal-icon')[0].textContent,/7月11日/);assert.equal(byClass(reveal,'noria-timeline-project-reveal-label')[0].textContent,'↗');assert.match(reveal.getAttribute('aria-label'),/查看安排/);reveal.onclick();assert.equal(fitted,'Project.md');
+  mainPlan.timeZone='Asia/Tokyo';mainPlan.projectRows[0].schedule={startMs:Date.parse('2026-07-11T15:30:00Z'),endMs:Date.parse('2026-07-11T16:30:00Z')};
+  hooks.renderer.updateNativeTimeline(host,{mainPlan,overviewPlan:model.overviewPlan,state:'ready'});
+  assert.match(byClass(reveal,'noria-timeline-project-reveal-icon')[0].textContent,/7月12日/);
+});
+
+test("recorded focus spans render beside tasks with source actions but no schedule drag handles",()=>{
+  const hooks=loadRendererHooks(),document=fakeDocument(),host=hooks.renderer.createNativeTimelineHost(document.createElement('div'));
+  const events=[...taskEvents(),{id:'focus-one',layer:'pomodoro',title:'阅读 · 12分钟',start:'2026-07-11T12:00:00+08:00',end:'2026-07-11T12:12:00+08:00',source:{path:'Diary.md'},status:'stopped'}];
+  const model=plans(hooks,events);hooks.renderer.renderNativeTimeline(host,{...model,state:'ready'});
+  const row=byAttribute(host,'data-noria-task-group-key','focus-one')[0];assert.ok(row);
+  assert.equal(byAttribute(row,'data-noria-task-handle-role','start').length,0);
+  assert.equal(byAttribute(row,'data-noria-task-handle-role','move').length,0);
+  assert.equal(byAttribute(row,'role','button').length,1);
+  assert.match(row.__noriaTaskRefs.title.getAttribute('aria-label'),/Recorded time/);
+  assert.equal(model.mainPlan.taskUnits.find(unit=>unit.taskKey==='focus-one').readOnly,true);
+  assert.equal(hooks.layout.findLayoutCollisions(model.mainPlan).length,0);
+});
+
+test("enabled note and git activity layers render without task-completion or drag controls",()=>{
+  const hooks=loadRendererHooks(),document=fakeDocument(),host=hooks.renderer.createNativeTimelineHost(document.createElement('div'));
+  const events=[{id:'note-created',layer:'note',title:'阅读笔记',start:'2026-07-11T12:00:00+08:00',source:{path:'阅读.md'}},{id:'git-checkpoint',layer:'git',title:'Save reading notes',start:'2026-07-11T12:10:00+08:00',source:{hash:'abc123'}}];
+  hooks.renderer.renderNativeTimeline(host,{...plans(hooks,events),state:'ready'});
+  assert.equal(byClass(host,'timeline-event-label').length,2);assert.equal(byAttribute(host,'data-noria-task-handle-role','move').length,0);
+  const git=byAttribute(host,'data-noria-task-group-key','git-checkpoint')[0].__noriaTaskRefs.title;
+  assert.equal(git.getAttribute('role'),'group');assert.equal(git.getAttribute('data-noria-task-visual-role'),'record-summary');assert.doesNotMatch(git.getAttribute('aria-label'),/Open|Completed/);
+});
+
 test("native renderer emits the accepted two-band compatibility DOM", () => {
   const hooks = loadRendererHooks();
   const document = fakeDocument();
@@ -166,7 +220,7 @@ test("native renderer emits the accepted two-band compatibility DOM", () => {
   assert.equal(byAttribute(host, "data-noria-timeline-marker", "now").length, 1);
   assert.equal(byClass(host, "noria-task-timeline-native-weekend").length, 1);
   assert.equal(byAttribute(host, "role", "button").length, 2);
-  assert.equal(byAttribute(host, "tabindex", "0").length, 3);
+  assert.equal(byAttribute(host, "tabindex", "0").length, 4);
   const footer = byAttribute(host, "data-noria-timeline-band", "overview")[0];
   assert.equal(footer.getAttribute("tabindex"), "0");
   assert.match(footer.getAttribute("aria-label"), /arrow keys/i);
@@ -205,7 +259,7 @@ test("native renderer builds the initial surface through one fragment commit", (
   hooks.renderer.renderNativeTimeline(host, { ...plans(hooks, taskEvents()), state: "ready" });
 
   assert.equal(host.replaceCount, 1);
-  assert.equal(host.children.length, 2);
+  assert.equal(host.children.length, 3);
 });
 
 test("phase labels and selected endpoint handles render above tasks without a second date axis", () => {
@@ -256,7 +310,7 @@ test("native renderer consumes range title rail and handle bounds only from layo
   assert.equal(handleZone.style.height, `${unit.title.bounds.height}px`);
 });
 
-test("native layout degrades saturated 280 and 320px lanes without overlapping visible titles", () => {
+test("native layout scrolls saturated 280 and 320px lanes without hiding names", () => {
   const hooks = loadRendererHooks();
   const centerMs = Date.parse("2026-07-11T12:00:00+08:00");
   for (const widthPx of [280, 320]) {
@@ -284,7 +338,8 @@ test("native layout degrades saturated 280 and 320px lanes without overlapping v
     const hidden = plan.taskUnits.filter((unit) => unit.title.visible === false);
 
     assert.equal(plan.taskUnits.length, events.length);
-    assert.ok(visible.length > 0 && visible.length < events.length);
+    assert.equal(visible.length, events.length);
+    assert.ok(plan.contentHeightPx > plan.heightPx);
     assert.equal(plan.hiddenTaskCount, hidden.length);
     assert.equal(plan.taskUnits.filter((unit) => unit.point.visible).length, visible.length);
     assert.equal(hooks.layout.findLayoutCollisions(plan).length, 0);

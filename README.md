@@ -53,6 +53,8 @@ Markdown widgets can display daily briefings, current suggestions, weekly review
 
 ### Task Board
 
+The task board’s More menu provides weather ranges, a calendar time zone, and category colors. One time zone is shown at a time, preserving task instants: 09:00 in Beijing appears as 10:00 in Tokyo. On first activation, the device zone becomes the baseline for existing note times; edits and drags are converted back to that baseline. All-day dates are unchanged. Settings stay in plugin data, without bulk note rewrites. This applies to the task board and its editor; nonexistent or repeated DST edit times require adjustment.
+
 Task Board turns tasks scattered across diaries, projects, and other notes into views you can plan from. Month view is useful for cycles and multi-day work, week view for near-term planning, day view for today's work, and matrix view for priority decisions.
 
 Tasks remain in their original notes. New tasks can be written back to the matching diary, weekly note, or monthly note, while edits, drag actions, and completion changes stay in sync with Home statistics and the timeline.
@@ -68,6 +70,8 @@ In a busy month, scroll a week's task area to reach every task while its date he
 ![Task Board matrix view](docs/assets/en/task-board-quadrant.png)
 
 ### Task Timeline
+
+In project grouping, task labels use the available row width and off-screen tasks reserve no empty rows. Show schedule fits the project dates. A single unscheduled task opens its editor directly; multiple tasks open a compact picker. Canceling does not add a date.
 
 Task Timeline brings dated tasks and project phases into one view. Use the main area for a broader plan or keep the sidebar open for the current schedule. Zoom from days into hours to see how a day unfolds.
 

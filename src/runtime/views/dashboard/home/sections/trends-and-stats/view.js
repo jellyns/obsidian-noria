@@ -714,10 +714,27 @@ const trendsLayout = renderMode === "block"
 
 const renderTrendsContent = async (rangeContext) => {
   const token = ++renderToken;
-  const chartCoreReady = ensureTrendsChartCoreLoaded();
-  const statsSnapshot = await getHomeSnapshot(rangeContext);
-  await chartCoreReady;
-  if (token !== renderToken) return;
+  let statsSnapshot;
+  try {
+    [statsSnapshot] = await Promise.all([getHomeSnapshot(rangeContext), ensureTrendsChartCoreLoaded()]);
+  } catch (error) {
+    if (token !== renderToken || trendsDisposed) return;
+    const zh = String(noriaTrendsBridge.locale || noriaTrendsBridge.i18n?.locale || "en").startsWith("zh");
+    for (const {slot} of trendsLayout.entries) {
+      runTrendsBlockCleanup(slot);
+      clearElement(slot);
+      const message = slot.createDiv({cls:"noria-card-empty", attr:{role:"status"}});
+      message.createDiv({text:zh ? "统计未能读取，请重试。" : "Statistics could not be loaded. Please retry."});
+      message.setAttribute("title", String(error?.message || error));
+      const retry = message.createEl("button", {text:zh ? "重试" : "Retry", attr:{type:"button"}});
+      retry.onclick = () => {
+        retry.disabled = true;
+        return renderTrendsContent(rangeContext);
+      };
+    }
+    return;
+  }
+  if (token !== renderToken || trendsDisposed) return;
   for (const { name, slot } of trendsLayout.entries) {
     if (token !== renderToken) return;
     await renderBlockIntoSlot(name, slot, rangeContext, statsSnapshot, token);

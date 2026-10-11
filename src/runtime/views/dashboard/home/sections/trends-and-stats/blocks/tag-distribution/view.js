@@ -78,7 +78,7 @@ const snapshotDistribution = statsSnapshot?.domains?.notes?.distribution
   || null;
 let totalMd = Number(snapshotDistribution?.total || 0) || 0;
 let sortedAll = [];
-if (Array.isArray(snapshotDistribution?.items) && snapshotDistribution.items.length) {
+if (Array.isArray(snapshotDistribution?.items)) {
   sortedAll = snapshotDistribution.items
     .map((item) => [
       String(item?.label || item?.key || tagDistributionT("runtime.home.trends.rootVault")),
@@ -123,6 +123,21 @@ const titleEl = head.createDiv({ text: tagDistributionT("runtime.home.trends.not
 titleEl.className = "dashboard-panel-title";
 titleEl.style.cssText = "font-weight:800;font-size:1.02em;color:var(--dash-heading-text,var(--text-normal));letter-spacing:0.01em;line-height:1.25;";
 
+const compactText = (zh, en) => /^zh/.test(noriaBridge.locale || '') ? zh : en;
+const range = statsSnapshot?.range || statsRange;
+if (range?.start && range?.end) {
+  titleEl.style.flex = '1';
+  const showYear = range.start.slice(0, 4) !== range.end.slice(0, 4) || range.end.slice(0, 4) !== String(new Date().getFullYear());
+  const date = new Intl.DateTimeFormat(noriaBridge.locale || 'en', { ...(showYear ? { year: 'numeric' } : {}), month: 'numeric', day: 'numeric' });
+  head.createSpan({ cls: 'noria-card-secondary noria-trend-range', text: date.format(new Date(range.start + 'T12:00:00')) + '–' + date.format(new Date(range.end + 'T12:00:00')), attr: { title: range.start + ' — ' + range.end } });
+}
+const explanation = card.createDiv({ attr: { 'data-noria-card-explanation': compactText('分布与口径', 'Distribution and definitions') } });
+explanation.hidden = true;
+explanation.textContent = [
+  compactText('按所选时间内新建的笔记统计，依顶层目录分组；图中显示前五项，其余合并为“其他”。', 'New notes within the selected period, grouped by top-level folder; the five largest groups are shown separately and the remainder as Other.'),
+  ...sortedAll.map(([label, count]) => label + ' · ' + count.toLocaleString() + ' · ' + (totalMd ? count / totalMd * 100 : 0).toFixed(1) + '%')
+].join('\n');
+
 const body = card.createDiv();
 body.style.cssText = "flex:1 1 auto;min-height:0;width:100%;display:flex;flex-direction:column;justify-content:center;";
 
@@ -147,7 +162,7 @@ if (sortedAll.length === 0 || totalMd === 0) {
     color: baseColors[i % baseColors.length]
   }));
   if (typeof renderLeaderDonutChart === "function") {
-    renderLeaderDonutChart(wrap, {
+    const chart = renderLeaderDonutChart(wrap, {
       items,
       total: totalMd,
       palette: baseColors,
@@ -160,6 +175,7 @@ if (sortedAll.length === 0 || totalMd === 0) {
       labelBalance: "balanced",
       ariaLabel: tagDistributionT("runtime.home.trends.noteShareTitle")
     });
+    input?.registerCleanup?.(() => chart?.__noriaChartCleanup?.());
   } else {
     wrap.createDiv({ text: tagDistributionT("runtime.home.trends.pieMissing") }).style.cssText =
       "padding:8px;color:var(--text-muted);font-size:.86em;line-height:1.45;";

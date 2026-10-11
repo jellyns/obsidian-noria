@@ -17,11 +17,12 @@ class RecordFields{
       {id:"focus",property:"focus",name:this.text("专注","Focus"),type:"option",options:["很专注","基本专注","易分心","难进入状态"],icon:"focus",enabled:false,legacy:"focus"}
     ]).map(field=>({...field,icon:V.fieldPicture(field)}));
   }
-  read(raw,field){return readProperty(raw,field,parseYaml);}
+  details(raw,field){return require('./record-entries.js').readEntries(raw,field,parseYaml);}
+  read(raw,field){return this.details(raw,field).value;}
   snapshot(date,path,raw,field){
-    const value=this.read(raw,field),meaning=[field.id,field.property,field.type,field.unit||"",field.min,field.max,field.options,field.legacy];
-    const revision="record-v1-"+createHash("sha256").update(JSON.stringify([date,path,meaning,value])).digest("hex");
-    return {fieldId:field.id,value,revision};
+    const state=this.details(raw,field),meaning=[field.id,field.property,field.type,field.unit||"",field.min,field.max,field.options,field.legacy,!!field.multiple,field.aggregation];
+    const revision="record-v1-"+createHash("sha256").update(JSON.stringify([date,path,meaning,state])).digest("hex");
+    return {fieldId:field.id,...state,revision};
   }
   display(field,value){if(value==null)return "—";const label=V.appearance(field,value).label;if(label){if(field.legacy==="energy"&&!field.states?.[String(value)]?.label&&this.plugin.getNoriaLocale()!=="zh")return ["","Very low","Low","Moderate","High","Full"][value]||label;return label;}if(field.type==="toggle")return value?this.text("是","Yes"):this.text("否","No");
     if(field.type==="option"&&field.options?.includes(value)){
@@ -35,44 +36,74 @@ class RecordFields{
     if(/^#[\da-f]{6}$/i.test(field.color||""))return field.color;
     return ({mood:"var(--color-purple)",energy:"var(--color-orange)",focus:"var(--color-blue)",sleep_hours:"var(--color-blue)",reading_minutes:"var(--color-cyan)",exercise:"var(--color-green)"})[field.property]||"var(--interactive-accent)";
   }
-  async save(date,field,value,{increment=false,expected}={}){
+  async save(date,field,value,{increment=false,expected,operation,entry,time,expectedToday}={}){
     const p=this.plugin,spec=await p.resolveCalendarNoteSpecAsync("daily",date),file=this.app.vault.getAbstractFileByPath(spec.path),seed=file?"":await p.buildCalendarNoteContent(spec);
     if(date>p.getLocalYmd())throw Error(this.text("未来日期不能填写实际记录","Actual records cannot be entered for a future date"));
     const {readHabitDefinitions}=require("./habit-definition.js"),{habitRecords,writeHabitMarkdown}=require("./diary-habits.js");
     const bindings=readHabitDefinitions(await p.loadTextFromVault(p.getManagedPath("habitRegistry"))).filter(config=>config.recordField===field.property);
     let previousText,text;
     await p.processTextAtVaultPath(spec.path,current=>{previousText=current;const source=current||(file?"":seed);
+      require('./day-clock.js').assertCurrentDay(p,expectedToday);
       if(p._noriaPluginDisposed)throw Object.assign(Error("Noria is unloaded; reconnect to the current plugin instance"),{code:"unsupported"});
       if(expected){const definition=expected.revision?this.definitions().find(f=>f.id===field.id):field;
         const changed=expected.revision?(!definition||this.snapshot(date,spec.path,current,definition).revision!==expected.revision):JSON.stringify(this.read(source,field))!==JSON.stringify(expected.value);
         if(changed)throw Object.assign(Error(this.text("记录已在别处修改，请重新打开后编辑。","This record changed elsewhere. Reopen it before editing.")),{code:"conflict"});}
-      if(increment){const old=this.read(source,field);if(old!=null&&typeof old!=="number")throw Error(this.text("原值不是数值","The existing value is not a number"));value=(old??0)+value;}
-      text=writeProperty(source,field,value,parseYaml);
+      if(this.details(source,field).multiple){
+        if(!expected?.revision)throw Error(this.text('请重新打开明细后保存','Reopen the entries before saving'));
+        text=require('./record-entries.js').changeEntry(source,field,{operation,entry,value,time},parseYaml);value=this.read(text,field);
+      }else{
+        if(operation)throw Error(this.text('此项目未启用日内多次','Multiple entries are not enabled'));
+        if(increment){const old=this.read(source,field);if(old!=null&&typeof old!=="number")throw Error(this.text("原值不是数值","The existing value is not a number"));value=(old??0)+value;}
+        text=writeProperty(source,field,value,parseYaml);
+      }
       const existing=habitRecords(source,date,spec.path);
       for(const config of bindings){const record=existing.find(row=>(config.id&&row["habit-id"]===config.id)||row.name===config.name||String(config.aliases||"").split(";").includes(row.name));if(!record&&(config.stage!=="active"||date!==p.getLocalYmd()))continue;
-        const target=Number(record?.target||config.target);text=writeHabitMarkdown(text,{config:{...config,target:String(target)},date,value:"",done:typeof value==="number"&&value>=target,heading:p.t("workbench.habits")});}
+        const target=Number(record?.target||require("./habit-plan.js").targetAt(config,date)||NaN);text=writeHabitMarkdown(text,{config:{...config,target:String(target)},date,value:"",done:typeof value==="number"&&value>=target,heading:p.t("workbench.habits")});}
       return text;});
     p.requestNoriaRefresh("tasks","record-field:save");return {ok:true,path:spec.path,write:{path:spec.path,previousText,text}};
   }
-  render({host,date,raw,beforeSave,onSaved,report,context={page:"home"}}){
+  render({host,toolsHost,date,raw,beforeSave,onSaved,report,refresh,context={page:"home"},recent=false,settings=true}){
     host.addClass("noria-record-fields");
+    toolsHost?.querySelector('[data-noria-record-range]')?.remove();
+    if(recent){host.addClass('noria-record-with-trends');host.style.setProperty('--noria-record-columns',String(Math.max(1,Math.min(3,this.definitions().filter(f=>f.enabled!==false).length))));const range=(toolsHost||host).createSpan({cls:'noria-record-recent-range',text:this.text('近7天','Last 7 days'),attr:{'data-noria-record-range':'',title:this.text('截至所选日期的近7天','Seven days ending on the selected date')}});if(toolsHost)toolsHost.insertBefore(range,toolsHost.firstChild);}
     const save=async(field,value,options)=>{if(beforeSave&&await beforeSave()===false)return false;const result=await this.save(date,field,value,options);await onSaved?.(result);
       [...host.querySelectorAll("[data-record-field]")].find(e=>e.dataset.recordField===field.id)?.focus({preventScroll:true});return true;};
     for(const field of this.definitions().filter(f=>f.enabled!==false)){
       let value;try{value=this.read(raw,field);}catch(e){host.createSpan({cls:"noria-card-error",text:e.message});continue;}
-      const b=host.createEl("button",{cls:"noria-record-value",attr:{type:"button","aria-haspopup":"dialog","data-record-field":field.id}});
+      const entry=recent?host.createDiv({cls:'noria-record-entry'}):host;
+      const b=entry.createEl("button",{cls:"noria-record-value",attr:{type:"button","aria-haspopup":"dialog","data-record-field":field.id}});
       b.style.setProperty("--noria-record-color",this.color(field));b.dataset.recorded=String(value!=null);
       const state=V.appearance(field,value);if(value!=null&&state.color)b.style.setProperty("--noria-record-color",state.color);
       const icon=b.createSpan({cls:"noria-record-field-icon"});require("./picture-picker.js").renderPicture(this.plugin,icon,value==null?field.icon||"circle":state.icon);
       b.createSpan({cls:"noria-record-label",text:field.name});
       if(value!=null){const current=b.createSpan({cls:"noria-record-current"});if(field.type==="level"&&!state.icon.startsWith("noria-energy"))this.scale(current,field,value);else current.setText(this.display(field,value));}
+      else if(recent)b.createSpan({cls:'noria-record-current',text:this.text('未填写','Not recorded')});
       b.setAttribute("aria-label",`${field.name} · ${value==null?this.text("未填写","Not recorded"):this.display(field,value)}`);
       b.disabled=date>this.plugin.getLocalYmd();
-      b.onclick=()=>this.edit(b,field,{value,onSave:(next,options)=>save(field,next,{...options,expected:{value}}),report,context});
+      b.onclick=async()=>{try{const spec=await this.plugin.resolveCalendarNoteSpecAsync('daily',date),state=this.snapshot(date,spec.path,raw,field);this.edit(b,field,{value,date,state,onSave:(next,options)=>save(field,next,{...options,expected:{revision:state.revision}}),report,context});}catch(error){report?.(error);}};
+      if(this.details(raw,field).multiple)b.title=this.text(this.details(raw,field).aggregation==='sum'?'当日合计 · 点击查看明细':'最近一次 · 点击查看明细',this.details(raw,field).aggregation==='sum'?'Daily total · View entries':'Latest entry · View entries');
+      if(recent){const chart=entry.createEl('button',{cls:'noria-record-mini-chart',attr:{type:'button','aria-label':this.text(`${field.name} · 近7天`,`${field.name} · Last 7 days`)}});entry.style.setProperty('--noria-record-color',this.color(field));void this.renderRecent(chart,field,date,{beforeSave,report,refresh,context});}
     }
-    iconButton(host,"settings-2",this.text("设置记录项目","Configure records"),()=>this.manage(false,context));
+    const actions=toolsHost||host;
+    actions.querySelector?.('[data-noria-record-settings]')?.remove();
+    if(settings)iconButton(actions,"settings-2",this.text("设置记录项目","Configure records"),()=>this.manage(false,context)).setAttribute('data-noria-record-settings','');
   }
-  edit(anchor,field,{value,onSave,report,context={page:"home"},title=field.name}){
+  async renderRecent(chart,field,date,{beforeSave,report,refresh,context}){
+    const start=new Date(Date.parse(date+'T00:00:00Z')-6*86400000).toISOString().slice(0,10),range={start,end:date};
+    try{
+      const result=await this.plugin.propertyStats.query({source:'diary',property:field.property,calculate:['number','level'].includes(field.type)?'mean':'distribution',scope:'fixed',...range});
+      if(!chart.isConnected)return;
+      const {dates,series}=require('./property-statistics.js').alignDailyRecords([result],range),points=series[0];chart.empty();
+      const plot=require('./daily-record-chart.js').drawRecordChart(chart,field,points,{display:(f,v)=>this.display(f,v),text:(a,b)=>this.text(a,b),compact:true});
+      let selected=6;
+      const select=i=>{selected=Math.max(0,Math.min(6,i));const point=points[selected],value=point.ambiguous?this.text('多份记录','Multiple records'):point.multiple?this.text('多个状态','Multiple states'):point.value==null?this.text('未填写','Not recorded'):this.display(field,point.value);chart.title=`${dates[selected]} · ${field.name} · ${value}`;chart.setAttribute('aria-label',chart.title+' · '+this.text('左右键选择，回车编辑','Arrow keys to select; Enter to edit'));chart.style.setProperty('--noria-record-cursor',`${(selected+.5)/7*100}%`);};
+      chart.onpointermove=e=>{const r=plot.getBoundingClientRect();select(Math.floor((e.clientX-r.left)/r.width*7));};chart.onpointerleave=()=>select(6);
+      chart.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();select(e.key==='Home'?0:e.key==='End'?6:selected+(e.key==='ArrowLeft'?-1:1));}};
+      chart.onclick=async()=>{const index=selected;try{if(beforeSave&&await beforeSave()===false)return;if(!chart.isConnected)return;await this.plugin.propertyStats.editPoint(chart,points[index].rows,{source:'diary',property:field.property},dates[index],result,{...context,beforeSave,onRecordSaved:async()=>{if(!chart.isConnected)return;await refresh?.();if(chart.isConnected)await this.renderRecent(chart,field,date,{beforeSave,report,refresh,context});}});}catch(error){report?.(error);}};select(6);
+    }catch(error){if(chart.isConnected){chart.setText(this.text('趋势暂不可用','Trend unavailable'));chart.title=error.message;}report?.(error);}
+  }
+  edit(anchor,field,{value,onSave,report,context={page:"home"},title=field.name,state,date}){
+    if(state?.multiple)return require('./record-entry-editor.js').editEntries(this,anchor,field,{state,date,onSave,report,title});
     return recordPopover(anchor,title,(popover,close)=>{
         popover.style.setProperty("--noria-record-color",this.color(field));
         const error=popover.createDiv({cls:"noria-card-error",attr:{role:"alert"}});
@@ -137,6 +168,8 @@ class RecordFields{
         {key:"property",label:this.text("笔记属性（可复用已有属性）","Note property (existing or new)"),type:"property",required:true,disabled:!!d.id,description:this.text("只改显示名称不会重命名笔记属性。","Changing the display name keeps the note property unchanged.")},
         {key:"type",label:this.text("记录方式","Input type"),type:"select",options:typeOptions,disabled:!!d.id,refresh:true},
         {key:"unit",label:this.text("单位","Unit"),disabled:!!d.id,when:d=>d.type==="number"},
+        {key:"multiple",label:this.text("日内多次记录","Multiple entries per day"),type:"checkbox",refresh:true},
+        {key:"aggregation",label:this.text("日摘要","Daily summary"),type:"select",default:'sum',when:d=>d.multiple&&d.type==='number',options:[{value:'sum',label:this.text('合计','Total')},{value:'latest',label:this.text('最近一次','Latest entry')}],description:this.text('已有明细的日期保留原汇总方式。','Existing days keep their stored summary method.')},
         {key:"optionText",label:this.text("选项，用分号分隔","Options, separated by semicolons"),when:d=>d.type==="option",refresh:true},
         {key:"min",label:this.text("最低等级","Lowest level"),type:"number",step:1,refresh:true,disabled:!!d.id,when:d=>d.type==="level"},
         {key:"max",label:this.text("最高等级","Highest level"),type:"number",step:1,refresh:true,disabled:!!d.id,when:d=>d.type==="level"},

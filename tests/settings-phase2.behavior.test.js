@@ -60,6 +60,7 @@ function loadPluginClass(options = {}) {
       }
       if (id === "child_process") return {};
       if (id === "crypto") return require("node:crypto");
+      if (id === "./home-focus-defaults.js") return require("../src/home-focus-defaults.js");
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -557,14 +558,14 @@ test("core ribbon specs use only Noria logical keys and approved icons", () => {
     },
     {
       key: "noria:tasks",
-      icon: "list-checks",
+      icon: "list-todo",
       titleKey: "ribbon.tasks",
       action: "openTasksBoardLeaf",
       moduleKey: "tasksBoard"
     },
     {
       key: "noria:task-timeline",
-      icon: "chart-gantt",
+      icon: "noria-task-timeline",
       titleKey: "ribbon.timeline",
       action: "openTasksTimelineLeaf",
       moduleKey: "taskTimeline"
@@ -631,7 +632,7 @@ test("review center command opens the Home workbench without a standalone ItemVi
 });
 
 test("daily state writeback creates missing diary and ignores weather payloads", async () => {
-  const plugin = makePlugin();
+  const plugin = makePlugin({ files: { "Noria/Templates/Daily template.md": "## Notes\n\n## Plan\n\n" } });
   plugin.settings = plugin.normalizeSettings({ managedPaths: { diaryRoot: "06_Diary" } });
 
   const result = await plugin.saveDailyStateForDate("2026-05-06", {
@@ -676,7 +677,7 @@ test("daily state writeback preserves concurrent diary edits through vault.proce
 });
 
 test("daily state writeback can skip full home refresh for inline picker saves", async () => {
-  const plugin = makePlugin();
+  const plugin = makePlugin({ files: { "Noria/Templates/Daily template.md": "## Notes\n\n## Plan\n\n" } });
   plugin.settings = plugin.normalizeSettings({ managedPaths: { diaryRoot: "06_Diary" } });
   const refreshes = [];
   plugin.requestNoriaRefresh = (...args) => {
@@ -1437,7 +1438,7 @@ test("review workbench and timeline ItemView chrome use locale catalog strings",
 
 
 test("historical capture uses its date template, preserves Markdown and returns the exact write",async()=>{
-  const plugin=makePlugin();plugin.settings=plugin.normalizeSettings({managedPaths:{diaryRoot:"06_Diary"}});
+  const plugin=makePlugin({files:{"Noria/Templates/Daily template.md":"## Notes\n\n## Plan\n\n"}});plugin.settings=plugin.normalizeSettings({managedPaths:{diaryRoot:"06_Diary"}});
   let seeded="";const originalSeed=plugin.buildCalendarNoteContent.bind(plugin);plugin.buildCalendarNoteContent=async spec=>{seeded=spec.date;return originalSeed(spec);};
   const date="2001-02-12",text="A [[linked note]]  \nSecond line\n\n  - Nested idea";
   const result=await plugin.appendHomeQuickCapture({date,text,now:"2026-09-16T10:20:00",refresh:false});
@@ -1450,10 +1451,11 @@ test("historical capture uses its date template, preserves Markdown and returns 
 });
 
 test("daily state first write uses selected-day seed and clear keeps absence",async()=>{
-  const plugin=makePlugin();plugin.settings=plugin.normalizeSettings({managedPaths:{diaryRoot:"06_Diary"}});
+  const plugin=makePlugin({files:{"Noria/Templates/Daily template.md":"## Notes\n\n## Plan\n\n"}});plugin.settings=plugin.normalizeSettings({managedPaths:{diaryRoot:"06_Diary"}});
   let seeded="";const originalSeed=plugin.buildCalendarNoteContent.bind(plugin);plugin.buildCalendarNoteContent=async spec=>{seeded=spec.date;return originalSeed(spec);};
   const saved=await plugin.saveDailyStateForDate("2001-02-13",{mood:"稳定",energy:4},{refresh:false});
   assert.equal(seeded,"2001-02-13");assert.equal(saved.write.previousText,"");
+  plugin.__files.delete("Noria/Templates/Daily template.md");
   const cleared=await plugin.saveDailyStateForDate("2001-02-13",{energy:""},{refresh:false});
   assert.equal(cleared.write.previousText,saved.write.text);
   assert.equal(cleared.state.energy,"");assert.equal(cleared.state.mood,"稳定");

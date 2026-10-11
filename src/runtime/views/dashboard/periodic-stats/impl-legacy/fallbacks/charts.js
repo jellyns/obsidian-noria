@@ -44,8 +44,16 @@
       }
     };
 
+    function summaryFor(card){
+      const details=card.createEl('details',{cls:'noria-period-stat-summary'});
+      details.createEl('summary',{text:bridge.locale==='zh'?'摘要与口径':'Summary and definitions'});
+      if(ctx.embedded){details.hidden=true;details.ontoggle=()=>{if(!details.open)details.hidden=true;};}
+      return details;
+    }
     function renderDistCard(parent, title, defs, countMap) {
-      return chartAdapter.renderDistribution(parent, {title,defs,countMap,emptyText:chartT("runtime.chart.noRecords")});
+      const card=makeCard(parent,title),locale=bridge.locale==='zh'?'zh-CN':bridge.locale||'en';
+      chartAdapter.renderDistribution(card,{title,defs,countMap,bare:true,number:value=>new Intl.NumberFormat(locale,{maximumFractionDigits:1}).format(value),semanticDomain:defs.some(d=>d.key==='晴')?'weather':'mood',emptyText:chartT("runtime.chart.noRecords")});
+      summaryFor(card).createDiv({text:bridge.locale==='zh'?'占比仅在已记录且可识别的分类中计算。':'Shares use recorded values in recognized categories only.'});return card;
     }
 
     function renderSimpleSeries(parent, title, series, maxValue, unit, statOptions = null) {
@@ -91,16 +99,22 @@
 
     function renderDualAxis(parent, title, barSeries, lineSeries, labels, barName, lineName, statOptions = null) {
       if (typeof chartAdapter.renderDualAxis === "function") {
-        const rendered = chartAdapter.renderDualAxis(parent, {
-          title,
-          barSeries,
-          lineSeries,
-          labels,
-          barName,
-          lineName,
-          statOptions: statOptions || {}
-        });
-        if (rendered) return rendered;
+        const card=makeCard(parent,title),locale=bridge.locale==='zh'?'zh-CN':bridge.locale||'en',number=new Intl.NumberFormat(locale,{maximumFractionDigits:1});
+        const legend=card.createDiv({cls:'noria-periodic-legend'});
+        legend.createSpan({cls:'noria-periodic-line-label',text:lineName});legend.createSpan({cls:'noria-periodic-bar-label',text:barName});
+        const plot=card.createDiv({cls:'noria-period-stat-chart'}),readout=card.createDiv({cls:'noria-period-stat-readout'}),date=readout.createSpan(),value=readout.createSpan({cls:'noria-trend-announcement'});
+        const details=summaryFor(card);
+        for(const [name,data,hideTotal] of [[barName,barSeries,statOptions?.barHideTotal],[lineName,lineSeries,statOptions?.lineHideTotal]]){
+          if(hideTotal&&Object.hasOwn(statOptions,'completionRate')){details.createDiv({text:(bridge.locale==='zh'?'本期完成率 ':'Period completion rate ')+(statOptions.completionRate==null?'—':number.format(statOptions.completionRate)+'%')});continue;}
+          const st=seriesStats(data);details.createDiv({text:[name,...(hideTotal?[]:[chartT('runtime.chart.metricTotal')+' '+number.format(st.total)]),chartT('runtime.chart.metricAverage')+' '+number.format(st.avg),chartT('runtime.chart.metricPeak')+' '+number.format(st.peak)].join(' · ')});
+        }
+        details.createDiv({text:statOptions?.lineHideTotal?(bridge.locale==='zh'?'完成任务按完成日；未完成任务依次按截止、安排、开始或所在日记日期归入。完成率为本期已完成数 ÷ 活动任务数；无任务时不计算。':'Completed tasks use completion dates; open tasks use due, scheduled, start or diary dates. Period rate = completed / activity tasks; no tasks means no rate.'):(bridge.locale==='zh'?'笔记按 created 属性统计，缺失时取文件创建时间；码字数为对应日记的非空白字符，包含 Markdown 标记。':'Notes use created, falling back to file creation time. Characters count non-whitespace characters in dated diary files, including Markdown markup.')});
+        if(!barSeries.some(value=>value>0)&&!lineSeries.some(value=>value>0)){legend.hidden=true;readout.hidden=true;plot.createDiv({cls:'noria-card-secondary',text:bridge.locale==='zh'?'此范围没有可展示的活动。':'No activity in this range.'});return card;}
+        let selected=Math.max(0,labels.findLastIndex((_,i)=>barSeries[i]||lineSeries[i])),width=0;
+        const draw=()=>{plot.empty();chartAdapter.renderDualAxis(plot,{title,barSeries,lineSeries,labels,barName,lineName,bare:true,tickLabels:labels.map(label=>/^\d{4}-/.test(label)?label.slice(5):label),lineMax:statOptions?.lineHideTotal?100:undefined,lineUnit:statOptions?.lineHideTotal?'%':'',selectedIndex:selected,formatValue:value=>number.format(value),onInspect:index=>{selected=index;date.setText(labels[index]||'');value.setText(lineName+' '+(lineSeries[index]==null?'—':number.format(lineSeries[index]))+' · '+barName+' '+number.format(barSeries[index]||0));}});};
+        draw();
+        if(typeof ResizeObserver!=='undefined'){const observer=new ResizeObserver(()=>{if(!card.isConnected){observer.disconnect();return;}const next=plot.clientWidth;if(Math.abs(next-width)>10){width=next;draw();}});observer.observe(plot);card.__noriaChartCleanup=()=>observer.disconnect();}
+        return card;
       }
       const card = makeCard(parent, title);
       const barStats = seriesStats(barSeries);
@@ -248,7 +262,8 @@
       const draw = (mode) => {
         host.empty();
         const s = mode === "month" ? config.month : config.week;
-        renderDualAxis(host, s.title, s.bar, s.line, s.labels, s.barName, s.lineName, s.statOptions || null);
+        const card=renderDualAxis(host, s.title, s.bar, s.line, s.labels, s.barName, s.lineName, s.statOptions || null);
+        card?.querySelector(".noria-period-stat-heading")?.appendChild(bar);
         setBtn(btnWeek, mode === "week");
         setBtn(btnMonth, mode === "month");
       };

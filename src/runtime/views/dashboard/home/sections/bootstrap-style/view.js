@@ -411,12 +411,12 @@
       height: 28px ;
       border-color: transparent ;
       background: transparent ;
-      color: color-mix(in srgb, var(--dash-workbench-accent) 62%, var(--text-muted)) ;
+      color: var(--text-muted) ;
       box-shadow: none ;
     }
     .dashboard-home-root .dashboard-guide-card button.dashboard-guide-icon-btn:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--dash-workbench-accent) 10%, transparent) ;
-      border-color: color-mix(in srgb, var(--dash-workbench-accent) 22%, transparent) ;
+      background: var(--background-modifier-hover) ;
+      border-color: transparent ;
       box-shadow: none ;
     }
     .dashboard-home-root .dashboard-guide-card button.dashboard-guide-icon-btn:focus-visible {
@@ -567,12 +567,12 @@
       height: 28px ;
       border-color: transparent ;
       background: transparent ;
-      color: color-mix(in srgb, var(--dash-workbench-accent) 62%, var(--text-muted)) ;
+      color: var(--text-muted) ;
       box-shadow: none ;
     }
     .dashboard-home-root .dashboard-workbench-panel button.dashboard-guide-icon-btn:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--dash-workbench-accent) 10%, transparent) ;
-      border-color: color-mix(in srgb, var(--dash-workbench-accent) 22%, transparent) ;
+      background: var(--background-modifier-hover) ;
+      border-color: transparent ;
       box-shadow: none ;
     }
     .dashboard-home-root .dashboard-workbench-panel button.dashboard-guide-icon-btn:focus-visible {
@@ -816,19 +816,19 @@
       width: 100%;
       min-width: 0;
     }
-    .dashboard-home-root > .dashboard-home-widget-shell-native:not([data-noria-widget-collapsed="true"]) {
+    :is(.dashboard-home-root,.noria-card-stack) > .dashboard-home-widget-shell-native:not([data-noria-widget-collapsed="true"]) {
       align-self: stretch;
       display: flex;
       flex-direction: column;
     }
-    .dashboard-home-root > .dashboard-home-widget-shell-native:not([data-noria-widget-collapsed="true"]) > .dashboard-home-widget-native-content {
+    :is(.dashboard-home-root,.noria-card-stack) > .dashboard-home-widget-shell-native:not([data-noria-widget-collapsed="true"]) > .dashboard-home-widget-native-content {
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
       display: flex;
       flex-direction: column;
     }
-    .dashboard-home-root > .dashboard-home-widget-shell-native:not([data-noria-widget-collapsed="true"]) > .dashboard-home-widget-native-content > :first-child {
+    :is(.dashboard-home-root,.noria-card-stack) > .dashboard-home-widget-shell-native:not([data-noria-widget-collapsed="true"]) > .dashboard-home-widget-native-content > :first-child {
       flex: 1 1 auto;
       min-height: 0;
     }
@@ -904,12 +904,12 @@
       border-radius: 5px;
       background: transparent;
       box-shadow: none;
-      color: var(--dash-widget-muted);
+      color: var(--text-muted);
     }
     .dashboard-home-widget-shell-action:hover,
     .dashboard-home-widget-shell-action:focus-visible {
-      background: color-mix(in srgb, var(--dash-widget-accent) 9%, transparent);
-      color: var(--dash-widget-text);
+      background: var(--background-modifier-hover);
+      color: var(--text-normal);
       outline: none;
     }
     .dashboard-home-widget-shell-action:focus-visible {
@@ -922,12 +922,6 @@
     @container noria-home (max-width: 640px) {
       .dashboard-home-widget-shell-actions { opacity: 1; pointer-events: auto; }
     }
-    .dashboard-home-root[data-noria-home-edit-mode="true"] .dashboard-home-widget-shell {
-      margin-top: 30px;
-      outline: 1px solid color-mix(in srgb, var(--dash-widget-accent) 20%, transparent);
-      outline-offset: -1px;
-      background: color-mix(in srgb, var(--dash-widget-panel) 96%, var(--dash-widget-accent-soft));
-    }
     [data-noria-home-edit-mode="true"] .dashboard-home-widget-shell-actions {
       flex-wrap: wrap;
       justify-content: flex-end;
@@ -937,10 +931,6 @@
     }
     [data-noria-home-edit-mode="true"] .dashboard-home-widget-shell.dashboard-callout-notitle {
       overflow: visible;
-    }
-    [data-noria-home-edit-mode="true"] .dashboard-home-widget-shell-native {
-      min-height: 52px;
-      border-radius: 8px;
     }
     [data-noria-home-edit-mode="true"] .dashboard-home-widget-shell-native > .dashboard-home-widget-shell-actions--overlay {
       top: 0;
@@ -1991,13 +1981,17 @@
     .dashboard-home-root .callout[data-callout="success"] .callout-content a.internal-link:not(.dashboard-task-title--link) { box-shadow: var(--dash-shadow-inset-soft); }
     .dashboard-project-next-row {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
       gap: 6px;
       margin: 0 0 7px;
       padding: 0 0 7px;
       border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 68%, transparent);
     }
+    .dashboard-project-next-row[hidden] { display: none; }
+    .dashboard-project-switch-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .dashboard-project-switch-tools, .dashboard-project-source-slot { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
+    .dashboard-project-task-heading { color: var(--text-muted); font-size: var(--font-ui-smaller); margin: 3px 2px; }
     .dashboard-project-next-input {
       min-width: 0;
       width: 100%;
@@ -2120,13 +2114,12 @@
     }
     .dashboard-project-chip {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary));
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 8%, transparent);
       --project-chip-border: color-mix(in srgb, var(--background-modifier-border) 84%, var(--noria-module-projects, var(--interactive-accent)) 16%);
       position: relative;
       padding: 3px 10px;
       border-radius: 9px;
       border: 1px solid var(--project-chip-border);
-      background: linear-gradient(90deg, var(--project-chip-fill) 0 var(--noria-project-progress), var(--project-chip-bg) var(--noria-project-progress) 100%);
+      background: var(--project-chip-bg);
       color: var(--text-normal);
       font-size: .84em;
       line-height: 1.25;
@@ -2138,7 +2131,6 @@
     }
     .dashboard-project-chip[aria-pressed="true"] {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 94%, var(--noria-module-projects, var(--interactive-accent)) 6%);
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 26%, transparent);
       --project-chip-border: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 48%, var(--background-modifier-border));
       font-weight: 700;
       color: color-mix(in srgb, var(--text-normal) 92%, var(--noria-module-projects, var(--interactive-accent)) 8%);
@@ -2146,12 +2138,10 @@
     }
     .dashboard-project-chip[data-project-stage="planned"] {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary));
-      --project-chip-fill: color-mix(in srgb, rgb(20 184 166) 10%, transparent);
       --project-chip-border: color-mix(in srgb, var(--background-modifier-border) 82%, rgb(20 184 166) 18%);
     }
     .dashboard-project-chip[data-project-stage="planned"][aria-pressed="true"] {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 94%, rgb(20 184 166 / 0.10));
-      --project-chip-fill: color-mix(in srgb, rgb(20 184 166) 28%, transparent);
       --project-chip-border: color-mix(in srgb, rgb(20 184 166) 46%, var(--background-modifier-border));
     }
     .dashboard-project-chip:hover {
@@ -2160,14 +2150,13 @@
     }
     .theme-dark .dashboard-project-chip {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 92%, rgb(30 41 59));
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 14%, transparent);
       --project-chip-border: color-mix(in srgb, var(--background-modifier-border) 74%, var(--noria-module-projects, var(--interactive-accent)) 26%);
     }
     .theme-dark .dashboard-project-chip[aria-pressed="true"] {
       --project-chip-bg: color-mix(in srgb, var(--background-primary) 86%, var(--noria-module-projects, var(--interactive-accent)) 14%);
-      --project-chip-fill: color-mix(in srgb, var(--noria-module-projects, var(--interactive-accent)) 34%, transparent);
     }
     .dashboard-guide-projects .dashboard-project-chip {
+      flex: 0 0 auto;
       max-width: min(100%, 11rem);
       overflow: hidden;
       text-overflow: ellipsis;
@@ -2404,21 +2393,6 @@
       font-size: .88em;
       line-height: 1.4;
       padding: 3px 2px;
-    }
-    .dashboard-period-task-summary {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-      min-height: 31px;
-      padding: 0 2px 4px;
-    }
-    .dashboard-period-task-summary-main {
-      display: flex;
-      flex-direction: row;
-      gap: 1px;
-      min-width: 0;
     }
     .dashboard-period-task-summary-meta {
       min-width: 0;

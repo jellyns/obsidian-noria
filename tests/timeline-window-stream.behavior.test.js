@@ -2,6 +2,23 @@ const test=require("node:test"),assert=require("node:assert/strict"),fs=require(
 const w=require("../src/runtime/views/task-timeline/time-window.js");
 const {buildStream,splitRecord,normalizeFilter}=require("../src/timeline-stream-model.js");
 const d=value=>+new Date(value),at=(value,amount,unit)=>w.at(d(value),{amount,unit});
+test('vertical tasks use display-zone days and ranges without shifting date-only tasks or source metadata',()=>{
+ const clock=require('../src/task-calendar-zone.js').timelineClock({sourceTimeZone:'Asia/Shanghai',timeZone:'Asia/Tokyo'});
+ const timed={id:'night',kind:'schedule',start:'2026-10-10T15:30:00Z',end:'2026-10-10T16:30:00Z',source:{path:'P.md',line:1},payload:{task:{text:'Read'},noria:{startYmd:'2026-10-10',startTime:'23:30',endYmd:'2026-10-11',endTime:'00:30'}}};
+ const dateOnly={id:'date',kind:'scheduled',start:'2026-10-10T15:00:00Z',source:{path:'P.md',line:2},payload:{task:{text:'Date'},noria:{startYmd:'2026-10-11'}}};
+ const before=JSON.stringify(timed),window={startMs:Date.parse('2026-10-10T15:00:00Z'),endMs:Date.parse('2026-10-11T15:00:00Z')};
+ const result=buildStream({events:[timed,dateOnly]},[],window,{},clock);
+ const item=result.items.find(i=>i.id==='night');assert.equal(item.date,'2026-10-11');assert.equal(item.time,'00:30');
+ assert.deepEqual(item.displayRange,{startYmd:'2026-10-11',startTime:'00:30',endYmd:'2026-10-11',endTime:'01:30'});
+ assert.equal(result.items.find(i=>i.id==='date').date,'2026-10-11');assert.equal(JSON.stringify(timed),before);
+});
+test('vertical file timestamps follow the same zone while ordinary activity callers keep their own calendar',()=>{
+ const {fileActivities}=require('../src/activity-model.js'),clock=require('../src/task-calendar-zone.js').timelineClock({timeZone:'Asia/Tokyo'});
+ const files=[{path:'Read.md',stat:{mtime:Date.parse('2026-10-10T15:30:00Z')}}];
+ const range={start:'2026-10-11',end:'2026-10-11'};
+ const events=fileActivities(files,range,{mtime:true},()=>{throw Error('must use selected zone');},'2026-10-11',clock);
+ assert.equal(events[0].date,'2026-10-11');assert.equal(events[0].time,'00:30');
+});
 test("calendar navigation returns to its original day across short months and JSON reload",()=>{
   const first=at("2026-01-31T13:20:00",1,"month"),feb=w.shift(first,1),march=w.shift(JSON.parse(JSON.stringify(feb)),1);
   assert.equal(new Date(feb.startMs).getDate(),28);assert.equal(new Date(march.startMs).getDate(),31);
@@ -45,6 +62,18 @@ test("runtime module does not replace Obsidian ambient exports",()=>{
   for(const name of ["time-window","event-model"])vm.runInNewContext(fs.readFileSync(require.resolve(`../src/runtime/views/task-timeline/${name}.js`),"utf8"),context);
   assert.equal(context.module.exports.keep,true);assert.equal(typeof context.noriaTaskTimeline.timeWindow.at,"function");assert.equal(typeof context.noriaTaskTimeline.eventModel.createTimelineMatcher,"function");
 });
+test("project scope matches the exact note or folder boundary without excluding unscheduled tasks",()=>{
+  const context={};context.globalThis=context;
+  vm.runInNewContext(fs.readFileSync(require.resolve("../src/runtime/views/task-timeline/event-model.js"),"utf8"),context);
+  const matcher=context.noriaTaskTimeline.eventModel.createTimelineMatcher;
+  const row=path=>({layer:"task",source:{path}});
+  const folder=matcher({sourceRoot:"Projects/Research"});
+  assert.equal(folder(row("Projects/Research/Tasks.md")),true);
+  assert.equal(folder(row("Projects/Research-next/Tasks.md")),false);
+  const note=matcher({sourceRoot:"Projects/Book.md"});
+  assert.equal(note(row("Projects/Book.md")),true);
+  assert.equal(note(row("Projects/Book.md-copy.md")),false);
+});
 function event(id,time,done=false){return {id,layer:"task",title:id,start:`2026-09-23T${time}:00`,source:{path:"tasks.md",line:id},payload:{task:{path:"tasks.md",line:id,text:id,completed:done},noria:{startYmd:"2026-09-23",startTime:time}}};}
 test("overnight tasks show continuation at the window boundary with original times intact",()=>{
   const overnight=event("night","23:00",true);overnight.end="2026-09-24T02:00:00";overnight.payload.noria.endYmd="2026-09-24";overnight.payload.noria.endTime="02:00";
@@ -66,6 +95,26 @@ test("no fake time for undated tasks or untimed diary text and no duplicate task
   const e=event("a","09:00");e.payload.noria.fallbackDateSource="modified";
   const result=buildStream({events:[e,e]},[{kind:"record",id:"r",date:"2026-09-23",markdown:"An untimed paragraph"}],at("2026-09-23T00:00:00",1,"day"),{});
   assert.equal(result.unscheduled.length,1);assert.equal(result.items.length,1);assert.equal(result.items[0].time,undefined);
+});
+
+test("vertical stream shows distinct arrangements on one source row, including after an offscreen one",()=>{
+  const first=event("first","09:00"),second=event("second","11:00"),third=event("third","12:00");
+  second.source=third.source=first.source;
+  second.payload.task=third.payload.task=first.payload.task;
+  first.payload.noria.scheduleIndex=0;second.payload.noria.scheduleIndex=1;third.payload.noria.scheduleIndex=2;
+  const model={events:[first,second,second,third]};
+  const result=buildStream(model,[],at("2026-09-23T10:00:00",4,"hour"),{});
+  assert.deepEqual(result.items.map(e=>e.id),["second","third"]);
+  assert.equal(result.unscheduled.length,0);
+});
+
+test('deadline-only tasks remain available for scheduling, irrespective of the visible date range',()=>{
+ const due=event('submit','14:00');due.kind='due';due.payload.task.rawText='- [ ] Submit [due:: 2026-09-23 14:00]';
+ const window=at('2026-09-25T00:00:00',1,'day');
+ assert.equal(buildStream({events:[due]},[],window,{}).unscheduled.length,1);
+ due.payload.task.rawText+=' [schedule:: 2026-09-22]';assert.equal(buildStream({events:[due]},[],window,{}).unscheduled.length,0);
+ due.payload.task.rawText='- [x] Submit [due:: 2026-09-23 14:00]';due.payload.task.completed=true;
+ assert.equal(buildStream({events:[due]},[],window,{}).unscheduled.length,0);
 });
 test("capture extraction respects code fences and retains attachments and nesting",()=>{
   const parts=splitRecord({id:"r",markdown:"## Inbox\n- [09:00] first\n  ![[photo.png]]\n- [10:00] next\n\n```md\n- [11:00] code, not a capture\n```\n"});

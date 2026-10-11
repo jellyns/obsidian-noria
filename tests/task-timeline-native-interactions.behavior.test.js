@@ -203,6 +203,19 @@ test("keyboard intents cover source open pan zoom Today and cancel", () => {
   assert.equal(interactions.keyboardToTimelineIntent({ key: "Escape" }).type, "cancel");
 });
 
+test("resize preserves the grab offset of a short interval at distant scales",()=>{
+  const {viewport,interactions}=loadInteractionHooks();
+  const view=viewportState(viewport,{msPerPx:3600000});
+  const task=taskFixture({endMs:taskFixture().startMs+30*60000});
+  for(const role of ['start','end']){
+    const endpoint=role==='start'?task.startMs:task.endMs;
+    const grip=viewport.dateMsToPx(view,endpoint)+(role==='start'?-1.5:1.5);
+    const result=interactions.pointerToTimelineIntent({action:'task-drag',role,task,viewport:view,originPx:grip,currentPx:grip+(role==='start'?-4:4)});
+    assert.equal(result[role==='start'?'startMs':'endMs'],endpoint+(role==='start'?-4:4)*3600000);
+    assert.equal(result[role==='start'?'endMs':'startMs'],role==='start'?task.endMs:task.startMs);
+  }
+});
+
 test("attached controller opens sources by click and keyboard", () => {
   const { viewport, interactions } = loadInteractionHooks();
   const document = new FakeNode();
@@ -256,6 +269,10 @@ test("plain wheel pans the timeline while Ctrl wheel keeps pointer-centered zoom
   assert.ok(Math.abs(viewport.pxToDateMs(current, 90) - anchorBefore) <= 1);
   assert.equal(zoomEvent.defaultPrevented, true);
   assert.equal(zoomEvent.propagationStopped, true);
+  host.setAttribute('data-noria-project-view','true');
+  const before=updates.length;
+  host.emit('wheel',{target:host,deltaY:96,deltaX:0,clientX:150});assert.equal(updates.length,before);
+  host.emit('wheel',{target:host,deltaY:96,deltaX:0,shiftKey:true,clientX:150});assert.equal(updates.at(-1).type,'viewport-pan');assert.equal(updates.length,before+1);
 });
 
 test("unified footer drag pans at the main scale without click recentering or selecting annotations", () => {

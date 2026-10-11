@@ -1,6 +1,20 @@
 "use strict";
 const validDate=s=>{const d=new Date(s+"T12:00:00Z");return /^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(+d)&&d.toISOString().slice(0,10)===s;};
 const all="1234567";
+function targets(config){
+ const seen=new Set();
+ return String(config.targetPlan||"").split(";").filter(Boolean).map(entry=>{
+  const match=/^(\d{4}-\d{2}-\d{2})=([^=]+)$/.exec(entry);
+  if(!match||!validDate(match[1])||!Number.isFinite(Number(match[2]))||Number(match[2])<=0||seen.has(match[1]))throw Error("Invalid habit target history");
+  seen.add(match[1]);return {from:match[1],target:match[2]};
+ }).sort((a,b)=>a.from.localeCompare(b.from));
+}
+function targetAt(config,date){
+ if(!config.targetPlan)return String(config.target||"");
+ if(!validDate(date))throw Error("Invalid target date");
+ let target="";for(const item of targets(config))if(item.from<=date)target=item.target;
+ return target;
+}
 function plans(config){return String(config.plan||"").split(";").filter(Boolean).map(entry=>{const [from,days]=entry.split("=");if(!validDate(from)||!/^([1-7]+|off)$/.test(days)||days!=="off"&&[...new Set(days)].sort().join("")!==days)throw Error("Invalid habit schedule");return {from,days};}).sort((a,b)=>a.from.localeCompare(b.from));}
 function daysAt(config,date){let days=all;for(const plan of plans(config))if(plan.from<=date)days=plan.days;return days;}
 function due(config,date){const day=new Date(date+"T12:00:00Z").getUTCDay()||7;return daysAt(config,date).includes(String(day));}
@@ -19,6 +33,19 @@ function evolve(current,draft,today){
   const retained=history.filter(item=>item.from<from);retained.push({from,days:stage==="active"?days:"off"});
   next.plan=retained.map(item=>`${item.from}=${item.days}`).join(";");
  }else next.plan=history.map(item=>`${item.from}=${item.days}`).join(";");
+ if(current?.targetPlan&&(String(draft.type||"")!==String(current.type||"")||String(draft.unit||"")!==String(current.unit||"")))throw Error("请新建习惯以更改类型或单位，保留目标历史 / Create a new habit for a different type or unit");
+ if(draft.type==="number"){
+  const target=String(draft.target||""),oldTarget=String(current?.target||"");
+  let targetHistory=targets(current||{});
+  if(!current||target!==oldTarget){
+   const from=current?(draft.effective||today):(draft.startedOn||draft.effective||today);
+   if(!validDate(from)||(current&&from<today)||!Number.isFinite(Number(target))||Number(target)<=0)throw Error("Invalid target effective date or value");
+   // A legacy definition establishes today's known target, not an invented past.
+   if(current&&!targetHistory.length&&oldTarget&&from>today)targetHistory.push({from:today,target:oldTarget});
+   targetHistory=targetHistory.filter(item=>item.from<from);targetHistory.push({from,target});
+  }
+  if(targetHistory.length)next.targetPlan=targetHistory.map(item=>`${item.from}=${item.target}`).join(";");
+ }
  next.weekdays=days;delete next.effective;delete next.startedOn;return next;
 }
 function summary(config,records,today){
@@ -45,4 +72,4 @@ function streakEnds(config,records,today){
  while(date<=today){if(due(config,date)){if(records[date]?.done){count++;last=date;}else finish();}const d=new Date(date+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+1);date=d.toISOString().slice(0,10);}
  finish();return ends;
 }
-module.exports={plans,daysAt,due,firstStart,evolve,summary,summaryText,summaryDetail,visual,streakEnds};
+module.exports={plans,daysAt,due,firstStart,evolve,summary,summaryText,summaryDetail,visual,streakEnds,targets,targetAt};

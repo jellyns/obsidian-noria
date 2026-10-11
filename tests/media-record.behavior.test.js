@@ -13,6 +13,58 @@ function fixture(kind='book'){
  return {plugin,file,api:createPublicApi(plugin),get raw(){return raw},set raw(value){raw=value},remove:()=>{exists=false}};
 }
 
+test('classification updates support every media kind and preserve identity, body and unrelated properties',async()=>{
+ for(const kind of ['book','movie','music','game']){
+  const f=fixture(kind),before=await service.readMedia(f.plugin,{path:f.file.path});
+  f.raw+='Later prose.\r\n';
+  const changed=await service.updateMediaClassification(f.plugin,{path:f.file.path,revision:before.classificationRevision,patch:{genre:['成长','成长','心理'],tags:['#topic/生活','topic/生活']}});
+  assert.deepEqual(JSON.parse(JSON.stringify(changed.properties.genre)),['成长','心理']);
+  assert.deepEqual(JSON.parse(JSON.stringify(changed.properties.tags)),['#'+kind,'topic/生活']);
+  assert.match(f.raw,/rating: 0\r\n# Keep the original comment\r\nother: "keep"/);assert.ok(f.raw.endsWith('Later prose.\r\n'));
+  const clear=await service.updateMediaClassification(f.plugin,{path:f.file.path,revision:changed.classificationRevision,patch:{genre:[],tags:[]}});
+  assert.equal(clear.properties.genre,null);assert.deepEqual(JSON.parse(JSON.stringify(clear.properties.tags)),['#'+kind]);
+ }
+});
+
+test('editing category tags does not introduce genre or overwrite an existing genre property',async()=>{
+ for(const genre of ['', 'genre: ["Action"]\r\n']){
+  const f=fixture();f.raw=f.raw.replace('status:',genre+'status:');
+  const before=await service.readMedia(f.plugin,{path:f.file.path});
+  await service.updateMediaClassification(f.plugin,{path:f.file.path,revision:before.classificationRevision,patch:{tags:['科幻']}});
+  assert.ok(f.raw.includes('genre:')===!!genre);
+  if(genre)assert.ok(f.raw.includes(genre));
+  assert.ok(f.raw.endsWith('Keep my own words.\r\n'));
+ }
+});
+
+test('classification conflicts retain competing edits while independent status and prose changes survive',async()=>{
+ const f=fixture(),before=await service.readMedia(f.plugin,{path:f.file.path});
+ await service.updateMedia(f.plugin,{path:f.file.path,revision:before.revision,patch:{status:'已读'}});
+ const saved=await service.updateMediaClassification(f.plugin,{path:f.file.path,revision:before.classificationRevision,patch:{genre:['心理']}});
+ assert.equal(saved.properties.status,'已读');const raw=f.raw;
+ await assert.rejects(service.updateMediaClassification(f.plugin,{path:f.file.path,revision:before.classificationRevision,patch:{tags:['topic/new']}}),e=>e.code==='conflict');assert.equal(f.raw,raw);
+ const current=await service.readMedia(f.plugin,{path:f.file.path});f.file.path='Media/Renamed.md';
+ await assert.rejects(service.updateMediaClassification(f.plugin,{path:f.file.path,revision:current.classificationRevision,patch:{genre:['成长']}}));assert.equal(f.raw,raw);
+});
+
+test('invalid tags and attempted identity changes cannot write, and untouched malformed fields remain intact',async()=>{
+ const f=fixture(),before=await service.readMedia(f.plugin,{path:f.file.path}),raw=f.raw;
+ for(const tags of [['movie'],['arts/games'],['bad tag'],['topic//bad'],['123'],[{}]]){
+  await assert.rejects(service.updateMediaClassification(f.plugin,{path:f.file.path,revision:before.classificationRevision,patch:{tags}}),e=>e.code==='invalid-input');assert.equal(f.raw,raw);
+ }
+ f.raw=f.raw.replace('["#book"]','["#book",42]');const malformed=await service.readMedia(f.plugin,{path:f.file.path});
+ const changed=await service.updateMediaClassification(f.plugin,{path:f.file.path,revision:malformed.classificationRevision,patch:{genre:['成长']}});
+ assert.deepEqual(JSON.parse(JSON.stringify(changed.properties.tags)),['#book',42]);
+ const preserved=f.raw;await assert.rejects(service.updateMediaClassification(f.plugin,{path:f.file.path,revision:changed.classificationRevision,patch:{tags:[]}}),e=>e.code==='invalid-input');assert.equal(f.raw,preserved);
+});
+
+test('inline identity and topic tags stay in prose when editable classifications are cleared',async()=>{
+ const f=fixture();f.raw=f.raw.replace('tags: ["#book"]\r\n','')+'#book #topic/正文\r\n';f.plugin.app.metadataCache.getFileCache=()=>({tags:[{tag:'#book'},{tag:'#topic/正文'}]});
+ const before=await service.readMedia(f.plugin,{path:f.file.path});assert.deepEqual(JSON.parse(JSON.stringify(before.inlineTags)),['topic/正文']);
+ const result=await service.updateMediaClassification(f.plugin,{path:f.file.path,revision:before.classificationRevision,patch:{tags:[],genre:['成长']}});
+ assert.ok(f.raw.endsWith('#book #topic/正文\r\n'));assert.equal(result.kinds[0],'book');
+});
+
 test('media updates preserve unrelated properties, comments, prose and date absence without inventing reading volume',async()=>{
  const f=fixture(),before=await f.api.media.read({path:f.file.path});assert.equal(before.properties.pagecount,0);assert.equal(before.markdown,undefined);
  f.raw+='My later paragraph.\r\n';
@@ -22,6 +74,16 @@ test('media updates preserve unrelated properties, comments, prose and date abse
  assert.ok(f.raw.endsWith('Keep my own words.\r\nMy later paragraph.\r\n'));assert.doesNotMatch(f.raw,/finishedAt|viewtime|reading_volume/);
  const same=f.raw;assert.equal((await f.api.media.update({path:result.path,revision:result.revision,patch:{pageprogress:32}})).changed,false);assert.equal(f.raw,same);
  const cleared=await f.api.media.update({path:result.path,revision:result.revision,patch:{status:null,pageprogress:null}});assert.equal(cleared.properties.status,null);assert.equal(cleared.properties.pageprogress,null);
+});
+
+test('completion dates are explicit, validated and guarded without inventing one on status changes',async()=>{
+ const f=fixture(),ref=await f.api.media.read({path:f.file.path});
+ for(const finishedAt of ['2026-02-30','tomorrow','2026-1-2'])await assert.rejects(f.api.media.update({path:ref.path,revision:ref.revision,patch:{finishedAt}}),e=>e.code==='invalid-input');
+ const dated=await f.api.media.update({path:ref.path,revision:ref.revision,patch:{finishedAt:'2026-10-08'}});
+ assert.equal(dated.properties.finishedAt,'2026-10-08');assert.equal(dated.properties.status,'进行中');
+ await assert.rejects(f.api.media.update({path:ref.path,revision:ref.revision,patch:{finishedAt:'2026-10-07'}}),e=>e.code==='conflict');
+ const cleared=await f.api.media.update({path:dated.path,revision:dated.revision,patch:{finishedAt:null}});assert.equal(cleared.properties.finishedAt,null);
+ assert.match(f.raw,/Keep my own words/);
 });
 
 test('media writes detect competing edits and never recreate a deleted or moved source',async()=>{
@@ -92,4 +154,39 @@ test('book cover edits accept existing vault image references and web URLs',asyn
  const ref=await f.api.media.read({path:f.file.path}),raw=f.raw;
  for(const cover of ['../outside.jpg','C:/cover.jpg','file:///C:/cover.jpg','javascript:alert(1)','not-an-image.md']) await assert.rejects(f.api.media.updateMetadata({path:ref.path,revision:ref.metadataRevision,patch:{cover}}),e=>e.code==='invalid-input');
  assert.equal(f.raw,raw);
+});
+
+test('film, music and game facts round-trip without changing progress, scores or prose',async()=>{
+ for(const [kind,key] of [['movie','director'],['music','artist'],['game','developer']]){
+  const f=fixture(kind),before=await f.api.media.read({path:f.file.path});
+  f.raw+='Later personal writing.\r\n';
+  const saved=await f.api.media.updateMetadata({path:before.path,revision:before.metadataRevision,patch:{[key]:['One','Two','One'],year:'2024',cover:'covers/work.jpg',source:'https://example.com/work'}});
+  assert.deepEqual(Array.from(saved.properties[key]),['One','Two']);assert.equal(saved.properties.year,2024);
+  assert.match(f.raw,/rating: 0\r\n# Keep the original comment/);assert.ok(f.raw.endsWith('Later personal writing.\r\n'));assert.equal(saved.properties.pageprogress,20);
+  assert.equal((await f.api.media.updateMetadata({path:before.path,revision:saved.metadataRevision,patch:{year:2024}})).changed,false);
+  const cleared=await f.api.media.updateMetadata({path:before.path,revision:saved.metadataRevision,patch:{[key]:null,year:null}});
+  assert.equal(cleared.properties[key],null);assert.equal(cleared.properties.year,null);assert.equal(cleared.properties.source,'https://example.com/work');
+ }
+});
+
+test('metadata respects media type, validates years and rejects concurrent fact changes',async()=>{
+ const f=fixture('movie'),before=await f.api.media.read({path:f.file.path}),raw=f.raw;
+ for(const patch of [{developer:'Other'},{artist:'Other'},{author:null},{year:0},{year:10000},{year:2024.5},{year:'unknown'},{director:[]},{source:'javascript:alert(1)'}]){
+  await assert.rejects(f.api.media.updateMetadata({path:before.path,revision:before.metadataRevision,patch}),e=>e.code==='invalid-input');assert.equal(f.raw,raw);
+ }
+ f.raw=f.raw.replace('status:', 'director: "External edit"\r\nstatus:');
+ const external=f.raw;
+ await assert.rejects(f.api.media.updateMetadata({path:before.path,revision:before.metadataRevision,patch:{year:2024}}),e=>e.code==='conflict');assert.equal(f.raw,external);
+ const current=await f.api.media.read({path:f.file.path});
+ await f.api.media.update({path:current.path,revision:current.revision,patch:{status:'已看'}});
+ const saved=await f.api.media.updateMetadata({path:current.path,revision:current.metadataRevision,patch:{year:2014}});assert.equal(saved.properties.status,'已看');assert.equal(saved.properties.director,'External edit');
+});
+
+test('MCP accepts nonbook facts but preserves type boundaries',async t=>{
+ const f=fixture('game'),connection=createAgentConnection({getApi:()=>f.api,version:'test'});t.after(()=>connection.dispose());
+ const endpoint=await connection.start(),client=new Client({name:'game-metadata',version:'1'});await client.connect(new StreamableHTTPClientTransport(new URL(endpoint.url),{requestInit:{headers:{Authorization:`Bearer ${endpoint.token}`}}}));t.after(()=>client.close());
+ const read=(await client.callTool({name:'noria_media_read',arguments:{path:f.file.path}})).structuredContent;
+ const result=await client.callTool({name:'noria_media_update_metadata',arguments:{path:read.path,revision:read.metadataRevision,patch:{developer:'Game studio',year:2024}}});
+ assert.equal(result.isError,undefined);assert.deepEqual(result.structuredContent.properties.developer,['Game studio']);assert.equal(result.structuredContent.properties.year,2024);
+ const wrong=await client.callTool({name:'noria_media_update_metadata',arguments:{path:read.path,revision:result.structuredContent.metadataRevision,patch:{director:'Other'}}});assert.equal(wrong.isError,true);
 });

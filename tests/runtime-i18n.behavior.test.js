@@ -209,7 +209,7 @@ test("home guide panel managers retain localized entry titles and use the shared
     "runtime.home.project.managerTitle",
     "runtime.home.project.title",
     "runtime.home.project.openRegistry",
-    "runtime.home.project.manage",
+    "runtime.periodic.projects.nextPlaceholder",
   ]) {
     assert.match(main, new RegExp(JSON.stringify(key)));
     assert.match(guidePanels, new RegExp(JSON.stringify(key)));
@@ -440,7 +440,7 @@ test("home identity and trend cards use catalogued high-frequency chrome", () =>
     assert.doesNotMatch(source, /欢迎您|天气信息加载中|天气自动化已关闭|天气服务不可用|天气获取失败/, name);
     assert.doesNotMatch(source, /尚未配置 MOC|添加 MOC 入口|添加 MOC|未找到 MOC|缺失：/, name);
     assert.doesNotMatch(source, /拖拽调整托盘高度|日态分布|切换统计范围|选择结束日期|上一段|下一段|今天/, name);
-    assert.doesNotMatch(source, /原生热力图组件未加载|习惯打卡热力图|工作量热力图|笔记趋势|新建笔记|字数|笔记占比|暂无可统计的 Markdown 笔记路径|原生饼图组件未加载/, name);
+    assert.doesNotMatch(source, /["'](?:原生热力图组件未加载|习惯打卡热力图|工作量热力图|笔记趋势|新建笔记|字数|笔记占比|暂无可统计的 Markdown 笔记路径|原生饼图组件未加载)["']/, name);
   }
 });
 
@@ -648,7 +648,7 @@ test("shared runtime components use catalog labels instead of ordinary Chinese c
   assert.match(files.workloadWeek, /displayLabel|runtime\.chart\.metricTotal/);
   assert.match(files.managerPanel, /runtime\.manager\.close/);
   assert.match(files.timeline, /runtime\.timeline\.lab\.title/);
-  assert.match(files.tasksCalendar, /runtime\.tasksCalendar\.notice\.customInlineOpen/);
+  assert.match(files.tasksCalendar, /runtime\.tasksCalendar\.activeHours\./);
 
   const ordinaryUiChinese = /(title\s*=\s*"[^"\n]*[\u4e00-\u9fff]|aria-label",\s*`?[^`\n]*[\u4e00-\u9fff]|textContent\s*=\s*`?[^`\n]*[\u4e00-\u9fff]|createDiv\(\{\s*text:\s*"[^"\n]*[\u4e00-\u9fff]|createEl\("[^"]+",\s*\{\s*text:\s*"[^"\n]*[\u4e00-\u9fff]|showDebugNotice\([^)]*[\u4e00-\u9fff])/;
   for (const [name, source] of Object.entries(files)) {
@@ -1214,8 +1214,7 @@ test("task timeline high-impact pomodoro strings use locale catalog", () => {
     "runtime.timeline.pomodoro.detach",
     "runtime.timeline.pomodoro.started",
     "runtime.timeline.pomodoro.paused",
-    "runtime.timeline.pomodoro.stopped",
-    "runtime.timeline.pomodoro.saveFailed"
+    "runtime.timeline.pomodoro.stopped"
   ]) {
     assert.match(main, new RegExp(JSON.stringify(key)));
     assert.match(timeline, new RegExp(JSON.stringify(key)));

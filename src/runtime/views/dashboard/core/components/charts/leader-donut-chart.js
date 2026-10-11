@@ -196,6 +196,15 @@
     };
   }
 
+  function fitLabel(label, name, suffix, maxWidth) {
+    const chars = Array.from(name);
+    label.textContent = name + suffix;
+    for (let keep = chars.length - 1; keep > 0 && label.getComputedTextLength() > maxWidth; keep--) {
+      const left = Math.ceil(keep / 2), right = Math.floor(keep / 2);
+      label.textContent = (name.includes('/') ? '…' + chars.slice(-keep).join('') : chars.slice(0, left).join('') + '…' + (right ? chars.slice(-right).join('') : '')) + suffix;
+    }
+  }
+
   function renderLeaderDonutChart(parent, options = {}) {
     if (!parent) return null;
     const palette = Array.isArray(options.palette) && options.palette.length ? options.palette : DEFAULT_PALETTE;
@@ -324,7 +333,8 @@
         setAttrs(dot, { cx: info.pointOuter.x.toFixed(1), cy: info.pointOuter.y.toFixed(1), r: "2", fill: info.slice.color });
         groups[info.index].g.appendChild(dot);
 
-        const fullLabel = info.slice.pct < 0.075 ? `${info.slice.label} ${(info.slice.pct * 100).toFixed(1)}%` : info.slice.label;
+        const suffix = "";
+        const fullLabel = info.slice.label + suffix;
         const label = createSvgEl("text");
         setAttrs(label, {
           x: labelX,
@@ -338,11 +348,7 @@
         item.g.appendChild(label);
         // Measure actual glyphs: CJK labels are wider than a Latin character estimate.
         const textMax = info.isRight ? layout.rightTextMax : layout.leftTextMax;
-        let visible = Array.from(fullLabel);
-        while (visible.length > 1 && label.getComputedTextLength() > textMax) {
-          visible.pop();
-          label.textContent = visible.join('') + '…';
-        }
+        fitLabel(label, info.slice.label, suffix, textMax);
         if (typeof options.onSelect === 'function') {
           const hit = setAttrs(createSvgEl('rect'), {
             x: info.isRight ? labelX : labelX - textMax, y: info.y - 12,
@@ -436,7 +442,7 @@
 
   root.components.charts.leaderDonutChart = {
     renderLeaderDonutChart,
-    _test: { arcPath, normalizeItems, distributeLabels, balanceLabelSides, polar, computeLayout, leaderPoints }
+    _test: { arcPath, normalizeItems, distributeLabels, balanceLabelSides, polar, computeLayout, leaderPoints, fitLabel }
   };
   if (typeof module !== "undefined" && module.exports) module.exports = root.components.charts.leaderDonutChart;
 })();

@@ -1,6 +1,8 @@
 "use strict";
 
 const obsidian = require("obsidian");
+const calendarZone=require("./task-calendar-zone.js");
+const {placePanePopover,openPanePopover}=require("./pane-popover.js");
 const noriaIdentity = require("./noria-identity.js");
 const {inboxWorkflowSeed,inboxQueueSeed}=require("./inbox-seeds.js");
 const { NORIA_EMBEDDED_SOURCES, NORIA_RUNTIME_BUILD_ID } = require("./generated/embedded-runtime-sources.js");
@@ -16,6 +18,7 @@ const {saveTaskEditor} = require("./task-editor-writeback.js");
 const taskAdoptionDocument=require("./task-adoption-document.js");
 const {choose:chooseTaskAdoptionItem,citationPath}=require("./task-adoption.js");
 const {renderWorkbenchTaskRow} = require("./task-row.js");
+const {focusDefaults,ensureHomeFocusCards}=require('./home-focus-defaults.js');
 const {openQuickCapture,QuickCaptureComposer}=require("./quick-capture.js");
 const timelineWindows=require("./runtime/views/task-timeline/time-window.js");
 const {TimelineWorkspace}=require("./timeline-workspace.js");
@@ -799,24 +802,26 @@ const NORIA_HOME_TRENDS_BLOCK_IDS = Object.freeze([
 ]);
 const NORIA_HOME_BRIEFING_DEFAULT_SOURCE = "每日简报 | 00_Inbox/daily-brief.md | daily | 36h; 当前建议 | 00_Inbox/current-suggestions.md | current | 72h; 每周回顾 | 00_Inbox/weekly-review.md | weekly | 10d; 项目监控 | 00_Inbox/github-radar-latest.md | project | 72h";
 const NORIA_DEFAULT_HOME_WIDGETS = [
+  ...focusDefaults,
   { id: "identity", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 10, size: "wide", title: "", source: "home-identity", props: {} },
   { id: "metrics", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 20, size: "wide", title: "", source: "overview-metrics", props: { metricsLayout: "hero" } },
   { id: "today-actions", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 30, size: "full", title: "", source: "today-actions", props: {} },
-  { id: "daily-advice", type: "markdown", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: false, order: 40, size: "full", title: "建议", source: "", props: { sourceMode: "daily-section", heading: "建议", renderMode: "compact" } },
-  { id: "today-tasks-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 50, size: "medium", title: "", source: "overview-columns", props: { cardMode: true, panels: ["tasks"] } },
-  { id: "inbox-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 51, size: "medium", title: "", source: "overview-columns", props: { cardMode: true, panels: ["inbox"] } },
-  { id: "countdown-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 52, size: "medium", title: "", source: "overview-columns", props: { cardMode: true, panels: ["countdown"] } },
-  { id: "habit-history-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 53, size: "full", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "habit-history", lazy: true } },
-  { id: "projects-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 60, size: "full", title: "", source: "guide-panels", props: { sectionMode: "projects" } },
-  { id: "moc-strip", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 61, size: "full", title: "", source: "guide-panels", props: { sectionMode: "moc" } },
-  { id: "review-focus", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 62, size: "full", title: "", source: "guide-panels", props: { sectionMode: "review", defaultExpanded: true } },
-  { id: "trends-range", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 70, size: "full", title: "", titleKey: "runtime.home.facade.trends", source: "trends-and-stats", props: { renderMode: "range" } },
-  { id: "note-trend-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 71, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "note-trend", lazy: true } },
-  { id: "task-trend-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 72, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "task-trend", lazy: true } },
-  { id: "habit-heatmap-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 74, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "heatmaps", heatmapMode: "habit", lazy: true } },
-  { id: "workload-heatmap-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 75, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "heatmaps", heatmapMode: "workload", lazy: true } },
-  { id: "tag-distribution-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 76, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "tag-distribution", lazy: true } },
-  { id: "daily-state-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 77, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "daily-state", lazy: true } }
+  { id: "today-tasks-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 40, size: "medium", layout: { span: 4, minWidth: 220 }, title: "", source: "overview-columns", props: { cardMode: true, panels: ["tasks"], cardHeight: 315 } },
+  { id: "inbox-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 50, size: "medium", layout: { span: 4, minWidth: 220 }, title: "", source: "overview-columns", props: { cardMode: true, panels: ["inbox"], cardHeight: 314 } },
+  { id: "projects-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 60, size: "medium", layout: { span: 4, minWidth: 220 }, title: "", source: "guide-panels", props: { sectionMode: "projects", cardHeight: 316 } },
+  { id: "habit-history-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 80, size: "medium", layout: { span: 4, minWidth: 220 }, title: "", source: "trends-and-stats", props: { renderMode: "block", block: "habit-history", lazy: true, historyDays: 21, cardHeight: 273 } },
+  { id: "countdown-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 90, size: "medium", layout: { span: 4, minWidth: 220 }, title: "", source: "overview-columns", props: { cardMode: true, panels: ["countdown"], cardHeight: 276 } },
+  { id: "daily-advice", type: "markdown", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 100, size: "medium", layout: { span: 4 }, title: "建议", source: "", props: { sourceMode: "daily-section", heading: "建议", renderMode: "compact", cardHeight: 169 } },
+  { id: "quick-access", type: "extension", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 110, size: "medium", layout: { span: 4, minWidth: 220 }, title: "", source: "noria:shortcuts", props: {} },
+  { id: "moc-strip", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 120, size: "medium", layout: { span: 4, minWidth: 220 }, title: "", source: "guide-panels", props: { sectionMode: "moc" } },
+  { id: "review-focus", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 130, size: "full", title: "", source: "guide-panels", props: { sectionMode: "review", defaultExpanded: true } },
+  { id: "trends-range", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 140, size: "full", title: "", titleKey: "runtime.home.facade.trends", source: "trends-and-stats", props: { renderMode: "range" } },
+  { id: "note-trend-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 150, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "note-trend", lazy: true } },
+  { id: "task-trend-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 160, size: "wide", title: "", source: "trends-and-stats", props: { renderMode: "block", block: "task-trend", lazy: true } },
+  { id: "habit-heatmap-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 170, size: "wide", layout: { span: 6, minWidth: 320 }, title: "", source: "trends-and-stats", props: { renderMode: "block", block: "heatmaps", heatmapMode: "habit", lazy: true, cardHeight: 208 } },
+  { id: "workload-heatmap-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 180, size: "wide", layout: { span: 6, minWidth: 320 }, title: "", source: "trends-and-stats", props: { renderMode: "block", block: "heatmaps", heatmapMode: "workload", lazy: true } },
+  { id: "tag-distribution-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 190, size: "wide", layout: { span: 6, minWidth: 320 }, title: "", source: "trends-and-stats", props: { renderMode: "block", block: "tag-distribution", lazy: true, cardHeight: 290 } },
+  { id: "daily-state-card", type: "builtin", schemaVersion: NORIA_HOME_WIDGET_SCHEMA_VERSION, enabled: true, order: 200, size: "wide", layout: { span: 6, minWidth: 320 }, title: "", source: "trends-and-stats", props: { renderMode: "block", block: "daily-state", lazy: true, cardHeight: 295 } }
 ];
 const NORIA_HOME_BUILTIN_WIDGET_IDS = Object.freeze(NORIA_DEFAULT_HOME_WIDGETS.map((widget) => widget.id));
 
@@ -854,14 +859,19 @@ const NORIA_DEFAULT_HOME = {
 const NORIA_DEFAULT_TASKS_CALENDAR = {
   defaultView: "month",
   calendarDensity: "useGlobal",
-  taskColorMode: "statusFirst",
   showSourceChips: false,
+  showWeather: true,
+  timeZone: "",
+  sourceTimeZone: "",
+  weatherPastDays: 7,
+  weatherFutureDays: 7,
   showCompletedTasks: "dim",
   monthOverflowBehavior: "scroll",
   rememberLastView: true,
   taskTimelineOpenMode: "right-sidebar",
   eisenhowerGranularity: "week",
-  showEarlyHours: false
+  showEarlyHours: false,
+  activeHours: { start: 360, end: 1440 }
 };
 
 const NORIA_DEFAULT_TIMELINE_VIEW = {
@@ -911,7 +921,6 @@ const NORIA_APPEARANCE_OPTIONS = {
 const NORIA_TASKS_CALENDAR_OPTIONS = {
   defaultView: ["month", "week", "day", "list"],
   calendarDensity: ["useGlobal", "compact", "comfortable", "spacious"],
-  taskColorMode: ["statusFirst", "priorityFirst", "minimal"],
   showCompletedTasks: ["on", "dim", "hide"],
   monthOverflowBehavior: ["scroll", "collapse", "popover"],
   taskTimelineOpenMode: ["right-sidebar", "main-tab"],
@@ -919,9 +928,12 @@ const NORIA_TASKS_CALENDAR_OPTIONS = {
 };
 
 // Shared by the task display controls and their searchable destinations.
+const NORIA_TASK_WEATHER_RANGES = {weatherPastDays: [-1, 0, 7, 30, 90], weatherFutureDays: [0, 3, 7, 14]};
 const NORIA_TASKS_DISPLAY_SETTINGS = [
   { key: "calendarDensity", keywords: ["density", "spacing", "间距", "紧凑"] },
-  { key: "taskColorMode", keywords: ["color", "status", "颜色", "状态"] },
+  { key: "showWeather", toggle: true, keywords: ["weather", "forecast", "天气", "预报"] },
+  { key: "weatherPastDays", range: true, keywords: ["weather", "history", "天气", "历史", "过去"] },
+  { key: "weatherFutureDays", range: true, keywords: ["weather", "forecast", "天气", "未来", "预报"] },
   { key: "showSourceChips", toggle: true, keywords: ["source", "chip", "来源", "来源标记"] },
   { key: "showCompletedTasks", keywords: ["done", "completed", "hide", "已完成", "隐藏完成", "弱化"] },
   { key: "monthOverflowBehavior", keywords: ["month", "overflow", "月表", "溢出", "折叠"] }
@@ -962,6 +974,8 @@ const NORIA_SETTING_TABS = [
 
 const NORIA_I18N = {
   en: {
+    "home.focus.timer": "Focus",
+    "home.focus.today": "Today's focus",
     "settings.title": "Noria settings",
     "settings.home.cardGroup": "Cards and statistics",
     "settings.home.rangeDays": "{days} days",
@@ -1321,8 +1335,17 @@ const NORIA_I18N = {
     "settings.tasks.defaultViewDesc": "Used when opening Tasks unless remember last view has a saved choice.",
     "settings.tasks.calendarDensity": "Calendar density",
     "settings.tasks.calendarDensityDesc": "Controls Tasks Calendar spacing; use global follows Appearance density.",
-    "settings.tasks.taskColorMode": "Task color mode",
-    "settings.tasks.taskColorModeDesc": "Status-first keeps color semantic and low-noise in dark mode.",
+    "settings.tasks.timeZone": "Calendar time zone",
+    "settings.tasks.weatherPastDays": "Past weather",
+    "settings.tasks.weatherPastDaysDesc": "For the configured city, using Open-Meteo historical model data; viewing does not write to notes.",
+    "settings.tasks.weatherFutureDays": "Forecast window",
+    "settings.tasks.weatherFutureDaysDesc": "Days after today. Actual coverage depends on the selected weather provider.",
+    "settings.tasks.weatherFollowCalendar": "Follow calendar",
+    "settings.tasks.weatherNone": "None",
+    "settings.tasks.weatherDays": "{count} days",
+    "settings.tasks.taskColors": "Category colors",
+    "settings.tasks.showWeather": "Show weather",
+    "settings.tasks.showWeatherDesc": "Show dated forecasts beside the calendar dates, using your existing weather location and provider.",
     "settings.tasks.showSourceChips": "Show source chips",
     "settings.tasks.showSourceChipsDesc": "Show small origin chips on task rows when useful.",
     "settings.tasks.showCompletedTasks": "Completed tasks",
@@ -1339,9 +1362,6 @@ const NORIA_I18N = {
     "settings.tasks.option.compact": "Compact",
     "settings.tasks.option.comfortable": "Comfortable",
     "settings.tasks.option.spacious": "Spacious",
-    "settings.tasks.option.statusFirst": "Status first",
-    "settings.tasks.option.priorityFirst": "Priority first",
-    "settings.tasks.option.minimal": "Minimal",
     "settings.tasks.option.on": "Show",
     "settings.tasks.option.dim": "Dim",
     "settings.tasks.option.hide": "Hide",
@@ -1499,8 +1519,8 @@ const NORIA_I18N = {
     "settings.appearance.accentPreset": "Accent preset",
     "settings.appearance.statusPalette": "Status palette",
     "settings.appearance.cardStrength": "Card strength",
-    "settings.appearance.tagColorMap": "Tag color map",
-    "settings.appearance.tagColorMapDesc": "Optional colors for the tags you want to distinguish visually.",
+    "settings.appearance.tagColorMap": "Tag colors",
+    "settings.appearance.tagColorMapDesc": "Choose a color for a task tag. It also applies to child tags; an exact match wins. Unconfigured ordinary tags stay neutral.",
     "settings.appearance.addTagColor": "Add tag color",
     "settings.appearance.tagNamePlaceholder": "tag",
     "settings.appearance.removeTagColor": "Remove tag color",
@@ -1679,6 +1699,15 @@ const NORIA_I18N = {
     "workbench.discardTaskEdits": "Discard changes",
     "workbench.taskRefreshFailed": "Task saved. Reload this view to refresh it.",
     "workbench.taskInvalidDates": "Check the dates and times. The end cannot be earlier than the start.",
+    "workbench.schedule": "Schedule",
+    "workbench.scheduleAdd": "Add an arrangement",
+    "workbench.scheduleStart": "Start",
+    "workbench.scheduleEnd": "End",
+    "workbench.scheduleAddEnd": "Add an end date or time",
+    "workbench.scheduleRemove": "Remove this arrangement",
+    "workbench.scheduleUnreadable": "The original arrangement cannot be read. Edit or remove it",
+    "workbench.schedulePastDue": "This arrangement extends past the deadline",
+    "workbench.legacyEnd": "End / due",
     "workbench.taskDestination": "Choose the project's task note",
     "workbench.adoptionCreate": "Create task from selection",
     "workbench.adoptionLink": "Link selection to an existing task",
@@ -1688,6 +1717,7 @@ const NORIA_I18N = {
     "workbench.adoptionSaved": "Task linked.",
     "workbench.adoptionViewTask": "View task",
     "workbench.adoptionOpenOrigin": "Back to record",
+    "workbench.focus": "Focus",
     "workbench.adoptionFindTask": "Find an existing task",
     "workbench.adoptionAlreadyLinked": "Tasks already linked to this passage",
     "workbench.adoptionCreateAnother": "Create another task",
@@ -1820,7 +1850,7 @@ const NORIA_I18N = {
     "timeline.filter.mode.custom": "Custom",
     "timeline.filter.layer.task": "Tasks",
     "timeline.filter.layer.annotation": "Time annotations",
-    "timeline.filter.layer.pomodoro": "Pomo",
+    "timeline.filter.layer.pomodoro": "Focus",
     "timeline.filter.layer.note": "Notes",
     "timeline.filter.layer.git": "Git",
     "timeline.filter.layer.noria": "Noria records",
@@ -2123,8 +2153,12 @@ const NORIA_I18N = {
     "review.support.loading": "Loading...",
     "review.support.loadFailed": "Could not load: {message}",
     "review.analysis.empty": "No analysis draft yet.",
-    "review.analysis.prepare": "Prepare analysis",
-    "review.analysis.prepared": "Prompt prepared",
+    "review.analysis.prepare": "Prepare material",
+    "review.analysis.prepared": "Material and prompt are ready. Analysis is produced by your external assistant.",
+    "review.analysis.changed": "The source material has changed since this analysis was written.",
+    "review.analysis.unverified": "This analysis has no material version to compare with the current records.",
+    "review.analysis.prepareFailed": "Could not prepare material: {message}",
+    "review.analysis.refreshFailed": "Material is ready, but the analysis could not be refreshed: {message}",
     "runtime.common.cancel": "Cancel",
     "runtime.common.save": "Save",
     "runtime.common.delete": "Delete",
@@ -2256,6 +2290,21 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.nav.next": "Next period",
     "runtime.tasksCalendar.nav.stats": "View statistics and task details",
     "runtime.tasksCalendar.stats.buttonTitle": "View statistics and task details",
+    "runtime.tasksCalendar.scope.title": "Display scope",
+    "runtime.tasksCalendar.scope.monthWithTimeline": "Month includes timeline events",
+    "runtime.tasksCalendar.scope.monthWithoutTimeline": "Month excludes timeline events",
+    "runtime.tasksCalendar.scope.timeline": "Timeline events",
+    "runtime.tasksCalendar.scope.cancelled": "Cancelled tasks",
+    "runtime.tasksCalendar.scope.overdueTimeline": "Overdue timeline",
+    "runtime.tasksCalendar.scope.shown": "Shown",
+    "runtime.tasksCalendar.scope.hidden": "Hidden",
+    "runtime.tasksCalendar.scope.notCarried": "Not carried forward",
+    "runtime.tasksCalendar.scope.carried": "Carried forward",
+    "runtime.tasksCalendar.scope.includeTags": "Include tags",
+    "runtime.tasksCalendar.scope.excludeTags": "Exclude tags",
+    "runtime.tasksCalendar.scope.timelineTags": "Timeline events use #timeline or #tl tags.",
+    "runtime.tasksCalendar.scope.timelineException": "Timeline events bypass excluded tags but still require included tags.",
+    "runtime.tasksCalendar.scope.settings": "Filter settings",
     "runtime.tasksCalendar.jump.toWeek": "To week",
     "runtime.tasksCalendar.jump.toYear": "To year",
     "runtime.tasksCalendar.jump.toMonth": "To month",
@@ -2352,6 +2401,19 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.notice.timelineWeekOnly": "Task timeline mode only supports week view",
     "runtime.tasksCalendar.view.allDay": "All day",
     "runtime.tasksCalendar.view.morningAxis": "Morning axis",
+    "runtime.tasksCalendar.activeHours.title": "Visible hours",
+    "runtime.tasksCalendar.activeHours.active": "Active",
+    "runtime.tasksCalendar.activeHours.fullDay": "Full day",
+    "runtime.tasksCalendar.activeHours.start": "From",
+    "runtime.tasksCalendar.activeHours.end": "To",
+    "runtime.tasksCalendar.activeHours.apply": "Apply",
+    "runtime.tasksCalendar.activeHours.invalid": "Use HH:mm, between 00:00 and 24:00, with at least one hour between start and end.",
+    "runtime.tasksCalendar.activeHours.saveFailed": "Could not save. Please try again.",
+    "runtime.tasksCalendar.activeHours.expand": "Expand hours outside the active range",
+    "runtime.tasksCalendar.activeHours.collapse": "Return to active hours",
+    "runtime.tasksCalendar.activeHours.tasks": "Outside active hours · {count} tasks",
+    "runtime.tasksCalendar.activeHours.outside": "Tasks outside active hours",
+    "runtime.tasksCalendar.overflow.more": "Show {count} more tasks",
     "runtime.tasksCalendar.view.showingAllDay": "Showing 00:00-24:00 (all day). Click to start at 06:00.",
     "runtime.tasksCalendar.view.showingMorningAxis": "00:00-06:00 is hidden. Click to show the full 00:00-24:00 range.",
     "runtime.tasksCalendar.menu.complete": "Complete task",
@@ -2371,15 +2433,22 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.quick.lunch": "Lunch",
     "runtime.tasksCalendar.quick.dinner": "Dinner",
     "runtime.tasksCalendar.quick.nap": "Nap",
-    "runtime.tasksCalendar.quick.pregen": "Pre-generate",
+    "runtime.tasksCalendar.quick.targetDate": "Add to date",
+    "runtime.tasksCalendar.quick.scope": "Apply to",
+    "runtime.tasksCalendar.quick.scopeDay": "Selected date",
+    "runtime.tasksCalendar.quick.scopeAll": "Every visible day",
+    "runtime.tasksCalendar.quick.scopeMixed": "Events on date; presets in batch",
+    "runtime.tasksCalendar.quick.keepTemplate": "Also save as preset",
+    "runtime.tasksCalendar.quick.invalidEvent": "Enter an event name and check its start time and duration.",
+    "runtime.tasksCalendar.quick.pregen": "Add presets",
     "runtime.tasksCalendar.quick.custom": "Custom",
     "runtime.tasksCalendar.quick.library": "Library",
     "runtime.tasksCalendar.quick.commonEvents": "Common events",
     "runtime.tasksCalendar.quick.libraryFallback": "Using default events until the event library is available.",
     "runtime.tasksCalendar.quick.labelPlaceholder": "Event name",
-    "runtime.tasksCalendar.quick.tagPlaceholder": "Tag suffix",
-    "runtime.tasksCalendar.quick.startPlaceholder": "Start HH:mm",
-    "runtime.tasksCalendar.quick.durationPlaceholder": "Minutes",
+    "runtime.tasksCalendar.quick.tagPlaceholder": "Tag (optional)",
+    "runtime.tasksCalendar.quick.startPlaceholder": "Start (optional)",
+    "runtime.tasksCalendar.quick.durationPlaceholder": "Duration (minutes)",
     "runtime.tasksCalendar.quick.add": "Add",
     "runtime.tasksCalendar.quick.save": "Save",
     "runtime.tasksCalendar.quick.saved": "Save ✓",
@@ -2582,6 +2651,9 @@ const NORIA_I18N = {
     "runtime.home.trends.habitHeatmap": "Habit heatmap",
     "runtime.home.trends.workHeatmap": "Workload heatmap",
     "runtime.home.trends.overview": "Overview",
+    "runtime.home.trends.notesShort": "Notes",
+    "runtime.home.trends.tasksShort": "Tasks",
+    "runtime.home.trends.wordsShort": "Characters",
     "runtime.home.trends.newNotes": "New notes",
     "runtime.home.trends.tasks": "Completed tasks",
     "runtime.home.trends.words": "Diary characters",
@@ -2833,13 +2905,14 @@ const NORIA_I18N = {
     "runtime.periodic.projects.taskStats": "Tasks {done}/{total} · {pct}%",
     "runtime.periodic.projects.noTaskStats": "No project task statistics",
     "runtime.periodic.projects.inProgress": "In progress",
+    "runtime.periodic.projects.choose": "Find project",
     "runtime.periodic.projects.nextPlaceholder": "Add next step",
     "runtime.periodic.projects.nextAria": "Add a next step to {name}",
     "runtime.periodic.projects.nextAdd": "Add next step to {name}",
     "runtime.periodic.projects.nextEmpty": "Type a next step first.",
     "runtime.periodic.projects.nextAdded": "Next step added: {name}",
     "runtime.periodic.projects.nextAddFailed": "Could not add next step: {message}",
-    "runtime.periodic.projects.progressTitle": "{name} · Progress {done}/{total} · {pct}% · click to filter tasks · double-click to open project · right-click for actions",
+    "runtime.periodic.projects.progressTitle": "{name} · Tasks completed {done}/{total}",
     "runtime.periodic.todayTasks.add": "Add task for the current filter period",
     "runtime.periodic.todayTasks.addTitle": "Add to {period} plan",
     "runtime.periodic.todayTasks.inputPlaceholder": "Enter a task; press Enter to save",
@@ -3080,6 +3153,8 @@ const NORIA_I18N = {
     "runtime.weather.error.missingQweatherKey": "Missing QWeather API key"
   },
   zh: {
+    "home.focus.timer": "专注",
+    "home.focus.today": "今日专注",
     "settings.title": "Noria 设置",
     "settings.home.cardGroup": "卡片与统计",
     "settings.home.rangeDays": "{days} 天",
@@ -3439,8 +3514,17 @@ const NORIA_I18N = {
     "settings.tasks.defaultViewDesc": "打开任务看板时使用；如果启用记住上次视图，则优先使用上次选择。",
     "settings.tasks.calendarDensity": "日历密度",
     "settings.tasks.calendarDensityDesc": "调整任务日历间距；选择“跟随全局”时，使用外观设置中的密度。",
-    "settings.tasks.taskColorMode": "任务颜色模式",
-    "settings.tasks.taskColorModeDesc": "选择按状态或优先级着色，也可减少颜色提示。",
+    "settings.tasks.timeZone": "日历时区",
+    "settings.tasks.weatherPastDays": "过去天气",
+    "settings.tasks.weatherPastDaysDesc": "查询当前设置城市的 Open-Meteo 历史模型数据，仅供查看，不写入笔记。",
+    "settings.tasks.weatherFutureDays": "未来天气",
+    "settings.tasks.weatherFutureDaysDesc": "今天之后的天数，实际可显示范围以所选天气服务为准。",
+    "settings.tasks.weatherFollowCalendar": "跟随当前日历",
+    "settings.tasks.weatherNone": "不显示",
+    "settings.tasks.weatherDays": "{count} 天",
+    "settings.tasks.taskColors": "分类配色",
+    "settings.tasks.showWeather": "显示天气",
+    "settings.tasks.showWeatherDesc": "在日期旁显示天气，沿用已设置的城市；没有数据的日期留空。",
     "settings.tasks.showSourceChips": "显示来源标记",
     "settings.tasks.showSourceChipsDesc": "需要时在任务行显示小型来源标记。",
     "settings.tasks.showCompletedTasks": "已完成任务",
@@ -3457,9 +3541,6 @@ const NORIA_I18N = {
     "settings.tasks.option.compact": "紧凑",
     "settings.tasks.option.comfortable": "舒适",
     "settings.tasks.option.spacious": "宽松",
-    "settings.tasks.option.statusFirst": "状态优先",
-    "settings.tasks.option.priorityFirst": "优先级优先",
-    "settings.tasks.option.minimal": "最小色彩",
     "settings.tasks.option.on": "显示",
     "settings.tasks.option.dim": "弱化",
     "settings.tasks.option.hide": "隐藏",
@@ -3617,8 +3698,8 @@ const NORIA_I18N = {
     "settings.appearance.accentPreset": "强调色预设",
     "settings.appearance.statusPalette": "状态色方案",
     "settings.appearance.cardStrength": "卡片强度",
-    "settings.appearance.tagColorMap": "标签颜色映射",
-    "settings.appearance.tagColorMapDesc": "为需要视觉区分的标签设置可选颜色。",
+    "settings.appearance.tagColorMap": "标签配色",
+    "settings.appearance.tagColorMapDesc": "为任务标签选择颜色，也适用于子标签；精确设置优先。普通标签未设置时保持中性。",
     "settings.appearance.addTagColor": "添加标签颜色",
     "settings.appearance.tagNamePlaceholder": "标签",
     "settings.appearance.removeTagColor": "移除标签颜色",
@@ -3797,6 +3878,15 @@ const NORIA_I18N = {
     "workbench.discardTaskEdits": "放弃修改",
     "workbench.taskRefreshFailed": "任务已保存，请重新读取以刷新视图。",
     "workbench.taskInvalidDates": "请检查日期和时间，结束不能早于开始。",
+    "workbench.schedule": "安排",
+    "workbench.scheduleAdd": "添加安排",
+    "workbench.scheduleStart": "开始",
+    "workbench.scheduleEnd": "结束",
+    "workbench.scheduleAddEnd": "添加结束日期或时间",
+    "workbench.scheduleRemove": "取消这次安排",
+    "workbench.scheduleUnreadable": "原安排无法识别，可重新填写或移除",
+    "workbench.schedulePastDue": "这次安排晚于截止时间",
+    "workbench.legacyEnd": "结束／截止",
     "workbench.taskDestination": "选择项目任务所在的笔记",
     "workbench.adoptionCreate": "从所选文字创建任务",
     "workbench.adoptionLink": "关联到已有任务",
@@ -3806,6 +3896,7 @@ const NORIA_I18N = {
     "workbench.adoptionSaved": "已关联任务。",
     "workbench.adoptionViewTask": "查看任务",
     "workbench.adoptionOpenOrigin": "回看记录",
+    "workbench.focus": "专注",
     "workbench.adoptionFindTask": "查找已有任务",
     "workbench.adoptionAlreadyLinked": "这段记录已关联的任务",
     "workbench.adoptionCreateAnother": "另外创建一条任务",
@@ -3938,7 +4029,7 @@ const NORIA_I18N = {
     "timeline.filter.mode.custom": "自定义",
     "timeline.filter.layer.task": "任务",
     "timeline.filter.layer.annotation": "时间标注",
-    "timeline.filter.layer.pomodoro": "番茄钟",
+    "timeline.filter.layer.pomodoro": "专注",
     "timeline.filter.layer.note": "笔记",
     "timeline.filter.layer.git": "Git",
     "timeline.filter.layer.noria": "Noria 记录",
@@ -4241,8 +4332,12 @@ const NORIA_I18N = {
     "review.support.loading": "加载中...",
     "review.support.loadFailed": "加载失败：{message}",
     "review.analysis.empty": "尚无分析草稿。",
-    "review.analysis.prepare": "准备分析",
-    "review.analysis.prepared": "提示词已准备",
+    "review.analysis.prepare": "准备材料",
+    "review.analysis.prepared": "材料与提示已准备，分析由外部 SI 完成。",
+    "review.analysis.changed": "资料已变化，这份分析基于此前的记录。",
+    "review.analysis.unverified": "这份分析未记录资料版本，需结合当前记录核对。",
+    "review.analysis.prepareFailed": "材料准备失败：{message}",
+    "review.analysis.refreshFailed": "材料已准备，但分析刷新失败：{message}",
     "runtime.common.cancel": "取消",
     "runtime.common.save": "保存",
     "runtime.common.delete": "删除",
@@ -4374,6 +4469,21 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.nav.next": "下一段时期",
     "runtime.tasksCalendar.nav.stats": "查看统计与待办明细",
     "runtime.tasksCalendar.stats.buttonTitle": "查看统计与待办明细",
+    "runtime.tasksCalendar.scope.title": "显示范围",
+    "runtime.tasksCalendar.scope.monthWithTimeline": "月表包含时间轴事件",
+    "runtime.tasksCalendar.scope.monthWithoutTimeline": "月表不含时间轴事件",
+    "runtime.tasksCalendar.scope.timeline": "时间轴事件",
+    "runtime.tasksCalendar.scope.cancelled": "已取消任务",
+    "runtime.tasksCalendar.scope.overdueTimeline": "逾期时间轴",
+    "runtime.tasksCalendar.scope.shown": "显示",
+    "runtime.tasksCalendar.scope.hidden": "隐藏",
+    "runtime.tasksCalendar.scope.notCarried": "不结转",
+    "runtime.tasksCalendar.scope.carried": "结转",
+    "runtime.tasksCalendar.scope.includeTags": "包含标签",
+    "runtime.tasksCalendar.scope.excludeTags": "排除标签",
+    "runtime.tasksCalendar.scope.timelineTags": "时间轴事件以 #timeline 或 #tl 标签识别。",
+    "runtime.tasksCalendar.scope.timelineException": "时间轴事件不受排除标签限制，仍遵循包含标签。",
+    "runtime.tasksCalendar.scope.settings": "筛选设置",
     "runtime.tasksCalendar.jump.toWeek": "到周",
     "runtime.tasksCalendar.jump.toYear": "到年",
     "runtime.tasksCalendar.jump.toMonth": "到月",
@@ -4470,6 +4580,19 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.notice.timelineWeekOnly": "任务时间轴模式仅支持周视图",
     "runtime.tasksCalendar.view.allDay": "全日",
     "runtime.tasksCalendar.view.morningAxis": "晨轴",
+    "runtime.tasksCalendar.activeHours.title": "显示时段",
+    "runtime.tasksCalendar.activeHours.active": "活跃",
+    "runtime.tasksCalendar.activeHours.fullDay": "全天",
+    "runtime.tasksCalendar.activeHours.start": "开始",
+    "runtime.tasksCalendar.activeHours.end": "结束",
+    "runtime.tasksCalendar.activeHours.apply": "应用",
+    "runtime.tasksCalendar.activeHours.invalid": "请输入 00:00–24:00 内的时间，格式为 HH:mm，开始与结束至少相隔一小时。",
+    "runtime.tasksCalendar.activeHours.saveFailed": "保存失败，请重试。",
+    "runtime.tasksCalendar.activeHours.expand": "展开区间外时段",
+    "runtime.tasksCalendar.activeHours.collapse": "收起区间外时段",
+    "runtime.tasksCalendar.activeHours.tasks": "区间外 · {count} 项",
+    "runtime.tasksCalendar.activeHours.outside": "区间外的任务",
+    "runtime.tasksCalendar.overflow.more": "查看其余 {count} 项任务",
     "runtime.tasksCalendar.view.showingAllDay": "已显示 00:00-24:00（全日），点击切回 06:00 起",
     "runtime.tasksCalendar.view.showingMorningAxis": "已隐藏 00:00-06:00（晨轴），点击显示完整 00:00-24:00",
     "runtime.tasksCalendar.menu.complete": "完成任务",
@@ -4489,15 +4612,22 @@ const NORIA_I18N = {
     "runtime.tasksCalendar.quick.lunch": "午餐",
     "runtime.tasksCalendar.quick.dinner": "晚餐",
     "runtime.tasksCalendar.quick.nap": "午休",
-    "runtime.tasksCalendar.quick.pregen": "预生成",
+    "runtime.tasksCalendar.quick.targetDate": "添加到日期",
+    "runtime.tasksCalendar.quick.scope": "添加范围",
+    "runtime.tasksCalendar.quick.scopeDay": "所选日期",
+    "runtime.tasksCalendar.quick.scopeAll": "视图内每天",
+    "runtime.tasksCalendar.quick.scopeMixed": "事件当天 · 预设批量",
+    "runtime.tasksCalendar.quick.keepTemplate": "同时存为常用",
+    "runtime.tasksCalendar.quick.invalidEvent": "请填写事件名，并检查开始时间和时长。",
+    "runtime.tasksCalendar.quick.pregen": "添加预设",
     "runtime.tasksCalendar.quick.custom": "自定义",
     "runtime.tasksCalendar.quick.library": "事件库",
     "runtime.tasksCalendar.quick.commonEvents": "常用事件",
     "runtime.tasksCalendar.quick.libraryFallback": "事件库暂不可用，当前显示默认事件。",
     "runtime.tasksCalendar.quick.labelPlaceholder": "事件名",
-    "runtime.tasksCalendar.quick.tagPlaceholder": "tag 后缀",
-    "runtime.tasksCalendar.quick.startPlaceholder": "开始 HH:mm",
-    "runtime.tasksCalendar.quick.durationPlaceholder": "分钟",
+    "runtime.tasksCalendar.quick.tagPlaceholder": "标签（可选）",
+    "runtime.tasksCalendar.quick.startPlaceholder": "开始时间（可选）",
+    "runtime.tasksCalendar.quick.durationPlaceholder": "时长（分钟）",
     "runtime.tasksCalendar.quick.add": "添加",
     "runtime.tasksCalendar.quick.save": "保存",
     "runtime.tasksCalendar.quick.saved": "保存 ✓",
@@ -4700,6 +4830,9 @@ const NORIA_I18N = {
     "runtime.home.trends.habitHeatmap": "习惯打卡热力图",
     "runtime.home.trends.workHeatmap": "工作量热力图",
     "runtime.home.trends.overview": "总览",
+    "runtime.home.trends.notesShort": "笔记数",
+    "runtime.home.trends.tasksShort": "任务数",
+    "runtime.home.trends.wordsShort": "码字数",
     "runtime.home.trends.newNotes": "新建笔记数",
     "runtime.home.trends.tasks": "完成任务",
     "runtime.home.trends.words": "日记字符",
@@ -4951,13 +5084,14 @@ const NORIA_I18N = {
     "runtime.periodic.projects.taskStats": "任务 {done}/{total} · {pct}%",
     "runtime.periodic.projects.noTaskStats": "暂无项目任务统计",
     "runtime.periodic.projects.inProgress": "进行中",
+    "runtime.periodic.projects.choose": "查找项目",
     "runtime.periodic.projects.nextPlaceholder": "记下一步",
     "runtime.periodic.projects.nextAria": "给 {name} 记下一步",
     "runtime.periodic.projects.nextAdd": "给 {name} 追加下一步",
     "runtime.periodic.projects.nextEmpty": "先写下一步内容。",
     "runtime.periodic.projects.nextAdded": "已追加下一步：{name}",
     "runtime.periodic.projects.nextAddFailed": "追加下一步失败：{message}",
-    "runtime.periodic.projects.progressTitle": "{name} · 进度 {done}/{total} · {pct}% · 单击切换待办 · 双击打开项目 · 右键操作",
+    "runtime.periodic.projects.progressTitle": "{name} · 任务完成 {done}/{total}",
     "runtime.periodic.todayTasks.add": "按当前筛选周期添加任务",
     "runtime.periodic.todayTasks.addTitle": "添加到{period}计划",
     "runtime.periodic.todayTasks.inputPlaceholder": "输入任务，回车保存",
@@ -5281,14 +5415,14 @@ const NORIA_RIBBON_SPECS = [
   },
   {
     key: "noria:tasks",
-    icon: "list-checks",
+    icon: "list-todo",
     titleKey: "ribbon.tasks",
     action: "openTasksBoardLeaf",
     moduleKey: "tasksBoard"
   },
   {
     key: "noria:task-timeline",
-    icon: "chart-gantt",
+    icon: "noria-task-timeline",
     titleKey: "ribbon.timeline",
     action: "openTasksTimelineLeaf",
     moduleKey: "taskTimeline"
@@ -5502,7 +5636,7 @@ const DEFAULT_SETTINGS = {
     groupA: ["#3b82f6", "#14b8a6", "#8b5cf6"],
     groupB: ["#f97316", "#ef4444", "#0ea5e9"],
     tonePalette: ["#3b82f6", "#22c55e", "#ef4444", "#f97316", "#8b5cf6", "#0ea5e9", "#6366f1"],
-    tagBucketPalette: ["#93c5fd", "#a78bfa", "#86efac", "#c4b5fd", "#94a3b8", "#fb923c"],
+    tagBucketPalette: ["#5b8def", "#8b78d8", "#4b9c85", "#d47d91", "#50a4b9", "#c49748"],
     tagColorMap: {}
   }
 };
@@ -5574,7 +5708,7 @@ class NoriaTasksView extends NoriaPaneView {
     return this.plugin.t("views.tasks.title");
   }
   getIcon() {
-    return "calendar-check";
+    return "list-todo";
   }
   cleanupNoriaTasksRuntime(rootOverride = null) {
     const root = rootOverride || this.hostEl || this.containerEl;
@@ -5596,7 +5730,7 @@ class NoriaTasksView extends NoriaPaneView {
     const root = this.hostEl && typeof this.hostEl.querySelector === "function"
       ? this.hostEl.querySelector(".tasksCalendar")
       : null;
-    if (!root || typeof root.getAttribute !== "function") return {};
+    if (!root || typeof root.getAttribute !== "function") return { ...this._tasksRuntimeInput };
     const view = String(root.getAttribute("data-noria-current-view") || root.getAttribute("view") || "").trim();
     const anchor = String(root.getAttribute("data-noria-current-anchor") || "").trim();
     const input = {};
@@ -5605,49 +5739,60 @@ class NoriaTasksView extends NoriaPaneView {
     if (typeof root.__noriaCaptureMonthScrollState === "function") {
       input.monthWeekScrollState = root.__noriaCaptureMonthScrollState();
     }
+    this._tasksRuntimeInput = input;
     return input;
   }
   async mountTasksRuntime(fallbackInput = {}) {
-    const input = { ...fallbackInput, ...this.plugin.consumeTasksItemViewInput() };
+    const input = fallbackInput;
     const defaultView = this.plugin.settings?.tasksCalendar?.defaultView || NORIA_DEFAULT_TASKS_CALENDAR.defaultView;
     const view = input && input.view != null && String(input.view).trim() !== "" ? input.view : defaultView;
-    await this.plugin.runNoriaView("tasksCalendar", { ...input, view }, this.hostEl);
+    this._tasksRuntimeInput = { ...input, view };
+    await this.plugin.runNoriaView("tasksCalendar", this._tasksRuntimeInput, this.hostEl);
   }
   /** 任务 Tab 已打开时再次从 Ribbon/命令带 one-shot 参数打开：setViewState 不会重跑 onOpen，需主动重挂 runtime */
   async reload() {
-    const fallbackInput = this.captureCurrentTasksRuntimeInput();
-    this.cleanupNoriaTasksRuntime();
-    this.containerEl.empty();
-    this.hostEl = this.containerEl.createDiv({ cls: "noria-itemview-host noria-tasks-host" });
-    if (!this.plugin.isModuleEnabled("tasksBoard")) {
-      this.plugin.renderDisabledModuleState(this.hostEl, "tasksBoard");
-      return;
-    }
-    try {
-      await this.mountTasksRuntime(fallbackInput);
-    } catch (e) {
-      const msg = e && e.message ? e.message : String(e);
-      this.hostEl.createEl("div", { cls: "noria-itemview-error", text: msg });
-      console.error("[noria] Tasks ItemView reload", e);
-    }
+    if (this._tasksRuntimeClosed) return;
+    const fallbackInput = this._tasksRuntimePendingInput || this.captureCurrentTasksRuntimeInput();
+    const input = { ...fallbackInput, ...this.plugin.consumeTasksItemViewInput() };
+    // Reserve navigation before awaiting; another pane must not consume it.
+    this._tasksRuntimeInput = input;
+    this._tasksRuntimePendingInput = input;
+    if (this._tasksRuntimeReloadPromise) return this._tasksRuntimeReloadPromise;
+    this._tasksRuntimeReloadPromise = (async () => {
+      while (this._tasksRuntimePendingInput && !this._tasksRuntimeClosed) {
+        const fallbackInput = this._tasksRuntimePendingInput;
+        this._tasksRuntimePendingInput = null;
+        this.cleanupNoriaTasksRuntime();
+        this.containerEl.empty();
+        const host = this.containerEl.createDiv({ cls: "noria-itemview-host noria-tasks-host" });
+        this.hostEl = host;
+        if (!this.plugin.isModuleEnabled("tasksBoard")) {
+          this.plugin.renderDisabledModuleState(host, "tasksBoard");
+          continue;
+        }
+        try {
+          await this.mountTasksRuntime(fallbackInput);
+        } catch (e) {
+          if (!this._tasksRuntimeClosed && this.hostEl === host) {
+            const msg = e && e.message ? e.message : String(e);
+            host.createEl("div", { cls: "noria-itemview-error", text: msg });
+            console.error("[noria] Tasks ItemView reload", e);
+          }
+        } finally {
+          // A closed pane can still receive the result of its in-flight read.
+          if (this._tasksRuntimeClosed || this.hostEl !== host) this.cleanupNoriaTasksRuntime(host);
+        }
+      }
+    })().finally(() => { this._tasksRuntimeReloadPromise = null; });
+    return this._tasksRuntimeReloadPromise;
   }
   async onOpen() {
-    this.cleanupNoriaTasksRuntime();
-    this.containerEl.empty();
-    this.hostEl = this.containerEl.createDiv({ cls: "noria-itemview-host noria-tasks-host" });
-    if (!this.plugin.isModuleEnabled("tasksBoard")) {
-      this.plugin.renderDisabledModuleState(this.hostEl, "tasksBoard");
-      return;
-    }
-    try {
-      await this.mountTasksRuntime();
-    } catch (e) {
-      const msg = e && e.message ? e.message : String(e);
-      this.hostEl.createEl("div", { cls: "noria-itemview-error", text: msg });
-      console.error("[noria] Tasks ItemView", e);
-    }
+    this._tasksRuntimeClosed = false;
+    await this.reload();
   }
   async onClose() {
+    this._tasksRuntimeClosed = true;
+    this._tasksRuntimePendingInput = null;
     this.cleanupNoriaTasksRuntime();
     this.hostEl = null;
   }
@@ -5704,7 +5849,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     return this.plugin.t("views.timeline.title");
   }
   getIcon() {
-    return "calendar-clock";
+    return "noria-task-timeline";
   }
   isTimelineBlankPhase() {
     const phase = String(this.plugin.settings?.features?.timelineUiPhase || "runtime").trim().toLowerCase();
@@ -5751,6 +5896,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     return true;
   }
   invalidateTimelineRuntimeMount(cleanupRoot = null) {
+    this.timelineWorkspace?.rememberHorizontal?.();
     const root = cleanupRoot || this.bucketHostEl || this.hostEl || this.containerEl;
     this._timelineRuntimeGeneration += 1;
     this._timelineFocusToday = null;
@@ -5856,6 +6002,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     );
     return {
       layers: layers.length ? layers : [...defaults.layers],
+      groupBy: source.groupBy === "projects" ? "projects" : "free",
+      projectRoot: String(source.projectRoot || "").replace(/\\/g,"/").replace(/\/$/,""),
+      expandedProjects: Array.isArray(source.expandedProjects) ? [...new Set(source.expandedProjects.filter(x=>typeof x==="string"))].slice(0,200) : [],
       showDone: source.showDone != null ? source.showDone !== false : defaults.showDone,
       query: String(source.query || source.text || "").trim(),
       includeTags: normalizeTaskFilterTagList(source.includeTags || source.tags),
@@ -5872,6 +6021,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     this._timelineFilterState = state;
     return {
       layers: [...state.layers],
+      groupBy: state.groupBy,
+      projectRoot: state.projectRoot,
+      expandedProjects: [...state.expandedProjects],
       showDone: state.showDone,
       query: state.query,
       includeTags: [...state.includeTags],
@@ -5907,7 +6059,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     const state = this.normalizeTimelineChromeFilterState(rawState);
     const modeId = this.detectTimelineModePreset(state) || "custom";
     const preset = this.getTimelineModePresetList().find((item) => item.id === modeId);
-    const modeLabel = preset?.label || this.plugin.t("timeline.filter.mode.custom");
+    const modeLabel = state.groupBy === "projects" ? this.plugin.t("timeline.filter.mode.project") : preset?.label || this.plugin.t("timeline.filter.mode.custom");
     const layerCount = Array.isArray(state.layers) ? state.layers.length : 0;
     const query = String(state.query || "").trim();
     const parts = [
@@ -5917,6 +6069,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       })
     ];
     if (query) parts.push(this.plugin.t("timeline.filter.summaryQuery", { query }));
+    if (state.projectRoot) parts.push(state.projectRoot.split("/").pop().replace(/\.md$/i,""));
     if (state.includeTags.length) {
       parts.push(this.plugin.t("timeline.filter.summaryIncludeTags", { tags: state.includeTags.join(", ") }));
     }
@@ -5943,6 +6096,8 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     const current = this.normalizeTimelineChromeFilterState(this._timelineFilterState);
     this.setTimelineChromeFilterState({
       ...current,
+      groupBy: "free",
+      projectRoot: "",
       layers: [...preset.layers],
       showDone: preset.showDone,
       query: preset.query,
@@ -5966,6 +6121,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     const state = this.normalizeTimelineChromeFilterState(rawState);
     const preset = {
       orientation: "horizontal",
+      groupBy: state.groupBy,
+      projectRoot: state.projectRoot,
+      expandedProjects: [...state.expandedProjects],
       layers: [...state.layers],
       showDone: state.showDone,
       query: state.query,
@@ -6009,6 +6167,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       query: preset.query,
       includeTags: preset.includeTags,
       excludeTags: preset.excludeTags,
+      groupBy: preset.groupBy,
+      projectRoot: preset.projectRoot,
+      expandedProjects: preset.expandedProjects,
       scaleMode: preset.scaleMode,
       manualCenter: preset.manualCenter,
       manualZoomIndex: preset.manualZoomIndex,
@@ -6022,6 +6183,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     const state = this.normalizeTimelineChromeFilterState(rawState);
     const canonicalTags = (items) => [...(items || [])].map((item) => String(item).toLowerCase()).sort();
     return JSON.stringify({
+      groupBy: state.groupBy,
+      projectRoot: state.projectRoot,
+      expandedProjects: state.expandedProjects,
       ...(rawState?.timeWindow ? {timeWindow:timelineWindows.normalize(rawState.timeWindow)} : rawState === this._timelineFilterState && this.plugin.settings.timelineView.timeWindow ? {timeWindow:this.plugin.settings.timelineView.timeWindow} : {}),
       focusMagnification:(rawState===this._timelineFilterState?this.plugin.settings.timelineView.focusMagnification:rawState?.focusMagnification)!==false,
       layers: [...state.layers].sort(),
@@ -6094,15 +6258,13 @@ class NoriaTaskTimelineView extends NoriaPaneView {
   timelineChromeFilterIsActive(raw = this._timelineFilterState) {
     const state = this.normalizeTimelineChromeFilterState(raw);
     const defaults = this.getTimelineChromeFilterDefaults();
+    if (state.projectRoot) return true;
     if (state.showDone !== defaults.showDone) return true;
     if (state.query) return true;
     if (state.includeTags.length || state.excludeTags.length) return true;
-    if (state.scaleMode !== defaults.scaleMode) return true;
-    if (state.manualCenter && state.manualCenter !== defaults.manualCenter) return true;
-    if (state.manualZoomIndex !== defaults.manualZoomIndex) return true;
-    if (state.manualOverviewZoomIndex !== defaults.manualOverviewZoomIndex) return true;
-    if (state.layers.length !== defaults.layers.length) return true;
-    return state.layers.some((layer) => !defaults.layers.includes(layer));
+    const expectedLayers=state.groupBy==='projects'?['task']:defaults.layers;
+    if (state.layers.length !== expectedLayers.length) return true;
+    return state.layers.some((layer) => !expectedLayers.includes(layer));
   }
   closeTimelineFilterPanel(options = {}) {
     const keepState = options.keepState === true;
@@ -6112,15 +6274,18 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       try { window.clearTimeout(this._timelineFilterListenerTimer); } catch (_) {}
       this._timelineFilterListenerTimer = null;
     }
-    if (this._timelineFilterOutsideHandler && typeof document !== "undefined") {
-      try { document.removeEventListener("pointerdown", this._timelineFilterOutsideHandler, true); } catch (_) {}
+    const filterDocument=this._timelineFilterPopoverEl?.ownerDocument||this._timelineFilterDocument;
+    if (this._timelineFilterOutsideHandler && filterDocument) {
+      try { filterDocument.removeEventListener("pointerdown", this._timelineFilterOutsideHandler, true); } catch (_) {}
     }
-    if (this._timelineFilterKeyHandler && typeof document !== "undefined") {
-      try { document.removeEventListener("keydown", this._timelineFilterKeyHandler, true); } catch (_) {}
+    if (this._timelineFilterKeyHandler && filterDocument) {
+      try { filterDocument.removeEventListener("keydown", this._timelineFilterKeyHandler, true); } catch (_) {}
     }
     this._timelineFilterOutsideHandler = null;
     this._timelineFilterKeyHandler = null;
+    this._timelineFilterPositionCleanup?.();this._timelineFilterPositionCleanup=null;
     if (this._timelineFilterPopoverEl) {
+      if(keepState){const panel=this._timelineFilterPopoverEl,active=panel.ownerDocument.activeElement,ownsFocus=panel.contains(active);this._timelineFilterPanelDraft={open:[...panel.querySelectorAll('details[open]')].map(el=>el.className),scroll:panel.scrollTop,focus:ownsFocus?active?.getAttribute('data-noria-action-kind'):null,ownsFocus,edit:ownsFocus&&active.matches('input[type="search"],input[type="text"]')?{value:active.value,start:active.selectionStart,end:active.selectionEnd}:null};}
       try { this._timelineFilterPopoverEl.remove(); } catch (_) {}
     }
     this._timelineFilterPopoverEl = null;
@@ -6130,7 +6295,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         try { focusEl.classList.remove("noria-tl-toolbar-link--on"); } catch (_) {}
       }
     }
-    if (!keepState) this._timelineFilterPanelOpen = false;
+    if (!keepState) {this._timelineFilterPanelOpen = false;this._timelineFilterPanelDraft=null;}
     if (restoreFocus) {
       try { focusEl?.focus?.(); } catch (_) {}
     }
@@ -6156,6 +6321,8 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     }
   }
   setTimelineChromeFilterState(nextState) {
+    if(this.timelineWorkspace&&String(nextState.projectRoot||'')!==String(this._timelineFilterState?.projectRoot||''))this.timelineWorkspace.resetHorizontalScroll=true;
+    this.timelineWorkspace?.backend?.flushWindow();
     this._timelineFilterState = this.normalizeTimelineChromeFilterState(nextState);
     this._timelineFilterPanelOpen = true;
     void this.refreshTimelineRuntimeFromChrome();
@@ -6182,7 +6349,6 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       this._timelineManualScaleSaveTimer = null;
       void this.plugin.saveSettings();
     }, 250);
-    this.timelineWorkspace?.windowChanged();
   }
   renderTimelineSavedViews(panel) {
     const previous=panel.querySelector('.noria-tl-filter-saved-views'),wasOpen=previous?.open,wasEditing=previous?.querySelector('.noria-tl-filter-saved-view-editor')?.open,draft=previous?.querySelector('input')?.value||"";previous?.remove();
@@ -6305,7 +6471,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     this._timelineFilterPanelOpen = true;
     const state = this.normalizeTimelineChromeFilterState(this._timelineFilterState);
     const filterSummary = this.getTimelineChromeFilterSummary(state);
-    const panel = this.appChromeEl.createDiv({ cls: "noria-tl-filter-popover" });
+    const doc=anchorEl.ownerDocument;
+    this._timelineFilterDocument=doc;
+    const panel = doc.body.createDiv({ cls: "noria-tl-filter-popover" });
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-label", this.plugin.t("timeline.chrome.filter"));
     this._timelineFilterPopoverEl = panel;
@@ -6339,7 +6507,17 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       });
       return chip;
     };
-    const savedViews = this.renderTimelineSavedViews(panel);
+    if(this.timelineWorkspace&&!this.timelineWorkspace.vertical()){
+      const range=panel.createEl("details",{cls:"noria-tl-filter-range"});
+      range.createEl("summary",{text:this.plugin.getNoriaLocale()==="zh"?"显示范围":"Visible range"});
+      this.timelineWorkspace.renderScaleOptions(range,()=>this.closeTimelineFilterPanel({restoreFocus:true}));
+      if(state.groupBy!=='projects'){
+        const label=range.createEl('label',{cls:'noria-tl-filter-choice'}),box=label.createEl('input',{attr:{type:'checkbox'}});
+        label.createSpan({text:this.plugin.getNoriaLocale()==='zh'?'放大关注时段':'Magnify focus interval'});
+        box.checked=this.timelineWorkspace.backend?.getFocusMagnification()!==false;
+        box.onchange=()=>{this.timelineWorkspace.backend?.setFocusMagnification(box.checked);this.timelineWorkspace.backend?.flushWindow();};
+      }
+    }
 
     const summary = panel.createDiv({ cls: "noria-tl-filter-summary", text: filterSummary.summary });
     summary.setAttribute("data-noria-timeline-filter-summary", filterSummary.summary);
@@ -6380,17 +6558,34 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       reset.addEventListener("click", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        apply(this.getTimelineChromeFilterDefaults());
+        const defaults=this.getTimelineChromeFilterDefaults();
+        apply({...state,query:'',includeTags:[],excludeTags:[],projectRoot:'',showDone:defaults.showDone,layers:state.groupBy==='projects'?['task']:defaults.layers});
       });
     }
+    const grouping = panel.createDiv({cls:"noria-tl-filter-chip-row noria-tl-filter-grouping-row"});
+    panel.insertBefore(grouping,modeRow);
+    modeRow.hidden=state.groupBy==='projects';
+    grouping.setAttribute('role','group');grouping.setAttribute('aria-label',this.plugin.getNoriaLocale()==="zh"?"排布":"Layout");
+    for(const [id,zh,en] of [["free","自由排布","Free layout"],["projects","按项目","By project"]])createChip(grouping,`group-${id}`,this.plugin.getNoriaLocale()==="zh"?zh:en,state.groupBy===id,()=>apply({...state,groupBy:id,...(id==="projects"?{layers:["task"],markMode:false}:{})}));
+    if(this.timelineWorkspace){
+      const scope=this.timelineWorkspace.renderProjectScope(panel,state,apply);
+      panel.insertBefore(scope,modeRow);
+    }
     const advanced = panel.createEl("details", { cls: "noria-tl-filter-advanced" });
+    const rangeOptions=panel.querySelector('.noria-tl-filter-range');
+    if(rangeOptions)panel.insertBefore(rangeOptions,advanced);
     advanced.open = state.includeTags.length > 0 || state.excludeTags.length > 0;
     advanced.createEl("summary", { text: this.plugin.t("timeline.filter.moreFilters") });
     const advancedBody = advanced.createDiv({ cls: "noria-tl-filter-advanced-body" });
+    advancedBody.appendChild(modeRow);
     const layers = advancedBody.createDiv({ cls: "noria-tl-filter-chip-row noria-tl-filter-layer-row" });
-    ["task", "annotation", "pomodoro", "note", "git", "noria"].forEach((layer) => {
+    layers.hidden=state.groupBy==='projects';
+    (state.groupBy==="projects"?["task"]:["task", "annotation", "pomodoro", "note", "git", "noria"]).forEach((layer) => {
       const label = this.plugin.t(`timeline.filter.layer.${layer}`);
-      createChip(layers, `layer-${layer}`, label, state.layers.includes(layer), () => toggleLayer(layer));
+      const unavailable = this._timelineTraceAvailability?.[layer] === false;
+      const suffix = unavailable ? (this.plugin.getNoriaLocale() === "zh" ? " · 未接入" : " · Unavailable") : "";
+      const chip = createChip(layers, `layer-${layer}`, label + suffix, state.layers.includes(layer), () => toggleLayer(layer));
+      if (unavailable) chip.title = this.plugin.getNoriaLocale() === "zh" ? "此来源尚未提供数据，可取消选中" : "This source has not provided data; you can deselect it";
     });
     const tagInputs = advancedBody.createDiv({ cls: "noria-tl-filter-tag-inputs" });
     const createTagInput = (kind, current, placeholderKey) => {
@@ -6440,7 +6635,6 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     search.value = state.query;
     panel.insertBefore(search, panel.firstChild);
     panel.insertBefore(layers, tools);
-    panel.appendChild(savedViews);
     const applySearch = () => {
       const query = String(search.value || "").trim();
       if (query !== state.query) apply({ ...state, query });
@@ -6455,6 +6649,18 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       }
     });
     search.addEventListener("change", applySearch);
+    this._timelineFilterPositionCleanup=this.timelineWorkspace.bindPanelPosition(panel,anchorEl);
+    const draft=this._timelineFilterPanelDraft;
+    if(draft){panel.classList.add('is-restored');for(const details of panel.querySelectorAll('details'))if(draft.open.includes(details.className))details.open=true;panel.scrollTop=draft.scroll;}
+    queueMicrotask(()=>{
+      if(!panel.isConnected)return;
+      const target=[...panel.querySelectorAll('[data-noria-action-kind]')].find(el=>el.getAttribute('data-noria-action-kind')===draft?.focus);
+      if(target&&draft?.edit){target.value=draft.edit.value;target.setSelectionRange(draft.edit.start,draft.edit.end);}
+      if(draft&&!draft.ownsFocus)return;
+      if(draft&&doc.activeElement!==doc.body&&!panel.contains(doc.activeElement)&&doc.activeElement!==anchorEl)return;
+      if(target?.disabled){panel.dataset.pendingFocus=draft.focus;return;}
+      (target||search).focus({preventScroll:true});
+    });
     panel.addEventListener("pointerdown", (ev) => ev.stopPropagation());
     this._timelineFilterOutsideHandler = (ev) => {
       const target = ev && ev.target;
@@ -6462,7 +6668,12 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       this.closeTimelineFilterPanel();
     };
     this._timelineFilterKeyHandler = (ev) => {
-      if (ev && ev.key === "Escape") this.closeTimelineFilterPanel({ restoreFocus: true });
+      if (ev && ev.key === "Escape") {ev.preventDefault();ev.stopPropagation();this.closeTimelineFilterPanel({ restoreFocus: panel.contains(doc.activeElement)||doc.activeElement===anchorEl });}
+      else if(ev?.key==='Tab'&&panel.contains(doc.activeElement)){
+        const controls=[...panel.querySelectorAll('button,input,select,summary')].filter(el=>!el.disabled&&el.checkVisibility({checkVisibilityCSS:true}));
+        if(ev.shiftKey&&doc.activeElement===controls[0]){ev.preventDefault();controls.at(-1)?.focus();}
+        else if(!ev.shiftKey&&doc.activeElement===controls.at(-1)){ev.preventDefault();controls[0]?.focus();}
+      }
     };
     const outsideHandler = this._timelineFilterOutsideHandler;
     const keyHandler = this._timelineFilterKeyHandler;
@@ -6474,13 +6685,15 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         || this._timelineFilterKeyHandler !== keyHandler
         || !this.hostEl?.isConnected
       ) return;
-      try { document.addEventListener("pointerdown", outsideHandler, true); } catch (_) {}
-      try { document.addEventListener("keydown", keyHandler, true); } catch (_) {}
+      try { doc.addEventListener("pointerdown", outsideHandler, true); } catch (_) {}
+      try { doc.addEventListener("keydown", keyHandler, true); } catch (_) {}
     }, 0);
   }
   /** ItemView 顶栏：收集 + Today + timer icon + add。 */
   renderTimelineAppChrome() {
     if (!this.appChromeEl) return;
+    const doc=this.appChromeEl.ownerDocument,focused=doc.activeElement;
+    const focusKey=this.appChromeEl.contains(focused)?focused.getAttribute('data-action')||focused.getAttribute('data-noria-action-kind'):null;
     this.closeTimelineFilterPanel({ keepState: true });
     this.appChromeEl.empty();
     this.appChromeEl.setAttribute("data-surface", "bucket");
@@ -6492,8 +6705,6 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     const center = toolbar.createDiv({ cls: "noria-tl-toolbar-center" });
     const trail = toolbar.createDiv({ cls: "noria-tl-toolbar-trail" });
 
-    const timeTools = this.appChromeEl.createDiv({ cls: "noria-tl-secondary-tools" });
-    timeTools.hidden = true;
     this._dayChromePeriodBtn = null;
     this._dayChromeMoreBtn = null;
     const inboxActive = this._timelineInlineMode === "capture";
@@ -6578,7 +6789,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       }
     });
     this._timelineFilterButtonEl = filterBtn;
-    this.paintTimelineChromeIcon(filterBtn, "sliders-horizontal", "Filter");
+    this.paintTimelineChromeIcon(filterBtn, "filter", "Filter");
     filterBtn.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -6594,72 +6805,9 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       filterBtn.setAttribute("aria-expanded", "true");
     });
 
-    const annotationSelectActive = currentFilterState.markMode === true;
-    const annotationSelectBtn = timeTools.createEl("button", {
-      cls: "noria-tl-toolbar-icon-btn noria-tl-toolbar-link--annotation-select" + (annotationSelectActive ? " noria-tl-toolbar-link--on" : ""),
-      type: "button",
-      attr: {
-        title: this.plugin.t("timeline.chrome.annotationSelect"),
-        "aria-label": this.plugin.t("timeline.chrome.annotationSelect"),
-        "aria-pressed": annotationSelectActive ? "true" : "false",
-        "data-noria-action-source": "tasks-timeline-toolbar",
-        "data-noria-action-kind": "toggle-annotation-select",
-        "data-noria-action-state": annotationSelectActive ? "active" : "idle"
-      }
-    });
-    this.paintTimelineChromeIcon(annotationSelectBtn, "scan-line", "⌁");
-    annotationSelectBtn.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const nextActive = currentFilterState.markMode !== true;
-      const nextLayers = nextActive
-        ? Array.from(new Set([...(currentFilterState.layers || []), "annotation"]))
-        : currentFilterState.layers;
-      this._timelineFilterState = this.normalizeTimelineChromeFilterState({
-        ...currentFilterState,
-        markMode: nextActive,
-        layers: nextLayers
-      });
-      this._timelineFilterPanelOpen = false;
-      void this.refreshTimelineRuntimeFromChrome();
-    });
-    if(annotationSelectActive && !this.timelineWorkspace.vertical()) {
-      const exitMark = this.timelineWorkspace.button(lead,"scan-line",this.plugin.getNoriaLocale()==="zh"?"结束框选标注（Esc）":"Exit annotation selection (Esc)",()=>annotationSelectBtn.click());
-      exitMark.classList.add("noria-tl-toolbar-link--on");
-      exitMark.setAttribute("aria-pressed","true");
-    }
-
-    const pomodoroLayerActive = currentFilterState.layers.includes("pomodoro");
-    if (this.plugin.isPomodoroModuleEnabled() && pomodoroLayerActive) {
-      const timerAttachBtn = timeTools.createEl("button", {
-        cls: "noria-tl-toolbar-icon-btn noria-tl-toolbar-link--timer-attach",
-        type: "button",
-        attr: {
-          title: this.plugin.t("timeline.chrome.attachPomodoro"),
-          "aria-label": this.plugin.t("timeline.chrome.attachPomodoroAria"),
-          "data-noria-action-source": "tasks-timeline-toolbar",
-          "data-noria-action-kind": "drag-attach-pomodoro",
-          "data-noria-action-state": "idle"
-        }
-      });
-      this.paintTimelineChromeIcon(timerAttachBtn, "timer", "Timer");
-      timerAttachBtn.setAttribute("draggable", "true");
-      timerAttachBtn.style.cursor = "grab";
-      timerAttachBtn.addEventListener("dragstart", (ev) => {
-        try {
-          if (ev && ev.dataTransfer) {
-            ev.dataTransfer.effectAllowed = "copy";
-            ev.dataTransfer.setData("text/plain", "noria/timeline-timer-attach");
-            ev.dataTransfer.setData("application/x-noria-timer-attach", "1");
-          }
-        } catch (_) {}
-        try { timerAttachBtn.classList.add("is-dragging"); } catch (_) {}
-        timerAttachBtn.setAttribute("data-noria-action-state", "dragging");
-      });
-      timerAttachBtn.addEventListener("dragend", () => {
-        try { timerAttachBtn.classList.remove("is-dragging"); } catch (_) {}
-        timerAttachBtn.setAttribute("data-noria-action-state", "idle");
-      });
+    if(currentFilterState.markMode===true && !this.timelineWorkspace.vertical() && !inboxActive) {
+      const exitMark = this.timelineWorkspace.button(lead,"scan-line",this.plugin.getNoriaLocale()==="zh"?"结束框选标注（Esc）":"Exit annotation selection (Esc)",()=>this.toggleTimelineAnnotationSelection());
+      lead.prepend(exitMark);exitMark.classList.add("noria-tl-toolbar-link--on");exitMark.setAttribute("aria-pressed","true");
     }
 
     const addBtn = trail.createEl("button", {
@@ -6684,11 +6832,12 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         addBtn.setAttribute("data-noria-action-state", "failed");
       });
     });
-    if(!this.timelineWorkspace.vertical()){
-    const more = this.timelineWorkspace.button(trail,"ellipsis",this.plugin.getNoriaLocale()==="zh"?"时间轴工具":"Timeline tools",anchor=>{
-      this.closeTimelineFilterPanel();this.timelineWorkspace.morePanel(anchor,timeTools);
+    const more = this.timelineWorkspace.button(trail,"ellipsis",this.plugin.getNoriaLocale()==="zh"?(inboxActive?"Inbox 更多操作":"时间轴更多操作"):(inboxActive?"More Inbox actions":"More timeline actions"),anchor=>{
+      this.closeTimelineFilterPanel();this.timelineWorkspace.morePanel(anchor);
     });
-    more.setAttribute("aria-haspopup","dialog");
+    more.setAttribute("aria-haspopup","menu");more.dataset.action='timeline-more';
+    if(inboxActive){
+      for(const control of [filterBtn,this.timelineWorkspace.filterButton,addBtn])if(control){control.style.visibility='hidden';control.disabled=true;}
     }
     if (this._timelineFilterPanelOpen) {
       window.setTimeout(() => {
@@ -6697,6 +6846,17 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         }
       }, 0);
     }
+    if(focusKey&&doc.activeElement===doc.body){
+      const replacement=[...this.appChromeEl.querySelectorAll('button')].find(el=>(el.getAttribute('data-action')||el.getAttribute('data-noria-action-kind'))===focusKey);
+      replacement?.focus({preventScroll:true});
+    }
+  }
+
+  toggleTimelineAnnotationSelection() {
+    const state=this.normalizeTimelineChromeFilterState(this._timelineFilterState),markMode=state.markMode!==true;
+    this._timelineFilterState=this.normalizeTimelineChromeFilterState({...state,markMode,layers:markMode?Array.from(new Set([...(state.layers||[]),'annotation'])):state.layers});
+    this._timelineFilterPanelOpen=false;
+    return this.refreshTimelineRuntimeFromChrome();
   }
 
   async toggleTimelineInlinePanel(mode, anchorEl) {
@@ -6723,6 +6883,11 @@ class NoriaTaskTimelineView extends NoriaPaneView {
       this.bucketHostEl.classList.remove("is-noria-inline-hidden");
     }
     this.renderTimelineAppChrome();
+    if (this.timelineWorkspace?.vertical()) {
+      const workspace = this.timelineWorkspace;
+      if (workspace.showUnscheduled && workspace.stream) workspace.stream.scrollTop = workspace.unscheduledScroll || 0;
+      else workspace.restoreAnchor(workspace.savedAnchor);
+    }
     try { returnFocusEl?.focus?.(); } catch (_) {}
   }
 
@@ -6739,6 +6904,7 @@ class NoriaTaskTimelineView extends NoriaPaneView {
     this.disposeTimelineCapture();
     await this._timelineCaptureCleanup;
     if (seq !== this._timelineInlineSeq) return;
+    if (this.timelineWorkspace?.vertical()) this.timelineWorkspace.remember();
     this._timelineInlineMode = inlineMode;
     this.bucketHostEl.classList.add("is-noria-inline-hidden");
     this.bucketHostEl.hidden = true;
@@ -7113,9 +7279,34 @@ class NoriaTaskTimelineView extends NoriaPaneView {
         noriaHideTimelineTopToolbar: true,
         timelineFilter: this.getTimelineRuntimeFilterInput(),
         timelineSettings: this.plugin.getTimelineViewSettings(),
-        onTimelineWindowChanged: () => { if (callbacksCurrent()) self.timelineWorkspace?.windowChanged(); },
-        onTimelineBackendReady: (backend, model, events, surface) => {
+        onTimelineProjectExpanded: paths => {
+          self._timelineFilterState={...self.normalizeTimelineChromeFilterState(),expandedProjects:paths};
+          self.app.workspace.requestSaveLayout?.();
+        },
+        onTimelineUnscheduled: (tasks, anchor, projectName) => {
+          const open = item => {
+            const task=item.payload?.task||item.task||{};
+            void self.plugin.openTaskDetails({path:item.source?.path,line:item.source?.line,rawText:task.source?.rawLine||task.rawText||task.rawLine||(typeof task.text==='string'?task.text:task.text?.raw)}, {calendarZone:calendarZone.zoneContext(self.plugin.settings.tasksCalendar)}).catch(error=>new obsidian.Notice(error.message));
+          };
+          if(tasks.length===1){open(tasks[0]);return;}
+          const zh=self.plugin.getNoriaLocale()==='zh',label=zh?'未安排':'Unscheduled';
+          openPanePopover(anchor,self.hostEl,projectName?`${projectName} · ${label}`:label,(pop,close)=>{
+            pop.classList.add('noria-project-unscheduled-picker');
+            pop.createDiv({cls:'noria-project-unscheduled-heading',text:projectName||label});
+            const names=new Set(),duplicates=new Set();
+            for(const item of tasks){if(names.has(item.title))duplicates.add(item.title);names.add(item.title);}
+            for(const item of tasks){
+              const button=pop.createEl('button',{cls:'noria-project-unscheduled-item'});
+              const icon=button.createSpan({cls:'noria-project-unscheduled-icon',attr:{'aria-hidden':'true'}});obsidian.setIcon(icon,'calendar-plus');
+              const content=button.createSpan();content.createSpan({text:item.title});
+              if(duplicates.has(item.title))content.createEl('small',{text:item.source?.path?.replace(/\.md$/i,'')||''});
+              button.onclick=()=>{close();open(item);};
+            }
+          });
+        },
+        onTimelineBackendReady: (backend, model, events, surface, availability) => {
           if (callbacksCurrent()) {
+            self._timelineTraceAvailability = { ...self._timelineTraceAvailability, ...availability };
             if (!self.timelineWorkspace) self.timelineWorkspace = new TimelineWorkspace(self);
             self.timelineWorkspace.attach(backend, model, events, surface);
           }
@@ -7456,11 +7647,16 @@ class NoriaHomeView extends NoriaPaneView {
   async setState(state, result) {
     this._workbenchState = state || {};
     if (this.workbench) {
+      if (Object.prototype.hasOwnProperty.call(state || {}, "mediaKind")) {
+        this.workbench.mediaKind = ['book', 'movie', 'music', 'game'].includes(state.mediaKind) ? state.mediaKind : '';
+        this.workbench.mediaScrolls = {...(state.mediaScrolls || {})};
+      }
       if (Object.prototype.hasOwnProperty.call(state || {}, "diaryCards")) {
         this.workbench.diaryCards = state.diaryCards;
         this.workbench.diary?.cards.restore(state.diaryCards);
       }
       await this.workbench.show(state?.page || this.workbench.active, state?.selection, state?.intent);
+      if (this.workbench.active === 'media') await this.workbench.pages.get('media')?.panel._noriaMediaPage?.show(this.workbench.mediaKind);
       if (state?.scrolls) {
         this.workbench.scrolls = {...state.scrolls};
         this.workbench.pages.get(this.workbench.active).panel.scrollTop = state.scrolls[this.workbench.active] || 0;
@@ -8062,8 +8258,15 @@ class NoriaReviewCenterRenderer {
   }
   async refreshReviewSupport() {
     if (!this.state.final.dirty && !this.state.final.pendingSave && this.reviewWorkspace?.mode !== "edit") {
+      const supportMode = this.state.support.mode;
       this._forceFinalReload = true;
-      return this.render();
+      const pending = this.render();
+      const generation = this.selection.generation;
+      const result = await pending;
+      if (supportMode && this.hostEl && this.generationGate.isCurrent(generation) && !this.state.support.mode) {
+        await this.setSupportMode(supportMode);
+      }
+      return result;
     }
     const generation = this.selection.generation;
     this.resetSupportEvidenceCache();
@@ -8274,33 +8477,68 @@ class NoriaReviewCenterRenderer {
       if (details.open && !rendered) { rendered = true; this.renderEvidenceSection(content, model); }
     });
   }
-  renderAnalysisSupport(parent, artifact) {
-    if (!artifact?.generated) {
-      const empty = parent.createDiv({ cls: "noria-review-analysis-empty" });
-      empty.createSpan({ text: this.plugin.t("review.analysis.empty") });
-      this.createAction(empty, this.plugin.t("review.analysis.prepare"), async (button) => {
-        button.disabled = true;
-        try {
-          await this.plugin.prepareReviewAnalysis(this.selection, this.state.support.evidence);
-          this.state.support = { ...this.state.support, status: "ready", error: "", prepared: true };
-        } catch (e) {
-          this.state.support = { ...this.state.support, status: "error", error: String(e?.message || e) };
-        }
-        this.renderFinalFirst();
-      }, "noria-review-btn noria-review-btn--primary");
-      if (this.state.support.prepared) empty.createSpan({ cls: "noria-review-analysis-prepared", text: this.plugin.t("review.analysis.prepared") });
-      return;
+  async prepareAnalysisSupport(button) {
+    const support = this.state.support, selection = { ...this.selection };
+    if (support.preparing) return;
+    this.reviewWorkspace?.captureEditor();
+    const hadFocus = button.ownerDocument?.activeElement === button;
+    support.preparing = true;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    const current = () => this.hostEl && this.generationGate.isCurrent(selection.generation) && this.state.support === support;
+    let prepared = false;
+    try {
+      // Preparation must read current records, not the support pane's earlier snapshot.
+      const result = await this.plugin.prepareReviewAnalysis(selection, null, { notify: false });
+      prepared = true;
+      if (!current()) return;
+      const artifact = await this.plugin.getReviewAnalysisArtifact(selection, result.evidence);
+      if (!current()) return;
+      this.resetSupportEvidenceCache();
+      this.state.support = { ...support, value: artifact, evidence: result.evidence, preparing: false, prepared: true, prepareError: "" };
+    } catch (error) {
+      if (!current()) return;
+      this.state.support = { ...support, preparing: false, prepared, prepareError: String(error?.message || error) };
+    } finally {
+      support.preparing = false;
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
     }
+    const activeElement = button.ownerDocument?.activeElement;
+    const restoreFocus = hadFocus && (activeElement === button || activeElement === button.ownerDocument?.body);
+    this.renderFinalFirst();
+    if (restoreFocus) this.analysisPrepareButton?.focus({ preventScroll: true });
+  }
+  renderAnalysisSupport(parent, artifact) {
+    if (artifact?.generated && artifact.stale) {
+      parent.createDiv({ cls: "noria-review-support-message", text: this.plugin.t(artifact.parsed?.meta?.evidence_hash ? "review.analysis.changed" : "review.analysis.unverified") });
+    }
+    if (!artifact?.generated) parent.createDiv({ cls: "noria-review-analysis-empty", text: this.plugin.t("review.analysis.empty") });
+    const actions = parent.createDiv({ cls: "noria-review-analysis-actions" });
+    const prepare = this.createAction(actions, this.plugin.t("review.analysis.prepare"), button => this.prepareAnalysisSupport(button), "noria-review-text-action");
+    this.analysisPrepareButton = prepare;
+    prepare.disabled = !!this.state.support.preparing;
+    prepare.setAttribute("aria-busy", prepare.disabled ? "true" : "false");
+    if (artifact?.generated) this.createAction(actions, this.plugin.t("review.files.openSource"), () => this.plugin.openReviewSourceFile(artifact.path), "noria-review-text-action");
+    if (this.state.support.prepared || this.state.support.prepareError) {
+      const message = this.state.support.prepareError
+        ? this.plugin.t(this.state.support.prepared ? "review.analysis.refreshFailed" : "review.analysis.prepareFailed", { message: this.state.support.prepareError })
+        : this.plugin.t("review.analysis.prepared");
+      const feedback = parent.createDiv({ cls: "noria-review-support-message" + (this.state.support.prepareError ? " is-error" : ""), text: message });
+      feedback.setAttribute("role", this.state.support.prepareError ? "alert" : "status");
+    }
+    if (!artifact?.generated) return;
     const parts = reviewDocument.getReviewAnalysisSections(artifact.text);
-    this.createAction(parent, this.plugin.t("review.files.openSource"), () => this.plugin.openReviewSourceFile(artifact.path));
     for (const part of parts) {
       const section = parent.createEl("details", { cls: "noria-review-analysis-part" });
       section.createEl("summary", { text: part.title || this.plugin.t("review.support.analysis") });
       this.reviewWorkspace.renderMarkdown(section, part.content, artifact.path, true);
-      this.createAction(section, this.plugin.t("review.document.appendSection"), () => {
+      this.createAction(section, this.plugin.t("review.document.appendSection"), button => {
+        if (button.disabled) return;
         this.reviewWorkspace.captureEditor();
         this.state.final.payload.body = reviewDocument.appendReviewAnalysis(this.state.final.payload.body, part);
         this.markFinalDirty("adopted");
+        button.disabled = true;
         this.renderFinalFirst();
       }, "noria-review-text-action");
     }
@@ -9492,7 +9730,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       .setName(name)
       .setDesc(`${desc} ${status.label}`);
     this.decorateSettingsTarget(setting, `managedPaths.${key}`);
-    setting.addText((text) =>
+    setting.addText((text) => {
       text
         .setPlaceholder(NORIA_DEFAULT_MANAGED_PATHS[key] || "")
         .setValue(pathValue)
@@ -9500,8 +9738,9 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
           this.plugin.settings.managedPaths = this.plugin.settings.managedPaths || {};
           this.plugin.settings.managedPaths[key] = String(value || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
           await this.plugin.saveSettings();
-        })
-    );
+        });
+      if (["dailyTemplate", "weeklyTemplate", "monthlyTemplate", "yearlyTemplate"].includes(key)) require('./template-file.js').attachMarkdownTemplateSuggest(this.plugin, text.inputEl);
+    });
     if (!this.plugin.isAbsolutePath(pathValue) && /\.md$/i.test(pathValue)) {
       setting.addButton((btn) =>
         btn.setButtonText(this.t("settings.generate")).onClick(async () => {
@@ -11129,7 +11368,21 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
         });
       this.decorateSettingsTarget(setting, `tasksCalendar.${settingKey}`);
     };
-    for (const { key, toggle } of NORIA_TASKS_DISPLAY_SETTINGS) {
+    for (const { key, toggle, range } of NORIA_TASKS_DISPLAY_SETTINGS) {
+      if (range) {
+        const setting = new obsidian.Setting(containerEl).setName(this.t(`settings.tasks.${key}`)).setDesc(this.t(`settings.tasks.${key}Desc`))
+          .addDropdown(dd => {
+            for (const days of NORIA_TASK_WEATHER_RANGES[key]) dd.addOption(String(days), this.taskWeatherRangeLabel(days));
+            dd.setValue(String(calendar[key])).onChange(async value => {
+              const saved = await this.saveSettingChange(setting, ['tasksCalendar'], () => {
+                this.plugin.updateTasksCalendarPreferenceInSettings(key, Number(value));
+              }, 'settings:tasks-weather-range', dd);
+              if (!saved) dd.setValue(String(this.plugin.settings.tasksCalendar[key]));
+            });
+          });
+        this.decorateSettingsTarget(setting, `tasksCalendar.${key}`);
+        continue;
+      }
       if (!toggle) {
         renderDropdown(key, key, `settings.tasks.${key}`, `settings.tasks.${key}Desc`);
         continue;
@@ -11146,8 +11399,29 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
     }
   }
 
+  taskWeatherRangeLabel(days) {
+    return days === -1 ? this.t("settings.tasks.weatherFollowCalendar") : days === 0 ? this.t("settings.tasks.weatherNone") : this.t("settings.tasks.weatherDays", {count: days});
+  }
+
   renderTasksTab(containerEl) {
     this.renderTasksCalendarDefaultSettings(containerEl);
+    const zh=this.plugin.getNoriaLocale()==="zh",device=Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezone=new obsidian.Setting(containerEl).setName(zh?'日历时区':'Calendar time zone')
+      .setDesc(zh?`时间轴只显示所选时区；任务保持同一实际时刻。笔记时间基准：${this.plugin.settings.tasksCalendar.sourceTimeZone||device}，全天日期不换算。`:`Show one time zone, preserving task instants. Note time zone: ${this.plugin.settings.tasksCalendar.sourceTimeZone||device}. All-day dates stay unchanged.`)
+      .addText(control=>{
+        const input=control.inputEl,list=containerEl.createEl('datalist');list.id='noria-calendar-zones-'+Date.now();input.setAttribute('list',list.id);
+        for(const zone of ['UTC',...Intl.supportedValuesOf('timeZone')])list.createEl('option',{value:zone});
+        control.setPlaceholder(device).setValue(this.plugin.settings.tasksCalendar.timeZone||'');
+        input.addEventListener('change',async()=>{
+          const raw=input.value.trim(),zone=calendarZone.validZone(raw);
+          if(raw&&!zone){input.setCustomValidity(zh?'请选择有效时区，例如 Asia/Tokyo':'Choose a valid zone, e.g. Asia/Tokyo');input.reportValidity();return;}
+          input.setCustomValidity('');
+          await this.saveSettingChange(timezone,['tasksCalendar'],()=>{const config=this.plugin.settings.tasksCalendar;config.sourceTimeZone=config.sourceTimeZone||device;config.timeZone=zone;},'settings:tasks-time-zone',control);
+          control.setValue(this.plugin.settings.tasksCalendar.timeZone||'');
+        });
+      });
+    this.decorateSettingsTarget(timezone,'tasksCalendar.timeZone');
+    this.renderAppearanceTagColorSettings(containerEl, "tasksCalendar.categoryColors");
 
     this.addSettingHeading(containerEl, "settings.sections.taskFilters");
     this.renderTaskTagEditor(containerEl, "include", "settings.tasks.includeTags", "settings.tasks.includeTagsDesc");
@@ -11162,6 +11436,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
             value => this.saveSettingChange(setting, ['taskQueryPolicy'], () => {
                 this.plugin.settings.taskQueryPolicy = {...this.plugin.settings.taskQueryPolicy,[key]:!!value};
               }, `settings:${key}`, toggle)));
+        this.decorateSettingsTarget(setting, `taskQueryPolicy.${key}`);
       };
       queryToggle("settings.tasks.includeTimelineInMonth", "includeTimelineInMonth");
       queryToggle("settings.tasks.includeCancelled", "includeCancelled");
@@ -11230,6 +11505,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       fields.forEach(({key,placeholder,cls}) => setting.addText(control => {
         control.setPlaceholder(placeholder).setValue(current(key)).onChange(update);
         if (cls) control.inputEl.addClass(cls);
+          if (cls === 'noria-calendar-period-template') require('./template-file.js').attachMarkdownTemplateSuggest(this.plugin, control.inputEl);
         controls.push({key,control});
         control.inputEl.addEventListener('keydown',event => {
           if (event.key === 'Enter' && !event.isComposing) {event.preventDefault();void commit();}
@@ -11266,6 +11542,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       ]);
       row.settingEl?.addClass?.("noria-calendar-period-row");
       if (id === "daily") this.decorateSettingsTarget(row, "calendar.calendarCustomFilePattern");
+      else this.decorateSettingsTarget(row, `calendar.${templateKey}`);
     });
   }
 
@@ -11872,8 +12149,18 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
     return setting;
   }
 
-  renderAppearanceTagColorSettings(containerEl) {
+  renderAppearanceTagColorSettings(containerEl, targetId = "appearance.tagColorMap") {
     const manager = containerEl.createDiv({ cls: "noria-appearance-tag-manager" });
+    const saveAndRefresh = async (change, feedback = manager) => {
+      const saved = await this.saveAppearanceChange(containerEl, change, false, feedback);
+      if (saved !== false) {
+        const scrollHost = this.containerEl, top = scrollHost.scrollTop;
+        const replacement = this.renderAppearanceTagColorSettings(containerEl, targetId);
+        manager.replaceWith(replacement);
+        scrollHost.scrollTop = top;
+      }
+      return saved;
+    };
     const head = new obsidian.Setting(manager)
       .setName(this.t("settings.appearance.tagColorMap"))
       .setDesc(this.t("settings.appearance.tagColorMapDesc"))
@@ -11885,6 +12172,7 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
           if (!addRow.hidden) tagInput.focus?.();
         });
       });
+    this.decorateSettingsTarget(head, targetId);
     head.settingEl?.addClass?.("noria-appearance-tag-manager-head");
     const addRow = manager.createDiv({ cls: "noria-appearance-tag-add-row" });
     addRow.hidden = true;
@@ -11901,11 +12189,11 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
     });
     obsidian.setIcon(saveButton, "check");
     const addColor = async () => {
-      await this.saveAppearanceChange(containerEl, () => {
+      await saveAndRefresh(() => {
         const result = this.plugin.setAppearanceTagColor(tagInput.value, colorInput.value);
         if (!result) new obsidian.Notice(this.t("settings.appearance.invalidTagColor", { items: tagInput.value || colorInput.value }));
         return result || false;
-      }, true, manager);
+      }, manager);
     };
     saveButton.addEventListener("click", () => void addColor());
     tagInput.addEventListener("keydown", (event) => {
@@ -11913,6 +12201,21 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
       event.preventDefault();
       void addColor();
     });
+
+    const zh = this.plugin.getNoriaLocale() === "zh";
+    const automatic = new obsidian.Setting(manager).setName(zh ? "项目自动配色" : "Automatic project palette")
+      .setDesc(zh ? "未指定标签色的项目使用这组颜色；选择标签色可固定某一类别。" : "Projects without an explicit tag color use this palette. Set a tag color to keep a category fixed.");
+    (this.plugin.settings.colorPalette.tagBucketPalette || []).forEach((color, index) => {
+      const picker = automatic.controlEl.createEl("input", {cls: "noria-appearance-tag-color-input", attr: {type: "color", value: color, "aria-label": (zh ? "自动颜色 " : "Automatic color ") + (index + 1)}});
+      picker.addEventListener("change", async () => {
+        const value = picker.value;
+        const saved = await this.saveAppearanceChange(containerEl, () => {this.plugin.settings.colorPalette.tagBucketPalette[index] = value; return true;}, false, automatic.infoEl);
+        if (!saved) picker.value = this.plugin.settings.colorPalette.tagBucketPalette[index];
+      });
+    });
+    automatic.addExtraButton(button => button.setIcon("rotate-ccw").setTooltip(zh ? "使用推荐配色" : "Use recommended palette").onClick(async () => {
+      await saveAndRefresh(() => {this.plugin.settings.colorPalette.tagBucketPalette = [...DEFAULT_SETTINGS.colorPalette.tagBucketPalette]; return true;}, automatic.infoEl);
+    }));
 
     const entries = Object.entries(this.plugin.settings.appearance?.tagColorMap || {}).sort(([a], [b]) => a.localeCompare(b));
     if (!entries.length) {
@@ -11941,13 +12244,14 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
               .setTitle(this.t("settings.appearance.removeTagColor"))
               .setIcon("trash-2")
               .onClick(async () => {
-                await this.saveAppearanceChange(containerEl, () => this.plugin.removeAppearanceTagColor(tag), true, row.infoEl);
+                await saveAndRefresh(() => this.plugin.removeAppearanceTagColor(tag), row.infoEl);
               });
           });
           menu.showAtMouseEvent(event);
         });
       });
     });
+    return manager;
   }
 
   renderAppearancePreview(containerEl) {
@@ -12159,8 +12463,15 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     this._noriaRefreshTimer = null;
     this._noriaRefreshPending = null;
     this._noriaHomeIconRegistered = noriaIdentity.registerNoriaHomeIcon(obsidian);
+    noriaIdentity.registerNoriaTaskTimelineIcon(obsidian);
+    noriaIdentity.registerNoriaRangeIcon(obsidian);
     noriaClearRetiredTimelineRuntimeState();
     await this.loadSettings();
+    const {FocusTimer}=require('./focus-timer.js');
+    this.focusTimer=new FocusTimer(this);
+    this.register(()=>this.focusTimer.dispose());
+    await this.focusTimer.ready;
+    this.registerMarkdownPostProcessor((el,ctx)=>require('./focus-reading.js').renderFocusReading(this,el,ctx));
     const {DayClock}=require("./day-clock.js");
     this.dayClock=new DayClock(()=>this.getLocalYmd());
     this.register(()=>this.dayClock.dispose());
@@ -12183,6 +12494,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     this.registerView(VIEW_TYPE_NORIA_CALENDAR, (leaf) => new NoriaCalendarView(leaf, this));
     this.syncRuntimeBridgeConfig();
     this.registerNoriaDataInvalidationEvents();
+    this.app.workspace.onLayoutReady(()=>{if(!this._noriaPluginDisposed)void this.focusTimer.retryRecords().catch(error=>console.warn('[noria] focus record recovery',error));});
     this.api=require('./public-api.js').createPublicApi(this);
     this.agentConnection=require('./agent-mcp.js').createAgentConnection({getApi:()=>this.api,version:this.manifest.version});
     this.agentIntegration=require('./agent-connection-settings.js').createAgentConnectionSettings(this.app,this.agentConnection);
@@ -12197,6 +12509,9 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         return;
       }
       const view = String(payload.view || payload.name || "").trim();
+      if(view==='diary-cards'){
+        await require('./diary-cards-embed.js').renderNoteCards(this,payload.props||{},el,markdownCtx);return;
+      }
       if (!view) {
         el.createDiv({ cls: "noria-runtime-error-card", text: this.t("runtime.viewError.message", { view: "noria-view" }) });
         return;
@@ -12356,6 +12671,12 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     this._noriaRefreshPending = null;
     const owner = this._noriaRuntimeOwnerToken;
     if (!owner || globalThis.__noriaRuntimeOwnerToken !== owner) return;
+    document.querySelectorAll('.noria-tc-editor-prime-host').forEach(host=>{
+      host.querySelectorAll('.tasksCalendar').forEach(root=>root.__noriaTasksCalendarCleanup?.());
+      host.remove();
+    });
+    this._tcEditorPrimeHost = null;
+    delete globalThis.__noriaTasksCalendarApi;
     this.clearNoriaHomeRuntimeCaches({ removeStyle: true });
     try {
       if (globalThis.noriaView === this._noriaGlobalView) delete globalThis.noriaView;
@@ -12530,7 +12851,11 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     }));
     return [
       ...pathEntries,
-      {id:'agentConnection.enabled',tab:'overview',keywords:['agent','mcp','连接','外部工具','凭据','端口']},
+      ...["includeTimelineInMonth", "includeCancelled", "excludeOverdueTimeline"].map(key => ({
+        id: `taskQueryPolicy.${key}`, tab: "tasks", section: "filters",
+        labelKey: `settings.tasks.${key}`, keywords: ["timeline", "filter", "时间轴", "筛选"]
+      })),
+      {id:'agentConnection.enabled',tab:'overview',keywords:['agent','si','mcp','助手','协作','连接','外部工具','凭据','端口']},
       {
         id: "performance.queryScopes.tasks",
         tab: "overview",
@@ -12646,6 +12971,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         labelKey: "settings.timeline.openMode",
         keywords: ["timeline", "sidebar", "task axis", "任务轴", "侧边栏"]
       },
+      {id:"tasksCalendar.timeZone",tab:"tasks",section:"tasks",labelKey:"settings.tasks.timeZone",keywords:["timezone","时区","UTC"]},
+      {id: "tasksCalendar.categoryColors", tab: "tasks", section: "tasks", labelKey: "settings.tasks.taskColors", keywords: ["color", "tag", "颜色", "配色", "分类", "标签"]},
       ...NORIA_TASKS_DISPLAY_SETTINGS.map(({key, keywords}) => ({
         id: `tasksCalendar.${key}`, tab: "tasks", section: "tasks",
         labelKey: `settings.tasks.${key}`, keywords: ["tasks", "任务", ...keywords]
@@ -12699,6 +13026,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         labelKey: "settings.calendar.calendarCustomFilePattern",
         keywords: ["calendar", "daily", "pattern", "日历", "日笔记", "路径模式"]
       },
+      ...["calendarCustomWeekTemplate", "calendarCustomMonthTemplate", "calendarCustomQuarterTemplate", "calendarCustomYearTemplate"].map(key => ({
+        id: `calendar.${key}`, tab: "calendar", section: "calendar", labelKey: `settings.calendar.${key}`,
+        keywords: ["template", "模板", key]
+      })),
       {
         id: "reviewCenter.prompt.skillName",
         tab: "home",
@@ -13569,8 +13900,17 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       this.settings.tasksCalendar.eisenhowerGranularity = NORIA_TASKS_CALENDAR_OPTIONS.eisenhowerGranularity.includes(raw)
         ? raw
         : NORIA_DEFAULT_TASKS_CALENDAR.eisenhowerGranularity;
-    } else if (normalizedKey === "showEarlyHours") {
-      this.settings.tasksCalendar.showEarlyHours = value === true;
+    } else if (NORIA_TASK_WEATHER_RANGES[normalizedKey]) {
+      this.settings.tasksCalendar[normalizedKey] = NORIA_TASK_WEATHER_RANGES[normalizedKey].includes(Number(value)) ? Number(value) : NORIA_DEFAULT_TASKS_CALENDAR[normalizedKey];
+    } else if (normalizedKey === "showEarlyHours" || normalizedKey === "showWeather") {
+      this.settings.tasksCalendar[normalizedKey] = value === true;
+    } else if (normalizedKey === "activeHours") {
+      const { start, end } = value || {};
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > 1440 || end - start < 60) {
+        throw new Error("Invalid active hours");
+      }
+      this.settings.tasksCalendar.activeHours = { start, end };
+      this.settings.tasksCalendar.showEarlyHours = value.fullDay === true;
     } else {
       return { ...(this.settings.tasksCalendar || NORIA_DEFAULT_TASKS_CALENDAR) };
     }
@@ -15634,12 +15974,17 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
           props: normalizedProps
         });
       };
+      const removedWidgetIds = new Set(Array.isArray(merged.home?.removedWidgetIds) ? merged.home.removedWidgetIds : []);
       NORIA_DEFAULT_HOME_WIDGETS.forEach((fallback) => {
+        if(focusDefaults.some(w=>w.id===fallback.id)&&!list.some(w=>w.id===fallback.id))return;
+        // Existing shortcut cards are owned by their migration or the user, not the starter layout.
+        if(fallback.id === "quick-access" && !list.some(w=>w.id===fallback.id))return;
+        if(removedWidgetIds.has(fallback.id))return;
         if (groupedWorkbenchCardIds.has(fallback.id)) return;
         const raw = list.find((item) => String(item?.id || "") === fallback.id) || fallback;
         pushWidget(raw, fallback);
       });
-      list.forEach((raw) => pushWidget(raw, {}));
+      list.forEach((raw) => { if(!removedWidgetIds.has(raw?.id))pushWidget(raw, {}); });
       const normalized = Array.from(byId.values());
       const habitHistory = normalized.find((widget) => widget.id === "habit-history-card");
       const projects = normalized.find((widget) => widget.id === "projects-card");
@@ -15698,8 +16043,11 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       },
       trendsRange: this.normalizeHomeTrendsRangeInput(merged.home.trendsRange),
       dailyStateRange: this.normalizeHomeDailyStateRangeInput(merged.home.dailyStateRange, merged.home.defaults),
+      removedWidgetIds: [...new Set((Array.isArray(merged.home.removedWidgetIds) ? merged.home.removedWidgetIds : []).filter(id=>typeof id === 'string' && id))],
+      focusCardsVersion: Number(merged.home.focusCardsVersion)||0,
       widgets: normalizeHomeWidgets(merged.home.widgets)
     };
+    merged.home=ensureHomeFocusCards(merged.home);
     if (!merged.tasksCalendar || typeof merged.tasksCalendar !== "object" || Array.isArray(merged.tasksCalendar)) {
       merged.tasksCalendar = { ...NORIA_DEFAULT_TASKS_CALENDAR };
     }
@@ -15707,17 +16055,25 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       const raw = String(value || "").trim();
       return NORIA_TASKS_CALENDAR_OPTIONS[scope].includes(raw) ? raw : fallback;
     };
+    const activeHours = merged.tasksCalendar.activeHours;
+    const validActiveHours = activeHours && Number.isInteger(activeHours.start) && Number.isInteger(activeHours.end)
+      && activeHours.start >= 0 && activeHours.end <= 1440 && activeHours.end - activeHours.start >= 60;
     merged.tasksCalendar = {
       defaultView: normalizeTaskCalendarOption("defaultView", merged.tasksCalendar.defaultView, NORIA_DEFAULT_TASKS_CALENDAR.defaultView),
       calendarDensity: normalizeTaskCalendarOption("calendarDensity", merged.tasksCalendar.calendarDensity, NORIA_DEFAULT_TASKS_CALENDAR.calendarDensity),
-      taskColorMode: normalizeTaskCalendarOption("taskColorMode", merged.tasksCalendar.taskColorMode, NORIA_DEFAULT_TASKS_CALENDAR.taskColorMode),
       showSourceChips: merged.tasksCalendar.showSourceChips === true,
+      showWeather: merged.tasksCalendar.showWeather !== false,
+      timeZone: calendarZone.validZone(merged.tasksCalendar.timeZone),
+      sourceTimeZone: calendarZone.validZone(merged.tasksCalendar.sourceTimeZone),
+      weatherPastDays: NORIA_TASK_WEATHER_RANGES.weatherPastDays.includes(Number(merged.tasksCalendar.weatherPastDays)) ? Number(merged.tasksCalendar.weatherPastDays) : 7,
+      weatherFutureDays: NORIA_TASK_WEATHER_RANGES.weatherFutureDays.includes(Number(merged.tasksCalendar.weatherFutureDays)) ? Number(merged.tasksCalendar.weatherFutureDays) : 7,
       showCompletedTasks: normalizeTaskCalendarOption("showCompletedTasks", merged.tasksCalendar.showCompletedTasks, NORIA_DEFAULT_TASKS_CALENDAR.showCompletedTasks),
       monthOverflowBehavior: normalizeTaskCalendarOption("monthOverflowBehavior", merged.tasksCalendar.monthOverflowBehavior, NORIA_DEFAULT_TASKS_CALENDAR.monthOverflowBehavior),
       rememberLastView: merged.tasksCalendar.rememberLastView !== false,
       taskTimelineOpenMode: normalizeTaskCalendarOption("taskTimelineOpenMode", merged.tasksCalendar.taskTimelineOpenMode, NORIA_DEFAULT_TASKS_CALENDAR.taskTimelineOpenMode),
       eisenhowerGranularity: normalizeTaskCalendarOption("eisenhowerGranularity", merged.tasksCalendar.eisenhowerGranularity, NORIA_DEFAULT_TASKS_CALENDAR.eisenhowerGranularity),
-      showEarlyHours: merged.tasksCalendar.showEarlyHours === true
+      showEarlyHours: merged.tasksCalendar.showEarlyHours === true,
+      activeHours: validActiveHours ? { start: activeHours.start, end: activeHours.end } : { ...NORIA_DEFAULT_TASKS_CALENDAR.activeHours }
     };
     if (!merged.calendar || typeof merged.calendar !== "object" || Array.isArray(merged.calendar)) {
       merged.calendar = JSON.parse(JSON.stringify(NORIA_DEFAULT_CALENDAR));
@@ -15890,6 +16246,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
             id,
             label: String(rawPreset.label || rawPreset.title || rawPreset.name || id).trim() || id,
             layers: normalizeTimelineViewLayerList(rawPreset.layers || rawPreset.defaultLayers, NORIA_DEFAULT_TIMELINE_VIEW.defaultLayers),
+            ...(rawPreset.projectRoot?{projectRoot:String(rawPreset.projectRoot).replace(/\\/g,"/").replace(/\/$/,"")}:{}),
+            ...(rawPreset.groupBy === "projects" ? {groupBy:"projects",expandedProjects:Array.isArray(rawPreset.expandedProjects)?[...new Set(rawPreset.expandedProjects.filter(x=>typeof x==="string"))].slice(0,200):[]} : {}),
             showDone: rawPreset.showDone != null ? rawPreset.showDone !== false : NORIA_DEFAULT_TIMELINE_VIEW.showDone,
             query: String(rawPreset.query || rawPreset.text || "").trim(),
             includeTags: normalizeTaskFilterTagList(rawPreset.includeTags || rawPreset.tags),
@@ -15922,6 +16280,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       orientation: timelineViewRaw.orientation === "vertical" ? "vertical" : "horizontal",
       timeWindow: timelineWindows.normalize(timelineViewRaw.timeWindow),
       focusMagnification: timelineViewRaw.focusMagnification !== false,
+      overviewVisibility: ['auto','show','hide'].includes(timelineViewRaw.overviewVisibility)?timelineViewRaw.overviewVisibility:'auto',
       scaleFavorites: timelineWindows.favorites(timelineViewRaw.scaleFavorites),
       verticalFilter: require("./timeline-stream-model.js").normalizeFilter(timelineViewRaw.verticalFilter),
       verticalMetadata: ['none','folder','tags','both'].includes(timelineViewRaw.verticalMetadata)?timelineViewRaw.verticalMetadata:'folder',
@@ -16152,15 +16511,24 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         path: String(rec.path || ""),
         lineHint: Number.isFinite(lineHint) && lineHint >= 0 ? Math.floor(lineHint) : -1,
         textFingerprint: String(rec.textFingerprint || ""),
+        ...(rec.taskId ? {taskId:String(rec.taskId)} : {}),
         titleSnapshot: String(rec.titleSnapshot || ""),
         actual: Number.isFinite(actual) && actual > 0 ? Math.floor(actual) : 0,
         expected: Number.isFinite(expected) && expected > 0 ? Math.floor(expected) : 0,
         sessions: Array.isArray(rec.sessions)
           ? rec.sessions.map((seg) => ({
             mode: String(seg && seg.mode || "WORK").toUpperCase() === "BREAK" ? "BREAK" : "WORK",
+            ...(seg?.timerMode === "stopwatch" ? {timerMode:"stopwatch"} : {}),
+            ...(seg?.recording === true ? {recording:true} : {}),
+            ...(seg?.recordRef?.path && seg?.recordRef?.id && seg?.recordRef?.day ? {recordRef:{path:String(seg.recordRef.path),id:String(seg.recordRef.id),day:String(seg.recordRef.day)}} : {}),
             start: String(seg && seg.start || ""),
             end: String(seg && seg.end || ""),
             durationMin: Math.max(0, Math.floor(Number(seg && seg.durationMin) || 0)),
+            ...(Number.isFinite(seg && seg.durationMs) ? { durationMs: Math.max(0, Math.floor(seg.durationMs)) } : {}),
+            ...(Array.isArray(seg && seg.segments) ? { segments: seg.segments
+              .filter(span => span && Number.isFinite(Date.parse(span.start)) && Date.parse(span.end) > Date.parse(span.start))
+              .map(span => ({ start: String(span.start), end: String(span.end) })) } : {}),
+            ...(["completed", "stopped", "abandoned"].includes(seg && seg.outcome) ? { outcome: seg.outcome } : {}),
             completed: (seg && seg.completed) === true
           })).filter((seg) => seg.start)
           : []
@@ -16181,6 +16549,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         out.active = {
           taskKey,
           mode,
+          ...(out.active.timerMode === "stopwatch" ? {timerMode:"stopwatch"} : {}),
           status: String(out.active.status || "running").toLowerCase() === "paused" ? "paused" : "running",
           startedAt: String(out.active.startedAt || ""),
           elapsedMs: Number.isFinite(elapsedMs) && elapsedMs > 0 ? Math.floor(elapsedMs) : 0,
@@ -16340,6 +16709,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     const draft = {
       id,
       ...(["horizontal","vertical"].includes(options.orientation)?{orientation:options.orientation}:{}),
+      ...(options.projectRoot?{projectRoot:options.projectRoot}:{}),
+      ...(options.groupBy==="projects"?{groupBy:"projects",expandedProjects:options.expandedProjects}:{}),
       ...(options.orientation==="vertical"?{verticalFilter:options.verticalFilter,verticalMetadata:options.verticalMetadata}:{}),
       label: String(options.label || id).trim() || id,
       ...(timelineWindows.normalize(options.timeWindow) ? {timeWindow:timelineWindows.normalize(options.timeWindow)} : {}),
@@ -16402,13 +16773,12 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   }
 
   getPomodoroState() {
-    return this.normalizePomodoroState(this.settings?.pomodoro);
+    const state=this.normalizePomodoroState(this.settings?.pomodoro);
+    return this.focusTimer?.records ? this.focusTimer.records.project(state) : state;
   }
 
   async savePomodoroState(nextState) {
-    this.settings.pomodoro = this.normalizePomodoroState(nextState);
-    await this.saveSettings();
-    return { ok: true, pomodoro: this.getPomodoroState() };
+    return this.focusTimer.save(nextState);
   }
 
   sanitizeTimelineAnnotationColor(value) {
@@ -17579,7 +17949,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   setAppearanceTagColor(tagInput, colorInput) {
     const tag = String(tagInput || "").trim().replace(/^#/, "").toLowerCase();
     const color = String(colorInput || "").trim().toLowerCase();
-    if (!/^[a-z0-9_-]+$/.test(tag) || !/^#([0-9a-f]{6})$/.test(color)) return null;
+    if (!/^[\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*$/u.test(tag) || !/^#([0-9a-f]{6})$/.test(color)) return null;
     this.settings = this.normalizeSettings(this.settings || {});
     this.settings.appearance = this.settings.appearance || { ...NORIA_DEFAULT_APPEARANCE };
     this.settings.appearance.tagColorMap = {
@@ -18409,7 +18779,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     } else if (action === "enabled") {
       widget = this.updateHomeWidgetEnabledInSettings(id, value === true);
       changed = !!widget;
-    } else if (action === "history-days" && id === "habit-history-card" && [7, 14, 21, 30, 60, 90].includes(Number(value))) {
+    } else if (action === "history-days" && id === "habit-history-card" && [7, 14, 21, 30, 60, 90, 180, 365].includes(Number(value))) {
       widget = this.updateHomeWidgetInSettings(id, current => ({ ...current, props: { ...current.props, historyDays: Number(value) } }));
       changed = !!widget;
     } else {
@@ -18494,6 +18864,54 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       inboxWorkflow: JSON.parse(JSON.stringify(this.getInboxWorkflowConfig())),
       tasksCalendarSettings: { ...(this.settings.tasksCalendar || NORIA_DEFAULT_TASKS_CALENDAR) },
       tasksCalendar: {
+        placePopover: placePanePopover,
+        zone: calendarZone.zoneContext(plugin.settings.tasksCalendar),
+        zoneAdapter(context) { return calendarZone.adapter(context); },
+        timelineClock: calendarZone.timelineClock(plugin.settings.tasksCalendar),
+        async getForecast(request = {}) {
+          if (plugin.settings.tasksCalendar?.showWeather === false || plugin.settings.weather?.enabled === false) return [];
+          const service = await plugin.ensureWeatherService();
+          return service.getCalendarWeather({ ...(plugin.settings.weather || {}), locale: plugin.getNoriaLocale(), qweatherKey: plugin._weatherQweatherKeyCache || plugin.settings.weather?.qweatherKey || "" }, {dates: request.dates, pastDays: plugin.settings.tasksCalendar.weatherPastDays, futureDays: plugin.settings.tasksCalendar.weatherFutureDays});
+        },
+        openMore(anchor, onChange) {
+          const zh = plugin.getNoriaLocale() === "zh";
+          const menu = new obsidian.Menu();
+          menu.addItem(item => item.setTitle(plugin.t("settings.tasks.showWeather")).setIcon("cloud-sun")
+            .setChecked(plugin.settings.tasksCalendar?.showWeather !== false).onClick(async () => {
+              const before = plugin.settings.tasksCalendar.showWeather;
+              try { await plugin.saveTasksCalendarPreference("showWeather", before === false); onChange?.(); }
+              catch (error) { plugin.settings.tasksCalendar.showWeather = before; new obsidian.Notice(error.message); }
+            }));
+          menu.addItem(item => item.setTitle(zh ? "天气范围" : "Weather range").setIcon("calendar-range").onClick(()=>{
+            anchor.ownerDocument.defaultView.requestAnimationFrame(()=>openPanePopover(anchor,anchor.closest('.tasksCalendar'),zh?'天气范围':'Weather range',(pop,close)=>{
+              pop.createEl('div',{cls:'tc-settings-popover-title',text:zh?'天气范围':'Weather range'});
+              for(const [key,choices]of Object.entries(NORIA_TASK_WEATHER_RANGES)){
+                const label=pop.createEl('label',{cls:'tc-settings-popover-row'});label.createSpan({text:plugin.t(`settings.tasks.${key}`)});
+                const select=label.createEl('select');for(const days of choices)select.createEl('option',{value:String(days),text:days===-1?plugin.t('settings.tasks.weatherFollowCalendar'):days===0?plugin.t('settings.tasks.weatherNone'):plugin.t('settings.tasks.weatherDays',{count:days})});
+                select.value=String(plugin.settings.tasksCalendar[key]);
+                select.onchange=async()=>{const before=plugin.settings.tasksCalendar[key];select.disabled=true;
+                  try{await plugin.saveTasksCalendarPreference(key,Number(select.value));onChange?.();}
+                  catch(error){plugin.settings.tasksCalendar[key]=before;select.value=String(before);new obsidian.Notice(error.message);}finally{select.disabled=false;}
+                };
+              }
+              const done=pop.createEl('button',{cls:'tc-settings-popover-done',text:zh?'完成':'Done'});done.onclick=close;
+            }));
+          }));
+          menu.addItem(item => item.setTitle(zh ? "天气设置" : "Weather settings").setIcon("map-pin").onClick(() => plugin.openNoriaSettings("home", "weather.manualCity")));
+          menu.addSeparator();
+          menu.addItem(item=>item.setTitle(zh?"日历时区":"Calendar time zone").setIcon("globe").onClick(()=>plugin.openNoriaSettings("tasks","tasksCalendar.timeZone")));
+          menu.addItem(item => item.setTitle(plugin.t("settings.tasks.taskColors")).setIcon("palette").onClick(() => plugin.openNoriaSettings("tasks", "tasksCalendar.categoryColors")));
+          menu.addItem(item => item.setTitle(zh ? "任务设置" : "Task settings").setIcon("settings-2").onClick(() => plugin.openNoriaSettings("tasks")));
+          const rect = anchor.getBoundingClientRect();
+          menu.showAtPosition({ x: rect.left, y: rect.bottom });
+          const popup=menu.dom,root=anchor.closest('.tasksCalendar');
+          if(popup&&root){
+            const position=()=>placePanePopover(popup,anchor,root),win=anchor.ownerDocument.defaultView;
+            position();const resize=new win.ResizeObserver(position);resize.observe(root);
+            win.addEventListener('resize',position);win.addEventListener('scroll',position,true);
+            menu.onHide(()=>{resize.disconnect();win.removeEventListener('resize',position);win.removeEventListener('scroll',position,true);});
+          }
+        },
         getSettings() {
           return { ...(plugin.settings.tasksCalendar || NORIA_DEFAULT_TASKS_CALENDAR) };
         },
@@ -18526,7 +18944,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         }
       },
       openTasksBoard: async () => plugin.openTasksBoardLeaf(),
-      openTasksTimeline: async () => plugin.openTasksTimelineLeaf(),
+      openTasksTimeline: async (request = {}) => plugin.openTasksTimelineLeaf(request),
       openCalendar: async () => plugin.openCalendarLeaf(),
       openDailyNote: async (request = {}) => plugin.openCalendarPeriodNote({ ...(request || {}), period: "daily" }),
       openDiary: async date => plugin.openDiaryInHome({selection:{mode:"daily",anchorDate:date},intent:"record"}),
@@ -18541,12 +18959,12 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         },
         async openPeriodNote(request = {}) {
           const target=plugin._timelineCalendarTarget;
-          if(target?.vertical()&&target.stream?.isConnected&&!request.newLeaf){
+          if(request.diary!==true&&target?.vertical()&&target.stream?.isConnected&&!request.newLeaf){
             await target.jumpToDate(plugin.getLocalYmd(plugin.coerceLocalDate(request.date)));
             plugin.activateWorkspaceLeaf(target.view.leaf);
             return {ok:true,created:false,target:'timeline'};
           }
-          return plugin.openCalendarPeriodNote({...request, followActiveDateView:true});
+          return plugin.openCalendarPeriodNote({...request, followActiveDateView:request.diary!==true});
         },
         async addDateTask(request = {}) {
           return plugin.addCalendarDateTask(request || {});
@@ -18578,22 +18996,33 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         }
       },
       tasks: {
+        createScheduleEditor(options) { return require("./task-schedule-editor.js").createTaskScheduleEditor(options); },
         parseTaskLine: taskDocument.parseTaskLine,
         readTaskLines: taskDocument.readTaskLines,
         patchTaskDates: taskDocument.patchTaskDates,
+        patchTaskLine: taskDocument.patchTaskLine,
         locateSource(source, request) { return taskDocument.locateTask(source, request); },
         async updateStatus(request = {}) {
           return plugin.updateTaskCheckboxStatus(request || {});
         },
         async openDetails(task, options = {}) { return plugin.openTaskDetails(task, options); },
+        showMoveUndo(receipt,host) { require("./task-move-undo.js").showTaskMoveUndo(plugin,receipt,host?.ownerDocument||document); },
         async appendToProject(request) { return plugin.appendTaskToProject(request); },
         renderRow(parent, task, options) { return renderWorkbenchTaskRow(plugin,parent,task,options); },
+        bindFocusDrag(handle,getTask) { require('./focus-task-drag.js').bindFocusTaskDrag(plugin,handle,getTask); },
+        cardViewState: plugin._taskCardViewState || (plugin._taskCardViewState = new Map()),
         projectViewState: plugin._projectGuideState || (plugin._projectGuideState = {selected:"",expanded:{},drafts:{}})
       },
       diaryHabits: {
+        fitGrid: require("./habit-grid-layout.js").fitHabitGrid,
         today(){return plugin.getLocalYmd();},
         assertToday(date){require("./day-clock.js").assertCurrentDay(plugin,date);},
         renderPicture(host,value){return require("./picture-picker.js").renderPicture(plugin,host,value);},
+        async saveHistoryDays(id,days){
+          const widget=plugin.settings.home.widgets.find(item=>item.id===id);
+          if(!widget||(widget.builtinId||widget.id)!=="habit-history-card"||![7,14,21,30,60,90,180,365].includes(days))throw Error("Invalid habit history range");
+          return plugin.cards.saveHome({...widget,props:{...widget.props,historyDays:days}});
+        },
         historyViewState: plugin._habitHistoryViewState || (plugin._habitHistoryViewState = new Map()),
         decorateHistory(cells,config,records,today,expanded=false){
           const plan=require("./habit-plan.js"),ends=expanded?plan.streakEnds(config,records,today):{};
@@ -18665,6 +19094,10 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         }
       },
       runtime: {
+        async openPeriodTaskCreate(options) {
+          try{return await require("./diary-task-create.js").openPeriodTaskCreate(plugin,options);}
+          catch(error){new Notice(error?.message||String(error));}
+        },
         extractH2Section:(raw,heading)=>require('./public-api.js').extractH2Section(raw,heading),
         toArray(value) {
           return plugin.runtimeToArray(value);
@@ -18679,9 +19112,30 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         openSetupWizard() {
           return plugin.openNoriaSettings("overview");
         },
+        openTaskFilterSettings() {
+          return plugin.openNoriaSettings("tasks", "taskQueryPolicy.includeTimelineInMonth");
+        },
         renderCountdown(host,options) { return plugin.countdowns.render(host,options); },
+        async chooseProject(projects) {
+          const items=(projects||[]).map(p=>({name:p.name,label:p.name,detail:p.path}));
+          const chosen=await chooseTaskAdoptionItem(plugin,items,plugin.t("runtime.periodic.projects.choose"));
+          return chosen?.name || "";
+        },
+        async chooseTimelineSource(paths) {
+          const items = [...new Set(paths || [])].map(path => plugin.app.vault.getAbstractFileByPath(path)).filter(file => file?.extension === "md").map(file => ({ path: file.path, label: file.basename, detail: file.path }));
+          if (items.length < 2) return items[0]?.path || "";
+          const chosen = await chooseTaskAdoptionItem(plugin, items, plugin.getNoriaLocale() === "zh" ? "打开笔记" : "Open note");
+          return chosen?.path || "";
+        },
         renderSuggestionReplies(host,source) { return require('./suggestion-reply-ui.js').renderSuggestionReplies(plugin,host,source); },
+        resolveRecentSuggestionSource(source,diaryRoot) {
+          return require('./suggestion-source.js').recentSuggestionSource(source,{
+            resolvePath:async date=>diaryRoot?`${diaryRoot}/${date.slice(0,4)}/${date}.md`:(await plugin.resolveCalendarNoteSpecAsync('daily',date)).path,
+            read:async path=>{const file=plugin.app.vault.getAbstractFileByPath(path);return file?plugin.app.vault.cachedRead(file):null;}
+          });
+        },
         attachHomeCardResize(host,id) { return plugin.cards.attachHomeResize(host,id); },
+        applyCardComposition(root,widgets) { return require('./card-composition-view.js').applyWidgetComposition(root,widgets); },
         renderDailyRecordSummary(host,range,options) { return plugin.propertyStats.renderDailySummary(host,range,options); },
         openTrendSources(kind,point) { return plugin.propertyStats.openTrendSources(kind,point); },
         openRecordManager(options) { const {RecordManager}=require("./record-manager.js");const modal=new RecordManager(plugin,options);modal.open();return modal; },
@@ -18705,8 +19159,11 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
           });
         },
         openCardCatalog() { plugin.cards.catalog({page:"home"}); },
+        getExtensionCardTitle(widget) { return plugin.cards.title(widget); },
         renderExtensionCard(widget,mount,selection) { return plugin.cards.render(widget,mount,selection); },
         subscribeCards(callback) { return plugin.cards.subscribe(callback); },
+        resolveTaskCategory(task) { return require('./task-category.js').resolveTaskCategory(task, plugin.settings.colorPalette); },
+        resolveFocusCategories(state, tasks) { return Object.fromEntries(require('./focus-categories.js').focusCategories(state, tasks, plugin.settings.colorPalette)); },
         subscribeStatisticRange(pageId, callback) { return plugin.cards.onStatisticRange(pageId, callback); },
         emitStatisticRange(pageId, range) { plugin.cards.emitStatisticRange(pageId, range); },
         getNoriaAvatar() { return plugin.getSupportSeedText("homeAvatar"); },
@@ -18808,6 +19265,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       getPomodoroState() {
         return plugin.getPomodoroState();
       },
+      pomodoroEngine: require('./runtime/views/task-timeline/pomodoro-state.js'),
+      subscribePomodoro(listener) {return plugin.focusTimer.subscribe(listener);},
       async savePomodoroState(nextState) {
         return plugin.savePomodoroState(nextState);
       },
@@ -19586,7 +20045,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   /**
    * 任务时间轴：独立 ItemView（`noria-task-timeline`），首屏为日期桶，可嵌日表；不复用任务看板 leaf。
    */
-  async openTasksTimelineLeaf() {
+  async openTasksTimelineLeaf(request = {}) {
     if (!this.isModuleEnabled("taskTimeline")) {
       new obsidian.Notice(this.t("modules.disabled.title"));
       return;
@@ -19611,6 +20070,14 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
      * 与 `openTasksBoardLeaf` 对齐：恢复出的旧 leaf 首次激活时可能未完整重挂 runtime，表现为空白直至重开 Tab。
      */
     const view = leaf && leaf.view ? leaf.view : null;
+    if (request.projectRoot && view) {
+      const projectRoot=String(request.projectRoot).replace(/\\/g,"/").replace(/\/$/,"");
+      await require('./settings-change.js').commitSettingsChange(this,['timelineView'],()=>{this.settings.timelineView.orientation="horizontal";this.settings.timelineView.timeWindow=null;this.settings.timelineView.focusMagnification=false;});
+      view._timelineFilterState=view.normalizeTimelineChromeFilterState({...view.getTimelineChromeFilterDefaults(),groupBy:"projects",projectRoot,expandedProjects:[projectRoot],layers:["task"],scaleMode:"auto",manualCenter:"",manualZoomIndex:null,manualOverviewZoomIndex:null});
+      await view.refreshTimelineRuntimeFromChrome();
+      this.app.workspace.requestSaveLayout?.();
+      return;
+    }
     const shouldForceReloadByHealth =
       hadExisting &&
       view &&
@@ -20457,14 +20924,18 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   }
 
   async buildCalendarNoteContent(spec) {
-    let text = "";
+    let text;
     if (spec.templatePath) {
-      text = await this.loadTextFromVault(spec.templatePath);
-    }
-    if (!String(text || "").trim()) {
+      let path = this.normalizePath(spec.templatePath);
+      if (!/\.md$/i.test(path)) path += ".md";
+      if (/^(?:[a-z]:|\/)|(^|\/)\.\.(\/|$)/i.test(path)) throw Error(this.getNoriaLocale() === 'zh' ? '请选择库内的模板文件' : 'Choose a template inside this vault');
+      try { text = await this.app.vault.adapter.read(path); }
+      catch (error) { throw new Error((this.getNoriaLocale() === 'zh' ? '无法读取模板，请检查文件或重新选择：' : 'Cannot read template; check the file or choose another: ') + path, {cause:error}); }
+    } else {
       text = this.getCalendarFallbackSeed(spec);
     }
-    return this.applyCalendarTemplateVariables(text, spec).replace(/\s+$/g, "") + "\n";
+    const content = this.applyCalendarTemplateVariables(text, spec).replace(/\s+$/g, "");
+    return content ? content + "\n" : "";
   }
 
   async getDailyNotesIntegrationStatus() {
@@ -20615,7 +21086,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
   async ensureReviewCenterUtils() {
     const pathText = ".obsidian/plugins/noria/views/dashboard/core/utils/review-center.js";
     const accessor = () => globalThis.dashboardCore?.utils?.reviewCenter;
-    const expectedContractVersion = 2;
+    const expectedContractVersion = 3;
     const current = accessor();
     if (Number(current?.runtimeContractVersion) === expectedContractVersion) return current;
     try {
@@ -20709,18 +21180,20 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     await options.beforeEdit?.();
     const path = this.normalizePath(request.path || request.from || "");
     const source = await this.loadTextFromVault(path);
-    const row = taskDocument.locateTask(source, request);
-    const model = taskDocument.parseTaskLine(row.text);
+    let conversion=options.conversion||null;
+    const row = conversion ? taskDocument.locateTaskConversion(source,request) : taskDocument.locateTask(source, request);
+    const zone=options.calendarZone?calendarZone.adapter(options.calendarZone):null;
+    const model = zone?zone.model(conversion?.taskLine||row.text):taskDocument.parseTaskLine(conversion?.taskLine||row.text);
     const identity = {...request, path, rawText:row.text, text:row.text, line:row.line};
-    const citations=taskAdoptionDocument.taskCitations(source,identity);
+    const citations=conversion?[]:taskAdoptionDocument.taskCitations(source,identity);
     const origin = options.anchor?.closest?.(".workspace-leaf-content");
     const drafts = this._taskEditDrafts || (this._taskEditDrafts = new Map());
-    const draftKey = path + "\n" + row.text;
+    const draftKey = path + "\n" + row.text+(zone?"\n"+zone.display:"");
     await this.ensureTaskDateTimeEditorApi();
     const api = globalThis.__noriaTasksCalendarApi;
     if (!api?.openTaskDateTimeEditorFromMarkdownLine) throw new Error(this.t("notices.taskEditor.apiUnavailable"));
     return api.openTaskDateTimeEditorFromMarkdownLine({filePath:path,lineIndex:row.line,rawLine:row.text,returnFocusEl:options.anchor,
-      workbench:{model,draft:drafts.get(draftKey),anchor:options.anchor,presentation:options.presentation,
+      workbench:{model,timeZone:zone?.display,conversion:!!conversion,draft:drafts.get(draftKey),anchor:options.anchor,presentation:options.presentation,
         restoreFocus:()=>{
           if(options.restoreFocus){options.restoreFocus();return;}
           const current=[...origin?.querySelectorAll(".noria-workbench-task-row")||[]].find(el=>el.dataset.sourcePath===path&&Number(el.dataset.sourceLine)===identity.line);
@@ -20728,30 +21201,47 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
         },
         onOpenSource:async()=>{
           const current = await this.loadTextFromVault(path);
-          const target = taskDocument.locateTask(current, identity);
+          const target = conversion ? taskDocument.locateTaskConversion(current,identity) : taskDocument.locateTask(current, identity);
           return this.openReviewSourceFile(path, {line:target.line + 1, newLeaf:true});
         },
         onOpenOrigin:citations.length?()=>this.openTaskRecordOrigin(citations,path):null,
+        onFocus:!conversion&&this.isPomodoroModuleEnabled()?async anchor=>{
+          const current=await this.loadTextFromVault(path),target=taskDocument.locateTask(current,identity);
+          const engine=require('./runtime/views/task-timeline/pomodoro-state.js');
+          const meta=engine.taskPomodoroMeta({noria:{path,line:target.line,task:{rawLine:target.text}}});
+          require('./focus-card.js').openTaskFocusMenu(this,meta,anchor);
+        }:null,
         onDraft:value=>drafts.set(draftKey,value), onDiscard:()=>drafts.delete(draftKey),
         onSave:async value=>{
           await options.beforeSave?.();
-          const patch=value.patch||{};
-          const result=await saveTaskEditor({identity,patch,dependencies:value.dependencies,today:this.getLocalYmd(),
+          const patch=zone?zone.patch(value.patch||{},identity.rawText):value.patch||{};
+          const focusBefore=!conversion?{...identity}:null;
+          const result=await saveTaskEditor({identity,patch,conversion,dependencies:value.dependencies,today:this.getLocalYmd(),
             read:path=>this.loadTextFromVault(path),process:(path,fn)=>this.processTextAtVaultPath(path,fn),
             createId:()=>globalThis.crypto.randomUUID().replace(/-/g,"").slice(0,6)});
+          conversion=null;
           // Advance this panel before refreshing consumers, so a retry cannot edit an old identity.
           Object.assign(identity,{rawText:result.rawText,text:result.rawText,line:result.line});
-          Object.assign(model,taskDocument.parseTaskLine(result.rawText));drafts.delete(draftKey);
+          Object.assign(model,zone?zone.model(result.rawText):taskDocument.parseTaskLine(result.rawText));drafts.delete(draftKey);
+          if(focusBefore&&this.focusTimer){
+            const engine=require('./runtime/views/task-timeline/pomodoro-state.js');
+            const meta=row=>engine.taskPomodoroMeta({noria:{path,line:row.line,task:{rawLine:row.rawText}}});
+            try{await this.focusTimer.rebindTask(meta(focusBefore),meta(identity));}
+            catch(error){new obsidian.Notice(this.getNoriaLocale()==='zh'?'任务已保存，专注关联更新失败：'+error.message:'Task saved; focus link update failed: '+error.message);}
+          }
           await options.onSaved?.(result);
           this.requestNoriaRefresh("tasks","workbench-task-edit");
           return result;
         },
         onDelete:async()=>{
           await options.beforeSave?.();
+          let deletion;
           await this.processTextAtVaultPath(path,current=>{
-            return taskAdoptionDocument.removeTaskWithCitations(current,identity);
+            const text=taskAdoptionDocument.removeTaskWithCitations(current,identity);
+            deletion={path,previousText:current,text,deleted:true,ok:true};
+            return text;
           });
-          drafts.delete(draftKey);await options.onSaved?.({path,deleted:true,ok:true});
+          drafts.delete(draftKey);await options.onSaved?.(deletion);
           this.requestNoriaRefresh("tasks","task-editor-delete");
         }
       }});
@@ -21031,8 +21521,8 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     const ymd = U.normalizeYmd ? U.normalizeYmd(dateInput) : this.getLocalYmd(dateInput);
     const spec = await this.resolveCalendarNoteSpecAsync("daily",ymd);
     const diaryPath = spec.path;
-    const seed = await this.buildCalendarNoteContent(spec);
     const existed = !!this.app.vault.getAbstractFileByPath(diaryPath);
+    const seed = existed ? "" : await this.buildCalendarNoteContent(spec);
     const nowRaw = src.now || src.timestamp || "";
     let nowDate = nowRaw ? new Date(nowRaw) : new Date();
     if(Number.isNaN(nowDate.getTime()))nowDate=new Date();
@@ -21586,6 +22076,16 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     };
     const collectStartedAt = perfNow();
     const range = this.normalizeTimelineTraceRange(request || {});
+    const requested = Array.isArray(request.layers) ? new Set(request.layers) : null;
+    const notes = !requested || requested.has("note") ? this.filesForScope("notes").map(file => {
+      const timestamp = value => {
+        const ms = Number(value);
+        if (!Number.isFinite(ms) || ms <= 0 || ms > Date.now()) return "";
+        const iso = new Date(ms).toISOString();
+        return this.isTimelineTraceTimeInRange(iso, range) ? iso : "";
+      };
+      return { path: file.path, title: file.basename || file.path.split("/").pop().replace(/\.md$/i, ""), created: timestamp(file.stat?.ctime), modified: timestamp(file.stat?.mtime) };
+    }).filter(note => note.created || note.modified) : [];
     const meta = {
       scope: "human-markdown",
       noiseFiltered: true,
@@ -21599,7 +22099,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       range,
       error: "Git traces are supplied by external evidence providers"
     };
-    const cachePhase = await measure(() => this.collectTimelineCacheTraces(range).catch((error) => ({
+    const cachePhase = await measure(() => (!requested || requested.has("noria") ? this.collectTimelineCacheTraces(range) : Promise.resolve({ available: true, events: [], range })).catch((error) => ({
         available: false,
         source: "noria-cache",
         events: [],
@@ -21608,6 +22108,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
       })));
     const cache = cachePhase.value;
     return {
+      notes,
       git: emptyGit,
       cache,
       meta: {
@@ -21855,7 +22356,7 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     }
     if (!Object.keys(allowed).length) return { ok: false, path: diaryPath, reason: "empty" };
     const existed = !!this.app.vault.getAbstractFileByPath(diaryPath);
-    const seed = await this.buildCalendarNoteContent(spec);
+    const seed = existed ? "" : await this.buildCalendarNoteContent(spec);
     let previousText = "";
     const processed = await this.processTextAtVaultPath(diaryPath, (current) => {
       previousText = String(current || "");

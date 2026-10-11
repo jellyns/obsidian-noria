@@ -1,6 +1,11 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const {projectDiaryTasks, diaryRange, shiftPeriod} = require("../src/diary-tasks.js");
 const {diaryNavigationItems}=require("../src/diary-tasks.js");
+test('independent arrangements appear in the selected diary period once without treating the source note date as their date',()=>{
+ const raw='Read [schedule:: 2026-10-08] [schedule:: 2026-10-10 09:00 / 2026-10-10 10:00]',task={path:'Diary/2026-10-07.md',line:0,text:raw};
+ const project=date=>projectDiaryTasks([task,task],{mode:'daily',anchorDate:date},task.path,'2026-10-07');
+ assert.equal(project('2026-10-07').total,0);const result=project('2026-10-10');assert.equal(result.total,1);assert.equal(result.pending[0].date,'2026-10-10');assert.equal(result.pending[0].due,'');
+});
 test("date strip stays in the selected week and crosses year boundaries",()=>{
   const items=diaryNavigationItems({mode:"daily",anchorDate:"2027-01-01"});
   assert.deepEqual(items.map(x=>x.anchorDate),["2026-12-28","2026-12-29","2026-12-30","2026-12-31","2027-01-01","2027-01-02","2027-01-03"]);
@@ -20,13 +25,18 @@ test("current-period MIT does not limit regular historical or future tasks", () 
   const run = (date,mode="daily") => projectDiaryTasks(tasks,{mode,anchorDate:date},"Diary.md","2026-09-14");
   assert.deepEqual(run("2026-09-14").focus.map(r=>r.title),["Earlier task","Undated in this note"]);
   for(const date of ["2026-09-13","2026-09-15"]) {
-    const p=run(date);assert.equal(p.focus.length,0);assert(p.pending.some(r=>r.title==="Earlier task"));
+    const p=run(date);assert.equal(p.focus.length,0);assert(!p.pending.some(r=>r.title==="Earlier task"));assert(p.pending.some(r=>r.title==="Undated in this note"));
   }
   assert(run("2026-09-20","weekly").current);
   assert(!run("2026-09-21","weekly").current);
   assert(run("2026-09-01","monthly").current);
   assert.equal(run("2026-01-01","yearly").focus[0].title,"October");
   assert.equal(run("2025-12-01","yearly").focus.length,0);
+});
+test('historical journals include overlapping arrangements but do not invent completion dates',()=>{
+ const rows=[{path:'P.md',line:1,text:'Cross month [schedule:: 2026-09-30 / 2026-10-02]'},{path:'P.md',line:2,text:'Finished without completion date',scheduled:'2026-10-01',completed:true}];
+ const p=projectDiaryTasks(rows,{mode:'daily',anchorDate:'2026-10-01'},'D.md','2026-10-10');
+ assert.deepEqual(p.pending.map(r=>r.title),['Cross month']);assert.equal(p.done.length,0);
 });
 test("projection deduplicates source lines, keeps local undated and dated completions", () => {
   const p=projectDiaryTasks([...tasks,tasks[0]],{mode:"daily",anchorDate:"2026-09-14"},"Diary.md","2026-09-14");

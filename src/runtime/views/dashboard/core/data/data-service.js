@@ -516,6 +516,7 @@
         completion: read("completion", ["done", "completedDate"]) || (task?.completed ? diaryFallback : ""),
         due: read("due", ["date"]),
         scheduled: read("scheduled"),
+        schedules: parsed.schedules,
         start: read("start"),
         created: read("created") || normalizeDateValue(task?.ctime),
         diaryFallback
@@ -528,19 +529,29 @@
     const reviewCacheRoot = normalizePath(storagePaths.reviewEvidenceRoot || REVIEW_CACHE_ROOT).replace(/\/+$/, "") || REVIEW_CACHE_ROOT;
     const snapshotCacheRoot = normalizePath(storagePaths.snapshotRoot || SNAPSHOT_CACHE_ROOT).replace(/\/+$/, "") || SNAPSHOT_CACHE_ROOT;
     const toArray = (value) => toPlainArray(value, runtimeBridge);
-    const readText = async (pathText, file) => {
+    const readText = async (pathText, file, required = false) => {
       try {
-        if (ctx?.readText) return String(await ctx.readText(pathText) || "");
+        if (ctx?.readText) {
+          const text = await ctx.readText(pathText);
+          if (text != null) return String(text);
+        }
       } catch (_) {}
       try {
-        if (file && typeof app?.vault?.cachedRead === "function") return String(await app.vault.cachedRead(file) || "");
+        if (file && typeof app?.vault?.cachedRead === "function") {
+          const text = await app.vault.cachedRead(file);
+          if (text != null) return String(text);
+        }
       } catch (_) {}
       try {
         const normalized = normalizePath(pathText);
-        return String(await app?.vault?.adapter?.read?.(normalized) || "");
-      } catch (_) {
-        return "";
+        const text = await app?.vault?.adapter?.read?.(normalized);
+        if (text != null) return String(text);
+      } catch (_) {}
+      if (required) {
+        const zh = String(runtimeBridge.locale || runtimeBridge.i18n?.locale || "en").startsWith("zh");
+        throw new Error((zh ? "无法读取日记：" : "Could not read diary: ") + normalizePath(pathText));
       }
+      return "";
     };
     const writeText = async (pathText, text) => {
       const normalized = normalizePath(pathText);
@@ -848,7 +859,7 @@
         8,
         async (page) => ({
           page,
-          content: await readText(page?.file?.path || "")
+          content: await readText(page?.file?.path || "", undefined, true)
         })
       );
       for (const entry of diaryEntries) {
@@ -858,7 +869,8 @@
         const noteRow = noteByBucket.get(bucket);
         const stateRow = stateByBucket.get(bucket);
         const content = entry.content;
-        const words = String(content || "").replace(/\s+/g, "").length;
+        const writing=root.utils?.diaryDayBlocks?.withoutDiaryCardViews?.(content)??content;
+        const words = String(writing || "").replace(/\s+/g, "").length;
         if (noteRow) {
           noteRow.words += words;
           noteRow.sources.diary.push({path:normalizePath(p?.file?.path || ""),title:String(p?.file?.name || "").replace(/\.md$/i,""),date:ds,value:words});
@@ -943,12 +955,13 @@
       const rawText = taskText(task);
       const clean = cleanTaskText(rawText);
       const fingerprint = hashString(`${pathText}|${line}|${clean}`);
-      const dates = parseTaskDateRoles(task);
+      const {schedules, ...dates} = parseTaskDateRoles(task);
       const checkbox = normalizeTaskCheckbox(task);
       const completed = checkbox.state === "done";
       const status = checkbox.state === "done" ? "done" : (checkbox.state === "cancelled" ? "cancelled" : "open");
       return {
         id: `${pathText}|${line}|${fingerprint}`,
+        schedules,
         identity: { sourcePath: pathText, line, blockId: String(task?.blockId || ""), fingerprint, identityKind: "source-location", stability: "contextual" },
         title: clean,
         status,
@@ -974,12 +987,24 @@
       };
     }
 
-    function bucketDateForTask(item, bucketBy) {
+    function bucketDateForTask(item, bucketBy, range) {
       const b = String(bucketBy || "active");
       if (b === "completion") return item.dates.completion;
       if (b === "due") return item.dates.due;
-      if (b === "scheduled") return item.dates.scheduled;
       if (b === "start") return item.dates.start;
+      if (item.schedules?.length) {
+        if (item.completed && b === "active") return item.dates.completion;
+        const periods = item.schedules.filter(s=>!s.error).map(s=>[s.start.slice(0,10),(s.end||s.start).slice(0,10)]);
+        if (b !== "scheduled") {
+          if(item.dates.start) periods.push([item.dates.start,item.dates.due||item.dates.start]);
+          else if(item.dates.due) periods.push([item.dates.due,item.dates.due]);
+          if(item.dates.completion)periods.push([item.dates.completion,item.dates.completion]);
+        }
+        const match=range&&periods.filter(([a,z])=>a<=range.end&&z>=range.start).sort((a,z)=>a[0].localeCompare(z[0]))[0];
+        if(match)return match[0]<range.start?range.start:match[0];
+        return periods.map(p=>p[0]).sort()[0]||"";
+      }
+      if (b === "scheduled") return item.dates.scheduled;
       if (b === "timeline") return item.dates.start || item.dates.scheduled || item.dates.due || item.dates.completion;
       if (b === "board") return item.completed ? item.dates.completion : (item.dates.due || item.dates.scheduled || item.dates.start || item.dates.diaryFallback);
       return item.completed ? item.dates.completion : (item.dates.due || item.dates.scheduled || item.dates.start || item.dates.diaryFallback);
@@ -1006,7 +1031,7 @@
         if (status === "done" && !item.completed) continue;
         if (status === "open" && item.status !== "open") continue;
         if (status === "cancelled" && item.status !== "cancelled") continue;
-        const ds = bucketDateForTask(item, bucketBy);
+        const ds = bucketDateForTask(item, bucketBy, resolved);
         if (ds && inRange(ds, resolved.start, resolved.end)) {
           item.bucketDate = ds;
           items.push(item);
@@ -1082,7 +1107,7 @@
           }
           completedItems.push(item);
         } else if (item.status !== "cancelled") {
-          const ds = bucketDateForTask(item, "active");
+          const ds = item.bucketDate;
           const row = byBucket.get(bucketForDate(ds, resolved.granularity));
           if (row) {
             row.open += 1;
@@ -1347,6 +1372,17 @@
           items.push({ ...entry, key });
         });
       });
+      // The home project card also discovers projects placed directly under the configured root.
+      const knownRoots=new Set(items.map(item=>item.root));
+      const knownNames=new Set(items.map(item=>canonicalProjectKey(item.name)));
+      for(const file of filesForManagedPath("projectsRoot")){
+        const path=normalizePath(file.path);
+        if(path.split('/').some(part=>part==='_archive'||part.startsWith('.')))continue;
+        const info=projectInfoFromPath(path);
+        if(!info||knownRoots.has(info.root)||knownNames.has(canonicalProjectKey(info.name)))continue;
+        knownRoots.add(info.root);knownNames.add(canonicalProjectKey(info.name));
+        items.push({...info,targetPath:info.singleFile?info.root:"",key:canonicalProjectKey(info.root),stage:"active"});
+      }
       return items;
     }
 
@@ -1372,7 +1408,7 @@
     function taskHasRangeActivity(item, resolved) {
       const dates = item?.dates || {};
       return [dates.completion, dates.due, dates.scheduled, dates.start, dates.diaryFallback]
-        .some((ds) => inRange(ds, resolved.start, resolved.end));
+        .some((ds) => inRange(ds, resolved.start, resolved.end)) || (item.schedules||[]).some(s=>!s.error&&s.start.slice(0,10)<=resolved.end&&(s.end||s.start).slice(0,10)>=resolved.start);
     }
 
     function summarizeProject(project, tasks, resolved) {

@@ -1,6 +1,17 @@
 let {pages, view, firstDayOfWeek, globalTaskFilter, dailyNoteFolder, dailyNoteFormat, startPosition, upcomingDays, css, options, timelineConfigPath, templateLibraryPath, noriaBridge, noriaPluginTabRole} = input || {};
 var bridgeCfg = (noriaBridge && typeof noriaBridge === "object") ? noriaBridge : {};
 var bridge = bridgeCfg;
+var taskCalendarZone = !resolveTimelineModeContract().isTimelineMode && bridgeCfg.tasksCalendar?.zone
+ ? bridgeCfg.tasksCalendar.zoneAdapter(bridgeCfg.tasksCalendar.zone) : null;
+if(taskCalendarZone){
+ var sourceTaskBridge=bridgeCfg.tasks,sourceRuntimeBridge=bridgeCfg.runtime;
+ noriaBridge=bridgeCfg=bridge={...bridgeCfg,tasks:{...sourceTaskBridge,
+  parseTaskLine:taskCalendarZone.parseTaskLine,patchTaskDates:taskCalendarZone.patchTaskDates,patchTaskLine:taskCalendarZone.patchTaskLine,
+  openDetails:(task,options)=>sourceTaskBridge.openDetails(task,{...options,calendarZone:{source:taskCalendarZone.source,display:taskCalendarZone.display}})
+ },runtime:{...sourceRuntimeBridge,openPeriodTaskCreate:options=>sourceRuntimeBridge.openPeriodTaskCreate({...options,calendarZone:{source:taskCalendarZone.source,display:taskCalendarZone.display}})}};
+}
+function calendarNow(){return taskCalendarZone?moment(taskCalendarZone.now(),"YYYY-MM-DD HH:mm",true):moment();}
+
 var tasksCalendarRuntimeBuildId = String(
 	bridgeCfg.runtimeBuildId ||
 	(typeof globalThis !== "undefined" ? globalThis.__noriaRuntimeBuildId : "") ||
@@ -107,10 +118,10 @@ function formatTasksCalendarDayTitle(day) {
 	var d = m.date();
 	if (tasksCalendarRuntimeLocale() === "zh-CN") {
 		var zhLine = mo + "月" + d + "日";
-		return y !== moment().year() ? y + "年 " + zhLine : zhLine;
+		return zhLine + " " + y + "年";
 	}
 	var enLine = enMonthName(m, false) + " " + d;
-	return y !== moment().year() ? enLine + ", " + y : enLine;
+	return enLine + " " + y;
 }
 
 function formatTasksCalendarMonthTitle(month) {
@@ -217,7 +228,7 @@ if (firstDayOfWeek) {
 };
 
 function taskCalendarConfiguredWeekStart(value) {
-	var anchor = moment(value || moment()).startOf("day");
+	var anchor = moment(value || calendarNow()).startOf("day");
 	var firstDay = parseInt(String(firstDayOfWeek), 10);
 	if (!Number.isFinite(firstDay) || firstDay < 0 || firstDay > 6) { firstDay = 0; }
 	var delta = (anchor.day() - firstDay + 7) % 7;
@@ -407,7 +418,7 @@ function adaptDataTaskToRuntimeTask(item) {
 async function collectFreshTasksForCalendar(pagesSpec) {
 	try {
 		if (!noriaBridge || !noriaBridge.data || typeof noriaBridge.data.getTasks !== "function") return [];
-		var anchor = moment().format("YYYY-MM-DD");
+		var anchor = calendarNow().format("YYYY-MM-DD");
 		var result = await noriaBridge.data.getTasks({
 			range: { mode: "custom", start: anchor, end: anchor },
 			bucketBy: "board",
@@ -527,10 +538,6 @@ function clearFreshTaskInvalidationEvent() {
 			app.workspace.offref(ref);
 		}
 	} catch (_) {}
-	try {
-		var key = "__noriaTasksCalendarInvalidationRef";
-		if (globalThis[key] === ref) { delete globalThis[key]; }
-	} catch (_) {}
 }
 
 var tcTaskSourceRevision = 0;
@@ -598,10 +605,7 @@ function bindFreshTaskInvalidationEvent() {
 	try {
 		if (tcRuntimeDisposed) return;
 		if (!app || !app.workspace || typeof app.workspace.on !== "function") return;
-		var key = "__noriaTasksCalendarInvalidationRef";
-		if (globalThis[key] && typeof app.workspace.offref === "function") {
-			try { app.workspace.offref(globalThis[key]); } catch (_) {}
-		}
+		clearFreshTaskInvalidationEvent();
 		tcFreshTaskInvalidationRef = app.workspace.on("noria:tasks-invalidated", function (payload) {
 			if (tcRuntimeDisposed) return;
 			if (plannerChromeInteractionActive || editModeActive) {
@@ -610,7 +614,6 @@ function bindFreshTaskInvalidationEvent() {
 			}
 			scheduleTasksCalendarSoftRefresh(180);
 		});
-		globalThis[key] = tcFreshTaskInvalidationRef;
 	} catch (_) {}
 }
 
@@ -638,6 +641,9 @@ function scheduleStartupTaskRecovery() {
 // Variables
 var done, doneWithoutCompletionDate, due, recurrence, overdue, start, scheduled, process, cancelled, dailyNote;
 var timelineQuickStrategy = "daily-only";
+var timelineQuickTargetDate = "";
+var timelineQuickTargetContext = "";
+var quickActionBusy = false;
 /** 四象限数据范围：日 / 周 / 月 / 年（默认周）；持久化便于下次打开 */
 var eisenhowerGranularity = getTasksCalendarGranularityPreference("eisenhowerGranularity", "week", "noria.eisen.granularity");
 var eisenhowerFocusDate = null;
@@ -653,7 +659,7 @@ var tcFeatureFlags = {
 	tasksNative: true
 };
 var taskStore = {
-	view: { mode: "week", anchorDate: moment().format("YYYY-MM-DD") },
+	view: { mode: "week", anchorDate: calendarNow().format("YYYY-MM-DD") },
 	edit: { mode: "idle", deleteMarking: false, frozen: false },
 	interaction: { active: false, draggingTaskId: "" },
 	tasks: new Map(),
@@ -661,7 +667,7 @@ var taskStore = {
 };
 function setTaskStoreView(mode, anchorDate) {
 	taskStore.view.mode = String(mode || taskStore.view.mode || "week");
-	taskStore.view.anchorDate = String(anchorDate || taskStore.view.anchorDate || moment().format("YYYY-MM-DD"));
+	taskStore.view.anchorDate = String(anchorDate || taskStore.view.anchorDate || calendarNow().format("YYYY-MM-DD"));
 	try {
 		if (rootNode && rootNode.setAttribute) {
 			rootNode.setAttribute("data-noria-current-view", taskStore.view.mode);
@@ -681,10 +687,10 @@ function getPendingPatches() {
 }
 var customInlineOpen = false;
 var customInlineDraft = {
-	label: "跑步",
-	tagSuffix: "running",
-	startTime: "19:30",
-	durationMin: "35",
+	label: "",
+	tagSuffix: "",
+	startTime: "",
+	durationMin: "30",
 	saveToLibrary: false
 };
 var DEFAULT_TIMELINE_CONFIG_PATH = ".obsidian/plugins/noria/config/timeline-settings.md";
@@ -745,6 +751,9 @@ function getWrapperTimelineCompat() {
 	}
 }
 var showEarlyHours = getTasksCalendarBooleanPreference("showEarlyHours", false, "noria-tc-show-early-hours");
+var plannerActiveHours = getTasksCalendarRuntimeSettings().activeHours || { start: 360, end: 1440 };
+var plannerHoursExpanded = false;
+var plannerHoursEntries = new Map();
 var bridgePaths = (bridgeCfg.runtimePaths && typeof bridgeCfg.runtimePaths === "object") ? bridgeCfg.runtimePaths : {};
 var bridgeSizing = (bridgeCfg.sizing && typeof bridgeCfg.sizing === "object") ? bridgeCfg.sizing : {};
 var tcPlannerLabControls = null;
@@ -1102,10 +1111,10 @@ function taskPassesRuntimeTagFilter(taskObj) {
 	return true;
 }
 if (!dailyNoteFormat) { dailyNoteFormat = "YYYY-MM-DD" };
-var tToday = moment().format("YYYY-MM-DD");
-var tMonth = moment().format("M");
-var tDay = moment().format("d");
-var tYear = moment().format("YYYY");
+var tToday = calendarNow().format("YYYY-MM-DD");
+var tMonth = calendarNow().format("M");
+var tDay = calendarNow().format("d");
+var tYear = calendarNow().format("YYYY");
 var tid = (new Date()).getTime();
 if (startPosition) {
 	var sp = String(startPosition).trim();
@@ -1121,7 +1130,7 @@ if (startPosition) {
 		selectedList = selectedMonth.clone();
 	} else {
 		selectedMonth = moment(sp, "YYYY-MM", true);
-	if (!selectedMonth.isValid()) { selectedMonth = moment().startOf("month"); }
+	if (!selectedMonth.isValid()) { selectedMonth = calendarNow().startOf("month"); }
 	selectedMonth = selectedMonth.clone().date(1);
 		selectedList = selectedMonth.clone();
 		selectedDay = selectedMonth.clone().startOf("day");
@@ -1130,20 +1139,20 @@ if (startPosition) {
 	if (spParts) {
 		var py = parseInt(spParts[1], 10);
 		var p2 = parseInt(spParts[2], 10);
-		selectedWeek = moment().isoWeekYear(py).isoWeek(p2).startOf("isoWeek");
+		selectedWeek = calendarNow().isoWeekYear(py).isoWeek(p2).startOf("isoWeek");
 	}
 	if (!selectedWeek || !selectedWeek.isValid()) {
 		selectedWeek = taskCalendarConfiguredWeekStart(moment(sp, "YYYY-ww", true));
 	}
 	if (!selectedWeek.isValid()) {
-		selectedWeek = taskCalendarConfiguredWeekStart(moment());
+		selectedWeek = taskCalendarConfiguredWeekStart(calendarNow());
 		}
 	}
 } else {
-	var selectedMonth = moment().date(1);
-	var selectedWeek = taskCalendarConfiguredWeekStart(moment());
-	var selectedDay = moment().startOf("day");
-	var selectedList = moment().date(1);
+	var selectedMonth = calendarNow().date(1);
+	var selectedWeek = taskCalendarConfiguredWeekStart(calendarNow());
+	var selectedDay = calendarNow().startOf("day");
+	var selectedList = calendarNow().date(1);
 }
 /* 插件「任务时间轴」Tab：与任务看板共用 runtime，仅周 time-lane + 极简工具栏 */
 function resolveTimelineModeContract() {
@@ -1190,7 +1199,7 @@ function resolveInitialTaskCalendarSelectedDate(activeView) {
 		list: selectedList
 	};
 	var normalized = String(activeView || "").trim().toLowerCase();
-	return selectedByView[normalized] || selectedMonth || selectedWeek || selectedDay || selectedList || moment().startOf("month");
+	return selectedByView[normalized] || selectedMonth || selectedWeek || selectedDay || selectedList || calendarNow().startOf("month");
 }
 function renderTaskCalendarViewNow(activeView, dateAnchor) {
 	var normalized = String(activeView || view || "month").trim().toLowerCase();
@@ -1204,11 +1213,11 @@ function renderTaskCalendarViewNow(activeView, dateAnchor) {
 var selectedDate = resolveInitialTaskCalendarSelectedDate(view);
 if (selectedDate && typeof selectedDate.isValid === "function" && !selectedDate.isValid()) {
 	if (view == "week") {
-		selectedDate = taskCalendarConfiguredWeekStart(moment());
+		selectedDate = taskCalendarConfiguredWeekStart(calendarNow());
 	} else if (view == "day") {
-		selectedDate = moment().startOf("day");
+		selectedDate = calendarNow().startOf("day");
 	} else {
-		selectedDate = moment().startOf("month");
+		selectedDate = calendarNow().startOf("month");
 	}
 }
 var arrowLeftIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>';
@@ -1377,6 +1386,7 @@ function taskIconForClass(cls) {
  */
 var taskQueryAdapter = {
 	collectForDate: function (date) {
+		var tasks = getCalendarTaskEntries();
 		var isMonthView = rootNode && rootNode.getAttribute("view") == "month";
 		var queryPolicy = runtimeTaskQueryPolicy;
 		function dedupByTaskKey(list) {
@@ -1392,12 +1402,15 @@ var taskQueryAdapter = {
 			return out;
 		}
 		function includeInCurrentView(taskObj) {
+			if (taskObj.calendarDeadlineMerged && !taskObj.completed && taskDateSameDay(taskObj.due,date)) return false;
 			if (!isMonthView) { return true; }
 			if (!queryPolicy.includeTimelineInMonth && isTimelineTaggedTask(taskObj)) { return false; }
 			return true;
 		}
-		var doneSameDay = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && t.completed === true && t.completion && taskDateSameDay(t.completion, date)), "completion");
-		var doneWithoutCompletionDate = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && t.completed === true && !t.completion && t.due && taskDateSameDay(t.due, date)), "due");
+		var doneSameDay = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && t.completed === true && (t.calendarSchedule
+			? (t.scheduled ? taskDateSameDay(t.scheduled,date) : !taskDateAfterDay(t.start,date) && !taskDateBeforeDay(t.due,date))
+			: t.completion && taskDateSameDay(t.completion, date))), "completion");
+		var doneWithoutCompletionDate = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && !t.calendarSchedule && t.completed === true && !t.completion && t.due && taskDateSameDay(t.due, date)), "due");
 		var doneSpanInMonth = [];
 		if (isMonthView) {
 			doneSpanInMonth = tasks.filter(function (t) {
@@ -1429,7 +1442,7 @@ var taskQueryAdapter = {
 			due: sortTasksByYmdField(dueDedup, "due"),
 			recurrence: sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.recurrence && t.due && taskDateSameDay(t.due, date)), "due"),
 			overdue: sortTasksByYmdField(tasks
-				.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.due && taskDateBeforeDay(t.due, date))
+				.filter(t=>includeInCurrentView(t) && !t.calendarSchedule && taskIsOpenForCalendar(t) && t.due && taskDateBeforeDay(t.due, date))
 				.filter(t => queryPolicy.excludeOverdueTimeline ? !isTimelineTaggedTask(t) : true), "due"),
 			start: sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.start && taskDateSameDay(t.start, date)), "start"),
 			scheduled: sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.scheduled && taskDateSameDay(t.scheduled, date)), "scheduled"),
@@ -1629,13 +1642,13 @@ function applyTimelineSettingsToRoot() {
 	function stripTaskMetadataEmojis(text) {
 		return String(text || "")
 			// Tasks plugin date metadata emojis.
-			.replace(/\s*[📅🛫⏳✅➕❌]\s*\d{4}\-\d{2}\-\d{2}(?:[ T][0-2]?\d:[0-5]\d)?/g, " ")
+			.replace(/\s*[📅🛫⏳✅➕❌]\s*\d{4}-\d{2}-\d{2}(?:[ T][0-2]?\d:[0-5]\d)?/gu, " ")
 			// Inline time metadata emoji.
 			.replace(/\s*⏰\s*[0-2]?\d:[0-5]\d/g, " ")
 			// Recurrence marker and common trailing phrase.
 			.replace(/\s*🔁(?:\s+[^\s].*)?$/g, " ")
 			// Priority markers.
-			.replace(/\s*[🔺⏫🔼🔽⏬]/g, " ");
+			.replace(/\s*[🔺⏫🔼🔽⏬]/gu, " ");
 	}
 
 	var TASKS_PRIORITY_ORDER = ["highest", "high", "medium", "normal", "low", "lowest"];
@@ -1665,7 +1678,7 @@ function applyTimelineSettingsToRoot() {
 
 	function stripTaskPriorityMarkers(lineText) {
 		return String(lineText || "")
-			.replace(/\s*[🔺⏫🔼🔽⏬]/g, " ")
+			.replace(/\s*[🔺⏫🔼🔽⏬]/gu, " ")
 			.replace(/\s*\[priority::\s*[^\]]+\]/ig, " ")
 			.replace(/\s{2,}/g, " ")
 			.trimEnd();
@@ -1735,6 +1748,7 @@ function getMeta(tasks) {
 		if (diaryDate) tasks[i].dailyNote = diaryDate;
 		var dateSource = /^[ \t]*[-*+]\s+\[[^\]]\]/.test(lineText) ? lineText : "- [ ] "+lineText;
 		var parsedDates = noriaBridge.tasks.parseTaskLine(dateSource);
+		tasks[i].schedules = parsedDates.schedules;
 		["start", "due", "scheduled", "completion", "created", "cancelled"].forEach(function(key) {
 			var value = parseDateTimeValue(parsedDates[key]);
 			if (value.date || ["start", "due", "scheduled"].includes(key)) {
@@ -1742,7 +1756,13 @@ function getMeta(tasks) {
 				tasks[i][key+"Time"] = value.time || "";
 			}
 		});
-		lineText = noriaBridge.tasks.patchTaskDates(dateSource, {start:"",due:"",scheduled:"",completion:"",created:"",cancelled:""}).slice(parsedDates.prefix.length);
+		lineText = parsedDates.body;
+		parsedDates.tokens.filter(function(token) { return ["start","due","date","scheduled","schedule","completion","done","created","cancelled"].includes(token.key); }).reverse().forEach(function(token) {
+			lineText = lineText.slice(0,token.start)+lineText.slice(token.end);
+		});
+		if (parsedDates.tokens.some(function (token) { return token.key === "extra" && /^\^[A-Za-z0-9-]+$/.test(token.value); })) {
+			lineText = lineText.replace(/\s*\^[A-Za-z0-9-]+\s*$/, "");
+		}
 		var inlineRepeatMatch = getLastRegexMatch(lineText, /\[(?:repeat|recurrence|every)::\s*([^\]]+)\]/ig);
 		if (inlineRepeatMatch) {
 			tasks[i].recurrence = true;
@@ -1869,12 +1889,46 @@ function taskDiaryDateFromPath(path) {
 }
 
 function taskUsesDiaryDate(task) {
-	return !["start", "due", "scheduled"].some(function(key) { return coerceTemporalToYmd(task[key]); });
+	return !(task.schedules && task.schedules.length) && !["start", "due", "scheduled"].some(function(key) { return coerceTemporalToYmd(task[key]); });
+}
+
+// Calendar entries are projections only. The source store keeps one task row
+// for completion, dependency editing and statistics, however many slots it has.
+function getCalendarTaskEntries() {
+	var entries = [];
+	tasks.forEach(function(task) {
+		if (!task.schedules || !task.schedules.length) { entries.push(!task.start && task.due ? {...task,calendarDeadline:true} : task); return; }
+		var dueCovered=task.due && task.schedules.some(function(s) { return !s.error && s.start.slice(0,10)<=task.due && (s.end.endsWith(" 00:00") ? s.end.slice(0,10)>task.due : (s.end||s.start).slice(0,10)>=task.due); });
+		if (task.start || task.due || task.completion) entries.push({...task,scheduled:"",scheduledTime:"",calendarDeadline:!task.start&&!!task.due,calendarDeadlineMerged:!task.start&&dueCovered});
+		task.schedules.forEach(function(schedule) {
+			if (schedule.error) return;
+			// parseTaskLine has already validated and normalized these values.
+			var first={date:schedule.start.slice(0,10),time:schedule.start.slice(11,16)};
+			var end=schedule.end||"",last={date:end.slice(0,10),time:end.slice(11,16)};
+			entries.push({...task, calendarSource:task, calendarSchedule:schedule,
+				start:last.date?first.date:"",startTime:last.date?first.time:"",
+				due:last.date||"",dueTime:last.time||"",
+				scheduled:last.date?"":first.date,scheduledTime:last.date?"":first.time,
+				completion:"",completionTime:"",dailyNote:"",recurrence:false,
+				displayTime:first.time,timeSort:timeToMinutes(first.time)});
+		});
+	});
+	return entries;
+}
+
+function calendarIsoDay(value) {
+	if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+	var year = Number(value.slice(0,4)), month = Number(value.slice(5,7)), day = Number(value.slice(8,10));
+	if (month < 1 || month > 12 || day < 1) return "";
+	var days = month === 2 ? (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28)
+		: (month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31);
+	return day <= days ? value : "";
 }
 
 function coerceTemporalToYmd(v) {
 	if (v == null || v === "") return "";
 	if (typeof v === "string") {
+		if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return calendarIsoDay(v);
 		var sStrict = moment(v, "YYYY-MM-DD", true);
 		if (sStrict.isValid()) return sStrict.format("YYYY-MM-DD");
 		var sLoose = moment(v);
@@ -1918,6 +1972,7 @@ function coerceTemporalToYmd(v) {
 function taskDateSameDay(temporalVal, dateInput) {
 	var ymd = coerceTemporalToYmd(temporalVal);
 	if (!ymd) return false;
+	if (typeof dateInput === "string") return ymd === calendarIsoDay(dateInput);
 	var d = moment(dateInput, "YYYY-MM-DD", true);
 	return d.isValid() && ymd === d.format("YYYY-MM-DD");
 }
@@ -1925,6 +1980,10 @@ function taskDateSameDay(temporalVal, dateInput) {
 function taskDateBeforeDay(temporalVal, dateInput) {
 	var ymd = coerceTemporalToYmd(temporalVal);
 	if (!ymd) return false;
+	if (typeof dateInput === "string") {
+		var day = calendarIsoDay(dateInput);
+		return !!day && !!calendarIsoDay(ymd) && ymd < day;
+	}
 	var t = moment(ymd, "YYYY-MM-DD", true);
 	var d = moment(dateInput, "YYYY-MM-DD", true);
 	return t.isValid() && d.isValid() && t.isBefore(d, "day");
@@ -1933,6 +1992,10 @@ function taskDateBeforeDay(temporalVal, dateInput) {
 function taskDateAfterDay(temporalVal, dateInput) {
 	var ymd = coerceTemporalToYmd(temporalVal);
 	if (!ymd) return false;
+	if (typeof dateInput === "string") {
+		var day = calendarIsoDay(dateInput);
+		return !!day && !!calendarIsoDay(ymd) && ymd > day;
+	}
 	var t = moment(ymd, "YYYY-MM-DD", true);
 	var d = moment(dateInput, "YYYY-MM-DD", true);
 	return t.isValid() && d.isValid() && t.isAfter(d, "day");
@@ -1951,7 +2014,7 @@ function taskIsOpenForCalendar(t) {
 function getInlineFieldValue(rawText, fieldName) {
 	var re = new RegExp("\\["+fieldName+"::\\s*([^\\]]+)\\]", "i");
 	var match = String(rawText || "").match(re);
-	return match ? String(match[1] || "").trim() : "";
+	var value=match ? String(match[1] || "").trim() : "";return taskCalendarZone?taskCalendarZone.fieldTo(fieldName,value):value;
 };
 
 /**
@@ -1968,6 +2031,7 @@ function tcAddCalendarDaysStr(dateStr, days) {
 	return dt.getFullYear() + "-" + pad2(dt.getMonth() + 1) + "-" + pad2(dt.getDate());
 }
 function tcTaskDueYmdForDashboardUrgency(obj) {
+	obj = obj && obj.calendarSource || obj;
 	var y = coerceTemporalToYmd(obj && obj.due);
 	if (y) return y;
 	var raw = String((obj && obj.rawText) || (obj && obj.text) || "");
@@ -1977,6 +2041,7 @@ function tcTaskDueYmdForDashboardUrgency(obj) {
 	return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : "";
 }
 function tcGetDueInstantMsFromTaskObj(obj) {
+	obj = obj && obj.calendarSource || obj;
 	var txt = String((obj && obj.rawText) || (obj && obj.text) || "");
 	var m = txt.match(/\[due::\s*(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\]/i);
 	if (m) {
@@ -2135,7 +2200,7 @@ function getTaskKey(task) {
 	if (rawSnippet.length > 480) {
 		tail = String(rawSnippet.length) + "×" + hashTaskSnippet(rawSnippet);
 	}
-	return path + "::" + header + "::" + line + "::" + tail;
+	return path + "::" + header + "::" + line + "::" + tail + (task && task.calendarSchedule ? "::schedule:"+task.calendarSchedule.index : "");
 };
 
 function getTaskTimeSlot(obj, cls, currentDate) {
@@ -2145,7 +2210,7 @@ function getTaskTimeSlot(obj, cls, currentDate) {
 	var slotType = "none";
 	var defaultDuration = 45;
 	// A reminder carries its original dates; it is not a new booking today.
-	if (cls === "overdue") { return {slotType, startMin, endMin}; }
+	if (cls === "overdue" || obj.calendarDeadline) { return {slotType, startMin, endMin}; }
 	if (!currentDate) { return {slotType, startMin, endMin}; };
 	var day = moment(currentDate, "YYYY-MM-DD", true);
 	if (!day.isValid()) { return {slotType, startMin, endMin}; };
@@ -2233,24 +2298,6 @@ function getTaskTimeSlot(obj, cls, currentDate) {
 	return {slotType, startMin, endMin};
 };
 
-/** 周 plannerChrome：跨日连续时段是否在「非起始日」格上渲染 —— 是则跳过，只在开始日显示一条 */
-function isPlannerChromeCrossDayContinuationSegment(task, currentDate, slotEarly) {
-	if (!task || !currentDate || !slotEarly || slotEarly.slotType !== "range") { return false; }
-	var sy = coerceTemporalToYmd(task.start);
-	var ey = coerceTemporalToYmd(task.due);
-	if (!sy || !ey || sy === ey || !task.startTime || !task.dueTime) { return false; }
-	var onStart = task.start && taskDateSameDay(task.start, currentDate);
-	var onDue = task.due && taskDateSameDay(task.due, currentDate);
-	if (onStart && !onDue) { return false; }
-	var curM = moment(String(currentDate), "YYYY-MM-DD", true);
-	var sM = moment(sy, "YYYY-MM-DD", true);
-	var eM = moment(ey, "YYYY-MM-DD", true);
-	if (!curM.isValid() || !sM.isValid() || !eM.isValid()) { return false; }
-	if (curM.isAfter(sM, "day") && curM.isBefore(eM, "day")) { return true; }
-	if (!onStart && onDue) { return true; }
-	return false;
-}
-
 /** #proj / project* 开头的着色标签：参与项目分色；其余无映射标签不触发随机分桶 */
 function isProjectColorTagKey(key) {
 	var k = String(key || "").trim().toLowerCase();
@@ -2301,60 +2348,13 @@ function getTaskTone(task, typeCls) {
 };
 
 function getTaskColorTagKey(task) {
-	var raw = String((task && task.rawText != null) ? task.rawText : (task && task.text != null ? task.text : ""));
-	var tags = [];
-	var m;
-	var rx = /(^|\s)#([^\s#]+)/g;
-	while ((m = rx.exec(raw)) != null) {
-		var t = String(m[2] || "").trim().toLowerCase();
-		if (!t) continue;
-		if (t == "task" || t == "done" || t == "todo") continue;
-		if (t.indexOf("tl/") === 0 || t.indexOf("timeline/") === 0) continue;
-		tags.push(t);
-		if (tags.length >= 6) break;
-	}
-	if (Array.isArray(task && task.tags)) {
-		for (var i = 0; i < task.tags.length; i++) {
-			var tt = String(task.tags[i] || "").trim().toLowerCase().replace(/^#/, "");
-			if (!tt) continue;
-			if (tt == "task" || tt == "done" || tt == "todo") continue;
-			if (tt.indexOf("tl/") === 0 || tt.indexOf("timeline/") === 0) continue;
-			if (tags.indexOf(tt) === -1) tags.push(tt);
-			if (tags.length >= 6) break;
-		}
-	}
-	return tags.length ? tags[0] : "";
+ return bridgeCfg.runtime.resolveTaskCategory(task).tag;
 }
-
 function getTaskTagBucket(task) {
-	var key = getTaskColorTagKey(task);
-	if (!key) return "";
-	var palette = (bridgeCfg.colorPalette && Array.isArray(bridgeCfg.colorPalette.tagBucketPalette))
-		? bridgeCfg.colorPalette.tagBucketPalette.map(normalizeHexColor).filter(Boolean)
-		: [];
-	var bucketCount = palette.length > 0 ? Math.min(palette.length, 8) : 6;
-	var hash = 0;
-	for (var i = 0; i < key.length; i++) {
-		hash = ((hash << 5) - hash) + key.charCodeAt(i);
-		hash |= 0;
-	}
-	return String((Math.abs(hash) % bucketCount) + 1);
+ return bridgeCfg.runtime.resolveTaskCategory(task).bucket;
 }
-
 function getTaskMappedColor(task) {
-	var key = getTaskColorTagKey(task);
-	if (!key) return "";
-	var mapRaw = (bridgeCfg.colorPalette && bridgeCfg.colorPalette.tagColorMap && typeof bridgeCfg.colorPalette.tagColorMap === "object")
-		? bridgeCfg.colorPalette.tagColorMap
-		: {};
-	var exact = normalizeHexColor(mapRaw[key]);
-	if (exact) return exact;
-	var root = key.split("/")[0];
-	if (root && root !== key) {
-		var rootColor = normalizeHexColor(mapRaw[root]);
-		if (rootColor) return rootColor;
-	}
-	return "";
+ return bridgeCfg.runtime.resolveTaskCategory(task).mappedColor;
 }
 
 function applyTaskTagColorMeta(el, taskObj, optTypeCls) {
@@ -2374,6 +2374,7 @@ function applyTaskTagColorMeta(el, taskObj, optTypeCls) {
 		if (el.getAttribute("data-task-visual") === "timeline") { el.removeAttribute("data-task-visual"); }
 	} catch (_) {}
 	if (shouldUseDefaultTaskChroma(taskObj, optTypeCls)) {
+		el.setAttribute("data-tone", "0");
 		try {
 			el.removeAttribute("data-tag-bucket");
 		} catch (_) {}
@@ -2385,10 +2386,14 @@ function applyTaskTagColorMeta(el, taskObj, optTypeCls) {
 	}
 	var tagBucket = getTaskTagBucket(taskObj);
 	if (tagBucket) { el.setAttribute("data-tag-bucket", tagBucket); }
-	var mapped = getTaskMappedColor(taskObj);
+	var mapped = bridgeCfg.runtime.resolveTaskCategory(taskObj).color;
 	if (mapped) {
+		el.setAttribute("data-tone", "category");
 		el.setAttribute("data-tag-color", mapped);
 		try { el.style.setProperty("--tc-tag-color", mapped); } catch (_) {}
+	} else {
+		el.removeAttribute("data-tag-color");
+		el.style.removeProperty("--tc-tag-color");
 	}
 }
 
@@ -2396,20 +2401,18 @@ function applyTaskTagColorMeta(el, taskObj, optTypeCls) {
 var PLANNER_CHROME_TIMELINE_START_MIN = 0;
 var PLANNER_CHROME_TIMELINE_END_MIN = 24 * 60;
 function getPlannerChromeTimelineStartMin() {
-	return showEarlyHours ? PLANNER_CHROME_TIMELINE_START_MIN : 6 * 60;
+	return showEarlyHours || plannerHoursExpanded ? PLANNER_CHROME_TIMELINE_START_MIN : plannerActiveHours.start;
 }
 function getPlannerChromeTimelineEndMin() {
-	return PLANNER_CHROME_TIMELINE_END_MIN;
+	return showEarlyHours || plannerHoursExpanded ? PLANNER_CHROME_TIMELINE_END_MIN : plannerActiveHours.end;
 }
 
-function shouldRoutePlannerChromeSlotToWaiting(slot, visibleStartMin) {
-	if (!slot || slot.slotType === "none") { return false; }
-	var dayStart = Number(visibleStartMin);
-	var startMin = Number(slot.startMin);
-	var endMin = Number(slot.endMin);
-	if (!Number.isFinite(dayStart) || !Number.isFinite(startMin)) { return false; }
-	if (slot.slotType === "point") { return startMin < dayStart; }
-	return slot.slotType === "range" && Number.isFinite(endMin) && endMin <= dayStart;
+function classifyPlannerHoursSlot(slot, start, end) {
+	if (!slot || slot.slotType === "none") return { before: false, after: false, outside: false };
+	var s = Number(slot.startMin), e = Number(slot.endMin);
+	if (!Number.isFinite(s)) return { before: false, after: false, outside: false };
+	if (slot.slotType === "point") return { before: s < start, after: s >= end, outside: s < start || s >= end };
+	return { before: s < start, after: e > end, outside: e <= start || s >= end };
 }
 /** 跨度 ≤ 此分钟数视为短条：仅展示开始时刻（右侧单行），标题省略以防挤压 */
 var PLANNER_CHROME_COMPACT_MAX_MIN = 52;
@@ -2489,6 +2492,7 @@ function toDayMoment(dayStr, mins) {
 };
 
 function upsertInlineField(lineText, fieldName, value) {
+ if(taskCalendarZone)value=taskCalendarZone.fieldFrom(fieldName,value);
 	var re = new RegExp("\\["+fieldName+"::\\s*[^\\]]*\\]", "ig");
 	var block = "["+fieldName+":: "+value+"]";
 	if (re.test(lineText)) {
@@ -2506,7 +2510,7 @@ function stripInlineField(lineText, fieldName) {
 function getInlineFieldValue(lineText, fieldName) {
 	var re = new RegExp("\\["+fieldName+"::\\s*([^\\]]*)\\]", "i");
 	var m = String(lineText || "").match(re);
-	return m ? String(m[1] || "").trim() : "";
+	var value=m ? String(m[1] || "").trim() : "";return taskCalendarZone?taskCalendarZone.fieldTo(fieldName,value):value;
 }
 function stripTaskAdvancedFields(lineText) {
 	var line = String(lineText || "");
@@ -2811,10 +2815,15 @@ async function triggerTaskFreshRefresh() {
 	try {
 		if (await refreshTasksFromFreshSource("tasks-calendar-write") < 0 || tcRuntimeDisposed) return;
 	} catch (_) { return; }
+	if (rootNode.getAttribute("view") === "list") {
+		getList(tasks, selectedDate);
+		return;
+	}
 	try {
 		var g = rootNode && rootNode.querySelector ? (rootNode.querySelector(":scope > .grid") || rootNode.querySelector(".grid")) : null;
 		if (g) { hydrateGridTaskCells(g); }
 	} catch (_) {}
+	refreshCalendarRangeStatistics();
 	try { schedulePlannerChromeWeekLanesFinalizePost(true); } catch (_) {}
 	try { schedulePlannerChromeOverlapLayout(); } catch (_) {}
 };
@@ -2887,7 +2896,8 @@ function getTaskIdentityKey(taskEl) {
 	var p = String(taskEl.getAttribute("data-tc-path") || taskEl.getAttribute("data-task-path") || "");
 	var l = String(taskEl.getAttribute("data-tc-line") || taskEl.getAttribute("data-task-line") || "");
 	var s = String(taskEl.getAttribute("data-tc-sig") || taskEl.getAttribute("data-task-sig") || "");
-	return [p, l, s].join("::");
+	var schedule = taskEl.getAttribute("data-schedule-index");
+	return [p, l, s].join("::") + (schedule != null && schedule !== "" ? "::schedule:"+schedule : "");
 };
 
 function collectTaskMeta(taskEl) {
@@ -2913,6 +2923,7 @@ function collectTaskMeta(taskEl) {
 	}
 	return {
 		taskEl,
+		scheduleIndex: taskEl && taskEl.hasAttribute("data-schedule-index") ? Number(taskEl.getAttribute("data-schedule-index")) : undefined,
 		filePath: taskEl ? (taskEl.getAttribute("data-tc-path") || taskEl.getAttribute("data-task-path")) : "",
 		lineIndex: taskEl ? (taskEl.getAttribute("data-tc-line") || taskEl.getAttribute("data-task-line")) : "",
 		rawSig: taskEl ? (taskEl.getAttribute("data-tc-sig") || taskEl.getAttribute("data-task-sig")) : "",
@@ -2937,7 +2948,27 @@ function taskLineMetaMatches(liRaw, tl) {
 	var b = parseInt(tl, 10);
 	return Number.isFinite(a) && Number.isFinite(b) && a === b;
 }
-function findTaskRowForSaveMeta(meta) {
+function taskCalendarRowLocation(path, line) {
+	var filePath = normalizeVaultRelPath(path || "");
+	var raw = line == null ? "" : String(line).trim();
+	if (!filePath || !raw) return "";
+	var numeric = parseInt(raw,10);
+	return filePath + "\u0000" + (Number.isFinite(numeric) ? numeric : raw);
+}
+function buildCalendarTaskRowIndex() {
+	var index = new Map();
+	tasks.forEach(function (task) {
+		var line = task.position?.start?.line !== undefined ? task.position.start.line : task.line;
+		var key = taskCalendarRowLocation(task.path || task.link?.path, line);
+		if (key && !index.has(key)) index.set(key,task);
+	});
+	return index;
+}
+function findTaskRowForSaveMeta(meta, rowIndex) {
+	if (rowIndex) {
+		var indexed = rowIndex.get(taskCalendarRowLocation(meta.filePath, meta.lineIndex));
+		if (indexed) return indexed;
+	}
 	var fp = normalizeVaultRelPath(meta.filePath || "");
 	if (!fp || !tasks || !tasks.length) { return null; }
 	var liRaw = meta.lineIndex != null ? String(meta.lineIndex).trim() : "";
@@ -2993,6 +3024,7 @@ function patchGlobalTasksFromSavedLine(meta, savedLine) {
 	if (savedLine) {
 		row.rawText = String(savedLine || "");
 		row.rawLine = row.rawText;
+		row.schedules = noriaBridge.tasks.parseTaskLine(row.rawText).schedules;
 		var savedStart = readTaskCalendarDate(row.rawText, "start");
 		var savedDue = readTaskCalendarDate(row.rawText, "due");
 		// The committed line is authoritative, including fields removed by Undo.
@@ -3020,7 +3052,7 @@ function patchGlobalTasksFromSavedLine(meta, savedLine) {
 			|| /(^|\s)#timeline\/instant(?:\s|$)/i.test(row.rawText);
 		var plain = row.rawText
 			.replace(/^\s*-\s*\[[^\]]*\]\s*/, "")
-			.replace(/\[(?:start|due|scheduled|completion|created|cancelled)::\s*[^\]]*\]/ig, " ")
+			.replace(/\[(?:start|due|scheduled|schedule|completion|created|cancelled)::\s*[^\]]*\]/ig, " ")
 			.replace(/\[(?:priority|repeat|recurrence|every|onCompletion|id|dependsOn)::\s*[^\]]*\]/ig, " ")
 			.replace(/\[(?:duration_min|default_tag|default_start|default_due|default_duration_min)::\s*[^\]]*\]/ig, " ")
 			.replace(/(^|\s)#[^\s#]+/g, " ")
@@ -3296,11 +3328,11 @@ function applyTaskEditorMetadataToLine(lineText, advanced) {
 	if (meta.status === "done") {
 		line = stripInlineField(line, "completion");
 		if (!timelineLike) {
-			line = upsertInlineField(line, "completion", formatTaskDateTimeField(meta.doneDate) || moment().format("YYYY-MM-DD HH:mm"));
+			line = upsertInlineField(line, "completion", formatTaskDateTimeField(meta.doneDate) || calendarNow().format("YYYY-MM-DD HH:mm"));
 		}
 		line = stripInlineField(line, "cancelled");
 	} else if (meta.status === "cancelled") {
-		line = upsertInlineField(line, "cancelled", formatTaskDateTimeField(meta.cancelledDate) || moment().format("YYYY-MM-DD HH:mm"));
+		line = upsertInlineField(line, "cancelled", formatTaskDateTimeField(meta.cancelledDate) || calendarNow().format("YYYY-MM-DD HH:mm"));
 		line = stripInlineField(line, "completion");
 	} else {
 		line = stripInlineField(line, "completion");
@@ -3329,7 +3361,7 @@ function extractTaskEditorMetadata(lineText, rowState, createMode) {
 	return {
 		status: status,
 		scheduledDate: formatTaskDateTimeField(getInlineFieldValue(raw, "scheduled") || taskRowDateTimeValue(rowState, "scheduled", "scheduledTime") || ""),
-		createdDate: formatTaskDateTimeField(getInlineFieldValue(raw, "created") || taskRowDateTimeValue(rowState, "created", "createdTime") || (createMode ? moment().format("YYYY-MM-DD HH:mm") : "")),
+		createdDate: formatTaskDateTimeField(getInlineFieldValue(raw, "created") || taskRowDateTimeValue(rowState, "created", "createdTime") || (createMode ? calendarNow().format("YYYY-MM-DD HH:mm") : "")),
 		doneDate: formatTaskDateTimeField(getInlineFieldValue(raw, "completion") || getInlineFieldValue(raw, "done") || taskRowDateTimeValue(rowState, "completion", "completionTime") || ""),
 		cancelledDate: formatTaskDateTimeField(getInlineFieldValue(raw, "cancelled") || taskRowDateTimeValue(rowState, "cancelled", "cancelledTime") || ""),
 		repeat: repeat,
@@ -3440,7 +3472,9 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 	var line = "", beforeLine = "";
 	await processTaskMarkdownFile(filePath, function (content) {
 		var lines = content.split(/\r?\n/);
-		idx = sourceWasTask
+		idx = (Number.isInteger(meta.scheduleIndex) || options.addSchedule)
+			? noriaBridge.tasks.locateSource(content, {rawText:meta.rawSig ? decodeURIComponent(meta.rawSig) : rawText}).line
+			: sourceWasTask
 			? pickTaskLineIndex(lines, lineIndex, rawText, rawSig, oldStartNeedle, oldDueNeedle)
 			: pickMarkdownLineIndexForConversion(lines, lineIndex, meta.sourceRawLine);
 		if (idx < 0) {
@@ -3452,7 +3486,17 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 			line = buildTaskLineFromMarkdownConversion(line, conversionStatus);
 		}
 		// Calendar moves retain the source fields and surrounding task text.
-		if (Number.isFinite(options.calendarDayShift)) {
+		if (options.addSchedule) {
+			line = noriaBridge.tasks.patchTaskLine(line, {schedule:{action:"add",start:moment(newStartMoment).format("YYYY-MM-DD HH:mm"),end:moment(newEndMoment).format("YYYY-MM-DD HH:mm")}});
+		} else if (Number.isInteger(meta.scheduleIndex)) {
+			var scheduleMoves=options.scheduleMoves||[{index:meta.scheduleIndex,start:newStartMoment,end:newEndMoment,options:options}];
+			var usedIndices=new Set();
+			scheduleMoves.forEach(function(move) {
+				if (!Number.isInteger(move.index)||usedIndices.has(move.index)) throw Error("invalid-schedule-index");
+				usedIndices.add(move.index);
+				line=patchCalendarSchedule(line,move.index,move.start,move.end,move.options||{});
+			});
+		} else if (Number.isFinite(options.calendarDayShift)) {
 			line = shiftTaskCalendarDates(line, options.calendarDayShift, moment(newStartMoment).format("YYYY-MM-DD"));
 		} else if (options.calendarResize) {
 			line=resizeTaskCalendarDate(line,options.calendarResize.key,options.calendarResize.date);
@@ -3465,7 +3509,10 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 			line = applyTaskPriorityMarker(line, options.taskPriority);
 		}
 		line = line.trimEnd();
-	line = noriaBridge.tasks.patchTaskDates(line, {
+	var hasIndependentDeadline = noriaBridge.tasks.parseTaskLine(line).schedules.length && !readTaskCalendarDate(line,"start").date;
+	line = noriaBridge.tasks.patchTaskDates(line, hasIndependentDeadline ? {
+		due: formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString)
+	} : {
 		start: formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString),
 		due: formatTaskDateTimeForSave(newEndMoment, options && options.dueDateTimeString)
 	});
@@ -3480,6 +3527,7 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 	// A vault event may arrive after the next paint. Refresh from this write.
 	if (noriaBridge && noriaBridge.taskSnapshots) noriaBridge.taskSnapshots.invalidate("tasks");
 	if (noriaBridge && noriaBridge.data) await noriaBridge.data.invalidate("calendar-write:" + filePath, "tasks");
+	if (typeof app !== "undefined") app.workspace?.trigger?.("noria:tasks-invalidated", { path: filePath, reason: "calendar-write", scope: "tasks" });
 	var elOut = meta.taskEl;
 	if (elOut) {
 		var savedStartParts = parseDateTimeValue(formatTaskDateTimeForSave(newStartMoment, options && options.startDateTimeString));
@@ -3490,6 +3538,17 @@ async function saveTaskDateTimeLines(meta, newStartMoment, newEndMoment, options
 		elOut.setAttribute("data-due-time", savedDueParts.time || "");
 		if (Number.isFinite(options.calendarDayShift) || options.calendarResize) {
 			["start","due"].forEach(function(key) { var part=readTaskCalendarDate(line,key);elOut.setAttribute("data-"+key+"-date",part.date||"");elOut.setAttribute("data-"+key+"-time",part.time||""); });
+		}
+		if (options.addSchedule) {
+			meta.scheduleIndex=noriaBridge.tasks.parseTaskLine(line).schedules.length-1;
+			elOut.setAttribute("data-schedule-index",String(meta.scheduleIndex));
+		}
+		if (Number.isInteger(meta.scheduleIndex)) {
+			var savedSchedule=noriaBridge.tasks.parseTaskLine(line).schedules[meta.scheduleIndex];
+			[["start",savedSchedule.start],["due",savedSchedule.end||savedSchedule.start]].forEach(function(pair) {
+				var part=parseDateTimeValue(pair[1]);elOut.setAttribute("data-"+pair[0]+"-date",part.date);elOut.setAttribute("data-"+pair[0]+"-time",part.time);
+			});
+			elOut.setAttribute("data-tc-sig",encodeURIComponent(line));
 		}
 		try {
 			var cell = elOut.closest(".cell[data-date]");
@@ -3659,6 +3718,7 @@ async function restoreCalendarDragLine(receipt) {
 	// Invalidate both shared sources before a refresh can reapply the saved dates.
 	if (noriaBridge && noriaBridge.taskSnapshots) noriaBridge.taskSnapshots.invalidate("tasks");
 	if (noriaBridge && noriaBridge.data) await noriaBridge.data.invalidate("calendar-undo:" + receipt.path, "tasks");
+	if (typeof app !== "undefined") app.workspace?.trigger?.("noria:tasks-invalidated", { path: receipt.path, reason: "calendar-undo", scope: "tasks" });
 	// Repaint this view from the restored model; later reads now use fresh sources.
 	var grid = rootNode && (rootNode.querySelector(":scope > .grid") || rootNode.querySelector(".grid"));
 	if (grid) hydrateGridTaskCells(grid);
@@ -3679,6 +3739,24 @@ function showCalendarDragUndo(receipt) {
 function resizeTaskCalendarDate(line, key, date) {
 	if (!readTaskCalendarDate(line,key).date) throw Error("The task has no "+key+" date to resize");
 	return noriaBridge.tasks.patchTaskDates(line, { [key]: value => date + value.slice(10) });
+}
+
+function patchCalendarSchedule(line, index, start, end, options) {
+	var schedule=noriaBridge.tasks.parseTaskLine(line).schedules[index];
+	if (!schedule || schedule.error) throw Error("invalid-schedule");
+	var first=schedule.start,last=schedule.end;
+	if (Number.isFinite(options.calendarDayShift)) {
+		var shift=function(value) { return value ? moment(value.slice(0,10),"YYYY-MM-DD",true).add(options.calendarDayShift,"days").format("YYYY-MM-DD")+value.slice(10) : ""; };
+		first=shift(first);last=shift(last);
+	} else if (options.calendarResize) {
+		if (options.calendarResize.key === "start") first=options.calendarResize.date+first.slice(10);
+		else if (last) last=options.calendarResize.date+last.slice(10);
+		else throw Error("invalid-schedule");
+	} else {
+		var format=first.length===10 && !options.scheduleTimed ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm";
+		first=moment(start).format(format);last=(last||options.scheduleTimed)?moment(end).format(format):"";
+	}
+	return noriaBridge.tasks.patchTaskLine(line,{schedule:{action:"update",index:index,start:first,end:last}});
 }
 
 function getMonthGridCellFromPoint(clientX, clientY) {
@@ -3712,7 +3790,9 @@ function shiftTaskCalendarDates(line, deltaDays, fallbackDate) {
 		if (!value.isValid()) throw new Error("Invalid task date: "+raw);
 		return value.add(deltaDays,"days").format("YYYY-MM-DD")+raw.slice(10);
 	};
-	return noriaBridge.tasks.patchTaskDates(line, {start:shift,due:shift,scheduled:shift});
+	var parsed=noriaBridge.tasks.parseTaskLine(line);
+	return noriaBridge.tasks.patchTaskDates(line, parsed.schedules.length && (parsed.start || parsed.due)
+		? {start:shift,due:shift} : {start:shift,due:shift,scheduled:shift});
 }
 
 function readTaskCalendarDate(line, key) {
@@ -3751,9 +3831,11 @@ function buildTaskTemporalMomentsFromEl(taskEl, fallbackDateStr) {
 	if (!endM.isValid()) { endM = moment(startM).add(60, "minutes"); }
 	if (!endM.isAfter(startM)) { endM = moment(startM).add(60, "minutes"); }
 	var raw = decodeURIComponent(taskEl.getAttribute("data-tc-sig") || "");
+	var scheduleAttr=taskEl.getAttribute("data-schedule-index");
+	var schedule=scheduleAttr!=null && scheduleAttr!=="" ? noriaBridge.tasks.parseTaskLine(/^[ \t]*[-*+]\s+\[[^\]]\]/.test(raw)?raw:"- [ ] "+raw).schedules[Number(scheduleAttr)] : null;
 	return { startM: startM, endM: endM,
-		hasStart: !!readTaskCalendarDate(raw, "start").date,
-		hasDue: !!readTaskCalendarDate(raw, "due").date };
+		hasStart: schedule ? !!schedule.start : !!readTaskCalendarDate(raw, "start").date,
+		hasDue: schedule ? !!schedule.end : !!readTaskCalendarDate(raw, "due").date };
 }
 
 function clearMonthDropTargetHighlight() {
@@ -3892,12 +3974,14 @@ function onMonthTaskPointerDown(ev) {
 
 function syncMonthTaskDateHandles(taskEl, position) {
 	var raw = decodeURIComponent(taskEl.getAttribute("data-tc-sig") || "");
+	var scheduleAttr=taskEl.getAttribute("data-schedule-index");
+	var schedule=scheduleAttr!=null && scheduleAttr!=="" ? noriaBridge.tasks.parseTaskLine(/^[ \t]*[-*+]\s+\[[^\]]\]/.test(raw)?raw:"- [ ] "+raw).schedules[Number(scheduleAttr)] : null;
 	var doc = taskEl.ownerDocument;
 	taskEl.querySelectorAll(".tc-month-date-handle").forEach(el => el.remove());
 	["start", "due"].forEach(function (key) {
 		var visible = position === "single" || position === (key === "start" ? "start" : "end");
 		// Displayed dates can be inferred from scheduled dates; only resize real fields.
-		var resizable = !!(visible && readTaskCalendarDate(raw, key).date);
+		var resizable = !!(visible && (schedule ? (key==="start"?schedule.start:schedule.end) : readTaskCalendarDate(raw, key).date));
 		taskEl.classList.toggle("tc-month-resizable-" + key, resizable);
 		if (!resizable) return;
 		var handle = doc.createElement("span");
@@ -3905,8 +3989,8 @@ function syncMonthTaskDateHandles(taskEl, position) {
 		handle.setAttribute("data-edge", key);
 		handle.setAttribute("aria-hidden", "true");
 		handle.title = tasksCalendarRuntimeLocale() === "zh-CN"
-			? (key === "start" ? "调整开始日期" : "调整截止日期")
-			: (key === "start" ? "Resize start date" : "Resize due date");
+			? (key === "start" ? "调整开始日期" : schedule ? "调整结束日期" : "调整截止日期")
+			: (key === "start" ? "Resize start date" : schedule ? "Resize end date" : "Resize due date");
 		taskEl.appendChild(handle);
 	});
 }
@@ -4008,8 +4092,8 @@ function tcReparentStrayTimeLaneItems() {
 
 function setupPlannerChromeDragAndResize() {
 	if (!isTimelineCalendarView() || !rootNode.classList.contains("planner-chrome")) { return; }
-	/* 仅时间轴桶：每次 finalize 都幂等补绑，避免刷新后仅保留 data 标记而丢失真实 listener。 */
-	rootNode.querySelectorAll(".timeLane [data-tc-cal-item='1'], .timeLane .tc-cal-item, .timeLane .task").forEach((taskEl) => {
+	/* Bind both timed blocks and waiting rows; normalization retains the listener marker. */
+	rootNode.querySelectorAll(".timeLane [data-tc-cal-item='1'], .timeLane .tc-cal-item, .timeLane .task, .tc-planner-waiting-strip .tc-cal-item").forEach((taskEl) => {
 		taskEl.style.touchAction = "none";
 		if (!taskEl.hasAttribute("data-planner-link-guard")) {
 			taskEl.setAttribute("data-planner-link-guard", "true");
@@ -4077,8 +4161,8 @@ function patchGlobalTaskCompletionFromSave(meta, completed, savedLine, completio
 			row.completionTime = completionText.indexOf(":") >= 0 ? cm.format("HH:mm") : "";
 			try { normalizeTaskTemporal(row, "completion", "completionTime"); } catch (_) {}
 		} else {
-			row.completion = moment().format("YYYY-MM-DD");
-			row.completionTime = moment().format("HH:mm");
+			row.completion = calendarNow().format("YYYY-MM-DD");
+			row.completionTime = calendarNow().format("HH:mm");
 		}
 	} else {
 		try {
@@ -4136,7 +4220,7 @@ async function setTaskCompletionState(taskEl, completed, options) {
 		if (completed && !skipCompletionField) {
 			completionValue = String(options.completionValue || "").trim();
 			if (!completionValue) {
-				completionValue = moment().format("YYYY-MM-DD HH:mm");
+				completionValue = calendarNow().format("YYYY-MM-DD HH:mm");
 			}
 			line = upsertInlineField(line, "completion", completionValue);
 		}
@@ -4162,7 +4246,7 @@ function stageTaskMove(taskEl, newStartMoment, newEndMoment, saveOptions) {
 		type: prev.type === "delete" ? "delete" : "update",
 		newStart: moment(newStartMoment).format("YYYY-MM-DD HH:mm"),
 		newEnd: moment(newEndMoment).format("YYYY-MM-DD HH:mm"),
-		saveOptions: saveOptions || {}
+		saveOptions: {...(prev.saveOptions || {}), ...(saveOptions || {})}
 	});
 	taskEl.classList.add("pending-edit");
 };
@@ -4235,8 +4319,16 @@ async function applyPendingTaskChanges() {
 };
 
 async function applyPendingPatches(changes) {
-	var deleteOps = changes.filter(x => x.type === "delete");
-	var updateOps = changes.filter(x => x.type === "update");
+	var sourceKey=function(op) { var meta=collectTaskMeta(op.taskEl);return meta.filePath+"\n"+meta.rawSig; };
+	var deleteBySource=new Map();
+	changes.filter(x=>x.type==="delete").forEach(function(op) { deleteBySource.set(sourceKey(op),op); });
+	var deleteOps=Array.from(deleteBySource.values());
+	var updatesBySource=new Map();
+	changes.filter(x=>x.type==="update").forEach(function(op) {
+		var key=sourceKey(op);if(deleteBySource.has(key))return;
+		if(!updatesBySource.has(key))updatesBySource.set(key,[]);updatesBySource.get(key).push(op);
+	});
+	var updateGroups=Array.from(updatesBySource.values());
 	var okDelete = 0;
 	var okUpdate = 0;
 	var failCount = 0;
@@ -4249,16 +4341,22 @@ async function applyPendingPatches(changes) {
 			failCount++;
 		}
 	}
-	for (var j=0; j<updateOps.length; j++) {
+	for (var j=0; j<updateGroups.length; j++) {
+		var group=updateGroups[j];
 		try {
-			var ns = moment(updateOps[j].newStart, "YYYY-MM-DD HH:mm", true);
-			var ne = moment(updateOps[j].newEnd, "YYYY-MM-DD HH:mm", true);
-			if (!ns.isValid() || !ne.isValid() || !ne.isAfter(ns)) { continue; }
-			await mdTaskAdapter.saveDateTime(updateOps[j].taskEl, ns, ne, { ...updateOps[j].saveOptions, suppressRefresh: true, silentNotice: true });
-			okUpdate++;
+			var moves=group.map(function(op) {
+				var start=moment(op.newStart,"YYYY-MM-DD HH:mm",true),end=moment(op.newEnd,"YYYY-MM-DD HH:mm",true),meta=collectTaskMeta(op.taskEl);
+				if(!start.isValid()||!end.isValid()||!end.isAfter(start))throw Error("invalid-schedule");
+				return {index:meta.scheduleIndex,start:start,end:end,options:op.saveOptions||{}};
+			});
+			if(group.length>1&&!moves.every(move=>Number.isInteger(move.index)))throw Error("conflicting-schedule-batch");
+			await mdTaskAdapter.saveDateTime(group[0].taskEl,moves[0].start,moves[0].end,{
+				...group[0].saveOptions,...(group.length>1?{scheduleMoves:moves}:{}),suppressRefresh:true,silentNotice:true
+			});
+			okUpdate+=group.length;
 		} catch (err2) {
 			console.error("[tasksCalendar] update pending failed:", err2);
-			failCount++;
+			failCount+=group.length;
 		}
 	}
 	return { okDelete, okUpdate, failCount };
@@ -4288,11 +4386,8 @@ function onTaskPointerDown(ev) {
 	taskEl.ownerDocument.querySelectorAll(".tooltip").forEach(function (tooltip) {
 		if (tooltip.textContent === taskEl.getAttribute("aria-label")) { tooltip.remove(); }
 	});
-	if (
-		taskEl.getAttribute("data-slot") == "waiting" ||
-		taskEl.getAttribute("data-lane") == "waiting" ||
-		(typeof ev.target.closest === "function" && ev.target.closest(".tc-planner-waiting-strip"))
-	) { return; }
+	var fromWaiting = taskEl.getAttribute("data-slot") === "waiting" || taskEl.getAttribute("data-lane") === "waiting";
+	var saveOptions = fromWaiting ? (taskEl.hasAttribute("data-schedule-index") ? {scheduleTimed:true} : {addSchedule:true}) : {};
 	if (editModeActive && pendingDeleteMode) {
 		ev.preventDefault();
 		ev.stopPropagation();
@@ -4308,11 +4403,11 @@ function onTaskPointerDown(ev) {
 		return;
 	}
 	/* dayBucket（data-lane=day）：无明确时段列表区，不参与 time-lane 拖拽；timeLane + data-lane=time 走下方逻辑（与 §2.4 P2 一致） */
-	if (taskEl.getAttribute("data-lane") == "day") { return; }
+	if (!fromWaiting && taskEl.getAttribute("data-lane") == "day") { return; }
 	/* status-circle：capture 阶段若不与 internal-link 同级短路，会在子元素 button 之前启动拖拽，吞掉点击/切换完成 */
 	if (typeof ev.target.closest === "function" && ev.target.closest(".noria-status-circle,[data-noria-status-circle='1'],.tc-compact-checkbox,[data-tc-compact-checkbox='1']")) { return; }
 	/* 标题链接触发导航，勿抢 pointer 启动拖拽 */
-	if (typeof ev.target.closest === "function" && ev.target.closest("a.internal-link")) { return; }
+	if (!fromWaiting && typeof ev.target.closest === "function" && ev.target.closest("a.internal-link")) { return; }
 	ev.preventDefault();
 	ev.stopPropagation();
 	/* 上下窄边缘用于拉伸，中央内容区域用于移动。 */
@@ -4325,19 +4420,21 @@ function onTaskPointerDown(ev) {
 	var srcDate = srcCell.getAttribute("data-date");
 	var dayStart = getPlannerChromeTimelineStartMin();
 	var dayEnd = getPlannerChromeTimelineEndMin();
-	var startDate = taskEl.getAttribute("data-start-date") || srcDate;
-	var startTime = normalizeTimeStr(taskEl.getAttribute("data-start-time")) || normalizeTimeStr(taskEl.getAttribute("data-time")) || "09:00";
+	var startDate = fromWaiting ? srcDate : taskEl.getAttribute("data-start-date") || srcDate;
+	var startTime = fromWaiting ? "09:00" : normalizeTimeStr(taskEl.getAttribute("data-start-time")) || normalizeTimeStr(taskEl.getAttribute("data-time")) || "09:00";
 	var dueDate = taskEl.getAttribute("data-due-date") || startDate;
-	var dueTime = normalizeTimeStr(taskEl.getAttribute("data-due-time"));
+	var dueTime = fromWaiting ? "" : normalizeTimeStr(taskEl.getAttribute("data-due-time"));
 	var startMoment = moment(startDate+" "+startTime, "YYYY-MM-DD HH:mm", true);
 	var endMoment = dueTime ? moment(dueDate+" "+dueTime, "YYYY-MM-DD HH:mm", true) : moment(startMoment).add(60, "minutes");
 	if (!startMoment.isValid()) { startMoment = moment(srcDate+" 09:00", "YYYY-MM-DD HH:mm", true); }
 	if (!endMoment.isValid() || !endMoment.isAfter(startMoment)) { endMoment = moment(startMoment).add(60, "minutes"); }
 	var durationMins = endMoment.diff(startMoment, "minutes");
 	var initialLane = tcEnsureTimeLaneHost(srcCell), initialRect = initialLane.getBoundingClientRect();
-	var grabOffset = dayStart + ((ev.clientY - initialRect.top) / initialRect.height) * (dayEnd-dayStart) - (startMoment.hours()*60+startMoment.minutes());
+	// The visible segment may belong to a later day than the task start.
+	var grabbedMoment = toDayMoment(srcDate, dayStart + ((ev.clientY - initialRect.top) / initialRect.height) * (dayEnd-dayStart));
+	var grabOffset = fromWaiting ? 0 : grabbedMoment.diff(startMoment, "minutes", true);
 	var original = { parent: taskEl.parentElement, top: taskEl.style.top, height: taskEl.style.height, attrs: {} };
-	["data-slot","data-start-min","data-end-min","data-compact"].forEach(name=>original.attrs[name]=taskEl.getAttribute(name));
+	["data-slot","data-lane","data-start-min","data-end-min","data-compact"].forEach(name=>original.attrs[name]=taskEl.getAttribute(name));
 	var restorePosition = function () {
 		if (taskEl.parentElement !== original.parent) original.parent.appendChild(taskEl);
 		taskEl.style.top=original.top; taskEl.style.height=original.height;
@@ -4386,11 +4483,12 @@ function onTaskPointerDown(ev) {
 			: tcEnsureTimeLaneHost(targetCell);
 		if (!laneContent) { return; }
 		var cRect = laneContent.getBoundingClientRect();
+		if (fromWaiting && (clientY < cRect.top || clientY >= cRect.top+cRect.height)) { feedback.update(clientX,clientY,tasksCalendarRuntimeLocale()==="zh-CN"?"松开取消":"Release to cancel");return; }
 		var y = Math.max(0, Math.min(clientY - cRect.top, cRect.height));
 		var snap = pointerState.shiftSnap ? 5 : 15;
 		var rawMinute = pointerState.dayStart + (y / cRect.height) * (pointerState.dayEnd - pointerState.dayStart);
 		var minute = roundMinutesToStep(rawMinute - (pointerState.mode === "move" ? grabOffset : 0), snap);
-		minute = Math.max(pointerState.dayStart, Math.min(minute, pointerState.dayEnd - 1));
+		if (pointerState.mode !== "move") minute = Math.max(pointerState.dayStart, Math.min(minute, pointerState.dayEnd - 1));
 		var targetDate = targetCell.getAttribute("data-date") || pointerState.srcDate;
 		var newStart = moment(pointerState.startMoment);
 		var newEnd = moment(pointerState.endMoment);
@@ -4416,7 +4514,8 @@ function onTaskPointerDown(ev) {
 		if (timeOrDayChanged || draggedPx > 6) {
 			pointerState.moved = true;
 		}
-		var localStart = Math.max(pointerState.dayStart, Math.min(newStart.hours()*60 + newStart.minutes(), pointerState.dayEnd-1));
+		var startMinute = newStart.format("YYYY-MM-DD") < targetDate ? pointerState.dayStart : newStart.hours()*60 + newStart.minutes();
+		var localStart = Math.max(pointerState.dayStart, Math.min(startMinute, pointerState.dayEnd-1));
 		var endMinute = newEnd.format("YYYY-MM-DD") > targetDate ? pointerState.dayEnd : newEnd.hours()*60 + newEnd.minutes();
 		var localEnd = Math.max(localStart + 1, Math.min(endMinute, pointerState.dayEnd));
 		pointerState.previewLocalStart = localStart;
@@ -4431,6 +4530,7 @@ function onTaskPointerDown(ev) {
 		taskEl.style.top = top.toFixed(3)+"%";
 		taskEl.style.height = heightPct.toFixed(3)+"%";
 		taskEl.setAttribute("data-slot", "range");
+		taskEl.setAttribute("data-lane", "time");
 		taskEl.setAttribute("data-start-min", String(localStart));
 		taskEl.setAttribute("data-end-min", String(localEnd));
 		var compact = (localEnd - localStart) <= PLANNER_CHROME_COMPACT_MAX_MIN;
@@ -4465,7 +4565,12 @@ function onTaskPointerDown(ev) {
 	};
 
 	var onUp = async (e) => {
-		if (!getCellFromPoint(e.clientX,e.clientY)) { onCancel(e); return; }
+		var dropCell=getCellFromPoint(e.clientX,e.clientY);
+		if (!dropCell) { onCancel(e); return; }
+		if (fromWaiting) {
+			var dropRect=tcEnsureTimeLaneHost(dropCell).getBoundingClientRect();
+			if(e.clientY<dropRect.top || e.clientY>=dropRect.top+dropRect.height) { onCancel(e);return; }
+		}
 		pointerState.lastPX=e.clientX; pointerState.lastPY=e.clientY;
 		if (pointerState.moveRaf != null) {
 			cancelAnimationFrame(pointerState.moveRaf);
@@ -4505,7 +4610,7 @@ function onTaskPointerDown(ev) {
 			taskEl.setAttribute("data-suppress-click", "true");
 			setTimeout(() => taskEl.removeAttribute("data-suppress-click"), 250);
 		}
-		if (!pointerState.moved || (+finalStart === pointerState.startTs && +finalEnd === pointerState.endTs)) {
+		if (!pointerState.moved || (!fromWaiting && +finalStart === pointerState.startTs && +finalEnd === pointerState.endTs)) {
 			plannerChromeInteractionActive = false;
 			flushDeferredHydration(40);
 			flushDeferredTaskFreshRefresh(180);
@@ -4514,14 +4619,14 @@ function onTaskPointerDown(ev) {
 			return;
 		}
 		if (editModeActive) {
-			stageTaskMove(taskEl, finalStart, finalEnd);
+			stageTaskMove(taskEl, finalStart, finalEnd, saveOptions);
 			schedulePlannerChromeOverlapLayout(affectedLanes);
 			setQuickTimelinePanel();
 			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.dragStaged"));
 			return;
 		}
 		try {
-			var receipt=await mdTaskAdapter.saveDateTime(taskEl, finalStart, finalEnd, { suppressRefresh: true, silentNotice: true });
+			var receipt=await mdTaskAdapter.saveDateTime(taskEl, finalStart, finalEnd, { ...saveOptions, suppressRefresh: true, silentNotice: true });
 			showCalendarDragUndo(receipt);
 
 		} catch (err) {
@@ -4580,7 +4685,7 @@ function onTaskPointerDown(ev) {
 	}
 };
 
-function getMetaFromNote(task, metaName) {
+function getMetaFromNote(task, metaName, notePages) {
 	try {
 		if (!task) return "";
 		var p = "";
@@ -4589,7 +4694,8 @@ function getMetaFromNote(task, metaName) {
 		if (!p) return "";
 		// metadata：用 ctx.page(路径) 取单页 frontmatter，避免 ctx.pages 返回结构上 [meta][0] 对 undefined 取址崩溃
 		if (typeof ctx.page !== "function") return "";
-		var page = ctx.page(p);
+		var page = notePages && notePages.has(p) ? notePages.get(p) : ctx.page(p);
+		if (notePages) notePages.set(p,page);
 		if (!page) return "";
 		var v = page[metaName];
 		if (v === undefined || v === null) return "";
@@ -4696,7 +4802,7 @@ function calendarDaySpanBetweenStartDays(startM, endM) {
 function resolveNewTaskAppendTarget(startMoment, endMoment) {
 	var start = moment(startMoment).startOf("day");
 	var end = moment(endMoment).startOf("day");
-	if (!start.isValid()) start = moment().startOf("day");
+	if (!start.isValid()) start = calendarNow().startOf("day");
 	if (!end.isValid()) end = start.clone();
 	var d = calendarDaySpanBetweenStartDays(start, end);
 	if (d <= 1) {
@@ -4796,6 +4902,7 @@ function sortTasksByYmdField(taskArr, fieldName) {
 }
 
 function getTasks(date) {
+	var tasks = getCalendarTaskEntries();
 	var isMonthView = rootNode && rootNode.getAttribute("view") == "month";
 	function dedupByTaskKey(list) {
 		var out = [];
@@ -4810,11 +4917,14 @@ function getTasks(date) {
 		return out;
 	}
 	function includeInCurrentView(taskObj) {
+		if (taskObj.calendarDeadlineMerged && !taskObj.completed && taskDateSameDay(taskObj.due,date)) return false;
 		if (!isMonthView) { return true; }
 		return !isTimelineTaggedTask(taskObj);
 	}
-	var doneSameDay = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && t.completed === true && t.completion && taskDateSameDay(t.completion, date)), "completion");
-	doneWithoutCompletionDate = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && t.completed === true && !t.completion && t.due && taskDateSameDay(t.due, date)), "due");
+	var doneSameDay = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && t.completed === true && (t.calendarSchedule
+		? (t.scheduled ? taskDateSameDay(t.scheduled,date) : !taskDateAfterDay(t.start,date) && !taskDateBeforeDay(t.due,date))
+		: t.completion && taskDateSameDay(t.completion, date))), "completion");
+	doneWithoutCompletionDate = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && !t.calendarSchedule && t.completed === true && !t.completion && t.due && taskDateSameDay(t.due, date)), "due");
 	var doneSpanInMonth = [];
 	if (isMonthView) {
 		doneSpanInMonth = tasks.filter(function (t) {
@@ -4845,7 +4955,7 @@ function getTasks(date) {
 	), "due");
 	recurrence = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.recurrence && t.due && taskDateSameDay(t.due, date)), "due");
 	overdue = sortTasksByYmdField(tasks
-		.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.due && taskDateBeforeDay(t.due, date))
+		.filter(t=>includeInCurrentView(t) && !t.calendarSchedule && taskIsOpenForCalendar(t) && t.due && taskDateBeforeDay(t.due, date))
 		.filter(t => !isTimelineTaggedTask(t)), "due");
 	start = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.start && taskDateSameDay(t.start, date)), "start");
 	scheduled = sortTasksByYmdField(tasks.filter(t=>includeInCurrentView(t) && taskIsOpenForCalendar(t) && t.scheduled && taskDateSameDay(t.scheduled, date)), "scheduled");
@@ -4979,7 +5089,7 @@ function getMonthTaskDomKey(node) {
 	var p = String(node.getAttribute("data-tc-path") || "");
 	var l = String(node.getAttribute("data-tc-line") || "");
 	var s = String(node.getAttribute("data-tc-sig") || "");
-	return p + "\u0001" + l + "\u0001" + s;
+	return p + "\u0001" + l + "\u0001" + s + "\u0001" + (node.getAttribute("data-schedule-index") ?? "");
 }
 
 /* path+line 是任务的稳定身份；这里给月表清理提供一个不依赖文本签名的副键。 */
@@ -4988,7 +5098,7 @@ function getMonthTaskDomKeyShort(node) {
 	var p = String(node.getAttribute("data-tc-path") || "");
 	var l = String(node.getAttribute("data-tc-line") || "");
 	if (!p && !l) { return ""; }
-	return p + "\u0001" + l;
+	return p + "\u0001" + l + "\u0001" + (node.getAttribute("data-schedule-index") ?? "");
 }
 
 /* overlay 应用并提交后，再按日期、行级身份和可见标题清除异步重复节点。
@@ -5027,7 +5137,7 @@ function finalSweepDuplicatesAfterOverlayByDate(wrapper, model) {
 				var nStart = String(nd.getAttribute && nd.getAttribute("data-start-date") || "");
 				var nDue = String(nd.getAttribute && nd.getAttribute("data-due-date") || "");
 				var nShort = getMonthTaskDomKeyShort(nd);
-				var matchByDate = hasDatePair && nStart === sampleStart && nDue === sampleDue;
+				var matchByDate = hasDatePair && !nShort && !hasShort && nStart === sampleStart && nDue === sampleDue;
 				var matchByShort = hasShort && nShort === sampleShort
 					&& nd.getAttribute("data-tc-month-span") !== "1";
 				/* 轨 3：path/line 缺失的幽灵条仍可能与 overlay 同源标题一致，按归一化标题键移除 */
@@ -5288,6 +5398,7 @@ function collectMonthSpanSegments(wrapper) {
 				path: String(node.getAttribute("data-tc-path") || ""),
 				line: String(node.getAttribute("data-tc-line") || ""),
 				sig: String(node.getAttribute("data-tc-sig") || ""),
+				scheduleIndex: node.getAttribute("data-schedule-index"),
 				role: String(node.getAttribute("data-tc-month-role") || ""),
 				pos: String(node.getAttribute("data-tc-month-span-pos") || "")
 			});
@@ -5300,7 +5411,7 @@ function groupMonthSpanSegments(segments) {
 	var groupsByKey = Object.create(null);
 	for (var i = 0; i < segments.length; i++) {
 		var seg = segments[i];
-		var keyCore = seg.path + "\u0001" + seg.line + "\u0001" + seg.sig;
+		var keyCore = seg.path + "\u0001" + seg.line + "\u0001" + seg.sig + "\u0001" + (seg.scheduleIndex ?? "");
 		var key = keyCore;
 		// 对无法稳定识别的匿名 segment，避免误合并导致 laneCount 被低估（宁可多 lane，不可重叠）
 		if (!seg.path && !seg.line && !seg.sig) {
@@ -5582,10 +5693,12 @@ function syncMonthSpanOverlay(gridEl) {
 	if (!gridEl || !rootNode || rootNode.getAttribute("view") !== "month") { return; }
 	var wrappers = [];
 	try { wrappers = gridEl.querySelectorAll(".wrappers > .wrapper"); } catch (_) { wrappers = []; }
+	// Read inherited CSS sizes before any week writes its overlay/reserve.
+	var metricsByWeek = Array.from(wrappers, getMonthSpanMetrics);
 	for (var wi = 0; wi < wrappers.length; wi++) {
 		var wrapper = wrappers[wi];
 		if (!wrapper) { continue; }
-		var metrics = getMonthSpanMetrics(wrapper);
+		var metrics = metricsByWeek[wi];
 		var collected = collectMonthSpanSegments(wrapper);
 		var cells = collected.cells || [];
 		if (!cells.length) { continue; }
@@ -5608,6 +5721,7 @@ function syncMonthSpanOverlay(gridEl) {
 var tcMonthLayoutRo = null;
 var tcMonthLayoutRoTimer = null;
 var tcMonthLayoutRoGrid = null;
+var tcMonthLayoutRoTargets = new Set();
 var tcMonthLayoutRoSuspendedUntil = 0;
 var tcMonthCommitRevision = 0;
 var tcMonthAppliedRevision = 0;
@@ -5709,20 +5823,18 @@ function bindMonthLayoutResizeObserver(gridEl) {
 		});
 	}
 	tcMonthLayoutRoGrid = gridEl;
-	try { tcMonthLayoutRo.disconnect(); } catch (_) {}
-	try { tcMonthLayoutRo.observe(gridEl); } catch (_) {}
-	try {
-		var wrappers = gridEl.querySelectorAll(".wrappers > .wrapper");
-		for (var wi = 0; wi < wrappers.length; wi++) {
-			tcMonthLayoutRo.observe(wrappers[wi]);
-		}
-	} catch (_) {}
-	try {
-		var boxes = gridEl.querySelectorAll(".cell[data-date] .cellContent");
-		for (var bi = 0; bi < boxes.length; bi++) {
-			tcMonthLayoutRo.observe(boxes[bi]);
-		}
-	} catch (_) {}
+	// Re-observing unchanged nodes emits another initial notification, even
+	// without a resize. Reconcile hosts instead of restarting that cycle.
+	var targets = new Set([gridEl]);
+	gridEl.querySelectorAll(".wrappers > .wrapper").forEach(function (node) { targets.add(node); });
+	gridEl.querySelectorAll(".cell[data-date] .cellContent").forEach(function (node) { targets.add(node); });
+	tcMonthLayoutRoTargets.forEach(function (node) {
+		if (!targets.has(node)) { tcMonthLayoutRo.unobserve(node); }
+	});
+	targets.forEach(function (node) {
+		if (!tcMonthLayoutRoTargets.has(node)) { tcMonthLayoutRo.observe(node); }
+	});
+	tcMonthLayoutRoTargets = targets;
 }
 
 function commitMonthLayout(gridEl, reasonOrMeta) {
@@ -5838,28 +5950,12 @@ function getTaskCalendarRangeAnchor(m, granularity) {
 function formatTaskCalendarRangeTitle(anchor, granularity) {
 	var g = normalizeTaskCalendarRangeGranularity(granularity);
 	var a = moment(anchor);
-	if (g === "day") {
-		return "<span class='current-main'>" + a.format("YYYY-MM-DD") + "</span>";
-	}
-	if (g === "week") {
-		var days = eisenhowerRangeDayStrings(anchor, "week");
-		var s0 = days[0] || a.format("YYYY-MM-DD");
-		var s1 = days[6] || s0;
-		var m0 = moment(s0, "YYYY-MM-DD", true);
-		var m1 = moment(s1, "YYYY-MM-DD", true);
-		var sameYear = m0.isValid() && m1.isValid() && m0.format("YYYY") === m1.format("YYYY");
-		var main = sameYear ? m0.format("YYYY-MM-DD") : s0;
-		var sub = sameYear ? (" ~ " + m1.format("MM-DD")) : (" ~ " + m1.format("YYYY-MM-DD"));
-		return "<span class='current-main'>" + main + sub + "</span>";
-	}
-	if (g === "month") {
-		return "<span class='current-main'>" + a.format("YYYY-MM") + "</span>";
-	}
-	if (g === "year") {
-		return "<span class='current-main'>" + a.format("YYYY") + "</span>";
-	}
-	return "<span class='current-main'>" + a.format("YYYY-MM-DD") + "</span>";
+	var title = g === "day" ? formatTasksCalendarDayTitle(a)
+		: g === "week" ? formatTasksCalendarWeekTitle(a)
+		: g === "month" ? formatTasksCalendarMonthTitle(a) : a.format("YYYY");
+	return "<span class='current-main'>" + title + "</span>";
 }
+
 function createTaskCalendarRangeModel(anchor, granularity) {
 	var g = normalizeTaskCalendarRangeGranularity(granularity);
 	var a = getTaskCalendarRangeAnchor(anchor, g);
@@ -5876,73 +5972,28 @@ function snapSelectedDateToEisenAnchor(m) {
 function formatEisenhowerToolbarTitle(anchor) {
 	return formatTaskCalendarRangeTitle(anchor, eisenhowerGranularity);
 }
-function createTaskCalendarRangeStats() {
-	return {
+function createTaskCalendarRangeStats(openEntries, completedEntries) {
+	var stats = {
 		due: 0,
-		done: 0,
+		done: completedEntries ? completedEntries.size : 0,
 		overdue: 0,
 		start: 0,
 		scheduled: 0,
 		recurrence: 0,
 		dailyNote: 0
 	};
-}
-function accumulateCurrentTaskRangeStats(stats, currentDate) {
-	var target = stats || createTaskCalendarRangeStats();
-	target.due += due.length;
-	target.due += recurrence.length;
-	target.due += scheduled.length;
-	target.due += dailyNote.length;
-	target.done += done.length;
-	target.start += start.length;
-	target.scheduled += scheduled.length;
-	target.recurrence += recurrence.length;
-	target.dailyNote += dailyNote.length;
-	if (moment().format("YYYY-MM-DD") == currentDate) {
-		target.overdue = overdue.length;
-	}
-	return target;
+	// The matrix includes carried-over tasks; a date-only snapshot is a different population.
+	if (openEntries) openEntries.forEach(function (entry) {
+		if (entry.typ === "overdue") stats.overdue++;
+		else stats.due++;
+		var types = entry.types || new Set([entry.typ]);
+		["start", "scheduled", "recurrence", "dailyNote"].forEach(function (type) { if(types.has(type)) stats[type]++; });
+	});
+	return stats;
 }
 function setStatisticValuesFromRangeStats(stats) {
 	var s = stats || createTaskCalendarRangeStats();
 	setStatisticValues(s.due, s.done, s.overdue, s.start, s.scheduled, s.recurrence, s.dailyNote);
-}
-function requestSharedTaskBoardRangeStats(rangeModel, fallbackStats) {
-	var dataApi = noriaBridge && noriaBridge.data;
-	if (!dataApi || typeof dataApi.getSnapshot !== "function") { return; }
-	var days = rangeModel && Array.isArray(rangeModel.days) ? rangeModel.days : [];
-	if (!days.length) { return; }
-	var start = String(days[0] || "");
-	var end = String(days[days.length - 1] || start);
-	if (!start || !end) { return; }
-	var token = start + ".." + end + "|" + String(rangeModel.granularity || "day");
-	try { rootNode.setAttribute("data-noria-stats-request", token); } catch (_) {}
-	Promise.resolve(dataApi.getSnapshot({
-		preset: "board",
-		range: { mode: "custom", start: start, end: end },
-		granularity: "day"
-	}, { ctx: ctx })).then(function (shared) {
-		try {
-			if (rootNode.getAttribute("data-noria-stats-request") !== token) { return; }
-		} catch (_) {}
-		var taskStats = shared && shared.views && shared.views.board && shared.views.board.tasks ? shared.views.board.tasks : (shared && shared.domains ? shared.domains.tasks : null);
-		if (!taskStats) { return; }
-		function asCounter(value) {
-			var n = Number(value);
-			return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
-		}
-		var s = fallbackStats || createTaskCalendarRangeStats();
-		setStatisticValues(
-			asCounter(taskStats.open),
-			asCounter(taskStats.completed),
-			asCounter(s.overdue),
-			asCounter(s.start),
-			asCounter(s.scheduled),
-			asCounter(s.recurrence),
-			asCounter(s.dailyNote)
-		);
-		try { rootNode.setAttribute("data-noria-stats-source", "shared"); } catch (_) {}
-	}).catch(function () {});
 }
 function inheritEisenhowerGranularityFromView(activeView) {
 	var viewName = String(activeView || "");
@@ -5953,9 +6004,9 @@ function inheritEisenhowerGranularityFromView(activeView) {
 	return false;
 }
 function coerceEisenhowerFocusDate(m) {
-	var d = moment(m || moment()).clone();
+	var d = moment(m || calendarNow()).clone();
 	if (!d || !d.isValid || !d.isValid()) {
-		d = moment();
+		d = calendarNow();
 	}
 	return d.startOf("day");
 }
@@ -5970,11 +6021,11 @@ function getEisenhowerFocusDate(focusDate) {
 	if (eisenhowerFocusDate && eisenhowerFocusDate.isValid && eisenhowerFocusDate.isValid()) {
 		return eisenhowerFocusDate.clone();
 	}
-	return setEisenhowerFocusDate(selectedDate || moment());
+	return setEisenhowerFocusDate(selectedDate || calendarNow());
 }
 function initializeEisenhowerFocusDateFromView(activeView) {
 	var viewName = String(activeView || "");
-	var today = moment().startOf("day");
+	var today = calendarNow().startOf("day");
 	if (viewName === "day") {
 		return setEisenhowerFocusDate(selectedDate || today);
 	}
@@ -6016,14 +6067,10 @@ function undockEisenGranularity() {
 		pool.appendChild(seg);
 	}
 }
-function dockEisenGranularityShell(listNode) {
-	var seg = rootNode && rootNode.querySelector(".tc-eisen-granularity");
-	var shell = listNode && listNode.querySelector(".eisenMatrixShell");
-	var bar = shell && shell.querySelector(".eisenMatrixTopBar");
-	if (!seg || !bar) {
-		return;
-	}
-	bar.appendChild(seg);
+function dockEisenGranularityToolbar() {
+	var seg = rootNode.querySelector(".tc-eisen-granularity");
+	var slot = rootNode.querySelector(".tc-toolbar-planner-slot");
+	if (seg && slot) slot.appendChild(seg);
 }
 function paintEisenhowerGranularityUI() {
 	var seg = rootNode && rootNode.querySelector(".tc-eisen-granularity");
@@ -6039,12 +6086,14 @@ function paintEisenhowerGranularityUI() {
 		var on = b.getAttribute("data-eisen") === eisenhowerGranularity;
 		b.classList.toggle("active", on);
 		b.setAttribute("aria-pressed", on ? "true" : "false");
+		b.setAttribute("aria-selected", String(on));
 	});
 }
 
 /** 月表拖改期依赖 data-start-date / data-due-*；ctx.el 扁条默认不带这些属性时补齐（含仅 scheduled 的任务） */
 function tcEnsureCalItemTemporalAttrs(el, obj) {
 	if (!el || !obj || el.nodeType !== 1) { return; }
+	if (obj.calendarSchedule) el.setAttribute("data-schedule-index",String(obj.calendarSchedule.index));
 	try {
 		var stY = coerceTemporalToYmd(obj.start) || "";
 		var duY = coerceTemporalToYmd(obj.due) || "";
@@ -6072,10 +6121,11 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 	var doc = (ownerDoc && ownerDoc.createElement) ? ownerDoc : getTasksCalendarDocument();
 	var lighter = 25;
 	var darker = -40;
-	var typeCls = String(cls || "");
-	var noteColor = normalizeHexColor(getMetaFromNote(obj, "color"));
-	var textColor = normalizeHexColor(getMetaFromNote(obj, "textColor"));
-	var noteIcon = getMetaFromNote(obj, "icon");
+	var typeCls = obj.calendarSchedule && !obj.completed && !obj.checked ? "scheduled" : String(cls || "");
+	var notePages = buildOpts.notePages || new Map();
+	var noteColor = normalizeHexColor(getMetaFromNote(obj, "color", notePages));
+	var textColor = normalizeHexColor(getMetaFromNote(obj, "textColor", notePages));
+	var noteIcon = getMetaFromNote(obj, "icon", notePages);
 	var taskTextPlain = normalizeDisplayTaskText(obj.text, typeCls);
 	if (isVisualEmptyTaskTitle(taskTextPlain) || String(taskTextPlain || "").trim() === "任务") { return null; }
 	var rawPath = (obj.link && obj.link.path) ? String(obj.link.path) : String(obj.path || "");
@@ -6102,10 +6152,9 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 	}
 	var taskSig = "";
 	try {
-		var rawSig = String(obj.rawText || "");
-		if (rawSig.length > 1200) rawSig = rawSig.slice(0, 1200);
+		var rawSig = String(obj.rawLine || obj.rawText || "");
 		taskSig = encodeURIComponent(rawSig);
-		if (taskSig.length > 1800) taskSig = taskSig.slice(0, 1800);
+		// Keep the complete source snapshot for later schedule additions and conflict checks.
 	} catch (_) {
 		taskSig = "";
 	}
@@ -6123,7 +6172,7 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 	var progressLeft = "";
 	var progressLabel = "";
 	var progressUrgency = "none";
-	if (currentDate && obj.start && obj.due && !obj.completed) {
+	if (currentDate && !obj.calendarSchedule && obj.start && obj.due && !obj.completed) {
 		var startMoment = moment(coerceTemporalToYmd(obj.start), "YYYY-MM-DD", true);
 		var dueMoment = moment(coerceTemporalToYmd(obj.due), "YYYY-MM-DD", true);
 		var nowMoment = moment(currentDate, "YYYY-MM-DD", true);
@@ -6214,6 +6263,8 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 	el.tabIndex = 0;
 	el.setAttribute("data-nav-href", taskLine);
 	el.title = noteFilename ? (noteFilename + ": " + taskTextPlain) : taskTextPlain;
+	if (obj.calendarSource && obj.calendarSource.due) el.title += " · " + tcRuntimeT("workbench.due") + " " + coerceTemporalToYmd(obj.calendarSource.due) + (obj.calendarSource.dueTime ? " "+obj.calendarSource.dueTime : "");
+	else if (obj.calendarDeadline) el.title += " · " + tcRuntimeT("workbench.due") + " " + coerceTemporalToYmd(obj.due) + (obj.dueTime ? " "+obj.dueTime : "");
 	el.style.cssText = style;
 	el.setAttribute("data-progress-alert", progressAlert);
 	el.setAttribute("data-progress-left", progressLeft);
@@ -6233,10 +6284,11 @@ function buildTaskElement(obj, cls, currentDate, ownerDoc, buildOpts) {
 	el.setAttribute("data-tc-path", taskPath);
 	el.setAttribute("data-tc-line", taskLineIndex);
 	el.setAttribute("data-tc-sig", taskSig);
-	el.setAttribute("data-start-date", coerceTemporalToYmd(obj.start) || "");
-	el.setAttribute("data-start-time", obj.startTime ? String(obj.startTime) : "");
-	el.setAttribute("data-due-date", coerceTemporalToYmd(obj.due) || "");
-	el.setAttribute("data-due-time", obj.dueTime ? String(obj.dueTime) : "");
+	if (obj.calendarSchedule) el.setAttribute("data-schedule-index", String(obj.calendarSchedule.index));
+	el.setAttribute("data-start-date", coerceTemporalToYmd(obj.start || (obj.calendarSchedule && obj.scheduled)) || "");
+	el.setAttribute("data-start-time", String(obj.startTime || (obj.calendarSchedule && obj.scheduledTime) || ""));
+	el.setAttribute("data-due-date", coerceTemporalToYmd(obj.due || (obj.calendarSchedule && obj.scheduled)) || "");
+	el.setAttribute("data-due-time", String(obj.dueTime || (obj.calendarSchedule && obj.scheduledTime) || ""));
 	if (isCrossDayRange && crossSeg === "start") {
 		el.setAttribute("data-planner-cross", "1");
 		el.setAttribute("data-planner-cross-seg", "start");
@@ -6543,9 +6595,9 @@ function tcInferTypeClsFromCalItemEl(el) {
 	}
 	return "due";
 }
-function tcTaskRowFromCalItemEl(el) {
+function tcTaskRowFromCalItemEl(el, rowIndex) {
 	try {
-		return findTaskRowForSaveMeta(collectTaskMeta(el));
+		return findTaskRowForSaveMeta(collectTaskMeta(el), rowIndex);
 	} catch (_) {
 		return null;
 	}
@@ -6694,6 +6746,9 @@ function normalizeMonthTaskRowDom(rootEl, taskObj, typeCls) {
 function normalizeMonthTaskRows(rootEl) {
 	if (!rootEl || !rootEl.querySelectorAll) { return; }
 	try {
+		// This index belongs to this synchronous pass only; source edits and
+		// refreshes are resolved from the current task list on the next pass.
+		var rowIndex = buildCalendarTaskRowIndex();
 		var rows = [];
 		if (isMonthTaskRowElement(rootEl)) { rows.push(rootEl); }
 		Array.prototype.slice.call(rootEl.querySelectorAll(".tc-cal-item--month-compact, .tc-month-span-overlay-item, [data-tc-month-row], [data-tc-month-role], [data-tc-cal-item='1']")).forEach(function (el) {
@@ -6702,7 +6757,7 @@ function normalizeMonthTaskRows(rootEl) {
 		for (var i = 0; i < rows.length; i++) {
 			var row = rows[i];
 			if (!row || !isMonthTaskRowElement(row)) { continue; }
-			normalizeMonthTaskRowDom(row, tcTaskRowFromCalItemEl(row), tcInferTypeClsFromCalItemEl(row));
+			normalizeMonthTaskRowDom(row, tcTaskRowFromCalItemEl(row, rowIndex), tcInferTypeClsFromCalItemEl(row));
 		}
 	} catch (_) {}
 }
@@ -7061,6 +7116,9 @@ function hoistMonthWeekCellsToRuntimeTree(gridEl) {
 
 function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 	if (!hostEl) return;
+	// Share note facts only within this synchronous render; later renders read
+	// current properties again, including newly added or removed colors/icons.
+	var notePages = new Map();
 	/* hydrate 时必须先按当日刷新全局分组；否则仍停留在网格构建循环里最后一次 getTasks 的状态，易导致「统计有数、格子全空」 */
 	getTasksViaAdapter(currentDate);
 	/* 与被灌入的格子属同一 ownerDocument，避免嵌入/LP 下跨文档节点 append 静默失败 */
@@ -7123,6 +7181,7 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 	}
 	/* plannerChrome：dayBucket 跨桶统一排序后再挂载（非 #tl 全局在前） */
 	var dayBucketPlan = plannerChromeWeek ? [] : null;
+	var outsideHours = new Map();
 	function compareDayBucketPlanEntry(x, y) {
 		var xTl = isTimelineTaggedTask(x.task) ? 1 : 0;
 		var yTl = isTimelineTaggedTask(y.task) ? 1 : 0;
@@ -7185,10 +7244,8 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 			var baseTaskKey = getTaskKey(sorted[t]);
 			var isTimelineTask = isTimelineTaggedTask(sorted[t]);
 			var slotEarly = getTaskTimeSlot(sorted[t], typ, currentDate);
-			var routeEarlyToWaiting = plannerChromeWeek && shouldRoutePlannerChromeSlotToWaiting(slotEarly, getPlannerChromeTimelineStartMin());
-			if (plannerChromeWeek && isPlannerChromeCrossDayContinuationSegment(sorted[t], currentDate, slotEarly)) {
-				continue;
-			}
+			// An interval ending at midnight occupies no time on its ending date.
+			if (plannerChromeWeek && slotEarly.slotType === "range" && Number(slotEarly.endMin) <= Number(slotEarly.startMin)) { continue; }
 			/* 周 plannerChrome 时段：同一笔记行因 due/start/scheduled 等多桶重复出现时只渲染一次，避免并列重影 */
 			var isMonthGrid = (rootNode.getAttribute("view") === "month");
 			if (isMonthGrid && shouldSkipMonthTaskRender(sorted[t], typ)) {
@@ -7197,7 +7254,7 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 			var monthRole = isMonthGrid ? normalizeMonthTaskRole(sorted[t], currentDate) : "none";
 			if (isMonthGrid && monthRole === "none") { continue; }
 			var taskKey;
-			if (plannerChromeWeek && slotEarly.slotType != "none" && !routeEarlyToWaiting) {
+			if (plannerChromeWeek && slotEarly.slotType != "none") {
 				var syK = coerceTemporalToYmd(sorted[t].start);
 				var eyK = coerceTemporalToYmd(sorted[t].due);
 				if (syK && eyK && syK !== eyK && sorted[t].startTime && sorted[t].dueTime
@@ -7219,9 +7276,18 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 				taskKey = baseTaskKey + "\0" + String(typ);
 			}
 			if (renderedTaskKeys.has(taskKey)) continue;
-			if (plannerChromeWeek && (slotEarly.slotType == "none" || routeEarlyToWaiting)) {
+			if (plannerChromeWeek && slotEarly.slotType != "none") {
+				var edge = classifyPlannerHoursSlot(slotEarly, plannerActiveHours.start, plannerActiveHours.end);
+				var entry = { task: sorted[t], typ: typ, date: currentDate };
+				if (edge.before || edge.after) outsideHours.set(baseTaskKey, entry);
+				if (classifyPlannerHoursSlot(slotEarly, getPlannerChromeTimelineStartMin(), getPlannerChromeTimelineEndMin()).outside) {
+					renderedTaskKeys.add(taskKey);
+					continue;
+				}
+			}
+			if (plannerChromeWeek && slotEarly.slotType == "none") {
 				if (dayBucketPlan) {
-					dayBucketPlan.push({ task: sorted[t], node: null, typ: typ, preAxis: routeEarlyToWaiting });
+					dayBucketPlan.push({ task: sorted[t], node: null, typ: typ });
 				}
 				renderedTaskKeys.add(taskKey);
 				continue;
@@ -7232,7 +7298,7 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 				typ,
 				currentDate,
 				doc,
-				isMonthGrid ? { monthView: true } : undefined
+				{ monthView: isMonthGrid, notePages: notePages }
 			);
 			if (!node) continue;
 			node = tcEnsureNodeDocument(node, doc);
@@ -7274,6 +7340,11 @@ function renderTasksIntoHost(hostEl, currentDate, forcePlannerChromeWeek) {
 	showTasks(dailyNote, "dailyNote");
 	showTasks(done, "done");
 	showTasks(cancelled, "cancelled");
+	if (plannerChromeWeek && !showEarlyHours && (plannerActiveHours.start > 0 || plannerActiveHours.end < 1440)) {
+		hostEl.insertBefore(buildPlannerHoursBoundary(outsideHours, currentDate, doc), timeLaneEl);
+		var hoursGrid = hostEl.closest('.grid');
+		if (hoursGrid) hoursGrid.classList.toggle('has-hours-boundary', !!hoursGrid.querySelector('.tc-hours-boundary button'));
+	}
 	if (dayBucketPlan && dayBucketPlan.length) {
 		try {
 			dayBucketPlan.sort(compareDayBucketPlanEntry);
@@ -7362,11 +7433,15 @@ function hydrateGridTaskCells(gridEl) {
 	gridEl = resolveHydrationGrid(gridEl);
 	if (!gridEl) return;
 	if (!rootNode || !rootNode.isConnected || !gridEl.isConnected) return;
+	var focusedOverflow = gridEl.ownerDocument.activeElement;
+	var overflowFocus = gridEl.contains(focusedOverflow) && focusedOverflow?.matches(".tc-overflow-more")
+		? { date: focusedOverflow.closest(".cell").getAttribute("data-date"), start: focusedOverflow._tcOverflowSummary.start } : null;
 	hoistMonthWeekCellsToRuntimeTree(gridEl);
 	var isWk = (rootNode.getAttribute("view") == "week" || rootNode.getAttribute("view") == "day");
 	var plannerChrome = isWk && isPlannerChromeTimelineView(rootNode, ["week", "day"]);
 	preparePlannerChromeWaitingLayer(gridEl, plannerChrome);
 	var cells = gridEl.querySelectorAll(".cell[data-date]");
+	var hydrationComplete = true;
 	for (var ci = 0; ci < cells.length; ci++) {
 		var cell = cells[ci];
 		var d = cell.getAttribute("data-date");
@@ -7376,13 +7451,14 @@ function hydrateGridTaskCells(gridEl) {
 				box = ensureCellContentHostForCell(cell);
 			} catch (_) {}
 		}
-		if (!box || !d) continue;
+		if (!box || !d) { hydrationComplete = false; continue; }
 		try {
 			box = upgradeCellContentToRuntimeBacked(cell, box);
 		} catch (_) {}
 		try {
 			renderTasksIntoHost(box, d, plannerChrome);
 		} catch (hydrErr) {
+			hydrationComplete = false;
 			console.error("[noria tasksCalendar] hydrate cell failed", d, hydrErr);
 		}
 	}
@@ -7411,6 +7487,7 @@ function hydrateGridTaskCells(gridEl) {
 	if (plannerChrome) {
 		// Resolve widths in this frame, before fresh full-width nodes can be painted.
 		try { normalizePlannerChromeWeekTaskGeometry(); applyPlannerChromeOverlapLayout(); } catch (_) {}
+		if (overflowFocus) focusPlannerOverflow(overflowFocus.date, overflowFocus.start);
 		try { schedulePlannerChromeWeekLanesFinalize(true); } catch (_) {}
 		try { schedulePlannerChromeWeekLanesFinalizePost(true); } catch (_) {}
 		try { schedulePlannerChromeOverlapLayout(); } catch (_) {}
@@ -7419,6 +7496,7 @@ function hydrateGridTaskCells(gridEl) {
 	if (rootNode && rootNode.getAttribute("view") === "month") {
 		commitMonthLayout(gridEl, "hydrateGridTaskCells");
 	}
+	gridEl._noriaTaskCellsHydrated = hydrationComplete;
 }
 
 /** metadata / 预览画布有时会晚一帧改写外层布局；延迟再灌一次 DOM，避免「统计有数、格子无条」 */
@@ -7519,8 +7597,6 @@ function bindTasksCalendarCellContentObserver() {
 					if (!cell) continue;
 					var dkey = cell.getAttribute("data-date") || "";
 					if (!dkey || seen[dkey]) continue;
-					var exp = sumBucketExpectForDate(dkey);
-					if (exp <= 0) continue;
 					if (cell.getAttribute("data-tc-cell-ctx") !== "1") {
 						try {
 							upgradeCalendarCellToRuntimeTree(cell);
@@ -7549,6 +7625,10 @@ function bindTasksCalendarCellContentObserver() {
 					var minGap = box.querySelector(".tc-cell-render-fallback") ? 420 : 100;
 					if (Date.now() - lastTs < minGap) continue;
 					seen[dkey] = true;
+					// Most mutations come from our own title/checkbox layout. Query
+					// the source only when this cell actually needs repair, once per batch.
+					var exp = sumBucketExpectForDate(dkey);
+					if (exp <= 0) continue;
 					box.setAttribute("data-tc-mo-ts", String(Date.now()));
 					try {
 						renderTasksIntoHost(box, dkey, plannerChrome);
@@ -7581,6 +7661,7 @@ function bindTasksCalendarIntersectionHydrate() {
 	if (!rootNode || rootNode.getAttribute("data-tc-visible-io") === "1") return;
 	if (typeof IntersectionObserver === "undefined") return;
 	rootNode.setAttribute("data-tc-visible-io", "1");
+	var initialNotification = true;
 	try {
 		tcVisibleIo = new IntersectionObserver(function (entries) {
 			if (!rootNode || !rootNode.isConnected) {
@@ -7589,6 +7670,8 @@ function bindTasksCalendarIntersectionHydrate() {
 				return;
 			}
 			for (var i = 0; i < entries.length; i++) {
+				var initial = initialNotification;
+				initialNotification = false;
 				if (!entries[i].isIntersecting) continue;
 				if (plannerChromeInteractionActive) {
 					deferHydrationIfInteracting(null);
@@ -7598,7 +7681,7 @@ function bindTasksCalendarIntersectionHydrate() {
 				try {
 					g = rootNode.querySelector(":scope > .grid");
 				} catch (_) {}
-				if (g) hydrateGridTaskCells(g);
+				if (g && !(initial && g._noriaTaskCellsHydrated)) hydrateGridTaskCells(g);
 				return;
 			}
 		}, { threshold: 0.02, rootMargin: "140px 0px 140px 0px" });
@@ -7692,7 +7775,6 @@ function bindTasksCalendarWakeHydration(gridEl) {
 	try { window.addEventListener("resize", tcWakeHydrationHandler, { passive: true }); } catch (_) {
 		try { window.addEventListener("resize", tcWakeHydrationHandler); } catch (_) {}
 	}
-	tcWakeHydrationHandler();
 }
 
 function scheduleGridHydration(gridEl) {
@@ -7702,43 +7784,7 @@ function scheduleGridHydration(gridEl) {
 	hydrateGridWhenReady(gridEl, 0);
 	bindTasksCalendarIntersectionHydrate();
 	bindTasksCalendarWakeHydration(gridEl);
-	var isWeekPlannerChrome = isPlannerChromeActive(rootNode, ["week", "day"]);
-	try {
-		requestAnimationFrame(function () {
-			if (!rootNode || !rootNode.isConnected) { return; }
-			hydrateGridWhenReady(gridEl, 0);
-		});
-		setTimeout(function () {
-			if (!rootNode || !rootNode.isConnected) { return; }
-			hydrateGridWhenReady(gridEl, 0);
-		}, 0);
-		setTimeout(function () {
-			if (!rootNode || !rootNode.isConnected) { return; }
-			hydrateGridWhenReady(gridEl, 1);
-		}, 48);
-		setTimeout(function () {
-			if (!rootNode || !rootNode.isConnected) { return; }
-			hydrateGridWhenReady(gridEl, 1);
-		}, 120);
-		if (!isWeekPlannerChrome) {
-			setTimeout(function () {
-				if (!rootNode || !rootNode.isConnected) { return; }
-				hydrateGridWhenReady(gridEl, 2);
-			}, 320);
-			setTimeout(function () {
-				if (!rootNode || !rootNode.isConnected) { return; }
-				hydrateGridWhenReady(gridEl, 3);
-			}, 900);
-			setTimeout(function () {
-				if (!rootNode || !rootNode.isConnected) { return; }
-				hydrateGridWhenReady(gridEl, 4);
-			}, 2400);
-			setTimeout(function () {
-				if (!rootNode || !rootNode.isConnected) { return; }
-				hydrateGridWhenReady(gridEl, 5);
-			}, 5000);
-		}
-	} catch (_) {}
+
 }
 
 function setTaskContentContainer(currentDate, forcePlannerChromeWeek) {
@@ -7891,6 +7937,15 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	var createMode = !taskEl || !!workbench?.create;
 	if (!createMode && !taskEl) return;
 	if (document.querySelector(".tc-planner-te-overlay")) { return; }
+	if (createMode && !workbench) {
+		var date=opts.dateStr||calendarNow().format("YYYY-MM-DD"),schedule={start:date};
+		if (Number.isFinite(opts.startMin)) {
+			var seed=moment(date,"YYYY-MM-DD",true).add(Math.max(0,Math.min(1439,opts.startMin)),"minutes");
+			schedule={start:seed.format("YYYY-MM-DD HH:mm"),end:seed.clone().add(Math.max(5,Number(opts.durationMin)||60),"minutes").format("YYYY-MM-DD HH:mm")};
+		}
+		Promise.resolve(noriaBridge.runtime.openPeriodTaskCreate({mode:"daily",date:date,schedule:schedule,anchor:opts.returnFocusEl})).catch(function(error){showDebugNotice(error.message);});
+		return;
+	}
 	var sourceWasTask = true;
 	if (!createMode && taskEl && (taskEl.getAttribute("data-noria-source-was-task") === "0" || taskEl.getAttribute("data-noria-source-was-task") === "false")) {
 		sourceWasTask = false;
@@ -7898,18 +7953,18 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	if (!createMode && sourceWasTask && !workbench) {
 		var editMeta=collectTaskMeta(taskEl);
 		Promise.resolve(bridge.tasks.openDetails({path:editMeta.filePath,line:editMeta.lineIndex,rawText:decodeURIComponent(editMeta.rawSig||"")||editMeta.rawText},
-			{anchor:opts.returnFocusEl||taskEl,presentation:"modal"})).catch(function(error){showDebugNotice(error.message);});
+			{anchor:opts.returnFocusEl||taskEl,presentation:"modal",restoreFocus:opts.restoreFocus})).catch(function(error){showDebugNotice(error.message);});
 		return;
 	}
 	var returnFocusEl = opts && opts.returnFocusEl != null ? opts.returnFocusEl : taskEl;
 	var srcCell = taskEl && taskEl.closest ? taskEl.closest(".cell[data-date]") : null;
 	var srcDate = srcCell ? srcCell.getAttribute("data-date") : String(opts.dateStr || "");
-	var startD = createMode ? (srcDate || moment().format("YYYY-MM-DD")) : (taskEl.getAttribute("data-start-date") || "");
+	var startD = createMode ? (srcDate || calendarNow().format("YYYY-MM-DD")) : (taskEl.getAttribute("data-start-date") || "");
 	var dueD = createMode ? startD : (taskEl.getAttribute("data-due-date") || "");
 	if (!startD && dueD) { startD = dueD; }
 	if (!startD && srcDate) { startD = srcDate; }
 	if (!dueD && startD) { dueD = startD; }
-	if (!startD) { startD = moment().format("YYYY-MM-DD"); }
+	if (!startD) { startD = calendarNow().format("YYYY-MM-DD"); }
 	if (!dueD) { dueD = startD; }
 	var seedMin = Math.max(0, Math.min(24 * 60 - 1, parseInt(opts.startMin, 10) || 9 * 60));
 	var seedDurationMin = Math.max(5, Math.min(24 * 60, parseInt(opts.durationMin, 10) || 60));
@@ -7918,7 +7973,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	var sm = moment(startD + " " + startT, "YYYY-MM-DD HH:mm", true);
 	var em = dueT ? moment(dueD + " " + dueT, "YYYY-MM-DD HH:mm", true) : moment(sm).add(60, "minutes");
 	if (!sm.isValid()) { sm = moment(startD + " 09:00", "YYYY-MM-DD HH:mm", true); }
-	if (!sm.isValid()) { sm = moment().hours(9).minutes(0).seconds(0); }
+	if (!sm.isValid()) { sm = calendarNow().hours(9).minutes(0).seconds(0); }
 	if (!em.isValid() || !em.isAfter(sm)) { em = moment(sm).add(60, "minutes"); }
 	var taskTitle = "";
 	if (!createMode) {
@@ -7985,6 +8040,8 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	head.className = "tc-planner-te-head";
 	var headMain = document.createElement("div");
 	headMain.className = "tc-planner-te-head-main";
+ if(workbench?.timeZone){var zoneLabel=document.createElement('span');zoneLabel.className='tc-calendar-zone-caption';zoneLabel.textContent=workbench.timeZone;headMain.appendChild(zoneLabel);}
+
 	var h2 = document.createElement("h2");
 	h2.className = "tc-planner-te-heading";
 	h2.id = "tc-planner-te-heading";
@@ -8093,7 +8150,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		});
 		var plus=button("tc-planner-te-time-adjust-btn","",function(){adjust(1);},"plus");fine.appendChild(plus);
 		var actions=element("div","tc-planner-te-time-popover-actions");
-		actions.appendChild(button("tc-planner-te-time-mini-btn",tcRuntimeT("runtime.tasksCalendar.time.now"),function(){setTime(moment().format("HH:mm"));scrollColumns();}));
+		actions.appendChild(button("tc-planner-te-time-mini-btn",tcRuntimeT("runtime.tasksCalendar.time.now"),function(){setTime(calendarNow().format("HH:mm"));scrollColumns();}));
 		actions.appendChild(button("tc-planner-te-time-mini-btn",tcRuntimeT("runtime.tasksCalendar.time.clear"),function(){setTime("");}));
 		pop.append(head,picker,fine,actions);anchorWrap.appendChild(pop);
 		function position(){
@@ -8246,7 +8303,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		return api;
 	}
 	var startParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.start"), "tc-planner-te-start", sm, true);
-	var endParts = buildSplitDateTimeField(tcRuntimeT("runtime.tasksCalendar.fields.end"), "tc-planner-te-end", em, true);
+	var endParts = buildSplitDateTimeField(tcRuntimeT(workbench?.model.start&&workbench?.model.due?"workbench.legacyEnd":"runtime.tasksCalendar.fields.end"), "tc-planner-te-end", em, true);
 	if (workbench) { startParts.clear(); endParts.clear(); startParts.setDateTimeString(workbench.model.start); endParts.setDateTimeString(workbench.model.due); }
 
 	var dateMetaGrid = document.createElement("div");
@@ -8275,8 +8332,8 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		var status=taskAdvanced.status;statusBar.value=status;
 		doneParts.setDisabled(status!=="done");cancelledParts.setDisabled(status!=="cancelled");
 		if(changed){
-			if(status==="done"&&!doneParts.readDateTimeString())doneParts.setDateTimeString(moment().format("YYYY-MM-DD"));
-			if(status==="cancelled"&&!cancelledParts.readDateTimeString())cancelledParts.setDateTimeString(moment().format("YYYY-MM-DD"));
+			if(status==="done"&&!doneParts.readDateTimeString())doneParts.setDateTimeString(calendarNow().format("YYYY-MM-DD"));
+			if(status==="cancelled"&&!cancelledParts.readDateTimeString())cancelledParts.setDateTimeString(calendarNow().format("YYYY-MM-DD"));
 			if(status!=="done")doneParts.clear();if(status!=="cancelled")cancelledParts.clear();
 		}
 		updateDurationLabel();
@@ -8331,6 +8388,8 @@ function openTaskDateTimeEditor(taskEl, opts) {
 			return { text: "—", title: "" };
 		}
 		var mins = ne.diff(ns, "minutes");
+        if(workbench?.timeZone){try{mins=bridgeCfg.tasksCalendar.zoneAdapter({source:workbench.timeZone,display:workbench.timeZone}).elapsed(ns.format("YYYY-MM-DD HH:mm"),ne.format("YYYY-MM-DD HH:mm"));}catch(error){return {text:"—",title:error.message};}}
+
 		return { text: formatDurationCompact(mins), title: tcRuntimeT("runtime.tasksCalendar.duration.title", { duration: formatDurationZh(mins) }) };
 	}
 	function updateDurationLabel() {
@@ -8576,6 +8635,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	var btnOpen = makeTaskEditorIconButton("ghost", "external-link", tcRuntimeT("runtime.tasksCalendar.menu.openNote"));
 	var btnSave = makeTaskEditorIconButton("primary", "save", tcRuntimeT("runtime.tasksCalendar.task.save"));
 	actionsSecondary.appendChild(btnDelete);
+	if(workbench?.conversion)btnDelete.hidden=true;
 	actionsPrimary.appendChild(btnOpen);
 	actionsPrimary.appendChild(btnSave);
 	actionsRow.appendChild(actionsSecondary);
@@ -8583,6 +8643,9 @@ function openTaskDateTimeEditor(taskEl, opts) {
 
 	var workbenchSaving=false,workbenchSaved=false,workbenchInitialFields;
 	var editorDateParts={start:startParts,due:endParts,scheduled:scheduledParts,created:createdParts,completion:doneParts,cancelled:cancelledParts};
+	if(workbench)delete editorDateParts.scheduled;
+	var scheduleEditor=null;
+	function allEditorDateParts(){return Object.values(editorDateParts).concat(scheduleEditor?scheduleEditor.dateParts():[]);}
 	var originalBeforeRefs=selectedBeforeRefs.slice();
 	function readWorkbenchInputs(){
 		var value={title:inTitle.value.trim().replace(/[\r\n]+/g," "),tags:inTags.value.trim(),priority:taskPriority,repeat:repeatInput.value.trim(),status:taskAdvanced.status};
@@ -8592,6 +8655,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		var value=readWorkbenchInputs();value.dateInputs={};value.patch={};
 		for(var key in editorDateParts){var parts=editorDateParts[key];value.dateInputs[key]={date:parts.dateInput.value,time:parts.timeInput.value};}
 		if(workbenchInitialFields)for(var field in workbenchInitialFields)if(value[field]!==workbenchInitialFields[field])value.patch[field]=value[field];
+		if(scheduleEditor){value.scheduleDraft=scheduleEditor.snapshot();var schedulePatch=scheduleEditor.patch();if(schedulePatch.length)value.patch.schedule=schedulePatch;}
 		value.before=selectedBeforeRefs.slice();value.after=selectedAfterRefs.slice();
 		var refKeys=function(refs){return refs.map(taskDependencyRefKey).sort().join("\n");};
 		if(refKeys(value.before)!==refKeys(originalBeforeRefs)||refKeys(value.after)!==refKeys(originalAfterRefs))value.dependencies={before:value.before,after:value.after,originalAfter:originalAfterRefs,knownIds:getKnownTaskIds()};
@@ -8599,7 +8663,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	}
 	var close = function () {
 		if (workbenchSaving) return;
-		if(workbench&&!workbenchSaved&&Object.values(editorDateParts).some(function(parts){return parts.dateInput.validity.badInput||parts.timeInput.validity.badInput;})){
+		if(workbench&&!workbenchSaved&&allEditorDateParts().some(function(parts){return parts.dateInput.validity.badInput||parts.timeInput.validity.badInput;})){
 			workbenchError.textContent=tcRuntimeT("runtime.tasksCalendar.notice.finishDateTime");return;
 		}
 		if (workbench && !workbenchSaved) workbench.onDraft(readWorkbenchFields());
@@ -8689,7 +8753,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 			if (workbenchSaving) return false;
 			var value = readWorkbenchFields();
 			if (!value.title) {inTitle.focus();return false;}
-			var dateFields = Object.values(editorDateParts);
+			var dateFields = allEditorDateParts();
 			var invalid=dateFields.find(function(p){return !p.dateInput.validity.valid||!p.timeInput.validity.valid||(p.timeInput.value&&!p.dateInput.value);});
 			if (invalid) {
 				workbenchError.textContent=tcRuntimeT("runtime.tasksCalendar.notice.dateBeforeTime");invalid.dateInput.focus();return false;
@@ -8700,7 +8764,7 @@ function openTaskDateTimeEditor(taskEl, opts) {
 			try { await workbench.onSave(value);workbenchSaved=true;workbenchSaving=false;close();return true; }
 			catch(error) {
 				workbench.onDraft(value);
-				var message=/invalid-date|end-before/.test(error.message)?tcRuntimeT("workbench.taskInvalidDates"):/not-found|ambiguous|task-changed/.test(error.message)?tcRuntimeT("workbench.taskChanged"):error.message;
+				var message=/invalid-date|invalid-schedule|end-before/.test(error.message)?tcRuntimeT("workbench.taskInvalidDates"):/not-found|ambiguous|task-changed/.test(error.message)?tcRuntimeT("workbench.taskChanged"):error.message;
 				workbenchError.textContent=tcRuntimeT("runtime.tasksCalendar.notice.saveFailed",{message:message});return false;
 			}
 			finally {workbenchSaving=false;panel.removeAttribute("aria-busy");controls.forEach(function(el,i){el.disabled=disabled[i];});}
@@ -8757,32 +8821,6 @@ function openTaskDateTimeEditor(taskEl, opts) {
 			);
 			advancedForSave.id = depSync.currentId || advancedForSave.id;
 			advancedForSave.dependsOnIds = depSync.beforeIds || [];
-			if (createMode) {
-				var targetDate = ns.format("YYYY-MM-DD");
-				var newLine = "- [" + taskStatusMark(advancedForSave.status) + "] " + taskTitleVal + (taskTagsVal ? (" " + taskTagsVal) : "");
-				newLine = applyTaskPriorityMarker(newLine, taskPriorityVal);
-				newLine = upsertInlineField(newLine, "start", formatTaskDateTimeForSave(ns, startParts.readDateTimeString()));
-				newLine = upsertInlineField(newLine, "due", formatTaskDateTimeForSave(ne, endParts.readDateTimeString()));
-				newLine = applyTaskEditorMetadataToLine(newLine, advancedForSave);
-				var appendTarget = resolveNewTaskAppendTarget(ns, ne);
-				var added = await appendTaskLineToDaily(targetDate, newLine, ns, ne);
-				if (added) { hydrateQuickAddedTaskIntoRuntime(appendTarget.filePath, newLine); }
-				/* 无 #tl 时任务进待排；周/日主视图不展开 dayBucket，避免每日期桶成为独立滚动层。 */
-				if (added && rootNode && rootNode.classList && isPlannerChromeTimelineView(rootNode, ["week", "day"])) {
-					var hasTlTag = /(^|\s)#[^\s#]*tl\//i.test(String(taskTagsVal || "") + "\n" + String(newLine || ""));
-					if (!hasTlTag) {
-						try {
-							try { schedulePlannerChromeStableTimelineReflow(rootNode); } catch (_) {}
-						} catch (_) {}
-					}
-				}
-				forceImmediateTimelineVisibility([targetDate, ne.format("YYYY-MM-DD")], "editor-create");
-				close();
-				showDebugNotice(
-					added ? tcRuntimeT("runtime.tasksCalendar.notice.created", { target: describePeriodicDestForNotice(appendTarget.filePath) }) : tcRuntimeT("runtime.tasksCalendar.notice.exists")
-				);
-				return true;
-			}
 			await mdTaskAdapter.saveDateTime(taskEl, ns, ne, {
 				suppressRefresh: true,
 				silentNotice: true,
@@ -8866,10 +8904,20 @@ function openTaskDateTimeEditor(taskEl, opts) {
 	var titleField=inTitle.closest(".tc-planner-te-field"),tagsField=inTags.closest(".tc-planner-te-field");
 	titleField.classList.add("tc-planner-te-title-field");tagsField.classList.add("tc-planner-te-tags-field");
 	var properties=document.createElement("div");properties.className="tc-planner-te-properties";properties.append(statusField,priorityField);
-	var dateGroup=document.createElement("div");dateGroup.className="tc-planner-te-dates";dateGroup.append(startParts.field,scheduledParts.field,endParts.field);
+	var dateGroup=document.createElement("div");dateGroup.className="tc-planner-te-dates";
+	if(workbench){
+		scheduleEditor=noriaBridge.tasks.createScheduleEditor({document:document,initial:workbench.model.schedules||[],createDateField:buildSplitDateTimeField,
+			iconButton:makeTaskEditorIconButton,t:tcRuntimeT,closeTimePopover:closeTaskTimePopover,onChange:function(){queueMicrotask(positionWorkbench);},
+			getDeadline:function(){return workbench.model.start?"":endParts.readDateTimeString();}});
+		endParts.field.addEventListener("input",function(){scheduleEditor.refreshDeadline();queueMicrotask(positionWorkbench);});
+		scheduledParts.field.remove();dateGroup.append(scheduleEditor.element);
+		if(workbench.model.start)dateGroup.append(startParts.field);else dateMetaGrid.prepend(startParts.field);
+		dateGroup.append(endParts.field);
+	}else dateGroup.append(startParts.field,scheduledParts.field,endParts.field);
 	var lifecycle=document.createElement("details");lifecycle.className="tc-planner-te-details";
 	var lifecycleSummary=document.createElement("summary");lifecycleSummary.textContent=tcRuntimeT("runtime.tasksCalendar.editor.dateDetails");
-	lifecycle.append(lifecycleSummary,dateMetaGrid,durationSummaryRow);
+	lifecycle.append(lifecycleSummary,dateMetaGrid);
+	if(!workbench)lifecycle.append(durationSummaryRow);
 	repeatDepsBlock.classList.add("tc-planner-te-details");
 	var advancedLabel=document.createElement("span");advancedLabel.textContent=tcRuntimeT("runtime.tasksCalendar.editor.advanced");
 	var advancedHint=document.createElement("span");advancedHint.className="tc-planner-te-summary-hint";advancedSummary.replaceChildren(advancedLabel,advancedHint);
@@ -8893,6 +8941,11 @@ function openTaskDateTimeEditor(taskEl, opts) {
 		var originButton=makeTaskEditorIconButton("ghost","link",tcRuntimeT("workbench.adoptionOpenOrigin"));
 		originButton.classList.add("tc-planner-te-origin");actionsSecondary.appendChild(originButton);
 		originButton.onclick=function(){close();if(overlay.isConnected)return;Promise.resolve(workbench.onOpenOrigin()).catch(error=>showDebugNotice(error.message));};
+	}
+	if(workbench?.onFocus){
+		var focusButton=makeTaskEditorIconButton("ghost","timer",tcRuntimeT("workbench.focus"));
+		focusButton.classList.add("tc-planner-te-focus");actionsSecondary.appendChild(focusButton);
+		focusButton.onclick=function(){Promise.resolve(workbench.onFocus(focusButton)).catch(error=>showDebugNotice(error.message));};
 	}
 	function sizeTitle(){inTitle.style.height="auto";inTitle.style.height=Math.min(112,inTitle.scrollHeight)+"px";}
 	inTitle.addEventListener("input",sizeTitle);
@@ -8924,6 +8977,8 @@ function openTaskDateTimeEditor(taskEl, opts) {
 			var draft=workbench.draft;inTitle.value=draft.title;if(draft.tags!=null)inTags.value=draft.tags;if(draft.priority)taskPriority=draft.priority;if(draft.repeat!=null)repeatInput.value=draft.repeat;
 			taskAdvanced.status=draft.status;
 			for(var key in editorDateParts)if(draft.dateInputs&&draft.dateInputs[key]){editorDateParts[key].dateInput.value=draft.dateInputs[key].date;editorDateParts[key].timeInput.value=draft.dateInputs[key].time;}
+			if(scheduleEditor&&draft.scheduleDraft)scheduleEditor.restore(draft.scheduleDraft);
+			if(scheduleEditor)scheduleEditor.refreshDeadline();
 			if(draft.before)selectedBeforeRefs.splice(0,selectedBeforeRefs.length,...draft.before);
 			if(draft.after)selectedAfterRefs.splice(0,selectedAfterRefs.length,...draft.after);
 			Array.from(dependencyGrid.children).forEach(function(picker){picker.refreshSelection();});
@@ -8954,6 +9009,11 @@ function openTaskDateTimeEditorFromMarkdownLine(payload) {
 	var draft = normalizeMarkdownLineToTaskDraft(rawLine, fallbackTitle);
 	var sourceWasTask = typeof payload.sourceWasTask === "boolean" ? payload.sourceWasTask : draft.sourceWasTask;
 	var syntheticLine = sourceWasTask ? rawLine : draft.syntheticLine;
+	if (!sourceWasTask && !payload.workbench) {
+		Promise.resolve(bridge.tasks.openDetails({path:filePath,line:lineIndex,rawText:rawLine},
+			{conversion:{taskLine:syntheticLine},anchor:payload.returnFocusEl,presentation:"modal"})).catch(function(error){showDebugNotice(error.message);});
+		return true;
+	}
 	var doc = getTasksCalendarDocument() || document;
 	var synthetic = doc.createElement("div");
 	synthetic.className = "tc-cal-item tc-cal-item--markdown-source";
@@ -9018,6 +9078,11 @@ function ensureTasksCalendarNavBound() {
 		if (!href) return;
 		try {
 			var normalized = href.replace(/^\/+/, "");
+			var cellDate = linkEl.closest(".cell[data-date]")?.getAttribute("data-date");
+			if (cellDate && noriaBridge?.calendar?.resolveNote) {
+				var spec = await noriaBridge.calendar.resolveNote({period:"daily",date:cellDate});
+				normalized = spec.path;
+			}
 			var file = app.vault.getAbstractFileByPath(normalized);
 			if (!file) {
 				await ensurePeriodicNoteFromTemplate(normalized);
@@ -9156,12 +9221,12 @@ function resolveTaskSuppressionTarget(anchor) {
 	return anchor.querySelector('[data-tc-cal-item="1"], .tc-cal-item, .task');
 };
 
-async function appendTaskLineToDaily(dateStr, lineText, startMomentOpt, endMomentOpt) {
+async function appendTaskLineToDaily(dateStr, lineText, startMomentOpt, endMomentOpt, targetOverride) {
 	var sm = startMomentOpt ? moment(startMomentOpt) : moment(dateStr, "YYYY-MM-DD", true);
-	var em = endMomentOpt ? moment(endMomentOpt) : (sm && sm.isValid() ? sm.clone() : moment());
-	if (!sm || !sm.isValid()) sm = moment();
+	var em = endMomentOpt ? moment(endMomentOpt) : (sm && sm.isValid() ? sm.clone() : calendarNow());
+	if (!sm || !sm.isValid()) sm = calendarNow();
 	if (!em || !em.isValid()) em = sm.clone();
-	var target = resolveNewTaskAppendTarget(sm, em);
+	var target = targetOverride || resolveNewTaskAppendTarget(sm, em);
 	var destNorm = normalizeVaultRelPath(target.filePath || "");
 	if (destNorm && !app.vault.getAbstractFileByPath(destNorm)) {
 		try {
@@ -9532,6 +9597,7 @@ async function quickAddTimelineEvent(dateStr, cfg) {
 		timelineTag: cfg.timelineTag,
 		timelineDay: cfg.timelineDay
 	});
+ if(taskCalendarZone)line=taskCalendarZone.lineFromDisplay(line);
 	var sd = String(cfg.startDate || dateStr || "").trim();
 	var dd = String(cfg.dueDate || cfg.startDate || dateStr || "").trim();
 	var smQ = moment(sd || dateStr, "YYYY-MM-DD", true);
@@ -9539,7 +9605,12 @@ async function quickAddTimelineEvent(dateStr, cfg) {
 	if (!smQ.isValid()) smQ = moment(dateStr, "YYYY-MM-DD", true);
 	if (!emQ.isValid()) emQ = smQ.clone();
 	var appendTargetQ = resolveNewTaskAppendTarget(smQ, emQ);
-	var added = await appendTaskLineToDaily(dateStr, line, smQ, emQ);
+	if (noriaBridge?.calendar?.resolveNote) {
+		var spanQ = calendarDaySpanBetweenStartDays(smQ, emQ);
+		var specQ = await noriaBridge.calendar.resolveNote({period:spanQ<=1?"daily":spanQ<=7?"weekly":"monthly",date:smQ.format("YYYY-MM-DD")});
+		appendTargetQ.filePath = specQ.path;
+	}
+	var added = await appendTaskLineToDaily(dateStr, line, smQ, emQ, appendTargetQ);
 	var affectedDates = [];
 	if (sd) { affectedDates.push(sd); }
 	if (dd && affectedDates.indexOf(dd) < 0) { affectedDates.push(dd); }
@@ -9574,11 +9645,19 @@ function setQuickTimelinePanel() {
 	}
 	var html = "";
 	var quickEvents = getQuickEventTemplatesForRender();
+	var quickDates = getVisibleWeekDates(), quickDate = getFallbackDateInView();
+	html += "<div class='quickTarget'><select class='quickDate' aria-label='" + escapeHtmlAttr(tcRuntimeT("runtime.tasksCalendar.quick.targetDate")) + "'>";
+	quickDates.forEach(function(date){html += "<option value='"+date+"'"+(date===quickDate?" selected":"")+">"+date+"</option>";});
+	html += "</select><select class='quickScope' aria-label='"+escapeHtmlAttr(tcRuntimeT("runtime.tasksCalendar.quick.scope"))+"'>";
+	["daily-only","weekly-all","mixed"].forEach(function(value){html += "<option value='"+value+"'"+(value===timelineQuickStrategy?" selected":"")+">"+escapeHtmlText(getTimelineStrategyLabel(value))+"</option>";});
+	html += "</select></div>";
+
+	if (!customInlineOpen) {
 	html += "<div class='row eventLibraryRow'>";
-	html += "<div class='quickSectionHead'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.commonEvents")) + "</div>";
 	html += "<div class='seg librarySeg'>";
 	quickEvents.forEach(function (item) {
-		var meta = item.startTime ? (item.startTime + " · " + item.durationMin + "m") : (item.durationMin + "m");
+		var duration = tasksCalendarRuntimeLocale() === "zh-CN" ? formatDurationZh(item.durationMin) : formatDurationCompact(item.durationMin);
+		var meta = item.startTime ? (item.startTime + " · " + duration) : duration;
 		html += "<button class='qa eventTemplate' data-action='event-template' data-event-key='" + escapeHtmlAttr(item.key) + "' title='" + escapeHtmlAttr(item.label + " · " + meta) + "'>"
 			+ "<span class='eventTemplateLabel'>" + escapeHtmlText(item.label) + "</span>"
 			+ "<span class='eventTemplateMeta'>" + escapeHtmlText(meta) + "</span>"
@@ -9593,20 +9672,21 @@ function setQuickTimelinePanel() {
 	html += "<div class='seg toolSeg'>";
 	html += "<button class='qa' data-action='pregen'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.pregen")) + "</button>";
 	html += "<button class='qa' data-action='custom'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.custom")) + "</button>";
-	html += "<button class='qa strategy' data-action='strategy'>" + getTimelineStrategyLabel(timelineQuickStrategy) + "</button>";
 	html += "</div>";
 	html += "</div>";
+	}
 	if (customInlineOpen) {
+		html += "<div class='quickSectionHead'>"+escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.custom"))+"</div>";
 		html += "<div class='row customInline'>";
 		html += "<div class='customInline-fields'>";
-		html += "<input class='qf' data-field='label' placeholder='" + escapeHtmlAttr(tcRuntimeT("runtime.tasksCalendar.quick.labelPlaceholder")) + "' value='" + escapeHtmlAttr(customInlineDraft.label) + "'/>";
-		html += "<input class='qf' data-field='tagSuffix' placeholder='" + escapeHtmlAttr(tcRuntimeT("runtime.tasksCalendar.quick.tagPlaceholder")) + "' value='" + escapeHtmlAttr(customInlineDraft.tagSuffix) + "'/>";
-		html += "<input class='qf short' data-field='startTime' placeholder='" + escapeHtmlAttr(tcRuntimeT("runtime.tasksCalendar.quick.startPlaceholder")) + "' value='" + escapeHtmlAttr(customInlineDraft.startTime) + "'/>";
-		html += "<input class='qf short' data-field='durationMin' placeholder='" + escapeHtmlAttr(tcRuntimeT("runtime.tasksCalendar.quick.durationPlaceholder")) + "' value='" + escapeHtmlAttr(customInlineDraft.durationMin) + "'/>";
+		[["label","labelPlaceholder","text"],["tagSuffix","tagPlaceholder","text"],["startTime","startPlaceholder","time"],["durationMin","durationPlaceholder","number"]].forEach(function(field){
+			var name=escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick."+field[1]));
+			html += "<label class='quickField'><span>"+name+"</span><input class='qf' data-field='"+field[0]+"' type='"+field[2]+"'"+(field[2]==="number"?" min='1'":"")+" value='"+escapeHtmlAttr(customInlineDraft[field[0]])+"'/></label>";
+		});
 		html += "</div>";
 		html += "<div class='customInline-actions'>";
 		html += "<button class='qa' data-action='custom-submit'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.add")) + "</button>";
-		html += "<button class='qa' data-action='custom-save-toggle'>" + escapeHtmlText(customInlineDraft.saveToLibrary ? tcRuntimeT("runtime.tasksCalendar.quick.saved") : tcRuntimeT("runtime.tasksCalendar.quick.save")) + "</button>";
+		html += "<button class='qa' data-action='custom-save-toggle' aria-pressed='"+String(customInlineDraft.saveToLibrary)+"'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.keepTemplate")) + "</button>";
 		html += "<button class='qa' data-action='custom-close'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.close")) + "</button>";
 		html += "</div>";
 		html += "</div>";
@@ -9663,16 +9743,47 @@ function resetWeekInteractionState() {
 	}
 };
 
+function getQuickTimelineContext() {
+	return String(rootNode.getAttribute("view") || "") + "|" + moment(selectedDate).format("YYYY-MM-DD");
+}
+function collectCalendarRangeTasks(openEntries, completedEntries, currentDate) {
+	// A task can have several date roles, or occupy several days; count its identity once.
+	var groups = {due: due, start: start, process: process, scheduled: scheduled, recurrence: recurrence, dailyNote: dailyNote};
+	if (calendarNow().format("YYYY-MM-DD") === currentDate) groups.overdue = overdue;
+	Object.keys(groups).forEach(function (type) {
+		groups[type].forEach(function (task) {
+			var key = getTaskKey(task.calendarSource || task), entry = openEntries.get(key);
+			var role = task.calendarSchedule ? "scheduled" : type;
+			if (!entry) { entry = {task: task.calendarSource || task, typ: role, types: new Set()}; openEntries.set(key, entry); }
+			entry.types.add(role);
+			if (type === "overdue") entry.typ = type;
+		});
+	});
+	done.forEach(function (task) { if (!task.calendarSchedule) completedEntries.set(getTaskKey(task), task); });
+}
+function refreshCalendarRangeStatistics() {
+	var currentView = rootNode.getAttribute("view");
+	if (currentView !== "month" && currentView !== "week" && currentView !== "day") return;
+	var openEntries = new Map(), completedEntries = new Map();
+	var selector = currentView === "month" ? ".cell.currentMonth[data-date], .cell.today[data-date]" : ".cell[data-date]";
+	rootNode.querySelectorAll(selector).forEach(function (cell) {
+		var date = cell.getAttribute("data-date");
+		getTasksViaAdapter(date);
+		collectCalendarRangeTasks(openEntries, completedEntries, date);
+	});
+	setStatisticValuesFromRangeStats(createTaskCalendarRangeStats(openEntries, completedEntries));
+}
 function getFallbackDateInView() {
 	var weekDates = getVisibleWeekDates();
-	var today = moment().format("YYYY-MM-DD");
+	if(timelineQuickTargetContext === getQuickTimelineContext() && weekDates.includes(timelineQuickTargetDate))return timelineQuickTargetDate;
+	var selected = moment(selectedDate).format("YYYY-MM-DD");
+	if(rootNode.getAttribute("view") === "day" && weekDates.includes(selected))return selected;
+	var today = calendarNow().format("YYYY-MM-DD");
 	return weekDates.includes(today) ? today : weekDates[0];
 };
 
 function getTimelineStrategyLabel(strategy) {
-	if (strategy == "weekly-all") { return "weekly"; }
-	if (strategy == "mixed") { return "mixed"; }
-	return "daily";
+	return tcRuntimeT("runtime.tasksCalendar.quick." + (strategy==="weekly-all"?"scopeAll":strategy==="mixed"?"scopeMixed":"scopeDay"));
 };
 
 function exitEditModeWithCheck() {
@@ -9717,17 +9828,9 @@ function toggleEditDeleteMode() {
 function toggleCustomInlinePanel() {
 	customInlineOpen = !customInlineOpen;
 	setQuickTimelinePanel();
-	showDebugNotice(tcRuntimeT(customInlineOpen ? "runtime.tasksCalendar.notice.customInlineOpen" : "runtime.tasksCalendar.notice.customInlineClosed"));
+	if (customInlineOpen) rootNode.querySelector('.customInline input[data-field="label"]')?.focus();
 };
 
-function cycleTimelineStrategy() {
-	if (timelineQuickStrategy == "mixed") timelineQuickStrategy = "daily-only";
-	else if (timelineQuickStrategy == "daily-only") timelineQuickStrategy = "weekly-all";
-	else timelineQuickStrategy = "mixed";
-	var btn = rootNode.querySelector(".quickTimelinePanel .qa.strategy");
-	if (btn) { btn.textContent = getTimelineStrategyLabel(timelineQuickStrategy); }
-	showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.strategySwitched", { strategy: getTimelineStrategyLabel(timelineQuickStrategy) }));
-};
 
 async function runQuickAction(action, sourceEl) {
 	action = String(action || "");
@@ -9755,8 +9858,7 @@ async function runQuickAction(action, sourceEl) {
 	const preHandlers = {
 		"custom": async () => { toggleCustomInlinePanel(); },
 		"custom-save-toggle": async () => { customInlineDraft.saveToLibrary = !customInlineDraft.saveToLibrary; setQuickTimelinePanel(); },
-		"custom-close": async () => { customInlineOpen = false; setQuickTimelinePanel(); },
-		"strategy": async () => { cycleTimelineStrategy(); }
+		"custom-close": async () => { customInlineOpen = false; setQuickTimelinePanel(); }
 	};
 	if (preHandlers[action]) {
 		await preHandlers[action]();
@@ -9862,12 +9964,16 @@ async function runQuickAction(action, sourceEl) {
 		var customTag = "#tl/" + tagSuffix;
 		var startCustom = String(customInlineDraft.startTime || "").trim();
 		var durationCustom = String(customInlineDraft.durationMin || "35").trim() || "35";
-		var customRes;
-		if (!startCustom) {
-			customRes = await quickAddTimelineEvent(targetDate, {label: labelCustom, timelineDay:true});
-		} else {
-			var dueCustom = actions.addMinutesToTime(startCustom, durationCustom);
-			customRes = await quickAddTimelineEvent(targetDate, {label: labelCustom, startTime:startCustom, dueTime:dueCustom, durationMin:durationCustom, timelineTag: customTag});
+		var affectedCustomDates = [];
+		for (var customDate of dateTargets) {
+			var customRes;
+			if (!startCustom) {
+				customRes = await quickAddTimelineEvent(customDate, {label: labelCustom, timelineDay:true});
+			} else {
+				var customEnd = moment(customDate+" "+startCustom,"YYYY-MM-DD HH:mm",true).add(Number(durationCustom),"minutes");
+				customRes = await quickAddTimelineEvent(customDate, {label: labelCustom, startDate:customDate, startTime:startCustom, dueDate:customEnd.format("YYYY-MM-DD"), dueTime:customEnd.format("HH:mm"), durationMin:durationCustom, timelineTag: customTag});
+			}
+			affectedCustomDates = affectedCustomDates.concat(customRes?.affectedDates || [customDate]);
 		}
 		if (customInlineDraft.saveToLibrary) {
 			await appendTemplateToLibrary({
@@ -9880,23 +9986,36 @@ async function runQuickAction(action, sourceEl) {
 		} else {
 			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.customEventAdded"));
 		}
-		flushTimelineMutationAfterQuickAdd((customRes && customRes.affectedDates) || [targetDate], "quick-custom");
+		flushTimelineMutationAfterQuickAdd(affectedCustomDates, "quick-custom");
 		return;
 	}
 };
 
 function setQuickTimelinePanelEvents() {
+	var panel = rootNode.querySelector(".quickTimelinePanel");
+	var dateSelect = panel && panel.querySelector(".quickDate"), scopeSelect = panel && panel.querySelector(".quickScope");
+	if(dateSelect)dateSelect.onchange=function(){timelineQuickTargetDate=dateSelect.value;timelineQuickTargetContext=getQuickTimelineContext();};
+	if(scopeSelect)scopeSelect.onchange=function(){timelineQuickStrategy=scopeSelect.value;};
 	rootNode.querySelectorAll(".quickTimelinePanel .qa").forEach((btn) => {
 		btn.addEventListener("click", async (ev) => {
 			ev.preventDefault();
 			ev.stopPropagation();
-			if (btn.classList.contains("disabled")) { return; }
+			if (btn.classList.contains("disabled") || quickActionBusy) { return; }
+			if(btn.getAttribute("data-action")==="custom-submit"){
+				var label=String(customInlineDraft.label||"").trim(), start=String(customInlineDraft.startTime||"").trim(), duration=Number(customInlineDraft.durationMin);
+				if(!label || start&&!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(start) || start&&(!Number.isFinite(duration)||duration<=0)){
+					showBriefNotice(tcRuntimeT("runtime.tasksCalendar.quick.invalidEvent"),3000);return;
+				}
+			}
+			quickActionBusy=true;
+			var controls=Array.from(panel.querySelectorAll("button,input,select")).map(function(el){var before=el.disabled;el.disabled=true;return [el,before];});
+			panel.setAttribute("aria-busy","true");
 			try {
 				await runQuickAction(btn.getAttribute("data-action"), btn);
 			} catch (err) {
 				console.error("[tasksCalendar] quick action failed:", err);
-				showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.quickAddFailed", { message: err?.message || err }));
-			}
+				showBriefNotice(tcRuntimeT("runtime.tasksCalendar.notice.quickAddFailed", { message: err?.message || err }),4000);
+			} finally {quickActionBusy=false;controls.forEach(function(pair){pair[0].disabled=pair[1];});panel.removeAttribute("aria-busy");}
 		});
 	});
 	rootNode.querySelectorAll(".quickTimelinePanel .qf[data-field]").forEach((inp) => {
@@ -9922,8 +10041,14 @@ function tcPeriodPickerChevronHtml() {
 	return "<span class=\"tc-period-chevron\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg></span>";
 }
 function wrapToolbarPeriodLabelHtml(innerSpans) {
-	return "<span class=\"tc-period-text\">" + String(innerSpans || "") + "</span>" + tcPeriodPickerChevronHtml();
+	var html = String(innerSpans || "").replace(/<span class='current-main'>([^<]+)<\/span>/, function (whole, line) {
+		var parts = line.match(/^(.*?)(?: · (W\d+))? (\d{4}年?)$/);
+		if (!parts) return whole;
+		return "<span class='current-main'>" + parts[1] + "</span><span class='current-sub'>" + parts[3] + (parts[2] ? " · " + parts[2] : "") + "</span>";
+	});
+	return "<span class=\"tc-period-text\">" + html + "</span>" + tcPeriodPickerChevronHtml();
 }
+
 function weekBoundsFromFirstDaySetting(dayAnchor) {
 	var fdRaw = parseInt(String(firstDayOfWeek), 10);
 	var fd = Number.isFinite(fdRaw) && fdRaw >= 0 && fdRaw <= 6 ? fdRaw : 0;
@@ -9956,7 +10081,64 @@ function applyNavigationFromPickedYmd(ymd) {
 }
 
 /** 上一段/下一段箭头：按当前视图更新 title（无障碍与悬停提示） */
+async function syncTaskCalendarWeather() {
+	if (!rootNode) return;
+	var generation = rootNode._weatherGeneration = (rootNode._weatherGeneration || 0) + 1;
+	rootNode.querySelectorAll(".tc-weather").forEach(function (node) { node.remove(); });
+	rootNode.classList.remove("tc-has-forecast");
+	if (tcTaskTimelineMode || getTasksCalendarRuntimeSettings().showWeather === false || !bridgeCfg.tasksCalendar?.getForecast) return;
+	var mode = rootNode.getAttribute("view");
+	if (mode === "list" && eisenhowerGranularity !== "day") return;
+	var targets = mode === "day" || mode === "list"
+		? [{ date: taskStore.view.anchorDate, host: rootNode.querySelector(".tc-nav-period") }]
+		: Array.from(rootNode.querySelectorAll(".cell[data-date]")).map(function (cell) {
+			return { date: cell.getAttribute("data-date"), host: cell.querySelector(mode === "month" ? ".tc-month-date-header" : ".cellName") };
+		});
+	if (!targets.some(function (target) { return target.host && target.date; })) return;
+	try {
+		var days = await bridgeCfg.tasksCalendar.getForecast({ dates: targets.filter(function (target) { return target.host; }).map(function (target) { return target.date; }) });
+		if (!rootNode.isConnected || generation !== rootNode._weatherGeneration || getTasksCalendarRuntimeSettings().showWeather === false) return;
+		var byDate = new Map(days.map(function (day) { return [day.date, day]; }));
+		targets.forEach(function (target) {
+			var day = byDate.get(target.date);
+			if (!target.host?.isConnected || !day) return;
+			var weather = document.createElement("span");
+			weather.className = "tc-weather";
+			weather.setAttribute("data-weather-date", target.date);
+			var temps = [day.tempMax, day.tempMin].filter(function (t) { return t !== "" && t != null; }).map(function (t) { return t + "°"; }).join(" ");
+			weather.title = [day.city, target.date, day.statusText, temps ? temps + "C" : "", day.historical ? (tasksCalendarRuntimeLocale() === "zh-CN" ? "历史天气 · Open-Meteo" : "Historical weather · Open-Meteo") : day.source].filter(Boolean).join(" · ");
+			weather.setAttribute("aria-label", weather.title);
+			weather.setAttribute("role", "img");
+			var icon = document.createElement("span");
+			icon.className = "tc-weather-icon";
+			var iconName = ({ "晴": "sun", "暴晒": "sun", "多云": "cloud-sun", "阴": "cloud", "雨": "cloud-rain", "雪": "cloud-snow", "风": "wind" })[day.mappedWeather] || "cloud";
+			weather.dataset.weather = iconName;
+			bridge.setTaskEditorIcon(icon, iconName, "");
+			icon.setAttribute("aria-hidden", "true");
+			weather.appendChild(icon);
+			if (temps) {
+				var text = document.createElement("span");
+				text.className = "tc-weather-temperatures"; text.textContent = temps; weather.appendChild(text);
+			}
+			target.host.appendChild(weather);
+			rootNode.classList.add("tc-has-forecast");
+		});
+		if (mode === "week") schedulePlannerChromeStableTimelineReflow(rootNode);
+	} catch (_) { /* Optional weather leaves the calendar usable when the provider is unavailable. */ }
+}
+
 function syncToolbarNavChevronTitles() {
+ if(rootNode){rootNode.querySelectorAll('.tc-calendar-zone-caption').forEach(node=>node.remove());
+  if(taskCalendarZone){var parent=rootNode.querySelector('.tc-nav-period');if(parent){var caption=document.createElement('span');caption.className='tc-calendar-zone-caption';caption.textContent=taskCalendarZone.label(taskStore.view.anchorDate);caption.title=taskCalendarZone.display;parent.appendChild(caption);}}
+ }
+
+	var period = rootNode && rootNode.querySelector("button.current");
+	if (period) {
+		var label = Array.from(period.querySelectorAll(".current-main, .current-sub")).map(function (el) { return el.textContent; }).join(" ");
+		period.title = label + " · " + tcRuntimeT("runtime.tasksCalendar.nav.pickDate");
+		period.setAttribute("aria-label", period.title);
+	}
+	void syncTaskCalendarWeather();
 	if (!rootNode || !rootNode.querySelector) { return; }
 	var prev = rootNode.querySelector("button.previous");
 	var next = rootNode.querySelector("button.next");
@@ -10073,7 +10255,7 @@ function getToolbarNativeDateInput() {
 }
 function openToolbarNativeDatePicker(optPeriodAnchorEl) {
 	var inp = getToolbarNativeDateInput();
-	var m = moment(selectedDate || moment());
+	var m = moment(selectedDate || calendarNow());
 	var activeView = rootNode.getAttribute("view");
 	var ymd;
 	if (activeView === "month") {
@@ -10126,16 +10308,16 @@ function openToolbarNativeDatePicker(optPeriodAnchorEl) {
 function navigatePeriodToToday() {
 	var activeView = rootNode.getAttribute("view");
 	if (activeView == "month") {
-		selectedDate = moment().date(1);
+		selectedDate = calendarNow().date(1);
 		getMonth(tasks, selectedDate);
 	} else if (activeView == "week") {
 		var wtc = getWrapperTimelineCompat();
 		var openDayOnCurrent = toBoolOr(wtc.focusOnTodayOpensDayView, false);
 		if (openDayOnCurrent && tcFeatureFlags.dayView && !tcTaskTimelineMode) {
-			selectedDate = moment().startOf("day");
+			selectedDate = calendarNow().startOf("day");
 			getDay(tasks, selectedDate);
 		} else {
-			selectedDate = taskCalendarConfiguredWeekStart(moment());
+			selectedDate = taskCalendarConfiguredWeekStart(calendarNow());
 			getWeek(tasks, selectedDate);
 			try {
 				if (toBoolOr(wtc.defaultTodayFocus, false)) {
@@ -10154,10 +10336,10 @@ function navigatePeriodToToday() {
 			} catch (_) {}
 		}
 	} else if (activeView == "day") {
-		selectedDate = moment().startOf("day");
+		selectedDate = calendarNow().startOf("day");
 		getDay(tasks, selectedDate);
 	} else if (activeView == "list") {
-		setEisenhowerFocusDate(moment());
+		setEisenhowerFocusDate(calendarNow());
 		getList(tasks, getEisenhowerFocusDate());
 	}
 }
@@ -10411,7 +10593,7 @@ function setButtons() {
 	var taskTimelineMode = !!tcTaskTimelineMode;
 	var buttonsNode = document.createElement("div");
 	buttonsNode.className = "buttons";
-	buttonsNode.setAttribute("data-layout", "toolbar-v3");
+	buttonsNode.setAttribute("data-layout", "toolbar-v4");
 	function mkBtn(cls, title, iconHtml, labelText) {
 		if (ui && typeof ui.createToolbarButton === "function") {
 			var viaUi = ui.createToolbarButton({
@@ -10436,7 +10618,7 @@ function setButtons() {
 		}
 		return decorateTaskCalendarToolbarAction(b);
 	}
-	/* 左：视图模式（分段） */
+	/* 主行居中切换视图；上下文行独立容纳日期与周期工具。 */
 	var left = (ui && typeof ui.createButtonGroup === "function")
 		? ui.createButtonGroup({ doc: document, className: "btn-group left tc-toolbar-start" })
 		: null;
@@ -10466,22 +10648,6 @@ function setButtons() {
 			seg.appendChild(mkBtn("listView tc-panel-segment-button", tcRuntimeT("runtime.tasksCalendar.eisenhower.viewTitle"), "", tcRuntimeT("runtime.tasksCalendar.eisenhower.short")));
 	}
 	left.appendChild(seg);
-		if (!taskTimelineMode) {
-			var plannerSlot0 = document.createElement("div");
-			plannerSlot0.className = "tc-toolbar-planner-slot";
-			left.appendChild(plannerSlot0);
-		}
-	/* 中：左右翼占位 + 周期标签；‹ 今天 › 在行级 .tc-nav-arrows 与整行中轴对齐 */
-	var center = (ui && typeof ui.createButtonGroup === "function")
-		? ui.createButtonGroup({ doc: document, className: "btn-group center tc-nav-cluster" })
-		: null;
-	if (!center) {
-		center = document.createElement("div");
-		center.className = "btn-group center tc-nav-cluster";
-	}
-	var navPrefix = document.createElement("div");
-	navPrefix.className = "tc-nav-prefix";
-	navPrefix.setAttribute("aria-hidden", "true");
 	var navArrows = null;
 	navArrows = (ui && typeof ui.createNavArrowsGroup === "function")
 		? ui.createNavArrowsGroup({
@@ -10505,9 +10671,8 @@ function setButtons() {
 	var curBtn = mkBtn("current", tcRuntimeT("runtime.tasksCalendar.nav.pickDate"), "", "");
 	curBtn.setAttribute("aria-haspopup", "dialog");
 	navPeriod.appendChild(curBtn);
-	center.appendChild(navPrefix);
-	center.appendChild(navPeriod);
-	/* 右：完成度摘要（四象限日/周/月/年粒度在矩阵内 eisenMatrixTopBar 挂载；时间轴模式不创建） */
+
+	/* 右：完成度摘要（四象限周期挂载在顶部辅助区；时间轴模式不创建） */
 	var right = (ui && typeof ui.createButtonGroup === "function")
 		? ui.createButtonGroup({ doc: document, className: "btn-group right tc-toolbar-end" })
 		: null;
@@ -10515,9 +10680,6 @@ function setButtons() {
 		right = document.createElement("div");
 		right.className = "btn-group right tc-toolbar-end";
 	}
-	var rightSpacer = document.createElement("div");
-	rightSpacer.className = "tc-toolbar-right-spacer";
-	rightSpacer.setAttribute("aria-hidden", "true");
 	var stat = (ui && typeof ui.createStatisticButton === "function")
 		? ui.createStatisticButton({ mkBtn: mkBtn, glyph: tcStatisticGlyphIcon })
 		: null;
@@ -10527,17 +10689,37 @@ function setButtons() {
 		stat.setAttribute("data-total", "0");
 		stat.innerHTML = "<span class='tc-stat-glyph'>" + tcStatisticGlyphIcon + "</span><span class='tc-stat-pct'>—</span>";
 	}
-	right.appendChild(rightSpacer);
 	right.appendChild(stat);
+	if (!taskTimelineMode) {
+		var more = mkBtn("tc-toolbar-more clickable-icon", tasksCalendarRuntimeLocale() === "zh-CN" ? "更多" : "More", "", "");
+		bridge.setTaskEditorIcon(more, "ellipsis", more.title);
+		more.setAttribute("aria-haspopup", "menu");
+		more.addEventListener("click", function (event) {
+			event.stopPropagation();
+			bridgeCfg.tasksCalendar?.openMore(more, function () { void syncTaskCalendarWeather(); });
+		});
+		right.appendChild(more);
+	}
+
 	var row = document.createElement("div");
 	row.className = "tc-button-row";
+	row.appendChild(navArrows);
 	row.appendChild(left);
-	row.appendChild(center);
 	row.appendChild(right);
-	if (navArrows) {
-		row.appendChild(navArrows);
-	}
 	buttonsNode.appendChild(row);
+	var contextRow = document.createElement("div");
+	contextRow.className = "tc-context-row";
+	contextRow.appendChild(navPeriod);
+
+	var contextTools = document.createElement("div");
+	contextTools.className = "tc-context-tools";
+	if (!taskTimelineMode) {
+		var plannerSlot0 = document.createElement("div");
+		plannerSlot0.className = "tc-toolbar-planner-slot";
+		contextTools.appendChild(plannerSlot0);
+	}
+	contextRow.appendChild(contextTools);
+	buttonsNode.appendChild(contextRow);
 	host.appendChild(buttonsNode);
 	if (!taskTimelineMode) {
 	var eisenSeg = (ui && typeof ui.createSegmentedContainer === "function")
@@ -10580,6 +10762,7 @@ function setButtons() {
 			eisenhowerGranularity = ek;
 			saveTasksCalendarRuntimePreference("eisenhowerGranularity", ek, "noria.eisen.granularity");
 			getList(tasks, getEisenhowerFocusDate());
+			eb.focus({ preventScroll: true });
 		});
 		eisenSeg.appendChild(eb);
 	});
@@ -10668,15 +10851,15 @@ function setButtonEvents() {
 				};
 			} else if (btn.classList.contains("monthView")) {
 				try { rootNode.classList.remove("todayFocus"); } catch (_) {}
-				if ( moment().format("ww-YYYY") == moment(selectedDate).format("ww-YYYY") ) {
-					selectedDate = moment().date(1);
+				if ( calendarNow().format("ww-YYYY") == moment(selectedDate).format("ww-YYYY") ) {
+					selectedDate = calendarNow().date(1);
 				} else {
 					selectedDate = moment(selectedDate).date(1);
 				};
 				getMonth(tasks, selectedDate);
 			} else if (btn.classList.contains("dayView")) {
 				try { rootNode.classList.remove("todayFocus"); } catch (_) {}
-				selectedDate = moment(selectedDate || moment()).startOf("day");
+				selectedDate = moment(selectedDate || calendarNow()).startOf("day");
 				getDay(tasks, selectedDate);
 			} else if (btn.classList.contains("listView")) {
 				try { rootNode.classList.remove("todayFocus"); } catch (_) {}
@@ -10779,7 +10962,7 @@ function setButtonEvents() {
 				var minute = roundMinutesToStep(axisStart + (y / Math.max(1, laneRect.height)) * (axisEnd - axisStart), 15);
 				openTaskDateTimeEditor(null, {
 					create: true,
-					dateStr: cell.getAttribute("data-date") || moment().format("YYYY-MM-DD"),
+					dateStr: cell.getAttribute("data-date") || calendarNow().format("YYYY-MM-DD"),
 					startMin: minute
 				});
 				return;
@@ -10816,59 +10999,9 @@ function setButtonEvents() {
 };
 
 function positionStatisticPopup(anchorBtn) {
-	if (!rootNode || !anchorBtn) {
-		return;
-	}
-	var pop = getStatisticPopupEl();
-	if (!pop) {
-		return;
-	}
-	try {
-		var r = anchorBtn.getBoundingClientRect();
-		pop.style.position = "fixed";
-		pop.style.right = "auto";
-		var margin = 8;
-		var compact = false;
-		var minX = margin;
-		var maxX = (window.innerWidth || 800) - margin;
-		var minY = margin;
-		var maxY = (window.innerHeight || 600) - margin;
-		var comp = noriaTcMoreCompositeForCal(rootNode);
-		if (comp && comp.getBoundingClientRect) {
-			var cr = comp.getBoundingClientRect();
-			compact = (cr.width || 0) <= 430;
-			minX = Math.max(minX, Math.round(cr.left) + margin);
-			maxX = Math.min(maxX, Math.round(cr.right) - margin);
-			minY = Math.max(minY, Math.round(cr.top) + margin);
-			maxY = Math.min(maxY, Math.round(cr.bottom) - margin);
-			pop.style.maxHeight = Math.max(170, Math.floor((cr.height || 420) - 84)) + "px";
-			pop.style.maxWidth = Math.max(compact ? 176 : 204, Math.floor((cr.width || 320) - margin * 2)) + "px";
-		}
-		pop.classList.toggle("tc-pop-compact", compact);
-		var pw = pop.offsetWidth || 214;
-		var ph = pop.offsetHeight || 240;
-		var leftPx = r.right - pw;
-		if (!compact && r.left + pw <= maxX) {
-			leftPx = r.left;
-		}
-		if (leftPx + pw > maxX) {
-			leftPx = maxX - pw;
-		}
-		if (leftPx < minX) {
-			leftPx = minX;
-		}
-		var topPx = r.bottom + 6;
-		if (topPx + ph > maxY) {
-			topPx = Math.max(minY, r.top - ph - 6);
-		}
-		topPx = Math.max(minY, topPx);
-		pop.style.left = Math.round(leftPx) + "px";
-		pop.style.top = Math.round(topPx) + "px";
-		pop.style.zIndex = "100040";
-		pop.style.display = "block";
-		pop.style.visibility = "visible";
-		pop.style.pointerEvents = "auto";
-	} catch (_) {}
+ var pop=getStatisticPopupEl(); if(!pop||!anchorBtn)return;
+ pop.style.display="block";pop.style.visibility="visible";pop.style.pointerEvents="auto";pop.style.zIndex="100040";
+ bridgeCfg.tasksCalendar.placePopover(pop,anchorBtn,rootNode);
 }
 function getStatisticPopupEl() {
 	if (!rootNode) {
@@ -10996,7 +11129,7 @@ function bindStatisticPopupDismissOnce(anchorBtn) {
 			return;
 		}
 		if (!ev || ev.key !== "Escape") { return; }
-		try { setStatisticPopupOpenState(false); } catch (_) {}
+		try { setStatisticPopupOpenState(false); anchorBtn?.focus({ preventScroll: true }); } catch (_) {}
 		clear();
 	};
 	bindTimer = setTimeout(function () {
@@ -11026,6 +11159,7 @@ function toggleStatisticPopupForButton(anchorBtn) {
 	if (open) {
 		var pop = getStatisticPopupEl();
 		if (pop) {
+			renderStatisticScope(pop);
 			try {
 				pop.classList.add("active");
 				pop.style.setProperty("display", "block", "important");
@@ -11043,7 +11177,7 @@ function toggleStatisticPopupForButton(anchorBtn) {
 	} catch (_) {}
 	try {
 		requestAnimationFrame(function () {
-			try { positionStatisticPopup(anchorBtn); } catch (_) {}
+			try { positionStatisticPopup(anchorBtn); (getStatisticPopupEl()?.querySelector("li.active") || getStatisticPopupEl()?.querySelector("li[data-group]"))?.focus({ preventScroll: true }); } catch (_) {}
 		});
 	} catch (_) {}
 }
@@ -11057,33 +11191,52 @@ function setWrapperEvents() {
 	})));
 };
 
+function currentStatisticFocus() {
+	return ["done", "due", "overdue", "start", "scheduled", "recurrence", "dailyNote"].find(function (group) {
+		return rootNode.classList.contains("focus" + capitalize(group));
+	}) || "";
+}
+function syncQuadrantFocusCounts() {
+	var group = currentStatisticFocus();
+	rootNode.querySelectorAll(".quadrant").forEach(function (section) {
+		var items = Array.from(section.querySelectorAll(".qTask"));
+		var count = items.filter(function (el) { return !group || (el.getAttribute("data-tc-kinds") || el.getAttribute("data-tc-kind") || "").split(" ").includes(group); }).length;
+		section.querySelector(".qCount").textContent = String(count);
+		var empty = section.querySelector(".qEmpty");
+		if (!empty) { empty = section.ownerDocument.createElement("div"); empty.className = "qEmpty"; section.querySelector(".qContent").appendChild(empty); }
+		empty.textContent = tcRuntimeT("runtime.tasksCalendar.eisenhower.empty"); empty.hidden = count > 0;
+	});
+}
 function setStatisticPopUpEvents() {
 	var popup = getStatisticPopupEl();
-	if (!popup) {
-		return;
-	}
-	popup.querySelectorAll('li').forEach(li => li.addEventListener('click', (() => {
-		var group = li.getAttribute("data-group");
-		if (!group) { return; }
-		const liElements = popup.querySelectorAll('li');
-		if (li.classList.contains("active")) {
-			const liElements = popup.querySelectorAll('li');
-			for (const liElement of liElements) {
-				liElement.classList.remove('active');
-			};
-			rootNode.classList.remove("focus"+capitalize(group));
-		} else {
-			for (const liElement of liElements) {
-				liElement.classList.remove('active');
-			};
-			li.classList.add("active");
+	if (!popup) return;
+	var rows = Array.from(popup.querySelectorAll("li[data-group]"));
+	rows.forEach(function (li) {
+		li.tabIndex = 0; li.setAttribute("role", "button");
+		function paint() {
+			rows.forEach(function (row) {
+				var selected = row.dataset.group === currentStatisticFocus();
+				row.classList.toggle("active", selected); row.setAttribute("aria-pressed", String(selected));
+			});
+		}
+		paint();
+		li.addEventListener("click", function () {
+			var group = li.dataset.group, previous = currentStatisticFocus();
 			rootNode.classList.remove("filter");
-			rootNode.classList.remove.apply(rootNode.classList, Array.from(rootNode.classList).filter(v=>v.startsWith("focus")));
-			rootNode.classList.add("focus"+capitalize(group));
-		};
-	})));
-};
-
+			rootNode.classList.remove.apply(rootNode.classList, Array.from(rootNode.classList).filter(function (v) { return v.startsWith("focus"); }));
+			if (previous !== group) rootNode.classList.add("focus" + capitalize(group));
+			paint(); syncQuadrantFocusCounts();
+		});
+		li.addEventListener("keydown", function (e) {
+			if (e.key === "Enter" || e.key === " ") { e.preventDefault(); li.click(); }
+			var index = rows.indexOf(li);
+			if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Home" || e.key === "End") {
+				e.preventDefault(); index = e.key === "Home" ? 0 : e.key === "End" ? rows.length - 1 : (index + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+				rows[index].focus();
+			}
+		});
+	});
+}
 function normalizeFilterNumber(raw) {
 	var n = parseInt(String(raw || "").trim(), 10);
 	return Number.isFinite(n) ? n : NaN;
@@ -11118,7 +11271,7 @@ function harmonizeFilterJumpLabels() {
 function prefillFilterJumpInputs() {
 	var menu = rootNode.querySelector(".filterContext");
 	if (!menu) { return; }
-	var anchor = moment(selectedDate || moment());
+	var anchor = moment(selectedDate || calendarNow());
 	var y = menu.querySelector(".jumpYear");
 	var m = menu.querySelector(".jumpMonth");
 	var d = menu.querySelector(".jumpDay");
@@ -11199,10 +11352,10 @@ function setFilterContextEvents() {
 		if (li.classList.contains("filterJump")) { return; }
 		var action = li.getAttribute("data-action");
 		if (action == "this-week") {
-			selectedDate = taskCalendarConfiguredWeekStart(moment());
+			selectedDate = taskCalendarConfiguredWeekStart(calendarNow());
 			getWeek(tasks, selectedDate);
 		} else if (action == "this-month") {
-			selectedDate = moment().date(1);
+			selectedDate = calendarNow().date(1);
 			getMonth(tasks, selectedDate);
 		}
 		rootNode.querySelector(".filterContext")?.classList.remove("active");
@@ -11240,6 +11393,56 @@ function setFilterContext() {
 	rootNode.appendChild(ctx.el("ul", items, {cls: "filterContext"}));
 	harmonizeFilterJumpLabels();
 	setFilterContextEvents();
+}
+
+function statisticScopeRows(view, policy, tags) {
+	var rows = [];
+	if (view === "month") rows.push(["timeline", policy.includeTimelineInMonth ? "shown" : "hidden"]);
+	rows.push(["cancelled", policy.includeCancelled ? "shown" : "hidden"]);
+	rows.push(["overdueTimeline", policy.excludeOverdueTimeline ? "notCarried" : "carried"]);
+	if (tags.includeTags.length) rows.push(["includeTags", tags.includeTags.join(", "), true]);
+	if (tags.excludeTags.length) rows.push(["excludeTags", tags.excludeTags.join(", "), true]);
+	return rows;
+}
+
+function renderStatisticScope(popup) {
+	var old = popup.querySelector(".tc-stat-scope-row");
+	if (old) old.remove();
+	var item = document.createElement("li");
+	item.className = "tc-stat-scope-row";
+	var details = document.createElement("details");
+	details.className = "tc-stat-scope";
+	var summary = document.createElement("summary");
+	var month = rootNode.getAttribute("view") === "month";
+	summary.textContent = tcRuntimeT("runtime.tasksCalendar.scope." + (month ? (runtimeTaskQueryPolicy.includeTimelineInMonth ? "monthWithTimeline" : "monthWithoutTimeline") : "title"));
+	details.appendChild(summary);
+	var list = document.createElement("dl");
+	statisticScopeRows(rootNode.getAttribute("view"), runtimeTaskQueryPolicy, runtimeTaskTagFilter).forEach(function (row) {
+		var label = document.createElement("dt"), value = document.createElement("dd");
+		label.textContent = tcRuntimeT("runtime.tasksCalendar.scope." + row[0]);
+		value.textContent = row[2] ? row[1] : tcRuntimeT("runtime.tasksCalendar.scope." + row[1]);
+		list.append(label, value);
+	});
+	details.appendChild(list);
+	var note = document.createElement("p");
+	note.textContent = tcRuntimeT("runtime.tasksCalendar.scope.timelineTags");
+	if (runtimeTaskTagFilter.excludeTags.length) note.textContent += " " + tcRuntimeT("runtime.tasksCalendar.scope.timelineException");
+	details.appendChild(note);
+	var openSettings = bridgeCfg.runtime && bridgeCfg.runtime.openTaskFilterSettings;
+	if (typeof openSettings === "function") {
+		var button = document.createElement("button");
+		button.type = "button"; button.className = "tc-stat-scope-settings";
+		button.textContent = tcRuntimeT("runtime.tasksCalendar.scope.settings");
+		button.addEventListener("click", function () {
+			setStatisticPopupOpenState(false);
+			openSettings();
+		});
+		details.appendChild(button);
+	}
+	details.addEventListener("toggle", function () {
+		if (rootNode.classList.contains("stat-open")) positionStatisticPopup(rootNode.querySelector("button.statistic"));
+	});
+	item.appendChild(details); popup.appendChild(item);
 }
 
 function setStatisticPopUp() {
@@ -11305,8 +11508,8 @@ function setStatisticPopUp() {
 		popup.style.listStyle = "none";
 		popup.style.borderRadius = "14px";
 		popup.style.border = "1px solid rgba(148,163,184,.34)";
-		popup.style.background = "linear-gradient(180deg, color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary) 2%), color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary) 8%))";
-		popup.style.boxShadow = "0 14px 32px rgba(30,64,175,.16)";
+		popup.style.background = "var(--background-primary)";
+		popup.style.boxShadow = "var(--shadow-s)";
 		popup.style.display = "none";
 		popup.style.visibility = "hidden";
 		popup.style.pointerEvents = "none";
@@ -11364,12 +11567,12 @@ function plannerChromeUpdateDayAxisMarksNeedleOverlap() {
 }
 function getPlannerChromeNowNeedleLane() {
 	if (!rootNode) { return null; }
-	var today = moment().format("YYYY-MM-DD");
+	var today = calendarNow().format("YYYY-MM-DD");
 	return rootNode.querySelector(".cell[data-date=\"" + today + "\"] .timeLane");
 }
 function updatePlannerChromeNowNeedleA11y(needle) {
 	if (!needle) { return; }
-	var timeLbl = moment().format("HH:mm");
+	var timeLbl = calendarNow().format("HH:mm");
 	try {
 		needle.setAttribute("aria-label", timeLbl);
 		needle.setAttribute("title", timeLbl);
@@ -11379,7 +11582,7 @@ function getPlannerChromeNowTimelinePosition(grid) {
 	if (!rootNode || !grid) { return null; }
 	var dayStart = getPlannerChromeTimelineStartMin();
 	var dayEnd = getPlannerChromeTimelineEndMin();
-	var nowMoment = moment();
+	var nowMoment = calendarNow();
 	var nowMin = nowMoment.hours() * 60 + nowMoment.minutes() + nowMoment.seconds() / 60;
 	if (nowMin < dayStart || nowMin > dayEnd) {
 		return null;
@@ -11494,7 +11697,7 @@ function refreshPlannerChromeNowNeedle() {
 		}
 		return;
 	}
-	var today = moment().format("YYYY-MM-DD");
+	var today = calendarNow().format("YYYY-MM-DD");
 	var lanes = rootNode.querySelectorAll(".cell[data-date=\"" + today + "\"] .timeLane");
 	/* 导航到不含\"今天\"的周时，勿给每一列插针（否则多根横线/误判为异常控件） */
 	if (!lanes.length) {
@@ -11569,7 +11772,7 @@ function renderDayClockOverlay(gridEl) {
 	var label = clock.querySelector(".tc-day-clock-label");
 	var update = function () {
 		if (!lane || !hand || !label) { return; }
-		var now = (typeof moment === "function") ? moment() : null;
+		var now = (typeof moment === "function") ? calendarNow() : null;
 		var minutes = now && now.isValid && now.isValid()
 			? (now.hours() * 60 + now.minutes())
 			: 0;
@@ -11592,9 +11795,8 @@ function applyPlannerChromeTimelineAxis() {
 	var laneTop = 18;
 	var slotHeight = parseFloat(getComputedStyle(rootNode).getPropertyValue("--time-slot-height"));
 	if (!Number.isFinite(slotHeight) || slotHeight < 18) { slotHeight = 60; }
-	var hourStart = Math.floor(getPlannerChromeTimelineStartMin() / 60);
-	var hourEnd = Math.ceil(getPlannerChromeTimelineEndMin() / 60);
-	var slotCount = Math.max(1, (hourEnd - hourStart));
+	var startMin = getPlannerChromeTimelineStartMin(), endMin = getPlannerChromeTimelineEndMin();
+	var slotCount = (endMin - startMin) / 60;
 	var firstLane = rootNode.querySelector(".cell .timeLane");
 	if (firstLane) {
 		var gridRect = grid.getBoundingClientRect();
@@ -11602,7 +11804,7 @@ function applyPlannerChromeTimelineAxis() {
 		laneTop = Math.max(0, Math.round(laneRect.top - gridRect.top));
 	}
 	var laneHeightPx = parseFloat(getComputedStyle(rootNode).getPropertyValue("--time-lane-height"));
-	if (!Number.isFinite(laneHeightPx) || laneHeightPx < 120) {
+	if (!Number.isFinite(laneHeightPx) || laneHeightPx <= 0) {
 		laneHeightPx = Math.max(360, Math.round(slotHeight * slotCount));
 	}
 	rootNode.style.setProperty("--time-axis-top", String(laneTop) + "px");
@@ -11611,25 +11813,49 @@ function applyPlannerChromeTimelineAxis() {
 	try {
 		axis.style.height = "";
 	} catch (_) {}
-	for (var h = hourStart; h <= hourEnd; h++) {
+	plannerHoursAxisMarks(startMin, endMin, laneHeightPx).forEach(function (minute) {
 		var mark = getTasksCalendarDocument().createElement("div");
 		mark.className = "mark";
-		mark.textContent = String(h).padStart(2, "0")+":00";
-		if (h === hourEnd) {
+		mark.textContent = minutesToTimeStr(minute);
+
+		mark.style.position = "absolute";
+		mark.style.top = ((minute - startMin) / (endMin - startMin) * laneHeightPx) + "px";
+		mark.style.height = "0px"; mark.style.minHeight = "0px";
+		if (minute === endMin) {
 			mark.classList.add("tc-planner-axis-end-mark");
 		}
 		axis.appendChild(mark);
-	}
+	});
 	grid.prepend(axis);
 	try { refreshPlannerChromeNowNeedle(); } catch (_) {}
 };
 
+function plannerHoursAxisMarks(start, end, height) {
+	var result = [start], span = end - start;
+	for (var m = Math.ceil(start / 60) * 60; m < end; m += 60) {
+		if ((m - result[result.length - 1]) / span * height >= 15 && (end - m) / span * height >= 15) result.push(m);
+	}
+	result.push(end); return result;
+}
 function applyPlannerChromeAdaptiveSizing() {
 	if (!isPlannerChromeTimelineView(rootNode, ["week", "day"])) { return; }
 	var grid = rootNode.querySelector(":scope > .grid");
 	if (!grid) { return; }
 	var firstCell = grid.querySelector(":scope > .cell");
 	if (!firstCell) { return; }
+	if (rootNode._noriaPlannerSizingGrid !== grid) {
+		rootNode._noriaPlannerSizingObserver?.disconnect();
+		var previousSize = "";
+		rootNode._noriaPlannerSizingObserver = new (rootNode.ownerDocument.defaultView.ResizeObserver)(function (entries) {
+			var rect = entries[0].contentRect;
+			var size = rect.width.toFixed(1) + "|" + rect.height.toFixed(1);
+			if (size === previousSize || tcRuntimeDisposed || !rootNode.isConnected) { return; }
+			previousSize = size;
+			if (!plannerChromeInteractionActive) schedulePlannerChromeStableTimelineReflow(rootNode);
+		});
+		rootNode._noriaPlannerSizingGrid = grid;
+		rootNode._noriaPlannerSizingObserver.observe(grid);
+	}
 	var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 900;
 	var gridRect = grid.getBoundingClientRect();
 	function rectHeightOf(el) {
@@ -11663,73 +11889,26 @@ function applyPlannerChromeAdaptiveSizing() {
 		return null;
 	}
 	syncPlannerChromeDayBucketPeekVar(rootNode);
-	var bucketPeek = 0;
-	try {
-		bucketPeek = parseFloat(getComputedStyle(rootNode).getPropertyValue("--tc-planner-waiting-peek")) || 0;
-	} catch (_) { bucketPeek = 0; }
-	var hourStart = Math.floor(getPlannerChromeTimelineStartMin() / 60);
-	var hourEnd = Math.ceil(getPlannerChromeTimelineEndMin() / 60);
-	var slotCount = Math.max(1, (hourEnd - hourStart));
-	var bottomPadding = 24;
+	var slotCount = (getPlannerChromeTimelineEndMin() - getPlannerChromeTimelineStartMin()) / 60;
 	var host = findSizingHost();
-	var hostAvailable = 0;
-	if (host && host.getBoundingClientRect) {
-		try {
-			var hostRect = host.getBoundingClientRect();
-			hostAvailable = Math.round(hostRect.bottom - gridRect.top - bottomPadding);
-		} catch (_) { hostAvailable = 0; }
-	}
-	var availableToViewportBottom = Math.round(viewportHeight - gridRect.top - bottomPadding);
-	var availableFrame = hostAvailable > 220
-		? Math.min(availableToViewportBottom, hostAvailable)
-		: availableToViewportBottom;
-	if (!Number.isFinite(availableFrame) || availableFrame < 220) {
-		availableFrame = Math.max(220, availableToViewportBottom || 0);
-	}
+	var hostBottom = host ? Math.min(viewportHeight, host.getBoundingClientRect().bottom) : viewportHeight;
+	// ItemViews already give the grid the remaining pane height. Measure that frame,
+	// not an estimated header + a hidden boundary or rounded hourly slot count.
+	var fixedPane = rootNode.closest(".noria-tasks-host, .noria-task-timeline-host");
+	var frameHeight = fixedPane && gridRect.height > 120 ? gridRect.height : hostBottom - gridRect.top - 16;
+	var gridStyle = getComputedStyle(grid);
+	var bottomInset = parseFloat(gridStyle.paddingBottom) || 0;
 	var isDayView = rootNode.getAttribute("view") === "day";
-	/* 日表 plannerChrome 隐藏 .cellName 后 getBoundingClientRect 为 0，但 0||20 会误用 20px，吃掉时段区高度 */
-	var headHeight = 0;
-	if (!isDayView) {
-		var headEl = firstCell.querySelector(".cellName");
-		var headRect = headEl && headEl.getBoundingClientRect ? headEl.getBoundingClientRect() : null;
-		headHeight = headRect && headRect.height > 0.5 ? Math.round(headRect.height) : 20;
-	}
-	try {
-		rootNode.style.setProperty("--tc-planner-cell-head-height", isDayView ? "0px" : Math.max(38, headHeight + 8) + "px");
-	} catch (_) {}
-	var laneTopEstimate = Math.max(isDayView ? 8 : 38, headHeight + bucketPeek + 8);
-	var laneAvailable = Math.max(180, availableFrame - laneTopEstimate);
-	var minSlot = parseInt(bridgeSizing.weekTimeSlotMinPx, 10);
-	var maxSlot = parseInt(bridgeSizing.weekTimeSlotMaxPx, 10);
-	var floorSlot = showEarlyHours ? 10 : 12;
-	if (!Number.isFinite(minSlot) || minSlot < floorSlot) { minSlot = floorSlot; }
-	if (!Number.isFinite(maxSlot) || maxSlot < minSlot) { maxSlot = Math.max(44, minSlot); }
-	function clampPlannerChromeSlotHeight(v) {
-		var next = Math.floor(v);
-		if (!Number.isFinite(next)) { next = showEarlyHours ? 18 : 24; }
-		next = Math.max(minSlot, Math.min(maxSlot, next));
-		/* 对齐到 2px 网格，既减少重算抖动，也允许窄窗下更细地贴合可用高度。 */
-		next = Math.round(next / 2) * 2;
-		return Math.max(minSlot, Math.min(maxSlot, next));
-	}
-	function densityForSlot(v) {
-		return v >= 30 ? "comfortable" : (v >= 20 ? "tight" : "micro");
-	}
-	function bottomSafeForDensity(d) {
-		return d === "comfortable" ? 28 : (d === "tight" ? 24 : 20);
-	}
-	var slotHeight = clampPlannerChromeSlotHeight(laneAvailable / slotCount);
-	var density = densityForSlot(slotHeight);
-	var bottomSafe = bottomSafeForDensity(density);
-	slotHeight = clampPlannerChromeSlotHeight(Math.max(120, laneAvailable - bottomSafe) / slotCount);
-	density = densityForSlot(slotHeight);
-	var nextBottomSafe = bottomSafeForDensity(density);
-	if (nextBottomSafe !== bottomSafe) {
-		bottomSafe = nextBottomSafe;
-		slotHeight = clampPlannerChromeSlotHeight(Math.max(120, laneAvailable - bottomSafe) / slotCount);
-		density = densityForSlot(slotHeight);
-	}
-	var laneHeight = slotHeight * slotCount;
+	var headHeight = isDayView ? 0 : rectHeightOf(firstCell.querySelector(".cellName"));
+	var boundaryHeight = rectHeightOf(firstCell.querySelector(".tc-hours-boundary"));
+	var firstLane = firstCell.querySelector(".timeLane");
+	var laneTop = firstLane ? firstLane.getBoundingClientRect().top - gridRect.top : headHeight;
+	var bottomSafe = 16;
+	var laneHeight = Math.max(120, Math.floor(frameHeight - bottomInset - laneTop - bottomSafe));
+	var slotHeight = laneHeight / slotCount;
+	var density = slotHeight >= 30 ? "comfortable" : (slotHeight >= 20 ? "tight" : "micro");
+	rootNode.style.setProperty("--tc-planner-cell-head-height", headHeight + "px");
+	rootNode.style.setProperty("--tc-planner-boundary-height", boundaryHeight + "px");
 	try {
 		rootNode.classList.add("tc-planner-no-scroll-fit");
 		rootNode.setAttribute("data-tc-density", density);
@@ -11741,6 +11920,7 @@ function applyPlannerChromeAdaptiveSizing() {
 	} catch (_) {}
 	rootNode.style.setProperty("--time-slot-height", String(slotHeight) + "px");
 	rootNode.style.setProperty("--time-lane-height", String(laneHeight) + "px");
+	rootNode.style.setProperty("--tc-hour-grid-offset", String(((60 - getPlannerChromeTimelineStartMin() % 60) % 60) / 60 * slotHeight) + "px");
 }
 
 function enforcePlannerChromeWeekGridLayout(options) {
@@ -11819,20 +11999,89 @@ function syncPlannerChromeWeekDayFocus() {
 			heading.title = cell.getAttribute("data-date");
 		}
 		cell.classList.toggle("tc-week-day-compact", cell.getBoundingClientRect().width < 100);
-		var crowded = Array.from(cell.querySelectorAll(".timeLane > .tc-cal-item[data-overlap-cols]")).some(function (task) {
+		var crowded = !!cell.querySelector(".tc-overflow-more") || Array.from(cell.querySelectorAll(".timeLane > .tc-cal-item[data-overlap-cols]")).some(function (task) {
 			return Number(task.getAttribute("data-overlap-cols")) > 1 && task.getBoundingClientRect().width < 72;
 		});
 		cell.classList.toggle("tc-week-day-crowded", crowded);
 	});
 }
 
+function planPlannerOverflow(group, laneWidth, enabled) {
+	var capacity = Math.max(1, Math.floor(laneWidth / 72));
+	var hidden = enabled && laneWidth > 0 ? group.filter(function (item) { return item.col >= capacity; }) : [];
+	var summaries = [];
+	hidden.slice().sort(function (a, b) { return a.start - b.start || a.end - b.end; }).forEach(function (item) {
+		var last = summaries[summaries.length - 1];
+		if (last && item.start < last.end) { last.end = Math.max(last.end, item.end); last.items.push(item); }
+		else summaries.push({ start: item.start, end: item.end, items: [item] });
+	});
+	return { hidden: new Set(hidden), summaries: summaries, capacity: capacity, reservePct: hidden.length ? Math.min(44, 32 / laneWidth * 100) : 0 };
+}
+function syncPlannerOverflowButtons(lane, summaries) {
+	var old = new Map(Array.from(lane.querySelectorAll(":scope > .tc-overflow-more")).map(function (b) { return [b.dataset.overflowKey, b]; }));
+	summaries.forEach(function (summary) {
+		var key = summary.items.map(function (item) { return getTaskIdentityKey(item.el); }).sort().join("\n");
+		var button = old.get(key); old.delete(key);
+		if (!button) {
+			button = lane.ownerDocument.createElement("button"); button.type = "button"; button.className = "tc-overflow-more";
+			button.dataset.overflowKey = key; button.setAttribute("aria-haspopup", "dialog"); lane.appendChild(button);
+			button.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openPlannerOverflow(button); });
+		}
+		button._tcOverflowSummary = summary;
+		button.textContent = "+" + summary.items.length;
+		button.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.overflow.more", { count: summary.items.length }));
+		button.title = button.getAttribute("aria-label");
+		var start = getPlannerChromeTimelineStartMin(), span = getPlannerChromeTimelineEndMin() - start;
+		button.style.top = ((summary.start - start) / span * 100) + "%";
+		button.style.height = ((summary.end - summary.start) / span * 100) + "%";
+	});
+	old.forEach(function (button) {
+		if (button._tcOverflowPopover) button._tcOverflowPopover.close();
+		button.remove();
+	});
+}
+function findPlannerOverflow(date, start) {
+	var cell = Array.from(rootNode.querySelectorAll(".cell[data-date]")).find(function (c) { return c.getAttribute("data-date") === date; });
+	return cell && Array.from(cell.querySelectorAll(".tc-overflow-more")).find(function (b) { return b._tcOverflowSummary?.start === start; });
+}
+function focusPlannerOverflow(date, start) {
+	(findPlannerOverflow(date, start) || rootNode.querySelector(".weekView"))?.focus({ preventScroll: true });
+}
+function openPlannerOverflow(anchor) {
+	var summary = anchor._tcOverflowSummary;
+	if (!summary) return;
+	var date = anchor.closest(".cell")?.getAttribute("data-date"), summaryStart = summary.start;
+	var popover = createPlannerHoursPopover(anchor, anchor.getAttribute("aria-label")), doc = popover.el.ownerDocument;
+	anchor._tcOverflowPopover = popover;
+	popover.el.classList.add("tc-overflow-popover");
+	popover.el._tcOverflowContext = { anchor: anchor, date: date, start: summaryStart };
+	summary.items.forEach(function (item) {
+		var node = item.el, button = doc.createElement("button"); button.type = "button"; button.className = "tc-hours-entry";
+		button.dataset.taskKey = getTaskIdentityKey(node);
+		var title = doc.createElement("span"); title.textContent = node.getAttribute("data-full-text") || node.querySelector(".description")?.textContent || "";
+		var timeLabel = doc.createElement("span"); timeLabel.className = "tc-hours-entry-time";
+		timeLabel.textContent = formatPlannerTaskAccessibleTime(node, minutesToTimeStr(Number(node.getAttribute("data-start-min"))));
+		button.append(title, timeLabel); popover.el.appendChild(button);
+		button.addEventListener("click", function () {
+			popover.close();
+			openTaskDateTimeEditor(node, { returnFocusEl: anchor, restoreFocus: function () {
+				focusPlannerOverflow(date, summaryStart);
+			} });
+		});
+	});
+	popover.open(); popover.el.querySelector("button")?.focus({ preventScroll: true });
+}
 function applyPlannerChromeOverlapLayout(targetLanes) {
 	if (!isPlannerChromeTimelineView(rootNode, ["week", "day"])) { return; }
+	var openPopup = rootNode.querySelector(".tc-overflow-popover:popover-open");
+	var popupContext = openPopup?._tcOverflowContext;
+	var focusedEntryKey = openPopup?.ownerDocument.activeElement?.dataset.taskKey;
 	var dayStartOv = getPlannerChromeTimelineStartMin();
 	var dayEndOv = getPlannerChromeTimelineEndMin();
 	var lanes = targetLanes && targetLanes.length ? targetLanes : rootNode.querySelectorAll(".timeLane");
 	lanes.forEach((lane) => {
 		if (!lane || !lane.querySelectorAll) { return; }
+		var overflowSummaries = [];
 		var directTimedSelector = ":scope > [data-tc-cal-item='1'][data-slot='range'], :scope > [data-tc-cal-item='1'][data-slot='point'], :scope > .tc-cal-item[data-slot='range'], :scope > .tc-cal-item[data-slot='point'], :scope > .task[data-slot='range'], :scope > .task[data-slot='point']";
 		var taskEls = [];
 		try {
@@ -11847,6 +12096,7 @@ function applyPlannerChromeOverlapLayout(targetLanes) {
 			el.style.removeProperty("--ov-width");
 			el.removeAttribute("data-overlap-cols");
 			el.removeAttribute("data-overlap-col");
+			el.removeAttribute("data-tc-overflow-hidden");
 		});
 		var items = taskEls.map((el) => {
 			var s = parseInt(el.getAttribute("data-start-min") || "", 10);
@@ -11868,7 +12118,7 @@ function applyPlannerChromeOverlapLayout(targetLanes) {
 			seenLaneDup[k] = true;
 			return true;
 		});
-		if (items.length === 0) { return; }
+		if (items.length === 0) { syncPlannerOverflowButtons(lane, []); return; }
 
 		// Build connected overlap groups first (so unrelated tasks remain full width).
 		var groups = [];
@@ -11914,13 +12164,17 @@ function applyPlannerChromeOverlapLayout(targetLanes) {
 			// that are unoccupied throughout its own displayed interval.
 			var gapPct = 1.15;
 			var n = Math.max(1, maxCols);
-			var usable = 100 - gapPct * (n - 1);
+			var overflow = planPlannerOverflow(group, lane.getBoundingClientRect().width, ["week", "day"].includes(rootNode.getAttribute("view")));
+			overflowSummaries.push.apply(overflowSummaries, overflow.summaries);
+			if (overflow.hidden.size) n = overflow.capacity;
+			var usable = 100 - overflow.reservePct - gapPct * (n - 1);
 			var cellPct = usable / n;
 			group.forEach((item) => {
+				if (overflow.hidden.has(item)) { item.el.setAttribute("data-tc-overflow-hidden", "true"); return; }
 				var left, width;
 				if (n === 1) {
 					left = 0;
-					width = 100;
+					width = 100 - overflow.reservePct;
 				} else {
 					var span = 1;
 					for (var nextCol = item.col + 1; nextCol < n; nextCol++) {
@@ -11936,7 +12190,16 @@ function applyPlannerChromeOverlapLayout(targetLanes) {
 				item.el.setAttribute("data-overlap-col", String(item.col));
 			});
 		});
+		syncPlannerOverflowButtons(lane, overflowSummaries);
 	});
+	if (popupContext && !popupContext.anchor.isConnected) {
+		var replacement = findPlannerOverflow(popupContext.date, popupContext.start);
+		if (replacement) {
+			openPlannerOverflow(replacement);
+			var entry = Array.from(replacement._tcOverflowPopover.el.querySelectorAll(".tc-hours-entry")).find(function (el) { return el.dataset.taskKey === focusedEntryKey; });
+			entry?.focus({ preventScroll: true });
+		} else { openPopup.hidePopover(); focusPlannerOverflow(popupContext.date, popupContext.start); }
+	}
 };
 
 var tcWeekAdaptiveStableState = new Map();
@@ -12133,7 +12396,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			try {
 				var actualTitleH = titleEl.getBoundingClientRect().height || 0;
 				if (actualTitleH > 0) {
-					titleNeedH = Math.max(titleLinePx, Math.min(actualTitleH, titleNeedH + 4));
+					titleNeedH = Math.max(titleLinePx, actualTitleH);
 				}
 			} catch (_) {}
 		}
@@ -12163,6 +12426,8 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 				decision.cornerTimeOk = true;
 				decision.timeBandPx = cornerBandNeed;
 				decision.reason = "range-corner-fit";
+				decision.nearTitle = width >= 120 && height >= 56;
+				decision.timeTopPx = titleNeedH + 8;
 				return decision;
 			}
 			if (stackFits) {
@@ -12582,6 +12847,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			var timePlacement = "hidden";
 			var useCornerTime = currentViewName === "week" || currentViewName === "day";
 			var timeBandPx = 0;
+			var timeNearTitle = false, timeTopPx = 0;
 			if (useCornerTime) {
 				var placementDecision = decidePlannerChromeTimePlacement(taskEl, {
 					view: currentViewName,
@@ -12599,6 +12865,8 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 				cornerTimeOk = !!placementDecision.cornerTimeOk;
 				timePlacement = placementDecision.placement || "hidden";
 				timeBandPx = Number(placementDecision.timeBandPx || 0);
+				timeNearTitle = !!placementDecision.nearTitle;
+				timeTopPx = Number(placementDecision.timeTopPx || 0);
 				setAttrIfChanged(taskEl, "data-time-fit-reason", placementDecision.reason || "hidden");
 			} else {
 				cornerTimeOk = true;
@@ -12620,6 +12888,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 			setAttrIfChanged(taskEl, "data-hide-time", hideTime ? "true" : "false");
 			setAttrIfChanged(taskEl, "data-time-density", mode);
 			setAttrIfChanged(taskEl, "data-time-placement", timePlacement);
+			setAttrIfChanged(taskEl, "data-time-near-title", timeNearTitle ? "true" : "false");
 			setAttrIfChanged(taskEl, "data-auto-time-mode", normalizeWeekDensity(mode));
 			setAttrIfChanged(taskEl, "data-auto-layout", autoLayout);
 			if (hideTime) {
@@ -12654,8 +12923,10 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 						}
 						timeElForCorner.style.setProperty("display", "inline-flex", "important");
 						timeElForCorner.style.setProperty("position", "absolute", "important");
-						timeElForCorner.style.setProperty("right", "8px", "important");
-						timeElForCorner.style.setProperty("bottom", plannerTimeTypography.bottom + "px", "important");
+						timeElForCorner.style.setProperty("right", timeNearTitle ? "auto" : "8px", "important");
+						timeElForCorner.style.setProperty("left", timeNearTitle ? "8px" : "auto", "important");
+						timeElForCorner.style.setProperty("top", timeNearTitle ? timeTopPx + "px" : "auto", "important");
+						timeElForCorner.style.setProperty("bottom", timeNearTitle ? "auto" : plannerTimeTypography.bottom + "px", "important");
 						timeElForCorner.style.setProperty("flex-direction", timePlacement === "range-stack" ? "column" : "row", "important");
 						timeElForCorner.style.setProperty("width", "auto", "important");
 						timeElForCorner.style.setProperty("min-width", "0", "important");
@@ -12663,7 +12934,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 						timeElForCorner.style.setProperty("height", "auto", "important");
 						timeElForCorner.style.setProperty("padding", "0", "important");
 						timeElForCorner.style.setProperty("max-width", "calc(100% - 16px)", "important");
-						timeElForCorner.style.setProperty("justify-content", "flex-end", "important");
+						timeElForCorner.style.setProperty("justify-content", timeNearTitle ? "flex-start" : "flex-end", "important");
 						timeElForCorner.style.setProperty("align-items", timePlacement === "range-stack" ? "flex-end" : "center", "important");
 						timeElForCorner.style.setProperty("gap", timePlacement === "range-stack" ? plannerTimeTypography.gap + "px" : "0", "important");
 						timeElForCorner.style.setProperty("font-size", plannerTimeTypography.fontSize + "px", "important");
@@ -12677,6 +12948,8 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 						timeElForCorner.style.setProperty("display", "none", "important");
 						timeElForCorner.style.removeProperty("position");
 						timeElForCorner.style.removeProperty("right");
+						timeElForCorner.style.removeProperty("left");
+						timeElForCorner.style.removeProperty("top");
 						timeElForCorner.style.removeProperty("bottom");
 						timeElForCorner.style.setProperty("width", "0px", "important");
 						timeElForCorner.style.setProperty("min-width", "0px", "important");
@@ -12714,7 +12987,7 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 				if (inner && inner.style) {
 					if (cornerTimeOk && (mode === "full-stacked" || mode === "start-only")) {
 						inner.style.setProperty("position", "static", "important");
-						inner.style.setProperty("padding-bottom", timeBandPx + "px", "important");
+						inner.style.setProperty("padding-bottom", (timeNearTitle ? 0 : timeBandPx) + "px", "important");
 						inner.style.setProperty("align-content", "start", "important");
 						inner.style.setProperty("grid-template-columns", "minmax(0, 1fr)", "important");
 						inner.style.removeProperty("grid-template-rows");
@@ -12736,6 +13009,8 @@ function syncPlannerChromeWeekTimeBadgeVisibility(targetLanes) {
 					timeElNonWeek.style.removeProperty("display");
 					timeElNonWeek.style.removeProperty("position");
 					timeElNonWeek.style.removeProperty("right");
+					timeElNonWeek.style.removeProperty("left");
+					timeElNonWeek.style.removeProperty("top");
 					timeElNonWeek.style.removeProperty("bottom");
 					timeElNonWeek.style.removeProperty("width");
 					timeElNonWeek.style.removeProperty("min-width");
@@ -12849,12 +13124,12 @@ function runPlannerChromeWeekLanesFinalize(forceRun) {
 var weekLanesFinalizeForcePending = false;
 var weekLanesFinalizeLastRunTs = 0;
 var weekLanesFinalizeLastStamp = "";
-/** 晨轴 / 快捷按钮挂载槽：固定宽度占位，与周 plannerChrome 左缘对齐，避免月·日·四象切换时工具栏抖动 */
+/** 视图工具共用第二行右侧；不挤占主导航或改变日期行高度。 */
 function ensureTcToolbarPlannerSlot() {
 	if (!rootNode) {
 		return null;
 	}
-	var left = rootNode.querySelector(".buttons .tc-toolbar-start");
+	var left = rootNode.querySelector(".buttons .tc-context-tools");
 	if (!left) {
 		return null;
 	}
@@ -12960,6 +13235,7 @@ function tcPlannerChromeChromeBtnSetLayoutVisible(btn, visible) {
 }
 /** 始终挂晨轴按钮进槽（月/四象亦创建），仅 visibility 切换可见性 */
 function ensurePlannerChromeToolbarChromeButtonsExist() {
+	bindPlannerHoursActions();
 	var slot = ensureTcToolbarPlannerSlot();
 	if (!slot || !rootNode) {
 		return;
@@ -12976,19 +13252,7 @@ function ensurePlannerChromeToolbarChromeButtonsExist() {
 		ax.addEventListener("click", function (e) {
 			e.preventDefault();
 			e.stopPropagation();
-			showEarlyHours = !showEarlyHours;
-			saveTasksCalendarRuntimePreference("showEarlyHours", showEarlyHours, "noria-tc-show-early-hours");
-			syncPlannerChromeAxisToggleChrome();
-			function reflowAxisAndLanes() {
-			try { enforcePlannerChromeWeekGridLayout(); } catch (_) {}
-			try { applyPlannerChromeTimelineAxis(); } catch (_) {}
-				try { refreshPlannerChromeNowNeedle(); } catch (_) {}
-			schedulePlannerChromeWeekLanesFinalize(true);
-			}
-			reflowAxisAndLanes();
-			requestAnimationFrame(function () {
-				requestAnimationFrame(reflowAxisAndLanes);
-			});
+			openPlannerHoursSettings(ax);
 		});
 	}
 	ensureTimelineQuickDrawerChrome();
@@ -13169,7 +13433,7 @@ function rememberPlannerChromeWaitingEntriesForDate(currentDate, entries) {
 			try { typ = tcInferTypeClsFromCalItemEl(node); } catch (_) { typ = ""; }
 		}
 		if (!typ) { typ = "due"; }
-		saved.push({ task: ent.task || ent.taskObj || null, node: node, typ: typ, preAxis: ent.preAxis === true });
+		saved.push({ task: ent.task || ent.taskObj || null, node: node, typ: typ });
 	}
 	map[ymd] = saved;
 	return saved.length;
@@ -13207,7 +13471,7 @@ function computePlannerChromeWaitingPeek(calRoot) {
 			if (n > maxCount) { maxCount = n; }
 		});
 	} catch (_) { maxCount = 0; }
-	if (!maxCount) { return 24; }
+	if (!maxCount) { return 0; }
 	if (maxCount <= 1) { return 24; }
 	return 46;
 }
@@ -13240,11 +13504,12 @@ function ensurePlannerChromeWaitingHost(cellContent, currentDate) {
 	} catch (_) {}
 	var timeLane = null;
 	try { timeLane = cellContent.querySelector(":scope > .timeLane"); } catch (_) { timeLane = cellContent.querySelector(".timeLane"); }
+	var laneBoundary = cellContent.querySelector(".tc-hours-boundary") || timeLane;
 	try {
-		if (timeLane && host.parentNode !== cellContent) {
-			cellContent.insertBefore(host, timeLane);
-		} else if (timeLane && host.nextSibling !== timeLane) {
-			cellContent.insertBefore(host, timeLane);
+		if (laneBoundary && host.parentNode !== cellContent) {
+			cellContent.insertBefore(host, laneBoundary);
+		} else if (laneBoundary && host.nextSibling !== laneBoundary) {
+			cellContent.insertBefore(host, laneBoundary);
 		} else if (!host.parentNode) {
 			cellContent.appendChild(host);
 		}
@@ -13387,8 +13652,6 @@ function normalizePlannerChromeWaitingItem(item) {
 			item.style.removeProperty("max-width");
 			item.style.removeProperty("touch-action");
 			item.removeAttribute("draggable");
-			item.removeAttribute("data-drag-bound");
-			item.removeAttribute("data-planner-pointerdown-bound");
 			item.removeAttribute("data-overlap-cols");
 			item.removeAttribute("data-overlap-col");
 			item.removeAttribute("data-overlap-layout");
@@ -13400,6 +13663,10 @@ function normalizePlannerChromeWaitingItem(item) {
 		item.removeAttribute("data-progress-label");
 		item.removeAttribute("data-progress-left");
 		item.removeAttribute("data-progress-urgency");
+		if (item.getAttribute("data-planner-pointerdown-bound") !== "1") {
+			item.addEventListener("pointerdown",onTaskPointerDown,true);
+			item.setAttribute("data-planner-pointerdown-bound","1");
+		}
 		applyTaskTagColorMeta(item, row, typeCls);
 		tcEnsureStatusCircle(item, row, typeCls);
 		var doc = item.ownerDocument || getTasksCalendarDocument();
@@ -13537,11 +13804,10 @@ function buildPlannerChromeWaitingItemFromEntry(ent, currentDate, doc) {
 				applyTaskDependencyStateToEl(item, task);
 				tcEnsureStatusCircle(item, task, typ);
 				normalizePlannerChromeWaitingItem(item);
-				if (ent.preAxis === true || typ === "overdue") {
+				if (typ === "overdue") {
 					var originalTime = normalizeTimeStr(getTimeForClass(task, typ));
 					var originalDate = coerceTemporalToYmd(task && task.due) || coerceTemporalToYmd(task && task.start) || "";
 					var originalWhen = [originalDate, originalTime].filter(Boolean).join(" ");
-					if (ent.preAxis === true) item.setAttribute("data-noria-before-visible-axis", "true");
 					if (originalWhen) {
 						var waitingTitle = getPlannerChromeWaitingTaskText(item);
 						var waitingDetail = waitingTitle ? (waitingTitle + " · " + originalWhen) : originalWhen;
@@ -14051,63 +14317,8 @@ function schedulePlannerChromeStableTimelineReflow(calRoot, anchorBtn) {
 	});
 }
 function positionTimelineQuickPopover(anchorBtn) {
-	var calRoot = anchorBtn && anchorBtn.closest && anchorBtn.closest(".tasksCalendar");
-	var pop = calRoot && calRoot.querySelector(".tc-timeline-quick-popover");
-	if (!pop || !anchorBtn) {
-		return;
-	}
-	try {
-		var r = anchorBtn.getBoundingClientRect();
-		pop.style.position = "fixed";
-		pop.style.right = "auto";
-		var margin = 8;
-		var compact = false;
-		var comp = noriaTcMoreCompositeForCal(calRoot);
-		var minX = margin;
-		var maxX = (window.innerWidth || 800) - margin;
-		var minY = margin;
-		var maxY = (window.innerHeight || 600) - margin;
-		if (comp && comp.getBoundingClientRect) {
-			var cr0 = comp.getBoundingClientRect();
-			compact = (cr0.width || 0) <= 430;
-			minX = Math.max(minX, Math.round(cr0.left) + margin);
-			maxX = Math.min(maxX, Math.round(cr0.right) - margin);
-			minY = Math.max(minY, Math.round(cr0.top) + margin);
-			maxY = Math.min(maxY, Math.round(cr0.bottom) - margin);
-			var maxWInComp = Math.max(compact ? 188 : 220, Math.floor((cr0.width || 320) - margin * 2));
-			pop.style.maxWidth = maxWInComp + "px";
-			pop.style.minWidth = compact ? "0" : "";
-			var sc0 = pop.querySelector(".tc-timeline-quick-popover-scroll");
-			if (sc0) {
-				sc0.style.maxHeight = Math.max(164, Math.floor((cr0.height || 480) - 108)) + "px";
-			}
-		}
-		pop.classList.toggle("tc-pop-compact", compact);
-		try { void pop.offsetWidth; } catch (_) {}
-		var pw = pop.offsetWidth || 360;
-		var ph = pop.offsetHeight || 200;
-		var leftPx = r.right - pw;
-		if (!compact && r.left + pw <= maxX) {
-			leftPx = r.left;
-		}
-		if (leftPx + pw > maxX) {
-			leftPx = maxX - pw;
-		}
-		if (leftPx + pw > maxX) {
-			leftPx = maxX - pw;
-		}
-		leftPx = Math.max(minX, leftPx);
-		if (Math.abs(leftPx - r.left) > 12 && r.left + pw <= maxX) {
-			leftPx = Math.max(minX, r.left);
-		}
-		pop.style.left = Math.round(leftPx) + "px";
-		var topPx = r.bottom + 6;
-		if (topPx + ph > maxY) {
-			topPx = Math.max(minY, r.top - ph - 6);
-		}
-		topPx = Math.max(minY, topPx);
-		pop.style.top = Math.round(topPx) + "px";
-	} catch (_) {}
+ var cal=anchorBtn&&anchorBtn.closest(".tasksCalendar"),pop=cal&&cal.querySelector(".tc-timeline-quick-popover");
+ if(pop)bridgeCfg.tasksCalendar.placePopover(pop,anchorBtn,cal);
 }
 function ensureTimelineQuickPopoverTitleRow(pop) {
 	if (!pop) {
@@ -14345,6 +14556,119 @@ function syncTimelineQuickDrawerChrome() {
 	}
 	tcPlannerChromeChromeBtnSetLayoutVisible(dr, true);
 }
+function plannerHoursText(key, args) {
+	return tcRuntimeT("runtime.tasksCalendar.activeHours." + key, args);
+}
+function createPlannerHoursPopover(anchor, title) {
+	rootNode.querySelectorAll(".tc-hours-popover").forEach(function (p) { p.hidePopover(); p.remove(); });
+	var doc = getTasksCalendarDocument(), pop = doc.createElement("div");
+	pop.className = "tc-hours-popover";
+	pop.setAttribute("popover", "auto");
+	pop.setAttribute("role", "dialog");
+	pop.setAttribute("aria-label", title);
+	rootNode.appendChild(pop);
+	anchor.setAttribute("aria-expanded", "true");
+	function position() { bridgeCfg.tasksCalendar.placePopover(pop,anchor,rootNode); }
+ var win=doc.defaultView,observer=new win.ResizeObserver(position);
+
+	pop.addEventListener("toggle", function (e) {
+		if (e.newState !== "closed") return;
+		anchor.setAttribute("aria-expanded", "false");
+		win.removeEventListener("resize", position);
+        win.removeEventListener("scroll",position,true);observer.disconnect();
+		pop.remove();
+	});
+	pop.addEventListener("click", function (e) { e.stopPropagation(); });
+	return { el: pop, open: function () { pop.showPopover(); position(); win.addEventListener("resize", position);win.addEventListener("scroll",position,true);observer.observe(rootNode); }, close: function () { if (pop.isConnected) pop.hidePopover(); if (anchor.isConnected) anchor.focus({ preventScroll: true }); } };
+}
+function openPlannerHoursSettings(anchor) {
+	var popover = createPlannerHoursPopover(anchor, plannerHoursText("title"));
+	var pop = popover.el, doc = pop.ownerDocument;
+	function make(tag, cls, text) { var el = doc.createElement(tag); el.className = cls; if (text) el.textContent = text; return el; }
+	var form = make("form", "tc-hours-form"), modes = make("div", "tc-hours-modes"), fullDay = showEarlyHours;
+	var modeButtons = [];
+	[false, true].forEach(function (full) {
+		var b = make("button", "tc-hours-mode", plannerHoursText(full ? "fullDay" : "active")); b.type = "button";
+		b.addEventListener("click", function () { fullDay = full; sync(); });
+		modeButtons.push(b); modes.appendChild(b);
+	});
+	var fields = make("div", "tc-hours-fields"), inputs = [];
+	["start", "end"].forEach(function (key) {
+		var label = make("label", "", plannerHoursText(key)), input = make("input", "");
+		input.type = "text"; input.inputMode = "numeric"; input.value = minutesToTimeStr(plannerActiveHours[key]);
+		input.setAttribute("aria-label", plannerHoursText(key)); input.setAttribute("data-hours-field", key);
+		input.addEventListener("input", function () { error.textContent = ""; });
+		label.appendChild(input); fields.appendChild(label); inputs.push(input);
+	});
+	var error = make("div", "tc-hours-error"); error.setAttribute("role", "status");
+	var save = make("button", "tc-hours-save", plannerHoursText("apply")); save.type = "submit";
+	form.append(modes, fields, error, save); pop.appendChild(form);
+	function sync() {
+		modeButtons.forEach(function (b, i) { b.setAttribute("aria-pressed", String(fullDay === (i === 1))); });
+		inputs.forEach(function (i) { i.disabled = fullDay; });
+	}
+	form.addEventListener("submit", async function (e) {
+		e.preventDefault();
+		function parse(value) { var m = /^(\d{1,2}):(\d{2})$/.exec(value.trim()); return m && +m[1] <= 24 && +m[2] < 60 && (+m[1] < 24 || +m[2] === 0) ? +m[1] * 60 + +m[2] : NaN; }
+		var start = fullDay ? plannerActiveHours.start : parse(inputs[0].value), end = fullDay ? plannerActiveHours.end : parse(inputs[1].value);
+		if (!Number.isFinite(start) || !Number.isFinite(end) || end - start < 60) { error.textContent = plannerHoursText("invalid"); return; }
+		save.disabled = true;
+		try {
+			var saved = await bridgeCfg.tasksCalendar.savePreference("activeHours", { start: start, end: end, fullDay: fullDay });
+			if (!saved || saved.ok === false) throw new Error(plannerHoursText("saveFailed"));
+			bridgeCfg.tasksCalendarSettings = saved.settings;
+			plannerActiveHours = { start: start, end: end }; showEarlyHours = fullDay;
+			plannerHoursExpanded = false;
+			popover.close(); rerenderCalendarViewNow();
+		} catch (err) { error.textContent = plannerHoursText("saveFailed"); save.disabled = false; }
+	});
+	sync(); popover.open(); modeButtons[fullDay ? 1 : 0].focus({ preventScroll: true });
+}
+function buildPlannerHoursBoundary(entries, date, doc) {
+	var key = String(date);
+	plannerHoursEntries.set(key, Array.from(entries.values()));
+	if (plannerHoursEntries.size > 32) plannerHoursEntries.delete(plannerHoursEntries.keys().next().value);
+	var row = doc.createElement("div"); row.className = "tc-hours-boundary";
+	if (!entries.size && !plannerHoursExpanded) return row;
+	var toggle = doc.createElement("button"); toggle.type = "button"; toggle.className = "tc-hours-expand"; toggle.dataset.hoursExpand = "true";
+	toggle.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';
+	toggle.setAttribute("aria-expanded", String(plannerHoursExpanded));
+	toggle.setAttribute("aria-label", plannerHoursText(plannerHoursExpanded ? "collapse" : "expand"));
+	toggle.title = toggle.getAttribute("aria-label"); row.appendChild(toggle);
+	if (entries.size) {
+		var summary = doc.createElement("button"); summary.type = "button"; summary.className = "tc-hours-summary"; summary.dataset.hoursEntries = key;
+		var first = entries.values().next().value.task;
+		var text = doc.createElement("span"); text.textContent = getTaskRowTitle(first); summary.appendChild(text);
+		var count = doc.createElement("span"); count.className = "tc-hours-count"; count.dataset.count = String(entries.size); count.textContent = entries.size > 1 ? "+" + (entries.size - 1) : ""; summary.appendChild(count);
+		summary.title = plannerHoursText("tasks", { count: entries.size });
+		summary.setAttribute("aria-label", summary.title); row.appendChild(summary);
+	}
+	return row;
+}
+function openPlannerHoursEntries(anchor, entries) {
+	var popover = createPlannerHoursPopover(anchor, plannerHoursText("outside")), doc = popover.el.ownerDocument;
+	entries.forEach(function (entry) {
+		var taskEl = buildTaskElement(entry.task, entry.typ, entry.date || selectedDate, doc);
+		if (!taskEl) return;
+		var button = doc.createElement("button"); button.type = "button"; button.className = "tc-hours-entry";
+		var title = doc.createElement("span"); title.textContent = getTaskRowTitle(entry.task);
+		var time = doc.createElement("span"); time.className = "tc-hours-entry-time"; time.textContent = formatPlannerTaskAccessibleTime(taskEl, taskEl.getAttribute("data-start-time") || taskEl.getAttribute("data-due-time") || "");
+		button.append(title, time); popover.el.appendChild(button);
+		button.addEventListener("click", function () { popover.close(); openTaskDateTimeEditor(taskEl, { returnFocusEl: anchor }); });
+	});
+	popover.open(); popover.el.querySelector("button")?.focus({ preventScroll: true });
+}
+function bindPlannerHoursActions() {
+	if (rootNode.__tcHoursBound) return; rootNode.__tcHoursBound = true;
+	rootNode.addEventListener("click", function (e) {
+		var button = e.target.closest("[data-hours-expand], [data-hours-entries]");
+		if (!button || !rootNode.contains(button)) return;
+		e.preventDefault(); e.stopPropagation();
+		if (button.dataset.hoursExpand) {
+			plannerHoursExpanded = !plannerHoursExpanded; rerenderCalendarViewNow();
+		} else openPlannerHoursEntries(button, plannerHoursEntries.get(button.dataset.hoursEntries) || []);
+	});
+}
 function syncPlannerChromeAxisToggleChrome() {
 	var rn = rootNode;
 	if (!rn) { return; }
@@ -14359,9 +14683,10 @@ function syncPlannerChromeAxisToggleChrome() {
 		tcPlannerChromeChromeBtnSetLayoutVisible(btn, true);
 		btn.classList.add("tc-toolbar-planner");
 	}
-	btn.textContent = showEarlyHours ? tcRuntimeT("runtime.tasksCalendar.view.allDay") : tcRuntimeT("runtime.tasksCalendar.view.morningAxis");
-	btn.setAttribute("aria-pressed", showEarlyHours ? "true" : "false");
-	btn.setAttribute("title", showEarlyHours ? tcRuntimeT("runtime.tasksCalendar.view.showingAllDay") : tcRuntimeT("runtime.tasksCalendar.view.showingMorningAxis"));
+	btn.textContent = showEarlyHours ? plannerHoursText("fullDay") : plannerHoursText("active");
+	btn.style.setProperty("--tc-axis-label-width", tasksCalendarRuntimeLocale() === "zh-CN" ? "3.5em" : "5.5em");
+	btn.setAttribute("aria-haspopup", "dialog");
+	btn.setAttribute("title", plannerHoursText("title") + " · " + minutesToTimeStr(getPlannerChromeTimelineStartMin()) + "–" + minutesToTimeStr(getPlannerChromeTimelineEndMin()));
 }
 
 function syncPlannerChromeDayBucketChrome() {
@@ -14438,6 +14763,8 @@ function normalizePlannerChromeWeekTaskGeometry() {
 		/* 标签与 compact：按数据层真实跨度，不受 45min 视觉垫高影响 */
 		var rawStart = Math.max(dayStart, Math.min(s, dayEnd - 1));
 		var rawEnd = Math.min(Math.max(e, s), dayEnd);
+		taskEl.setAttribute("data-clipped-start", String(s < dayStart));
+		taskEl.setAttribute("data-clipped-end", String(e > dayEnd));
 		var rawSpan = Math.max(0, rawEnd - rawStart);
 		var compact = rawSpan <= PLANNER_CHROME_COMPACT_MAX_MIN;
 		var vis = computePlannerChromeExpandedSlotBounds(dayStart, dayEnd, s, e);
@@ -14467,8 +14794,7 @@ function normalizePlannerChromeWeekTaskGeometry() {
 function setStatisticValues(dueCounter, doneCounter, overdueCounter, startCounter, scheduledCounter, recurrenceCounter, dailyNoteCounter) {
 	var taskCounter = parseInt(dueCounter+doneCounter+overdueCounter);
 	var tasksRemaining = taskCounter - doneCounter;
-	var percentage = Math.round(100/(dueCounter+doneCounter+overdueCounter)*doneCounter);
-	percentage = isNaN(percentage) ? 100 : percentage;
+	var percentage = taskCounter > 0 ? Math.round(100 * doneCounter / taskCounter) : NaN;
 
 	var popupRoot = getStatisticPopupEl();
 	var statBtn = rootNode.querySelector("button.statistic");
@@ -14491,7 +14817,7 @@ function setStatisticValues(dueCounter, doneCounter, overdueCounter, startCounte
 	}
 	if (tasksRemaining > 99) { tasksRemaining = "99+"; }
 	if (statBtn) {
-		statBtn.setAttribute("data-percentage", percentage);
+		statBtn.setAttribute("data-percentage", Number.isFinite(percentage) ? percentage : "");
 		statBtn.setAttribute("data-remaining", tasksRemaining);
 		statBtn.setAttribute("data-total", taskCounter);
 	}
@@ -14519,6 +14845,10 @@ function setStatisticValues(dueCounter, doneCounter, overdueCounter, startCounte
 };
 
 function cleanupTasksCalendarRuntime() {
+	rootNode._noriaPlannerSizingObserver?.disconnect();
+	rootNode._noriaPlannerSizingObserver = null;
+	rootNode._noriaPlannerSizingGrid = null;
+	try { rootNode.querySelectorAll(".tc-hours-popover").forEach(function (p) { p.hidePopover(); }); } catch (_) {}
 	if (tcRuntimeDisposed) { return; }
 	tcRuntimeDisposed = true;
 	if(calendarDragCancel)calendarDragCancel();
@@ -14541,6 +14871,7 @@ function cleanupTasksCalendarRuntime() {
 		if (tcMonthLayoutRo) { tcMonthLayoutRo.disconnect(); }
 		tcMonthLayoutRo = null;
 		tcMonthLayoutRoGrid = null;
+		tcMonthLayoutRoTargets.clear();
 	} catch (_) {}
 
 	if (tcVisibleIoExpiryTimer) {
@@ -14631,6 +14962,7 @@ function cleanupTasksCalendarRuntime() {
 }
 
 function removeExistingView() {
+	rootNode.querySelectorAll(".tc-hours-popover").forEach(function (pop) { pop.hidePopover(); });
 	try { rootNode.querySelectorAll(".wrappers > .wrapper").forEach(captureMonthWeekScroll); } catch (_) {}
 	try {
 		if (tcVisibleIo) { tcVisibleIo.disconnect(); }
@@ -14774,13 +15106,7 @@ function getMonth(tasks, month) {
 	var currentTitle = "<span class='current-main'>" + formatTasksCalendarMonthTitle(month) + "</span>";
 	rootNode.querySelector("button.current").innerHTML = wrapToolbarPeriodLabelHtml(currentTitle);
 	var gridContent = "";
-	var dueCounter = 0;
-	var doneCounter = 0;
-	var overdueCounter = 0;
-	var startCounter = 0;
-	var scheduledCounter = 0;
-	var recurrenceCounter = 0;
-	var dailyNoteCounter = 0;
+	var rangeOpenTasks = new Map(), rangeCompletedTasks = new Map();
 	var monthStart = moment(month).clone().startOf("month");
 	var fdRaw = parseInt(String(firstDayOfWeek), 10);
 	var fd = Number.isFinite(fdRaw) && fdRaw >= 0 && fdRaw <= 6 ? fdRaw : 0;
@@ -14828,19 +15154,7 @@ function getMonth(tasks, month) {
 
 			// Count Events Only From Selected Month
 			if (moment(month).format("MM") == moment(month).add(i, "days").format("MM")) {
-				dueCounter += due.length;
-				dueCounter += recurrence.length;
-				dueCounter += scheduled.length;
-				dueCounter += dailyNote.length;
-				doneCounter += done.length;
-				startCounter += start.length;
-				scheduledCounter += scheduled.length;
-				recurrenceCounter += recurrence.length;
-				dailyNoteCounter += dailyNote.length;
-				// Get Overdue Count From Today
-				if (moment().format("YYYY-MM-DD") == moment(month).add(i, "days").format("YYYY-MM-DD")) {
-					overdueCounter = overdue.length;
-				};
+				collectCalendarRangeTasks(rangeOpenTasks, rangeCompletedTasks, currentDate);
 			};
 
 			// Set Cell Name And Weekday（任务由 hydrateGridTaskCells DOM 注入）
@@ -14877,7 +15191,7 @@ function getMonth(tasks, month) {
 	setTimeout(function () { try { scheduleMonthCompactTimeSync(); } catch (_) {} }, 240);
 	setTimeout(function () { try { scheduleMonthCompactTimeSync(); } catch (_) {} }, 620);
 	setWrapperEvents();
-	setStatisticValues(dueCounter, doneCounter, overdueCounter, startCounter, scheduledCounter, recurrenceCounter, dailyNoteCounter);
+	setStatisticValuesFromRangeStats(createTaskCalendarRangeStats(rangeOpenTasks, rangeCompletedTasks));
 	setQuickTimelinePanel();
 	paintEisenhowerGranularityUI();
 	scheduleMonthTaskDragBind();
@@ -14899,13 +15213,7 @@ function getWeek(tasks, week) {
 	var gridContent = "";
 	var currentWeekday = moment(week).format("d");
 	var weekNr = moment(week).format("[W]w");
-	var dueCounter = 0;
-	var doneCounter = 0;
-	var overdueCounter = 0;
-	var startCounter = 0;
-	var scheduledCounter = 0;
-	var recurrenceCounter = 0;
-	var dailyNoteCounter = 0;
+	var rangeOpenTasks = new Map(), rangeCompletedTasks = new Map();
 
 	for (let i=0-currentWeekday+parseInt(firstDayOfWeek);i<7-currentWeekday+parseInt(firstDayOfWeek);i++) {
 		var currentDate = moment(week).add(i, "days").format("YYYY-MM-DD");
@@ -14918,18 +15226,7 @@ function getWeek(tasks, week) {
 		getTasksViaAdapter(currentDate);
 
 		// Count Events From Selected Week
-		dueCounter += due.length;
-		dueCounter += recurrence.length;
-		dueCounter += scheduled.length;
-		dueCounter += dailyNote.length;
-		doneCounter += done.length;
-		startCounter += start.length;
-		scheduledCounter += scheduled.length;
-		recurrenceCounter += recurrence.length;
-		dailyNoteCounter += dailyNote.length;
-		if (moment().format("YYYY-MM-DD") == moment(week).add(i, "days").format("YYYY-MM-DD")) {
-			overdueCounter = overdue.length;
-		};
+		collectCalendarRangeTasks(rangeOpenTasks, rangeCompletedTasks, currentDate);
 
 		// Set Cell Name And Weekday（任务由 hydrateGridTaskCells DOM 注入）
 		if ( moment(week).add(i, "days").format("D") == 1 ) {
@@ -14953,7 +15250,7 @@ function getWeek(tasks, week) {
 	scheduleGridHydration(weekGrid);
 	syncPlannerChromeDayBucketChrome();
 	enforcePlannerChromeWeekGridLayout();
-	setStatisticValues(dueCounter, doneCounter, overdueCounter, startCounter, scheduledCounter, recurrenceCounter, dailyNoteCounter);
+	setStatisticValuesFromRangeStats(createTaskCalendarRangeStats(rangeOpenTasks, rangeCompletedTasks));
 	setQuickTimelinePanel();
 	try {
 		requestAnimationFrame(() => {
@@ -14981,17 +15278,11 @@ function getDay(tasks, dayAnchor) {
 	if (tcFeatureFlags && tcFeatureFlags.storeWeek) {
 		try { rootNode.classList.add("planner-chrome"); } catch (_) {}
 	}
-	var day = moment(dayAnchor || selectedDate || moment()).startOf("day");
+	var day = moment(dayAnchor || selectedDate || calendarNow()).startOf("day");
 	selectedDate = day.clone();
 	setTaskStoreView("day", day.format("YYYY-MM-DD"));
 	applyDayCurrentTitle(day);
-	var dueCounter = 0;
-	var doneCounter = 0;
-	var overdueCounter = 0;
-	var startCounter = 0;
-	var scheduledCounter = 0;
-	var recurrenceCounter = 0;
-	var dailyNoteCounter = 0;
+	var rangeOpenTasks = new Map(), rangeCompletedTasks = new Map();
 	var currentDate = day.format("YYYY-MM-DD");
 	var dailyNotePath = buildDailyNotePath(currentDate);
 	var weekDay = day.format("d");
@@ -15000,15 +15291,7 @@ function getDay(tasks, dayAnchor) {
 	/* plannerChrome 日表格内日期条已隐藏（与顶栏重复）；非 plannerChrome 仍显示格头 */
 	var cellName = rootNode.classList.contains("planner-chrome") ? "\u200b" : mo + "月" + dnum + "日";
 		getTasksViaAdapter(currentDate);
-	dueCounter += due.length + recurrence.length + scheduled.length + dailyNote.length;
-	doneCounter += done.length;
-	startCounter += start.length;
-	scheduledCounter += scheduled.length;
-	recurrenceCounter += recurrence.length;
-	dailyNoteCounter += dailyNote.length;
-	if (moment().format("YYYY-MM-DD") == currentDate) {
-		overdueCounter = overdue.length;
-	}
+	collectCalendarRangeTasks(rangeOpenTasks, rangeCompletedTasks, currentDate);
 	var cell = cellTemplate
 		.replace("{{date}}", currentDate)
 		.replace("{{cellName}}", cellName)
@@ -15020,7 +15303,7 @@ function getDay(tasks, dayAnchor) {
 	scheduleGridHydration(dayGrid);
 	syncPlannerChromeDayBucketChrome();
 	enforcePlannerChromeWeekGridLayout();
-	setStatisticValues(dueCounter, doneCounter, overdueCounter, startCounter, scheduledCounter, recurrenceCounter, dailyNoteCounter);
+	setStatisticValuesFromRangeStats(createTaskCalendarRangeStats(rangeOpenTasks, rangeCompletedTasks));
 	setQuickTimelinePanel();
 	try {
 		requestAnimationFrame(function () {
@@ -15051,12 +15334,12 @@ function getList(tasks, focusDate) {
 	var currentTitle = rangeModel.titleHtml;
 	rootNode.querySelector("button.current").innerHTML = wrapToolbarPeriodLabelHtml(currentTitle);
 	var monthName = moment(selectedDate).format("MMM").replace(".","").substring(0,3);
-	var rangeStats = createTaskCalendarRangeStats();
+	var completedInRange = new Map();
 	var eisenDayList = rangeModel.days;
 	var buckets = { q1: [], q2: [], q3: [], q4: [] };
 	/* 艾森豪威尔：纵轴=重要度（🔽/priority D → 不重要），横轴=紧急度（相对今天：逾期或 due 在 N 天内 → 紧急）。与 Tasks 行内优先级 emoji 对齐。 */
 	var TC_EISEN_URGENT_WITHIN_DAYS = 3;
-	var todayStr = moment().format("YYYY-MM-DD");
+	var todayStr = calendarNow().format("YYYY-MM-DD");
 	var typRank = { overdue: 60, due: 50, process: 48, recurrence: 44, scheduled: 38, start: 32, dailyNote: 24 };
 	function skipQuadrantTask(typ) {
 		return typ === "done" || typ === "cancelled";
@@ -15064,11 +15347,14 @@ function getList(tasks, focusDate) {
 	var taskQuadrantBest = new Map();
 	function noteQuadrantTask(task, typ, dateStr) {
 		if (skipQuadrantTask(typ)) { return; }
+		task = task.calendarSource || task;
 		var k = getTaskKey(task);
 		var rank = typRank[typ] || 10;
 		var prev = taskQuadrantBest.get(k);
+		var types = prev ? prev.types : new Set();
+		types.add(typ);
 		if (!prev || rank > prev.rank) {
-			taskQuadrantBest.set(k, { task: task, typ: typ, dateStr: dateStr, rank: rank });
+			taskQuadrantBest.set(k, { task: task, typ: typ, dateStr: dateStr, rank: rank, types: types });
 		}
 	}
 	function taskIsLowPriorityForEisen(t) {
@@ -15079,8 +15365,8 @@ function getList(tasks, focusDate) {
 		var task = entry.task;
 		var manualBucket = getTaskEisenhowerBucketOverride(task);
 		if (manualBucket) { return manualBucket; }
-		/* #tl/#timeline 日程：仅占「不重要」半区（Q3/Q4），避免占满重要象限干扰四象决策 */
-		var low = taskIsLowPriorityForEisen(task) || isTimelineTaggedTask(task);
+		/* 日程标签表示记录形式；重要程度继续由优先级和手动分区决定。 */
+		var low = taskIsLowPriorityForEisen(task);
 		var urgent = false;
 		var dueYmd = coerceTemporalToYmd(task && task.due) || coerceTemporalToYmd(task && task.scheduled);
 		if (dueYmd) {
@@ -15099,7 +15385,7 @@ function getList(tasks, focusDate) {
 	for (let i = 0; i < eisenDayList.length; i++) {
 		var currentDate = eisenDayList[i];
 		getTasksViaAdapter(currentDate);
-		accumulateCurrentTaskRangeStats(rangeStats, currentDate);
+		done.forEach(function (task) { if (!task.calendarSchedule) completedInRange.set(getTaskKey(task), task); });
 		overdue.forEach(t => noteQuadrantTask(t, "overdue", currentDate));
 		due.forEach(t => noteQuadrantTask(t, "due", currentDate));
 		process.forEach(t => noteQuadrantTask(t, "process", currentDate));
@@ -15110,7 +15396,7 @@ function getList(tasks, focusDate) {
 	}
 	taskQuadrantBest.forEach((entry) => {
 		var b = classifyEisenhowerBucket(entry);
-		buckets[b].push({ task: entry.task, typ: entry.typ, dateStr: entry.dateStr });
+		buckets[b].push({ task: entry.task, typ: entry.typ, dateStr: entry.dateStr, types: entry.types });
 	});
 	/* 象限图标：Q1 爆发 · Q2 罗盘/方向 · Q3 多人委派 · Q4 收纳盒 */
 	var gQ1 = "<span class='qGlyph' aria-hidden='true'><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M13 2L3 14h8l-1 8 10-12h-8l1-8z'/></svg></span>";
@@ -15118,10 +15404,6 @@ function getList(tasks, focusDate) {
 	var gQ3 = "<span class='qGlyph' aria-hidden='true'><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M23 21v-2a4 4 0 0 0-3-3.87'/><path d='M16 3.13a4 4 0 0 1 0 7.75'/></svg></span>";
 	var gQ4 = "<span class='qGlyph' aria-hidden='true'><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 8v13H3V8'/><path d='M1 3h22v5H1z'/><path d='M10 12h4'/></svg></span>";
 	var eisenRegionAria = tcRuntimeT("runtime.tasksCalendar.eisenhower.regionAria");
-	var eisenImportant = tcRuntimeT("runtime.tasksCalendar.eisenhower.important");
-	var eisenNotImportant = tcRuntimeT("runtime.tasksCalendar.eisenhower.notImportant");
-	var eisenUrgent = tcRuntimeT("runtime.tasksCalendar.eisenhower.urgent");
-	var eisenNotUrgent = tcRuntimeT("runtime.tasksCalendar.eisenhower.notUrgent");
 	var q2Title = tcRuntimeT("runtime.tasksCalendar.eisenhower.q2Title");
 	var q2Hint = tcRuntimeT("runtime.tasksCalendar.eisenhower.q2Hint");
 	var q2Aria = tcRuntimeT("runtime.tasksCalendar.eisenhower.q2Aria");
@@ -15137,18 +15419,13 @@ function getList(tasks, focusDate) {
 	var qHtml = "";
 	qHtml += "<div class='eisenhowerMatrix' role='region' aria-label='" + eisenRegionAria + "'>";
 	qHtml += "<div class='eisenMatrixShell'>";
-	qHtml += "<span class='eisenLabel eisenY top'><span class='eisenTick eisenTick--down' aria-hidden='true'></span><span class='eisenLabelText'>" + eisenImportant + "</span></span>";
-	qHtml += "<span class='eisenLabel eisenX left'><span class='eisenLabelText'>" + eisenNotUrgent + "</span><span class='eisenTick eisenTick--right' aria-hidden='true'></span></span>";
 	/* 标准象限：左上 Q2、右上 Q1、左下 Q4、右下 Q3 */
 	qHtml += "<div class='quadrantGrid tc-matrix'>";
-	qHtml += "<section class='quadrant q2' aria-label='" + q2Aria + "'><header>" + gQ2 + "<div class='qHeadingRow'><span class='qTitle'>" + q2Title + "</span><span class='qHint'>" + q2Hint + "</span><span class='qCount'>" + buckets.q2.length + "</span></div></header><div class='qContent' data-q='q2'></div></section>";
-	qHtml += "<section class='quadrant q1' aria-label='" + q1Aria + "'><header>" + gQ1 + "<div class='qHeadingRow'><span class='qTitle'>" + q1Title + "</span><span class='qHint'>" + q1Hint + "</span><span class='qCount'>" + buckets.q1.length + "</span></div></header><div class='qContent' data-q='q1'></div></section>";
-	qHtml += "<section class='quadrant q4' aria-label='" + q4Aria + "'><header>" + gQ4 + "<div class='qHeadingRow'><span class='qTitle'>" + q4Title + "</span><span class='qHint'>" + q4Hint + "</span><span class='qCount'>" + buckets.q4.length + "</span></div></header><div class='qContent' data-q='q4'></div></section>";
-	qHtml += "<section class='quadrant q3' aria-label='" + q3Aria + "'><header>" + gQ3 + "<div class='qHeadingRow'><span class='qTitle'>" + q3Title + "</span><span class='qHint'>" + q3Hint + "</span><span class='qCount'>" + buckets.q3.length + "</span></div></header><div class='qContent' data-q='q3'></div></section>";
+	qHtml += "<section class='quadrant q2' aria-label='" + q2Aria + "'><header title=\"" + escapeHtmlAttr(q2Hint) + "\">" + gQ2 + "<div class='qHeadingRow'><span class='qTitle'>" + q2Title + "</span><span class='qCount'>" + buckets.q2.length + "</span></div></header><div class='qContent' data-q='q2'></div></section>";
+	qHtml += "<section class='quadrant q1' aria-label='" + q1Aria + "'><header title=\"" + escapeHtmlAttr(q1Hint) + "\">" + gQ1 + "<div class='qHeadingRow'><span class='qTitle'>" + q1Title + "</span><span class='qCount'>" + buckets.q1.length + "</span></div></header><div class='qContent' data-q='q1'></div></section>";
+	qHtml += "<section class='quadrant q4' aria-label='" + q4Aria + "'><header title=\"" + escapeHtmlAttr(q4Hint) + "\">" + gQ4 + "<div class='qHeadingRow'><span class='qTitle'>" + q4Title + "</span><span class='qCount'>" + buckets.q4.length + "</span></div></header><div class='qContent' data-q='q4'></div></section>";
+	qHtml += "<section class='quadrant q3' aria-label='" + q3Aria + "'><header title=\"" + escapeHtmlAttr(q3Hint) + "\">" + gQ3 + "<div class='qHeadingRow'><span class='qTitle'>" + q3Title + "</span><span class='qCount'>" + buckets.q3.length + "</span></div></header><div class='qContent' data-q='q3'></div></section>";
 	qHtml += "</div>";
-	qHtml += "<span class='eisenLabel eisenX right'><span class='eisenTick eisenTick--left' aria-hidden='true'></span><span class='eisenLabelText'>" + eisenUrgent + "</span></span>";
-	qHtml += "<div class='eisenMatrixTopBar' aria-label='" + tcRuntimeT("runtime.tasksCalendar.eisenhower.rangeAria") + "'></div>";
-	qHtml += "<span class='eisenLabel eisenY bottom'><span class='eisenTick eisenTick--up' aria-hidden='true'></span><span class='eisenLabelText'>" + eisenNotImportant + "</span></span>";
 	qHtml += "</div></div>";
 	var listNode = mountHtmlContainer("list tc-quadrant-view", qHtml, {"data-month": monthName, "data-eisen": eisenhowerGranularity});
 	var eisenDragTaskEl = null;
@@ -15163,22 +15440,7 @@ function getList(tasks, focusDate) {
 		eisenDragTaskEl = null;
 		eisenDragSourceBucket = "";
 	}
-	function syncEisenhowerBucketHost(host) {
-		if (!host) return;
-		try {
-			host.querySelectorAll(".qEmpty").forEach(function (node) { node.remove(); });
-			var count = host.querySelectorAll(".qTask").length;
-			var section = host.closest(".quadrant");
-			var counter = section && section.querySelector(".qCount");
-			if (counter) counter.textContent = String(count);
-			if (!count) {
-				var emptyNode = host.ownerDocument.createElement("div");
-				emptyNode.className = "qEmpty";
-				emptyNode.textContent = tcRuntimeT("runtime.tasksCalendar.eisenhower.empty");
-				host.appendChild(emptyNode);
-			}
-		} catch (_) {}
-	}
+
 	function moveEisenhowerTaskOptimistically(taskEl, targetHost, targetBucket) {
 		if (!taskEl || !targetHost) return null;
 		var sourceHost = taskEl.parentElement;
@@ -15193,8 +15455,7 @@ function getList(tasks, focusDate) {
 		targetHost.appendChild(taskEl);
 		taskEl.setAttribute("data-eisen-bucket", targetBucket);
 		taskEl.classList.add("is-saving");
-		syncEisenhowerBucketHost(sourceHost);
-		syncEisenhowerBucketHost(targetHost);
+		syncQuadrantFocusCounts();
 		return snapshot;
 	}
 	function restoreEisenhowerTaskOptimistically(snapshot) {
@@ -15209,8 +15470,7 @@ function getList(tasks, focusDate) {
 		}
 		taskEl.setAttribute("data-eisen-bucket", snapshot.previousBucket);
 		taskEl.classList.remove("is-saving");
-		syncEisenhowerBucketHost(snapshot.targetHost);
-		syncEisenhowerBucketHost(sourceHost);
+		syncQuadrantFocusCounts();
 	}
 	function bindEisenhowerDropTarget(host, targetBucket) {
 		host.addEventListener("dragenter", function (event) {
@@ -15273,11 +15533,12 @@ function getList(tasks, focusDate) {
 			let node = buildTaskElement(items[i].task, items[i].typ, items[i].dateStr, listNode.ownerDocument, { eisenContentOnly: true });
 			if (!node) continue;
 			node.classList.add("qTask", "tc-cal-item--eisen-content");
+			node.setAttribute("data-tc-kinds", Array.from(items[i].types).join(" "));
 			node.draggable = true;
 			node.setAttribute("data-eisen-bucket", q);
 			node.addEventListener("dragstart", function (event) {
 				eisenDragTaskEl = node;
-				eisenDragSourceBucket = q;
+				eisenDragSourceBucket = node.getAttribute("data-eisen-bucket");
 				node.classList.add("is-dragging");
 				if (event.dataTransfer) {
 					event.dataTransfer.effectAllowed = "move";
@@ -15311,10 +15572,10 @@ function getList(tasks, focusDate) {
 	fillBucket("q2", 180);
 	fillBucket("q3", 120);
 	fillBucket("q4", 120);
-	dockEisenGranularityShell(listNode);
-	setStatisticValuesFromRangeStats(rangeStats);
-	requestSharedTaskBoardRangeStats(rangeModel, rangeStats);
+	dockEisenGranularityToolbar();
+	setStatisticValuesFromRangeStats(createTaskCalendarRangeStats(taskQuadrantBest, completedInRange));
 	rootNode.setAttribute("view", "list");
+	syncQuadrantFocusCounts();
 	setTaskStoreView("list", moment(selectedDate).format("YYYY-MM-DD"));
 	setQuickTimelinePanel();
 	paintEisenhowerGranularityUI();

@@ -52,7 +52,7 @@
 
   function titleMaxWidth(widthPx) {
     if (widthPx < 240) return 140;
-    return 220;
+    return Math.min(360, widthPx - 24);
   }
 
   function titleFontSizePx(widthPx) {
@@ -78,8 +78,8 @@
   function groupTaskEvents(events) {
     const groups = new Map();
     events.forEach((event) => {
-      if (!event || text(event.layer) !== "task") return;
-      const taskKey = text(event.taskKey || event.id);
+      if (!event || !["task","pomodoro","note","git","noria"].includes(text(event.layer))) return;
+      const taskKey = text(event.layer)!=="task" ? text(event.id) : text(event.taskKey || event.id);
       if (!taskKey) return;
       if (!groups.has(taskKey)) groups.set(taskKey, []);
       groups.get(taskKey).push(event);
@@ -89,7 +89,7 @@
       const duration = sorted.find((event) => !event.isInstant && event.endMs > event.startMs);
       const primary = duration || sorted[0];
       return { taskKey, events: sorted, primary };
-    }).sort((a, b) => a.primary.startMs - b.primary.startMs || a.taskKey.localeCompare(b.taskKey));
+    }).sort((a, b) => a.primary.startMs - b.primary.startMs || text(a.primary.source?.path).localeCompare(text(b.primary.source?.path)) || finite(a.primary.source?.line,0)-finite(b.primary.source?.line,0) || a.taskKey.localeCompare(b.taskKey));
   }
 
   function measureTitleWidth(title, measureText, metrics, widthPx) {
@@ -98,11 +98,42 @@
       measured = finite(measureText(title, "task-title", {
         widthPx,
         fontSizePx: titleFontSizePx(widthPx),
-        fontWeight: 600
+        fontWeight: 400
       }), 0);
     } catch (_) {}
     if (!(measured > 0)) measured = Math.max(1, text(title).length) * 7;
     return clamp(Math.ceil(measured) + 2, metrics.minTitleWidthPx, metrics.maxTitleWidthPx);
+  }
+
+  function distinguishSources(groups, locale) {
+    const names = new Map();
+    for (const group of groups) {
+      if (group.primary.layer !== 'task') continue;
+      const name = text(group.primary.title || group.primary.text);
+      if (!names.has(name)) names.set(name, []);
+      names.get(name).push(group);
+    }
+    for (const matches of names.values()) {
+      if (matches.length < 2) continue;
+      const paths = matches.map(group => text(group.primary.source?.path).replace(/\\/g, '/').replace(/\.md$/i, ''));
+      // If the filenames repeat, the nearest distinct folder carries the useful context.
+      const contexts = paths.map(path => {
+        const parts=path.split('/');
+        return parts.length>1 && paths.some(other=>other!==path && other.split('/').pop()===parts.at(-1)) ? parts.slice(0,-1) : parts;
+      });
+      matches.forEach((group, i) => {
+        if (!paths[i] || (paths.every(path => path === paths[i]) && !Number.isInteger(group.primary.source?.line))) return;
+        const parts = contexts[i];
+        let count = 1;
+        while (count < parts.length && contexts.some((other, j) => j !== i && paths[j] !== paths[i] && other.slice(-count).join('/') === parts.slice(-count).join('/'))) count++;
+        let label = parts.slice(-count).join(' / ');
+        if (paths.filter(path => path === paths[i]).length > 1 && Number.isInteger(group.primary.source?.line)) {
+          label += ` · ${/^zh/.test(locale || '') ? '第' + (group.primary.source.line + 1) + '行' : 'line ' + (group.primary.source.line + 1)}`;
+        }
+        group.sourceLabel = label;
+      });
+    }
+    return groups;
   }
 
   function visibleDraft(group, viewport, widthPx, heightPx, measureText, metrics) {
@@ -119,15 +150,30 @@
     const anchorX = clamp(rawStartX, metrics.horizontalPaddingPx + metrics.markerSizePx / 2,
       Math.max(metrics.horizontalPaddingPx + metrics.markerSizePx / 2, widthPx - metrics.markerSizePx / 2));
     const title = text(event.title || event.text || group.taskKey);
-    const titleLeft = anchorX + metrics.markerSizePx / 2 + metrics.markerGapPx;
-    const titleWidth = Math.min(measureTitleWidth(title, measureText, metrics, widthPx),
-      Math.max(0, widthPx - metrics.horizontalPaddingPx - titleLeft));
+    const afterMarker = anchorX + metrics.markerSizePx / 2 + metrics.markerGapPx;
+    const durationLabel=text(event.presentation?.durationLabel);
+    const sourceLabel=text(group.sourceLabel);
+    const fullTitleWidth=measureTitleWidth(title+(durationLabel?' · '+durationLabel:''), measureText, {...metrics,maxTitleWidthPx:Infinity}, widthPx);
+    const measuredTitleWidth=Math.min(metrics.maxTitleWidthPx,Math.max(fullTitleWidth,sourceLabel?measureTitleWidth(sourceLabel,measureText,metrics,widthPx):0));
+    const availableAfter=Math.max(0,widthPx-metrics.horizontalPaddingPx-afterMarker);
+    const beforeMarker=anchorX-metrics.markerSizePx/2-metrics.markerGapPx;
+    const availableBefore=Math.max(0,beforeMarker-metrics.horizontalPaddingPx);
+    const placeBefore=measuredTitleWidth>availableAfter&&availableBefore>availableAfter;
+    const titleWidth=Math.min(measuredTitleWidth,placeBefore?availableBefore:availableAfter);
+    const titleLeft=placeBefore?beforeMarker-titleWidth:afterMarker;
 
     return {
       taskKey: group.taskKey,
       eventId: text(event.id),
       sourcePath: text(event.source?.path),
+      sourcePaths: event.payload?.burst?.paths || event.source?.paths || [],
+      sourceLabel,
+      layer: text(event.layer),
+      color: /^#[\da-f]{6}$/i.test(event.color) ? event.color : "",
+      kind: text(event.kind),
+      detail: event.layer!=='task'&&event.layer!=='pomodoro'?text(event.presentation?.hoverText):'',
       title,
+      durationLabel,
       status: isDone(event) ? "done" : normalizedStatus(event),
       startMs: event.startMs,
       endMs: event.endMs,
@@ -139,6 +185,8 @@
       visibleEndX,
       titleWidth,
       titleLeft,
+      titleLines: fullTitleWidth > titleWidth ? 2 : 1,
+      titleHeight: (fullTitleWidth > titleWidth ? 2 : 1) * metrics.titleHeightPx + (sourceLabel ? 16 : 0),
       baseTop: metrics.safeTopPx,
       heightPx,
       clippedStart: rawStartX < 0,
@@ -155,22 +203,25 @@
   }
 
   function placeTaskTitles(drafts, heightPx, metrics) {
-    const placed = [];
-    const maxLane = Math.max(0, Math.floor((heightPx - metrics.safeBottomPx - metrics.safeTopPx - metrics.titleHeightPx) / metrics.laneStepPx));
+    const placed = [], lanes = [];
     drafts.forEach((draft) => {
       let lane = 0;
-      let bounds = rect(draft.titleLeft, metrics.safeTopPx, draft.titleWidth, metrics.titleHeightPx);
+      const titleHeight = draft.titleHeight || metrics.titleHeightPx;
+      const slots = Math.ceil((titleHeight + 4) / metrics.laneStepPx);
+      let bounds = rect(draft.titleLeft, metrics.safeTopPx, draft.titleWidth, titleHeight);
       const occupiedBounds = () => {
         const left = Math.min(bounds.left - metrics.markerGapPx - metrics.markerSizePx, draft.visibleStartX);
         const right = Math.max(bounds.right, draft.visibleEndX);
         return rect(left, bounds.top, right - left, bounds.height);
       };
-      const conflicts = () => placed.some((item) => item.titleVisible !== false && collides(item.occupiedBounds, occupiedBounds(), metrics.laneGapPx, 1));
-      while (lane < maxLane && conflicts()) {
+      const conflicts = () => Array.from({length:slots},(_,i)=>lanes[lane+i] || []).some(items=>items.some(bounds => collides(bounds, occupiedBounds(), metrics.laneGapPx, 1)));
+      while (conflicts()) {
         lane += 1;
-        bounds = rect(draft.titleLeft, metrics.safeTopPx + lane * metrics.laneStepPx, draft.titleWidth, metrics.titleHeightPx);
+        bounds = rect(draft.titleLeft, metrics.safeTopPx + lane * metrics.laneStepPx, draft.titleWidth, titleHeight);
       }
-      placed.push({ ...draft, lane, titleBounds: bounds, occupiedBounds: occupiedBounds(), titleVisible: !conflicts() });
+      const occupied = occupiedBounds();
+      for(let i=0;i<slots;i++)(lanes[lane+i] || (lanes[lane+i] = [])).push(occupied);
+      placed.push({ ...draft, lane, titleBounds: bounds, occupiedBounds: occupied, titleVisible: true });
     });
     return placed;
   }
@@ -195,8 +246,8 @@
 
   function buildTaskUnit(item, metrics) {
     const titleBounds = item.titleBounds;
-    const centerY = titleBounds.top + titleBounds.height / 2;
-    const pointLeft = titleBounds.left - metrics.markerGapPx - metrics.markerSizePx;
+    const centerY = titleBounds.top + Math.min(titleBounds.height, metrics.titleHeightPx) / 2;
+    const pointLeft = item.anchorX - metrics.markerSizePx / 2;
     const pointBounds = rect(pointLeft, centerY - metrics.markerSizePx / 2, metrics.markerSizePx, metrics.markerSizePx);
     const railLeft = item.isInstant ? item.anchorX : item.visibleStartX;
     const railWidth = item.isInstant ? 0 : Math.max(0, item.visibleEndX - item.visibleStartX);
@@ -205,6 +256,13 @@
       taskKey: item.taskKey,
       eventId: item.eventId,
       sourcePath: item.sourcePath,
+      sourcePaths: item.sourcePaths,
+      layer: item.layer,
+      color: item.color,
+      kind: item.kind,
+      readOnly: item.layer !== "task",
+      detail: item.detail,
+      canOpenSource: item.layer==='task'||/\.md$/i.test(item.sourcePath),
       status: item.status,
       startMs: item.startMs,
       endMs: item.endMs,
@@ -216,8 +274,11 @@
       title: {
         role: "primary-title",
         text: item.title,
+        durationLabel: item.durationLabel,
+        sourceLabel: item.sourceLabel,
+        lines: item.titleLines || 1,
         visible: item.titleVisible !== false,
-        fontWeight: 600,
+        fontWeight: 400,
         bounds: titleBounds
       },
       point: {
@@ -272,6 +333,90 @@
     };
   }
 
+  function projectRenderPlan(options, index, viewport, widthPx, heightPx, metrics) {
+    const normalize = path => text(path).replace(/\\/g,"/").split("#")[0].replace(/\/$/,"");
+    const projects = (options.projects || []).map(p=>({...p,root:normalize(p.root),path:normalize(p.targetPath || p.path || p.root),items:[]})).filter(p=>p.root);
+    const other = {root:"__other__",name:options.locale==="zh-CN"?"其他任务":"Other tasks",items:[]};
+    const expanded=new Set(options.expandedProjects || []);
+    const groups=groupTaskEvents(index.events.filter(e=>e.layer==="task"));
+    const datedKeys=new Set(groups.map(g=>g.taskKey));
+    for(const task of options.unplaced || []) if(!datedKeys.has(task.id))groups.push({taskKey:task.id,events:[],primary:task});
+    for(const group of groups){
+      const path=normalize(group.primary.source?.path);
+      const candidates=projects.filter(p=>path===p.root || (!p.root.endsWith('.md')&&path.startsWith(p.root+'/')));
+      candidates.sort((a,b)=>b.root.length-a.root.length);
+      (candidates[0] || other).items.push(group);
+    }
+    if(other.items.length)projects.push(other);
+    const rows=[],units=[],summaries=[];
+    let top=8;
+    for(const project of projects){
+      // No empty lanes in the combined view; an explicitly selected project
+      // remains visible so its source note is still reachable.
+      if(!project.items.length && normalize(options.projectRoot)!==project.root)continue;
+      distinguishSources(project.items,options.locale);
+      project.items.sort((a,b)=>normalize(a.primary.source?.path).localeCompare(normalize(b.primary.source?.path)) || finite(a.primary.source?.line,0)-finite(b.primary.source?.line,0) || a.taskKey.localeCompare(b.taskKey));
+      const open=expanded.has(project.root),events=project.items.flatMap(g=>g.events);
+      const range=viewportApi.visibleRange(viewport);
+      const visibleTaskCount=project.items.filter(group=>group.events.some(event=>event.startMs<=range.endMs&&event.endMs>=range.startMs)).length;
+      const schedule=events.length?{startMs:Math.min(...events.map(event=>event.startMs)),endMs:Math.max(...events.map(event=>event.endMs))}:null;
+      const showSchedule=open&&schedule&&visibleTaskCount===0;
+      const headerHeight=showSchedule?50:32;
+      rows.push({key:project.root,title:project.name,path:project.path||"",top,height:headerHeight,project:true,expanded:open,count:project.items.length,
+        scheduledEventIds:events.map(event=>event.id),schedule,visibleTaskCount,
+        outsideDirection:schedule?(schedule.endMs<range.startMs?'earlier':schedule.startMs>range.endMs?'later':'both'):null,
+        unplacedTasks:project.items.filter(g=>!g.events.length).map(g=>g.primary)});
+      if(events.length&&!open){
+        const start=Math.min(...events.map(e=>e.startMs)),end=Math.max(...events.map(e=>e.endMs));
+        const a=viewportApi.dateMsToPx(viewport,start),b=viewportApi.dateMsToPx(viewport,end);
+        if(b>=0&&a<=widthPx)summaries.push({key:project.root,startMs:start,endMs:end,clippedStart:a<0,clippedEnd:b>widthPx,bounds:rect(clamp(a,0,widthPx),top+29,Math.max(2,clamp(b,0,widthPx)-clamp(a,0,widthPx)),6)});
+      }
+      top+=headerHeight+2;
+      if(open)for(const group of project.items){
+        if(!group.events.length)continue;
+        for(const event of group.events){
+          const draft=visibleDraft({taskKey:event.id,primary:event,sourceLabel:group.sourceLabel},viewport,widthPx,heightPx,options.measureText,metrics);
+          if(draft){
+            // Preserve source order without reserving space for off-screen occurrences.
+            const compact=widthPx<=480;
+            const visibleWidth=draft.visibleEndX-draft.visibleStartX;
+            const available=Math.max(0,widthPx-(compact?47:16));
+            const measured=measureTitleWidth(draft.title,options.measureText,{...metrics,maxTitleWidthPx:Math.max(available*2,1)},widthPx*2);
+            const titleWidth=compact?available:Math.min(measured,available);
+            const twoLines=compact&&measured>available;
+            const rowHeight=(compact?(twoLines?56:38):36)+(draft.sourceLabel?16:0);
+            rows.push({key:event.id,task:group.primary,top,height:rowHeight,project:false});
+            const inline=!compact&&!draft.sourceLabel&&!draft.isInstant&&visibleWidth>=titleWidth+16;
+            const titleLeft=compact?35:clamp(draft.visibleStartX+8,8,Math.max(8,widthPx-titleWidth-8));
+            const bounds=rect(titleLeft,top+4,titleWidth,(twoLines?36:18)+(draft.sourceLabel?16:0));
+            const unit=buildTaskUnit({...draft,titleLines:twoLines?2:1,titleBounds:bounds,titleVisible:true,lane:rows.length-1},metrics);
+            unit.projectTask=true;
+            unit.compactProject=compact;
+            unit.inlineTitle=inline;
+            unit.point.visible=draft.isInstant;
+            const railTop=top+rowHeight-11;
+            unit.point.bounds=rect(clamp(draft.visibleStartX-3,0,Math.max(0,widthPx-6)),railTop-1,6,6);
+            const railWidth=Math.max(4,visibleWidth);
+            const railLeft=clamp(draft.visibleStartX-(railWidth-visibleWidth)/2,0,Math.max(0,widthPx-railWidth));
+            unit.rail.bounds=rect(railLeft,inline?top:railTop,railWidth,inline?26:4);
+            // Labels may expand or shift at an edge; resize grips still track actual dates.
+            unit.handles.start.bounds=rect(draft.visibleStartX-metrics.handleWidthPx,railTop-10,metrics.handleWidthPx,24);
+            unit.handles.end.bounds=rect(draft.visibleEndX,railTop-10,metrics.handleWidthPx,24);
+            if(visibleWidth<24){unit.handles.start.visible=false;unit.handles.end.visible=false;}
+            const hitLeft=Math.max(0,Math.min(bounds.left,draft.visibleStartX-metrics.handleWidthPx));
+            const hitRight=Math.min(widthPx,Math.max(bounds.right,draft.visibleEndX+metrics.handleWidthPx));
+            unit.handleZoneBounds=rect(hitLeft,top,hitRight-hitLeft,rowHeight-2);
+            unit.handles.move.bounds=unit.handleZoneBounds;
+            units.push(unit);
+            top+=rowHeight;
+          }
+        }
+      }
+      top+=4;
+    }
+    return {widthPx,heightPx,contentHeightPx:Math.max(heightPx,top+8),visibleRange:viewportApi.visibleRange(viewport),metrics,taskUnits:units,projectRows:rows,projectSummaries:summaries,hiddenTaskCount:0,annotationUnits:[],hiddenAnnotations:[]};
+  }
+
   function buildRenderPlan(options = {}) {
     const widthPx = Math.max(0, finite(options.widthPx, options.viewport && options.viewport.widthPx || 0));
     const heightPx = Math.max(0, finite(options.heightPx, 315));
@@ -281,9 +426,10 @@
     const index = options.eventIndex && Array.isArray(options.eventIndex.events)
       ? options.eventIndex
       : eventIndexApi.createEventIndex(Array.isArray(options.events) ? options.events : []);
+    if(options.groupBy==="projects")return projectRenderPlan(options,index,viewport,widthPx,heightPx,metrics);
     const annotations = layoutAnnotations(index.events, viewport, widthPx, heightPx, options.selectedAnnotationId);
     metrics.safeTopPx += annotations.annotationHeightPx;
-    const groups = groupTaskEvents(index.events);
+    const groups = distinguishSources(groupTaskEvents(index.events),options.locale);
     const drafts = groups
       .map((group) => visibleDraft(group, viewport, widthPx, heightPx, options.measureText, metrics))
       .filter(Boolean);
@@ -296,7 +442,8 @@
       metrics,
       ...annotations,
       taskUnits,
-      hiddenTaskCount: taskUnits.filter((unit) => !unit.title.visible).length
+      contentHeightPx: Math.max(heightPx, ...taskUnits.map(unit => unit.title.bounds.bottom + metrics.safeBottomPx)),
+      hiddenTaskCount: 0
     };
   }
 

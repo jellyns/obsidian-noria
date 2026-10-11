@@ -1317,6 +1317,7 @@ homeWidgetCleanup.add(() => {
 });
 
 const coreFiles = [
+  ".obsidian/plugins/noria/views/dashboard/core/components/charts/trend-annotations.js",
   ".obsidian/plugins/noria/views/dashboard/core/theme/dashboard-theme.js",
   ".obsidian/plugins/noria/views/dashboard/core/utils/dashboard-lucide-inline.js",
   ".obsidian/plugins/noria/views/dashboard/core/components/ui/manager-panel.js",
@@ -1699,6 +1700,7 @@ function resolveWidgetTitle(widget, entry = {}) {
   if (explicit) return explicit;
   const key = String(widget?.titleKey || entry?.titleKey || "").trim();
   if (key) return homeRuntimeT(key);
+  if (widget?.type === 'extension') return homeBridge.runtime.getExtensionCardTitle?.(widget) || '';
   return String(entry?.title || "").trim();
 }
 
@@ -1857,7 +1859,7 @@ function createHomeWidgetShellActions(widget, shell, visibleTitle) {
     event.preventDefault();
     event.stopPropagation();
     if (button.getAttribute("aria-expanded") === "true") return;
-    const visibleIds = [...root.children].filter((node) => !node.hidden).flatMap((node) =>
+    const visibleIds = [...root.children].flatMap(node=>node.classList.contains('noria-card-stack')?[...node.children]:[node]).filter((node) => !node.hidden).flatMap((node) =>
       node.classList.contains("dashboard-hero-strip") ? ["identity", "metrics"] : [node.dataset.noriaWidgetId]
     ).filter(Boolean);
     homeBridge.runtime.openHomeWidgetMenu(widget.id, button, visibleIds);
@@ -1883,9 +1885,9 @@ function createWidgetShell(widget, title, entry = {}) {
         const content = host.createDiv({ cls: "dashboard-home-widget-native-content" });
         return { content, titleActions };
       })()
-    : widget.type==="extension"?(()=>{
+    : (widget.type==="extension"||(widget.type==="markdown"&&widget.props?.sourceMode==="daily-section"&&widget.props?.heading==="建议"))?(()=>{
       const host=root.createDiv({cls:"dashboard-home-widget-shell dashboard-guide-card noria-custom-card"});
-      const head=host.createDiv({cls:"dashboard-guide-card__head"});head.createDiv({cls:"dashboard-guide-card__title",text:visibleTitle});
+      const head=host.createDiv({cls:"dashboard-guide-card__head"});head.createDiv({cls:"dashboard-guide-card__title",attr:{title:visibleTitle}}).createSpan({cls:"dashboard-guide-card__title-text",text:visibleTitle});
       const titleActions=head.createDiv({cls:"dashboard-guide-card__tools"}),content=host.createDiv({cls:"noria-custom-card-body"});return {titleActions,content};
     })():createCallout(root, "info", visibleTitle || "");
   const host = shell.content?.parentElement;
@@ -2043,7 +2045,7 @@ async function getHomeDailySectionSource(widget) {
   const date = formatHomeDate(props.date || homeBridge?.today || homeBridge?.now || opts?.now || new Date());
   const diaryRoot = homeActionPath(props.diaryRoot || homeBridge?.paths?.diaryRoot || "").replace(/\/+$/, "");
   if (!heading || !date || !diaryRoot) return null;
-  return {
+  const source = {
     heading,
     date,
     path: props.diaryRoot?`${diaryRoot}/${date.slice(0, 4)}/${date}.md`:(await homeBridge.calendar.resolveNote({period:'daily',date})).path,
@@ -2054,6 +2056,8 @@ async function getHomeDailySectionSource(widget) {
     role: "daily-section",
     freshHours: 0
   };
+  return heading==='建议'&&!props.date&&typeof homeBridge.runtime?.resolveRecentSuggestionSource==='function'
+    ? homeBridge.runtime.resolveRecentSuggestionSource(source,props.diaryRoot?diaryRoot:'') : source;
 }
 
 function extractHomeMarkdownH2Section(markdown, heading) {
@@ -2228,6 +2232,13 @@ async function renderMarkdownWidget(widget, mount) {
       ? extractHomeMarkdownH2Section(loaded.text, dailySectionSource.heading)
       : { found: false, text: "", line: 0 };
     if (!loaded.ok || !section.found || !section.text) {
+      // An explicitly enabled Suggestions card stays reachable before its first entry.
+      // Other optional daily sections retain their existing quiet-empty behavior.
+      if(dailySectionSource.heading==='建议'&&typeof homeBridge.runtime?.renderSuggestionReplies==='function'){
+        body.createDiv({cls:'dashboard-home-markdown-daily-section-content markdown-rendered'});
+        homeWidgetCleanup.add(await homeBridge.runtime.renderSuggestionReplies(body,{...dailySectionSource,markdown:''}));
+        return {state:'empty',hidden:false,sourcePath:dailySectionSource.path,heading:dailySectionSource.heading};
+      }
       if (homeEditMode) {
         createHomeMarkdownSingleState(widget, body, {
           state: loaded.ok ? "empty" : "failed",
@@ -2243,6 +2254,14 @@ async function renderMarkdownWidget(widget, mount) {
     content.addClass("markdown-preview-view");
     content.addClass("markdown-rendered");
     const rendered = await renderMarkdownContent(section.text, content, dailySectionSource.path);
+    if(dailySectionSource.heading==='建议'&&dailySectionSource.date!==formatHomeDate(homeBridge?.today||homeBridge?.now||opts?.now||new Date())){
+      const shell=mount.closest?.('.dashboard-home-widget-shell,.noria-diary-card');
+      const tools=shell?.querySelector('.dashboard-guide-card__tools,.dashboard-home-widget-title-actions,.noria-diary-card-tools');
+      const date=(tools||body).createEl('button',{cls:'noria-suggestion-source-date',text:dailySectionSource.date,attr:{type:'button','aria-label':dailySectionSource.date+' · '+homeRuntimeT('runtime.home.markdown.open')}});
+      if(tools)tools.insertBefore(date,tools.querySelector('.dashboard-home-widget-shell-actions,.noria-diary-card-menu'));
+      date.onclick=async()=>{date.disabled=true;try{await openHomeActionFile(dailySectionSource.path,{...dailySectionSource,line:section.line});setHomeActionButtonState(date,'ok');}catch(error){setHomeActionButtonState(date,'failed',String(error?.message||error));}finally{date.disabled=false;}};
+      homeWidgetCleanup.add(()=>date.remove());
+    }
     if(dailySectionSource.heading==='建议'&&typeof homeBridge.runtime?.renderSuggestionReplies==='function'){
       homeWidgetCleanup.add(await homeBridge.runtime.renderSuggestionReplies(body,{...dailySectionSource,markdown:section.text}));
     }
@@ -3423,6 +3442,8 @@ async function renderConfiguredWidgets() {
     })());
   }
   await Promise.all(widgetJobs);
+  root.dataset.noriaCardPage=homeBridge.statisticsPageId||'home';
+  homeBridge.runtime?.applyCardComposition?.(root,homeBridge.homeSettings?.widgets||widgets);
 }
 
 try {

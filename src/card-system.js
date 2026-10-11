@@ -1,10 +1,12 @@
 "use strict";
-const {Component, MarkdownRenderer, Modal, Notice} = require("obsidian");
+const {Component, MarkdownRenderer, Modal, Notice, parseYaml, stringifyYaml} = require("obsidian");
 const {normalizeDiaryCards, normalizePeriodLayouts, migrateDiaryLayouts, chooseLegacyLayout} = require("./card-layout-model.js");
 const {openCardMenu,attachCardResize} = require("./card-controls.js");
 const clone=value=>JSON.parse(JSON.stringify(value));
-const LABELS={width:["宽度","Width"],small:["窄","Narrow"],medium:["中","Medium"],wide:["宽","Wide"],full:["整行","Full row"],
+const LABELS={layout:["布局","Layout"],width:["宽度","Width"],small:["窄","Narrow"],medium:["中","Medium"],wide:["宽","Wide"],full:["整行","Full row"],
   up:["上移","Move up"],down:["下移","Move down"],collapse:["收起","Collapse"],expand:["展开","Expand"],
+  stack:["叠放到…","Stack with…"],stackAbove:["放在上方","Place above"],stackBelow:["放在下方","Place below"],unstack:["独立排布","Place separately"],stackWidth:["组合宽度","Stack width"],
+  remove:["移出本页","Remove from page"],removeHint:["移除本页卡片，保留来源内容","Remove this card; keep source contents"],removed:["卡片已移出本页","Card removed from this page"],
   autoHeight:["自动高度","Automatic height"],copy:["复制卡片","Duplicate card"],hide:["隐藏卡片","Hide card"],show:["显示卡片","Show card"],
   resizeWidth:["拖动调整宽度；方向键左右调整","Drag to resize width; use Left or Right keys"],undo:["撤销","Undo"],hidden:["卡片已隐藏","Card hidden"]};
 
@@ -16,6 +18,7 @@ class CardSystem {
     this.pages=new (require("./workbench-pages.js").WorkbenchPages)(plugin);
     this.registerBuiltins();
     plugin.registerEvent(this.app.vault.on("rename",(file,oldPath)=>{
+      void this.renameNoteLayouts(oldPath,file.path).catch(error=>new Notice(error.message));
       const assets=require("./picture-model.js").renamedAssets(plugin.settings.pictureAssets,oldPath,file.path);
       const previousFolder=plugin.settings.pictureFolder,folder=previousFolder===oldPath?file.path:previousFolder?.startsWith(oldPath+"/")?file.path+previousFolder.slice(oldPath.length):previousFolder;
       if(JSON.stringify(assets)===JSON.stringify(plugin.settings.pictureAssets||{})&&folder===previousFolder)return;
@@ -32,6 +35,7 @@ class CardSystem {
   dependencies(){return Object.keys(this.app.plugins.plugins).sort().join("|");}
   async initialize(){
     if(this.disposed)return;
+    await this.plugin.shortcuts.initialize();
     const candidates=[];
     const visit=value=>{
       if(!value||typeof value!=="object")return;
@@ -68,6 +72,42 @@ class CardSystem {
   }
   emit(){for(const fn of this.listeners)try{fn();}catch(e){console.warn("Noria card refresh",e);}}
   layout(mode,legacy){return normalizeDiaryCards(this.plugin.settings.cardLayouts?.periods?.[mode]||legacy);}
+  noteLayout(path,layout){return require('./diary-note-layout.js').applyPresentation(layout,this.plugin.settings.cardLayouts?.notes?.[path]);}
+  noteItems(path,legacy=[]){return clone(this.plugin.settings.cardLayouts?.notes?.[path]?.items??legacy);}
+  async updateNoteCards(path,mode,legacy,mutate){
+    if(!path)throw Error('Missing diary path');
+    const job=this.queue.catch(()=>{}).then(async()=>{
+      const before=this.plugin.settings.cardLayouts,next=normalizePeriodLayouts(before);
+      const model=require('./diary-cards-document.js'),items=mutate(this.noteItems(path,legacy));
+      const layout=this.noteLayout(path,model.noteCardsLayout(this.layout(mode),items));
+      next.notes={...next.notes,[path]:{...require('./diary-note-layout.js').presentation(layout),items:items.map(model.cardDefinition)}};
+      this.plugin.settings.cardLayouts=next;
+      try{await this.plugin.saveSettings();}catch(error){this.plugin.settings.cardLayouts=before;throw error;}
+      this.emit();return true;
+    });this.queue=job;return job;
+  }
+  async updateNoteLayout(path,layout,mutate){
+    if(!path)throw Error('Missing diary path');
+    const job=this.queue.catch(()=>{}).then(async()=>{
+      const before=this.plugin.settings.cardLayouts,next=normalizePeriodLayouts(before);
+      next.notes={...next.notes};
+      const items=next.notes[path]?.items;
+      if(mutate===null){if(items)next.notes[path]={items};else delete next.notes[path];}
+      else next.notes[path]={...require('./diary-note-layout.js').presentation(mutate(this.noteLayout(path,layout))),...(items?{items}: {})};
+      this.plugin.settings.cardLayouts=next;
+      try{await this.plugin.saveSettings();}catch(error){this.plugin.settings.cardLayouts=before;throw error;}
+      this.emit();return true;
+    });this.queue=job;return job;
+  }
+  async renameNoteLayouts(oldPath,newPath){
+    const job=this.queue.catch(()=>{}).then(async()=>{
+      const before=this.plugin.settings.cardLayouts,notes=before?.notes;
+      if(!Object.keys(notes||{}).some(path=>path===oldPath||path.startsWith(oldPath+'/')))return;
+      this.plugin.settings.cardLayouts={...before,notes:require('./diary-note-layout.js').renamedNotes(notes,oldPath,newPath)};
+      try{await this.plugin.saveSettings();}catch(error){this.plugin.settings.cardLayouts=before;throw error;}
+      this.emit();
+    });this.queue=job;return job;
+  }
   async ensureLayout(){
     await this.ready;
     const value=normalizePeriodLayouts(this.plugin.settings.cardLayouts);
@@ -99,7 +139,7 @@ class CardSystem {
   }
   title(widget){
     const names={identity:"identity",metrics:"metrics","today-actions":"todayActions","today-tasks-card":"todayTasks","inbox-card":"inbox","countdown-card":"countdown","projects-card":"projects","moc-strip":"moc","review-focus":"review","trends-range":"trendsRange","note-trend-card":"noteTrend","task-trend-card":"taskTrend","habit-history-card":"habitHistory","habit-heatmap-card":"habitHeatmap","workload-heatmap-card":"workloadHeatmap","tag-distribution-card":"tagDistribution","daily-state-card":"dailyState"};
-    const name=names[widget.builtinId||widget.id];return widget.title||(widget.titleKey?this.plugin.t(widget.titleKey):name?this.plugin.t("runtime.home.layoutEdit.widget."+name):widget.source||widget.id);
+    const name=names[widget.builtinId||widget.id];return widget.title||(widget.titleKey?this.plugin.t(widget.titleKey):name?this.plugin.t("runtime.home.layoutEdit.widget."+name):this.providers.get(widget.source)?.title||widget.source||widget.id);
   }
   attachHomeResize(host,id){
     const widget=()=>this.plugin.settings.home.widgets.find(w=>w.id===id);if(!widget())return()=>{};
@@ -116,8 +156,8 @@ class CardSystem {
         return title?.closest(".dashboard-guide-card__head,.dashboard-workbench-panel__head,.noria-card-heading,.callout-title,.dashboard-home-widget-native-title-actions,.dashboard-home-trends-habit-history__head,.dashboard-moc-heading")||title?.parentElement;
       },
       menu:()=>host.querySelector('[data-noria-widget-shell-action="menu"]'),
-      size:value=>this.saveHome({...widget(),size:value,layout:{...widget().layout,...this.plugin.getHomeWidgetSizeLayout(value)}}),
-      reorder:(target,after)=>this.reorderHome(id,target,after)
+      width:value=>this.composeHome(id,'width',value),
+      reorder:(target,after)=>this.composeHome(id,'reorder',{target,after}),stack:(target,after)=>this.composeHome(id,'stack',{target,after})
     });
     const cleanup=attachCardResize(host,()=>widget()?.props?.cardHeight,save,this.text("调整卡片高度","Resize card height"));return()=>{observer.disconnect();direct();cleanup();};
   }
@@ -130,11 +170,32 @@ class CardSystem {
       await this.plugin.requestNoriaRefresh("home",`cards:reorder:${id}`,{immediate:true});
     });this.queue=job;return job;
   }
+  async composeHome(id,action,value){
+    await require('./settings-change.js').commitSettingsChange(this.plugin,['home'],()=>{
+      this.plugin.settings.home.widgets=require('./card-composition.js').composeWidgets(this.plugin.settings.home.widgets,id,action,value);
+    });
+    require('./card-composition-view.js').applyLiveWidgetComposition(this.plugin,'home',this.plugin.settings.home.widgets);
+  }
+  async changeHomeCards(change,reason){
+    await require('./settings-change.js').commitSettingsChange(this.plugin,['home'],()=>change(this.plugin.settings.home));
+    await this.plugin.requestNoriaRefresh("home",reason,{immediate:true});
+  }
   async saveHome(widget){
-    const before=clone(this.plugin.settings.home.widgets),index=before.findIndex(w=>w.id===widget.id);
-    if(index<0)this.plugin.settings.home.widgets.push(clone(widget));else this.plugin.settings.home.widgets[index]=clone(widget);
-    try{await this.plugin.saveSettings();}catch(e){this.plugin.settings.home.widgets=before;throw e;}
-    await this.plugin.requestNoriaRefresh("home",`cards:configure:${widget.id}:${this.revision=(this.revision||0)+1}`,{immediate:true});
+    await this.changeHomeCards(home=>{
+      const index=home.widgets.findIndex(w=>w.id===widget.id);
+      const before=index>=0?home.widgets[index]:null;
+      if(index<0)home.widgets.push(clone(widget));else home.widgets[index]=clone(widget);
+      if(before?.layout?.stack&&require('./card-width.js').cardSpan(before)!==require('./card-width.js').cardSpan(widget))home.widgets=require('./card-composition.js').composeWidgets(home.widgets,widget.id,'width',require('./card-width.js').cardSpan(widget));
+      if(home.removedWidgetIds)home.removedWidgetIds=home.removedWidgetIds.filter(id=>id!==widget.id);
+    },`cards:configure:${widget.id}:${this.revision=(this.revision||0)+1}`);
+  }
+  async removeHome(id){
+    await this.changeHomeCards(home=>{
+      const widget=home.widgets.find(w=>w.id===id);if(widget)widget.enabled=false;
+    },`cards:remove:${id}`);
+    return ()=>this.changeHomeCards(home=>{
+      const widget=home.widgets.find(w=>w.id===id);if(widget)widget.enabled=true;
+    },`cards:restore:${id}`);
   }
   homeMenu(id,anchor,visibleIds){
     const widget=()=>this.plugin.settings.home.widgets.find(item=>item.id===id);
@@ -144,13 +205,14 @@ class CardSystem {
     const edit=(action,value)=>this.plugin.editHomeWidget({widgetId:id,action,value,...(action==="move"?{targetId:visibleIds[visibleIds.indexOf(id)+(value==="up"?-1:1)]}:{})});
     const actions=[{label:this.text("卡片设置","Card settings"),run:()=>this.catalog({page:"home"},id)}];
     const local=anchor.closest(".dashboard-home-widget-shell")?._noriaConfigureWidget;
+    const grid=anchor.closest('.dashboard-home-root'),canStack=!!anchor.closest('.dashboard-home-widget-shell');
     if(local)actions.unshift({label:this.text("管理内容","Manage contents"),run:local,icon:"list"});
-    this.closeMenu=openCardMenu({anchor,title:this.title(widget()),getAnchor,t:key=>this.t(key),actions,
+    this.closeMenu=openCardMenu({app:this.app,anchor,title:this.title(widget()),getAnchor,t:key=>this.t(key),actions,
+      stackTargets:()=>canStack?visibleIds.filter(key=>key!==id&&[...grid.querySelectorAll('.dashboard-home-widget-shell')].some(host=>host.dataset.noriaWidgetId===key)).map(key=>({id:key,title:this.title(this.plugin.settings.home.widgets.find(w=>w.id===key)||{id:key})})):[],
+      stack:(target,after)=>this.composeHome(id,'stack',{target,after}),unstack:widget().layout?.stack?()=>this.composeHome(id,'unstack'):null,
       state:()=>({...widget(),first:visibleIds.indexOf(id)===0,last:visibleIds.indexOf(id)===visibleIds.length-1}),
-      size:value=>edit("size",value),move:value=>edit("move",value),hide:async()=>{
-        const restore=widget().enabled===false;await edit("enabled",restore);
-        if(!restore)require("./card-direct-controls.js").notifyHidden(anchor.ownerDocument,this.t("hidden"),()=>edit("enabled",true),this.t("undo"));
-      },
+      width:value=>this.composeHome(id,'width',value),move:direction=>{const target=visibleIds[visibleIds.indexOf(id)+(direction==='up'?-1:1)];return target?this.composeHome(id,'reorder',{target,after:direction==='down',keepStack:true}):Promise.resolve();},
+      remove:async()=>{const undo=await this.removeHome(id);require("./card-direct-controls.js").notifyHidden(anchor.ownerDocument,this.t("removed"),undo,this.t("undo"));},
       collapse:value=>this.plugin.setHomeWidgetCollapsed(id,value),
       height:async()=>{const reset=getAnchor()?.closest(".dashboard-home-widget-shell")?._noriaResetHeight;if(reset)await reset();},
       copy:async()=>{const copy=clone(widget());copy.id=`card-${crypto.randomUUID()}`;if(copy.type==="builtin")copy.builtinId=copy.builtinId||id;
@@ -165,11 +227,16 @@ class CardSystem {
     return()=>{if(this.providers.get(provider.id)!==entry)return;this.providers.delete(provider.id);for(const mount of [...this.mounted])if(mount.provider===entry)mount.dispose();this.emit();};
   }
   registerBuiltins(){
+    require('./diary-section-card.js').registerDiarySection(this);
     require("./interaction-card.js").registerInteractionCard(this);
     require("./activity-card.js").registerActivityCard(this);
     require("./media-card.js").registerMediaCard(this);
+    require("./shortcut-card.js").registerShortcutCard(this);
+    require('./focus-card.js').registerFocusCard(this);
+    require("./media-workspace.js").registerMediaWorkspace(this);
     this.plugin.propertyStats?.register(this);
     require('./periodic-stat-cards.js').registerPeriodicStats(this,this.plugin);
+    require('./period-overview-card.js').registerPeriodOverview(this,this.plugin);
     this.register({id:"noria:records",title:this.text("每日记录","Daily records"),icon:"notebook-pen",supportsDate:true,description:this.text("填写所选日期的记录项目。","Edit record fields for the selected date."),fields:[],
       render:async({container,selection,component,context})=>{
         if(selection?.mode&&selection.mode!=="daily"){container.createSpan({text:this.text("每日记录在日记中填写，周期回顾可添加统计卡。","Enter records in a daily note; use a statistics card for period summaries.")});return;}
@@ -180,13 +247,26 @@ class CardSystem {
         component.registerEvent(this.app.metadataCache.on("changed",file=>{if(file.path===spec.path)void paint();}));component.register(()=>++generation);
       }});
     this.register({id:"noria:countdown",title:this.text("倒计时","Countdowns"),icon:"calendar-clock",description:this.text("重要日期、到期提醒与归档。","Important dates, deadlines and archives."),fields:[],render:({container})=>this.plugin.countdowns.render(container)});
-    this.register({id:"noria:note",title:this.text("笔记与 Base","Note or Base"),icon:"file-text",description:this.text("嵌入已有笔记、查询或 Base。","Embed an existing note, query or Base."),fields:[{key:"path",label:this.text("源文件","Source file"),type:"file",required:true}],
-      render:async({container,component,config})=>{
+    this.register({id:"noria:note",title:this.text("笔记与 Base","Note or Base"),icon:"file-text",supportsDate:true,description:this.text("嵌入已有笔记、查询或 Base。","Embed an existing note, query or Base."),fields:[{key:"path",label:this.text("源文件","Source file"),type:"file",required:true}],
+      render:async({container,component,config,selection})=>{
         const file=this.app.vault.getAbstractFileByPath(config.path);if(!file||!("extension" in file))throw Error(this.text("找不到源文件","Source file not found"));
-        let child,generation=0;
-        const paint=async()=>{const serial=++generation,content=file.extension==="md"?await this.app.vault.cachedRead(file):`![[${file.path}]]`;if(serial!==generation)return;
-          if(child)component.removeChild(child);child=new Component();component.addChild(child);container.empty();await MarkdownRenderer.render(this.app,content,container,file.path,child);};
-        await paint();component.registerEvent(this.app.vault.on("modify",changed=>{if(changed.path===file.path)void paint();}));component.register(()=>++generation);
+        const sourcePath=file.extension==="base"&&selection?.mode
+          ? (await this.plugin.resolveCalendarNoteSpecAsync(selection.mode,selection.anchorDate)).path : file.path;
+        let child,generation=0,disposed=false;
+        const shell=container.closest?.('.noria-diary-card,.dashboard-home-widget-shell');
+        const configure=()=>this.app.workspace.openLinkText(file.path,"",true);
+        const paint=async()=>{const serial=++generation;
+          let content=file.extension==="md"?await this.app.vault.cachedRead(file):`![[${file.path}]]`,bound=null;
+          if(file.extension==="base"&&selection?.mode){
+            bound=require('./dated-notes.js').bindDatedBase(parseYaml(await this.app.vault.cachedRead(file)),selection,sourcePath);
+            if(bound)content='```base\n'+stringifyYaml(bound)+'\n```';
+          }
+          if(disposed||serial!==generation)return;
+          container.classList.toggle('noria-period-base',!!bound);
+          if(shell){if(bound)shell._noriaConfigureWidget=configure;else if(shell._noriaConfigureWidget===configure)delete shell._noriaConfigureWidget;}
+          if(child)component.removeChild(child);child=new Component();component.addChild(child);container.empty();await MarkdownRenderer.render(this.app,content,container,sourcePath,child);};
+        component.register(()=>{disposed=true;++generation;if(shell?._noriaConfigureWidget===configure)delete shell._noriaConfigureWidget;});
+        await paint();component.registerEvent(this.app.vault.on("modify",changed=>{if(changed.path===file.path)void paint().catch(error=>{if(disposed)return;container.empty();container.createDiv({cls:'noria-card-empty',text:error.message||String(error)});});}));
         component.registerDomEvent(container,"click",event=>{const link=event.target.closest?.("a.internal-link");if(link&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();void this.app.workspace.openLinkText(link.dataset.href||link.getAttribute("href"),file.path,true);}},true);
       }});
     for(const [id,title] of [["dataview","Dataview"]]){
@@ -198,6 +278,8 @@ class CardSystem {
   }
   async render(widget,container,selection,context){
     context=context|| (selection?.pageId?{page:"custom",pageId:selection.pageId}:selection?.mode?{page:"diary",mode:selection.mode,selection}:{page:"home"});
+    const mediaKind=require('./workbench-pages.js').mediaKind(context.pageId);
+    if(context.pageId==='media'||mediaKind)context={...context,mediaPage:true,mediaKind};
     const component=new Component();component.load();let disposed=false;
     const provider=this.providers.get(widget.source);
     const instance={provider,dispose:()=>{if(disposed)return;disposed=true;component.unload();this.mounted.delete(instance);}};
@@ -214,7 +296,7 @@ class CardSystem {
         const button=mount.createEl("button",{text:this.text("安装或启用","Install or enable")});button.onclick=()=>this.openPlugin(provider.pluginId);return instance.dispose;
       }
       const config=clone(widget.props||{});
-      const cleanup=await provider.render({app:this.app,container:mount,component,config,context:clone(context),selection:provider.supportsDate?clone(selection||{}):null,
+      const cleanup=await provider.render({app:this.app,container:mount,component,config,widgetId:widget.id,context:clone(context),selection:provider.supportsDate?clone(selection||{}):null,
         openSource:path=>this.app.workspace.openLinkText(path,"",true)});
       if(typeof cleanup==="function"){if(disposed)cleanup();else component.register(cleanup);}
       if(disposed)mount.remove();
