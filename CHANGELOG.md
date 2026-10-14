@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - Unreleased
+
+- Keep the public build focused on the core workbench; media, RSS, health, finance, inventory, wardrobe and travel remain outside the release bundle.
+- Start with a shared location chooser, root-level IPARA defaults and optional starter examples. Keep setup guidance inside the plugin and preserve existing notes, templates and custom paths.
+- Simplify settings navigation and Inbox assignment controls; share date controls across core pages and preserve card configuration when removing or restoring an instance.
+- Update bilingual documentation with screenshots from the current public build, including Inbox assignment and dragging a task into Focus.
 
 - Align card menus, apply functional colors, restore connected habit bands and warm countdowns, and keep expired countdowns in the manager. Simplify task summaries, weather and project labels while preserving registry descriptions.
 - Align daily record fields on one interactive date axis, preserve missing-day gaps, and keep mood choices distinct. Share field colors across recording and statistics.
@@ -9,7 +14,7 @@
 - Add real countdown start dates, drag-to-reschedule with cancellation, and reversible archives in source Markdown. Keep today accessible alongside configurable habit history and preserve numeric targets and recorded values.
 - Add configurable daily record fields and statistics for diary properties, arbitrary note properties, folders, tasks and habits, with source drilldown, missing-value handling and scoped review material.
 - Provide a card-provider lifecycle and a Dataview note adapter through Obsidian's plugin installer. Preserve independent instances and restore them after dependency changes.
-- Start a fresh vault with empty records instead of synthetic completions, habits and deadlines. Keep demonstration data in the isolated demo workflow.
+- Offer optional starter tasks, habits and a countdown without inventing completed activity. Keep the richer documentation scenario in an isolated demo vault.
 
 - Keep Month view tasks and multi-day bars inside their week, with one native scroll area and fixed date headings. Retain the scroll position through task edits, unify view toolbars, and prioritize readable titles in short time blocks.
 - Add multi-line quick notes to Diary, Home, and a global command, with selected-date templates, native Markdown links, recovery drafts, and no invented time for historical entries.

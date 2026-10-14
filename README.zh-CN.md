@@ -2,7 +2,7 @@
 
 **语言**： [English](README.md) | 简体中文
 
-![version](https://img.shields.io/badge/version-0.4.6-blue)
+![version](https://img.shields.io/badge/version-0.5.0-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.5%2B-7c3aed)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -18,7 +18,7 @@ Noria 是一款以灵活主页为中心的 Obsidian 个人工作台。它把日�
 
 ![Noria 主页看板](docs/assets/zh-CN/home-dashboard.png)
 
-截图使用独立的虚构展示库：作品集发布、离线阅读应用开发、日常习惯与两周记录。各界面读取同一份原笔记；图中的卡片布局、标签配色和 08:00–18:00 可见时段均可调整。安装时的可选入门示例比展示库更简洁。
+截图来自 0.5.0 公开构建，使用独立的虚构展示库：作品集发布、离线阅读应用开发、日常习惯与两周记录。各界面读取同一份原笔记；图中的卡片布局、标签配色和 08:00–18:00 可见时段均可调整。安装时的可选入门示例比展示库更简洁。
 
 ---
 
@@ -105,7 +105,7 @@ MOC 入口按网格对齐，用小色点标识主题，同名 Canvas 保留独�
 
 可自定义日记记录的名称、类型、选项与单位，再从同一属性添加趋势或分布卡。统计也支持笔记属性和文件夹，点击结果可追溯原记录。统计页直接展示主要图表，来源和用途相同的重复样式可收在“其他样式”；在统计库中配置好一张卡后，可放到主页或日记。
 
-![配置统计卡](docs/assets/zh-CN/card-statistics.png)
+![统计总览：笔记与任务趋势、习惯及日常记录](docs/assets/zh-CN/statistics-overview.png)
 
 ### 日记与复盘
 
@@ -129,7 +129,7 @@ MOC 入口按网格对齐，用小色点标识主题，同名 Canvas 保留独�
 
 在记录或复盘中选中文字，用右键或 **…** 创建任务，也可关联已有任务。新任务可放入项目或日常任务，日期可以留空；原文保留，任务附上可回看的出处。[操作说明](docs/zh-CN/USER-GUIDE.md#86-从记录或复盘采纳任务)
 
-![复盘中心](docs/assets/zh-CN/review-center.png)
+![周复盘：本周任务、周期统计与原笔记](docs/assets/zh-CN/review-center.png)
 
 *示例知识库中的复盘内容。* [复盘使用说明](docs/zh-CN/USER-GUIDE.md#8-复盘中心)
 

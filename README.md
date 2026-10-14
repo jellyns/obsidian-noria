@@ -2,7 +2,7 @@
 
 **Language**: English | [简体中文](README.zh-CN.md)
 
-![version](https://img.shields.io/badge/version-0.4.6-blue)
+![version](https://img.shields.io/badge/version-0.5.0-blue)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.5%2B-7c3aed)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -18,7 +18,7 @@ Noria connects daily records, notes, and knowledge management with planning, exe
 
 ![Noria Home dashboard](docs/assets/en/home-dashboard.png)
 
-Screenshots use an isolated fictional workspace: a portfolio launch, an offline-reader app, daily habits and two weeks of notes. Every view reads the same source notes. The card layout, tag colors and 08:00–18:00 visible hours are configurable. Optional onboarding examples are smaller than this demonstration vault.
+Screenshots show the 0.5.0 public build in an isolated fictional workspace: a portfolio launch, an offline-reader app, daily habits and two weeks of notes. Every view reads the same source notes. The card layout, tag colors and 08:00–18:00 visible hours are configurable. Optional onboarding examples are smaller than this demonstration vault.
 
 ---
 
@@ -109,7 +109,7 @@ Trends help you observe change across a period instead of judging each day. Note
 
 Define daily record names, types, options and units, then add a trend or distribution from the same property. Statistics also support note properties and folders, with links back to source records. The statistics page shows primary charts directly; alternate styles for the same query can sit under Other styles. Configure a card in the statistics library and place it on Home or in a diary.
 
-![Configure a statistics card](docs/assets/en/card-statistics.png)
+![Statistics overview with note and task trends, habits, and daily records](docs/assets/en/statistics-overview.png)
 
 ### Diary And Review
 
@@ -133,7 +133,7 @@ External review prompts start with a compact material file containing original r
 
 Select a passage in a record or review, then use the context menu or **…** to create a task or link an existing one. New tasks go to a project or daily tasks, with dates left optional. The passage stays intact, and the task keeps a link back to it. [Task adoption guide](docs/USER-GUIDE.md#86-create-or-link-tasks-from-records)
 
-![Review Center](docs/assets/en/review-center.png)
+![Weekly review with tasks, period statistics, and source notes](docs/assets/en/review-center.png)
 
 *Review content from the example vault.* [Review guide](docs/USER-GUIDE.md#8-review-center)
 

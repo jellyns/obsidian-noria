@@ -219,7 +219,7 @@ test("English and Chinese public docs keep equivalent demo images in separate lo
     const chineseTargets = localMarkdownImages(chineseFile);
     const expectedImages = path.basename(englishFile) === "USER-GUIDE.md"
       ? [expected[0], "home-inbox.png", "home-habits.png", "focus-task-drop.png", "focus-task-running.png", "home-moc.png", "card-catalog.png", "home-card-menu.png", ...expected.slice(1, 6), "task-timeline-hours.png", expected[6], "diary-editor.png", "diary-quick-notes.png", "daily-state.png", "card-statistics.png", expected[7], "review-task-adoption.png", "home-inbox-assign.png", "home-inbox-assigned.png", "workbench-task-editor.png"]
-      : [expected[0], "home-moc.png", ...expected.slice(1, 6), "home-habits.png", "home-focus.png", "card-statistics.png", expected[6], "diary-quick-notes.png", expected[7]];
+      : [expected[0], "home-moc.png", ...expected.slice(1, 6), "home-habits.png", "home-focus.png", "statistics-overview.png", expected[6], "diary-quick-notes.png", expected[7]];
     assert.deepEqual(englishTargets.map((target) => path.basename(target)), expectedImages);
     assert.deepEqual(chineseTargets.map((target) => path.basename(target)), expectedImages);
     assert.ok(englishTargets.every((target) => target.replace(/\\/g, "/").includes("assets/en/")));
