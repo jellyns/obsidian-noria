@@ -11117,11 +11117,19 @@ class NoriaSettingTab extends obsidian.PluginSettingTab {
         else button.setAttr("tabindex", "-1");
       }
       content.setAttr("aria-labelledby", `noria-settings-tab-${this.activeTab}`);
-      if (this.activeTab === 'content') return this.renderOverviewTab(content);
-      if (this.activeTab === 'features') return this.renderFeaturesTab(content);
-      if (this.activeTab === 'connections') return this.renderConnectionsTab(content);
-      if (this.activeTab === 'advanced') return this.renderAdvancedTab(content);
-      return this.renderGeneralTab(content);
+      try {
+        if (this.activeTab === 'content') return this.renderOverviewTab(content);
+        if (this.activeTab === 'features') return this.renderFeaturesTab(content);
+        if (this.activeTab === 'connections') return this.renderConnectionsTab(content);
+        if (this.activeTab === 'advanced') return this.renderAdvancedTab(content);
+        return this.renderGeneralTab(content);
+      } finally {
+        for (const control of content.querySelectorAll('.setting-item-control')) {
+          const children = [...control.children];
+          control.classList.toggle('noria-toggle-control', children.length === 1 && children[0].classList.contains('checkbox-container'));
+          control.classList.toggle('noria-button-control', children.some(child => child.tagName === 'BUTTON') && !control.querySelector('input, select, textarea, .checkbox-container'));
+        }
+      }
     };
     for (const tab of NORIA_SETTING_TABS) {
       compactTabs.createEl("option", {value: tab.id, text: this.t(tab.labelKey)});
@@ -17614,7 +17622,9 @@ module.exports = class NoriaPlugin extends obsidian.Plugin {
     const fail = (why) => ({ raw, normalized, allowed: false, reason: why, kind: "blocked", buildId: NORIA_RUNTIME_BUILD_ID });
     if (reason) return fail(reason);
     const lower = normalized.toLowerCase();
-    const kind = knownKey || lower.startsWith("views/") || lower.startsWith(".obsidian/plugins/noria/views/")
+    const candidates = lower.endsWith('.js') ? [normalized] : [`${normalized}/view.js`, `${normalized}.js`];
+    // A folder name alone does not make vault code part of the trusted release.
+    const kind = knownKey || candidates.some(candidate => !!noriaReadEmbeddedSource(candidate))
       ? "builtin"
       : "custom-vault";
     if (kind === "custom-vault" && this.settings?.security?.allowCustomJsViews !== true) {

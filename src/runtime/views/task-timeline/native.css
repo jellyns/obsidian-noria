@@ -329,7 +329,7 @@
 .noria-task-timeline-native-point:hover ~ .noria-task-timeline-native-handle,
 .noria-task-timeline-native-point:focus-visible ~ .noria-task-timeline-native-handle,
 .noria-task-timeline-native-handle-zone:hover ~ .noria-task-timeline-native-handle,
-.noria-task-timeline-native-task-unit:has(.noria-task-timeline-native-handle:hover) .noria-task-timeline-native-handle,
+.noria-task-timeline-native-handle:hover,
 .noria-task-timeline-native-task-unit[data-noria-drag-state="active"] .noria-task-timeline-native-handle {
   opacity: 0.54;
   pointer-events: auto;

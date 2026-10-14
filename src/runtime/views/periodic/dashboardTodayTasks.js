@@ -334,11 +334,15 @@ const setTabStyle = (btn, active) => {
 
 const shell = host.createDiv();
 shell.addClass("dashboard-period-task-shell");
+const todoCardShell=host.closest?.('.dashboard-home-widget-shell');
+todoCardShell?.classList.add('noria-todo-card');
+input?.registerCleanup?.(()=>todoCardShell?.classList.remove('noria-todo-card'));
 shell.style.cssText = "flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;width:100%;";
 const actionsHost = input?.actionsHost && typeof input.actionsHost.createEl === "function" ? input.actionsHost : null;
 const periodHost = input?.periodHost && typeof input.periodHost.createDiv === "function" ? input.periodHost : null;
 const tabLeft = (periodHost || shell).createDiv();
 tabLeft.addClass("dashboard-segment-tabs");
+tabLeft.addClass('noria-todo-period-tabs');
 if (periodHost) tabLeft.style.padding = "0";
 const stateKey=host.closest?.('[data-noria-widget-id]')?.dataset.noriaWidgetId||input?.widgetId||'today-tasks-card';
 const cardState=bridge.tasks.cardViewState?.get(stateKey)||{period:input?.todoPeriod||'day',completedExpanded:{}};

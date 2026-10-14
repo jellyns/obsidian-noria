@@ -2951,7 +2951,7 @@ test("completion counter delta decrements the matching active bucket", () => {
 });
 
 test("pomodoro settings save is silent and does not trigger external index refresh", () => {
-  const code = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const code = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const start = code.indexOf("async savePomodoroState(nextState)");
   const end = code.indexOf("getPlannerLabControlsMeta()", start);
 
@@ -2961,7 +2961,7 @@ test("pomodoro settings save is silent and does not trigger external index refre
 });
 
 test("timeline inline capture mutates the latest diary text through the shared transaction helper", () => {
-  const code = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const code = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const start = code.indexOf("async modifyTimelineDiary(U, mutate)");
   const end = code.indexOf("\n  setTimelineInlineStatus(", start);
 
@@ -2990,7 +2990,7 @@ test("task calendar uses planner-chrome naming and no retired naming surface", (
   const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
   const css = fs.readFileSync(pluginPath("views/tasks-calendar/default.css"), "utf8");
   const wrapper = fs.readFileSync(pluginPath("views/tasks-calendar/view.js"), "utf8");
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const dashboardHome = fs.readFileSync(pluginPath("views/dashboard/home/sections/bootstrap-style/view.js"), "utf8");
   const combined = [runtime, css, wrapper, main, dashboardHome].join("\n");
   const legacyStyleToken = ["style", "4"].join("");

@@ -53,6 +53,7 @@ function renderChart(host,result,config,{text,number,compactNumber=number,viewSt
      parent.ontoggle=()=>{viewState.categoryDetails=parent.open;};
    }
    const list=parent.createDiv({cls:'noria-stat-bars'}),max=Math.max(1,...result.groups.map(g=>Math.abs(g.value||0))),bars=[];
+   list.style.setProperty('--noria-stat-value-width',`${Math.max(3,...result.groups.map(g=>numeric(g.value).length))+1}ch`);
    if(result.groups.some(g=>g.value<0))list.addClass('noria-stat-signed');
    result.groups.forEach((g,i)=>{const b=button(list,'',b=>activate(b,g.rows,''),'noria-stat-bar');bars.push(b);b.hidden=style==='bars'&&i>=6&&!viewState.allCategories;b.setAttribute('title',`${label(g)} · ${numeric(g.value)}`);b.createSpan({cls:'noria-stat-bar-label',text:label(g)});const track=b.createSpan({cls:'noria-stat-bar-track'}),fill=track.createSpan();const ratio=Math.abs(g.value||0)/max;
      fill.style.setProperty('--noria-stat-ratio',String(ratio));fill.style.setProperty('--noria-stat-horizontal-start',`${g.value<0?50-ratio*50:50}%`);fill.style.setProperty('--noria-stat-extent',`${ratio*50}%`);fill.style.background=colorFor(g.key);b.createSpan({cls:'noria-stat-bar-value',text:numeric(g.value)});});

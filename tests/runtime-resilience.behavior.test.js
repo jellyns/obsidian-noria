@@ -171,6 +171,7 @@ test("runtime task scope helper reads managed Markdown task rows and applies saf
 
 test("native runtime view failures render a friendly Noria error card instead of throwing", async () => {
   const plugin = makePlugin();
+  plugin.settings.security.allowCustomJsViews = true;
   plugin.resolveNoriaViewPath = () => "views/periodic/broken-test.js";
   plugin.loadTextFromVault = async () => 'throw new Error("boom from test view");';
   const nodes = [];
@@ -195,6 +196,7 @@ test("native runtime view failures render a friendly Noria error card instead of
 
 test("native runtime view compile failures render a friendly error instead of escaping", async () => {
   const plugin = makePlugin();
+  plugin.settings.security.allowCustomJsViews = true;
   plugin.resolveNoriaViewPath = () => "views/periodic/broken-syntax.js";
   plugin.loadTextFromVault = async () => "if (";
   const nodes = [];
@@ -256,6 +258,8 @@ test("vault custom JavaScript views require an explicit trust opt-in", async () 
   assert.equal(plugin.settings.security.allowCustomJsViews, false);
   assert.equal(plugin.buildRuntimeBridgeConfig().allowCustomJsViews, false);
   await plugin.runNoriaView("Custom/Noria/trusted", {}, hostFor(blockedNodes));
+  await plugin.runNoriaView("views/trusted.js", {}, hostFor(blockedNodes));
+  await plugin.runNoriaView("views/trusted", {}, hostFor(blockedNodes));
   assert.equal(loaded.length, 0, "disabled custom views must be blocked before source reads");
   assert.match(JSON.stringify(blockedNodes), /custom-js-disabled/);
 
@@ -264,16 +268,21 @@ test("vault custom JavaScript views require an explicit trust opt-in", async () 
   await plugin.runNoriaView("Custom/Noria/trusted", {}, hostFor(trustedNodes));
   assert.equal(loaded.length, 1);
   assert.match(JSON.stringify(trustedNodes), /trusted custom view/);
+  await plugin.runNoriaView("views/trusted", {}, hostFor(trustedNodes));
+  assert.equal(loaded.length, 2, 'the views folder is also available after explicit opt-in');
 });
 
 test("the embedded habit check-in is a built-in view without custom script permission",()=>{
   const plugin=makePlugin();
   assert.equal(plugin.settings.security.allowCustomJsViews,false);
   assert.equal(plugin.resolveNoriaViewPath("habitCheckin"),".obsidian/plugins/noria/views/periodic/habitCheckin.js");
+  assert.equal(plugin.getNoriaViewExecutionContract('views/periodic/habitCheckin.js').kind,'builtin');
+  assert.equal(plugin.getNoriaViewExecutionContract('views/periodic/habitCheckin').allowed,true);
 });
 
 test("native runtime view source loading single-flights concurrent same-source views", async () => {
   const plugin = makePlugin();
+  plugin.settings.security.allowCustomJsViews = true;
   plugin.resolveNoriaViewPath = () => "views/periodic/shared-test";
   plugin.settings.performance.viewSourceCache = true;
   let sharedReadCount = 0;

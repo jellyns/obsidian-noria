@@ -46,6 +46,11 @@ function walk(dir, out = []) {
 
 const found = walk(targetRoot).map(rel).filter((x) => x && x !== ".");
 const failures = [];
+const maxMainBytes = 5_000_000;
+const mainPath = path.join(targetRoot, 'main.js');
+if (fs.existsSync(mainPath) && fs.statSync(mainPath).size > maxMainBytes) {
+  failures.push(`main.js exceeds the ${maxMainBytes}-byte Obsidian Sync size budget`);
+}
 
 for (const required of allowedFiles) {
   if (!fs.existsSync(path.join(targetRoot, required))) failures.push(`missing required release asset: ${required}`);

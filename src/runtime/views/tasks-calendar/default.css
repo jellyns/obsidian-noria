@@ -8357,7 +8357,7 @@
 
 .tasksCalendar .buttons button.tc-planner-axis-toggle { min-width: var(--tc-axis-label-width, 5.5em); width: var(--tc-axis-label-width, 5.5em); }
 
-.tasksCalendar:is([view='week'],[view='day']).planner-chrome .timeLane [data-tc-overflow-hidden='true'] { display: none !important; }
+.tasksCalendar:is([view='week'],[view='day']).planner-chrome .timeLane [data-tc-overflow-hidden='true'] { display: none; }
 .tasksCalendar .timeLane > button.tc-overflow-more {
   position: absolute;
   right: 0;

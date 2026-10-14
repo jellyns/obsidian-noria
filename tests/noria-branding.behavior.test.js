@@ -125,7 +125,7 @@ test("public command ids are semantic and rely on the Obsidian plugin namespace"
 });
 
 test("runtime bridge, commands, views, and CSS use the Noria namespace", () => {
-  const main = read("main.js");
+  const main = read("src/main.js");
   const styles = read("styles.css");
   const taskCalendarCss = read("views/tasks-calendar/default.css");
   const runtimeCore = read("views/tasks-calendar/runtime-core.js");

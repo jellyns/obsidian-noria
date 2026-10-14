@@ -264,6 +264,16 @@ class CardSystem {
         const sourcePath=file.extension==="base"&&selection?.mode
           ? (await this.plugin.resolveCalendarNoteSpecAsync(selection.mode,selection.anchorDate)).path : file.path;
         let child,generation=0,disposed=false;
+        // Bases can render their groups after MarkdownRenderer has returned.
+        const markEmptyGroups=()=>{
+          for(const heading of container.querySelectorAll('.bases-group-heading')){
+            const value=heading.querySelector('.bases-group-value');
+            heading.classList.toggle('noria-empty-base-group',!!value&&value.children.length===0&&value.textContent==='');
+          }
+        };
+        const groupObserver=file.extension==='base'&&selection?.mode&&typeof MutationObserver!=='undefined'
+          ? new MutationObserver(markEmptyGroups):null;
+        groupObserver?.observe(container,{childList:true,subtree:true,characterData:true});
         const shell=container.closest?.('.noria-diary-card,.dashboard-home-widget-shell');
         const configure=()=>this.app.workspace.openLinkText(file.path,"",true);
         const paint=async()=>{const serial=++generation;
@@ -275,8 +285,8 @@ class CardSystem {
           if(disposed||serial!==generation)return;
           container.classList.toggle('noria-period-base',!!bound);
           if(shell){if(bound)shell._noriaConfigureWidget=configure;else if(shell._noriaConfigureWidget===configure)delete shell._noriaConfigureWidget;}
-          if(child)component.removeChild(child);child=new Component();component.addChild(child);container.empty();await MarkdownRenderer.render(this.app,content,container,sourcePath,child);};
-        component.register(()=>{disposed=true;++generation;if(shell?._noriaConfigureWidget===configure)delete shell._noriaConfigureWidget;});
+          if(child)component.removeChild(child);child=new Component();component.addChild(child);container.empty();await MarkdownRenderer.render(this.app,content,container,sourcePath,child);markEmptyGroups();};
+        component.register(()=>{disposed=true;++generation;groupObserver?.disconnect();if(shell?._noriaConfigureWidget===configure)delete shell._noriaConfigureWidget;});
         await paint();component.registerEvent(this.app.vault.on("modify",changed=>{if(changed.path===file.path)void paint().catch(error=>{if(!disposed)reportError(error);});}));
         component.registerEvent(this.app.vault.on('delete',changed=>{if(changed===file)reportError(Error(this.text('找不到源文件','Source file not found')));}));
         component.registerDomEvent(container,"click",event=>{const link=event.target.closest?.("a.internal-link");if(link&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();void this.app.workspace.openLinkText(link.dataset.href||link.getAttribute("href"),file.path,true);}},true);

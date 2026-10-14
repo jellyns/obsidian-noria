@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 - 2026-10-15
+
+- Reduce the public `main.js` below 5,000,000 bytes by minifying the bundle and embedded runtime code. Retain license notices and reject oversized release packages.
+- Upgrade `@modelcontextprotocol/sdk` to 1.32.1, outside the range affected by GHSA-6qxp-vccf-f47h. Noria uses its server APIs, not the affected OAuth client.
+- Restrict built-in view trust to code included in the release; custom vault JavaScript continues to require explicit opt-in.
+- Replace the reported CSS compatibility and selector warnings while preserving card hiding, settings layouts, chart alignment and timeline drag handles.
+- Document vault enumeration, user-triggered clipboard writes and the remaining embedded-code execution requirement. Keep runtime tests on the built release and source checks independent of minification.
+
 ## 0.5.0 - 2026-10-14
 
 - Preserve UTC offsets in focus records across daylight-saving changes and time zones. Verify written records before marking them saved, retain failed writes for retry, and report ambiguous older local times without guessing.

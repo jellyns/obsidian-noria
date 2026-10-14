@@ -758,8 +758,11 @@ Available roles include `daily`, `current`, `weekly`, `project`, and ordinary no
 
 ### 10.8 Security Boundary
 
+- File pickers list vault paths. Focus records and suggestion drafts also discover existing Markdown so links survive moved notes. Content reads follow each feature's source scope; enumeration itself does not upload notes.
+- Noria writes to the clipboard only after you choose a copy action. It does not read the system clipboard.
+- Some built-in views load JavaScript included in the plugin release, so static reviews may still report dynamic code execution. Built-in views do not download scripts or use same-named vault files as replacements.
 - Custom JavaScript views are disabled by default.
-- Only explicitly trusted vault-relative paths run.
+- Custom code runs only after you enable that option; a folder name does not grant trust. It has plugin-level access and is not a security sandbox.
 - Protocol URLs, absolute paths, and path traversal are blocked.
 - Noria does not silently move notes, reorganize folders, or rewrite unrelated prose.
 

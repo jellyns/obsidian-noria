@@ -509,7 +509,7 @@ test("runtime bridge exposes review evidence cache traces by timeline range", as
 });
 
 test("Home performance summary can be formatted and exposed through a semantic command", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   assert.match(main, /id:\s*"save-home-performance-summary"/);
   assert.match(main, /id:\s*"measure-home-performance-summary"/);
 
@@ -653,7 +653,7 @@ test("Home performance measurement reloads Home before saving the summary", asyn
 });
 
 test("Task timeline performance summary can be read, formatted, and exposed through semantic commands", async () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   assert.match(main, /id:\s*"save-task-timeline-performance-summary"/);
   assert.match(main, /id:\s*"measure-task-timeline-performance-summary"/);
 
@@ -2436,7 +2436,7 @@ test("runtime bridge exposes locale and translation helper to native views", () 
 });
 
 test("commands and ribbon tooltips use the locale catalog instead of fixed labels", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
 
   assert.match(main, /nameKey:\s*"commands\.openHome"/);
   assert.doesNotMatch(main, /titleKey:\s*"ribbon\.review"/);
@@ -2446,7 +2446,7 @@ test("commands and ribbon tooltips use the locale catalog instead of fixed label
 });
 
 test("core ItemView titles and Notices use the locale catalog", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
 
   for (const key of [
     "views.tasks.title",
@@ -2516,7 +2516,7 @@ test("settings save serialization keeps release schema and removes weather secre
 
 
 test("retired path fields are not exposed as editable settings", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
 
   assert.doesNotMatch(main, /\.setName\("View note path"\)/);
   assert.doesNotMatch(main, /\.setName\("Daily review artifact directory"\)/);

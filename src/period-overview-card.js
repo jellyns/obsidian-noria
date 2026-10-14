@@ -26,6 +26,7 @@ function registerPeriodOverview(system,plugin){
    container.classList.add('noria-period-overview');let disposed=false,serial=0,timer,model,selected=-1;
    const locale=plugin.getNoriaLocale(),number=new Intl.NumberFormat(locale,{maximumFractionDigits:1}),compact=new Intl.NumberFormat(locale,{notation:'compact',maximumFractionDigits:1});
    const shell=context.preview?null:container.closest('.noria-diary-card,.dashboard-home-widget-shell');
+   shell?.classList.add('noria-overview-card');
    const tools=shell?.querySelector('.noria-diary-card-tools,.dashboard-guide-card__tools');
    const header=(tools||container).createDiv({cls:'noria-overview-context'}),rangeLabel=header.createSpan({cls:'noria-overview-range'}),inspectLabel=header.createSpan({cls:'noria-overview-date',text:t('本期','Period')});
    if(tools)tools.insertBefore(header,tools.querySelector('.noria-diary-card-menu,.dashboard-home-widget-shell-actions'));
@@ -150,7 +151,7 @@ function registerPeriodOverview(system,plugin){
     const live=setInterval(()=>{if(plugin.getPomodoroState().active?.status==='running'&&!container.matches(':hover')&&!container.contains(container.ownerDocument.activeElement))refresh();},15000);component.register(()=>clearInterval(live));
    }
    let width=container.clientWidth;const observer=new ResizeObserver(()=>{const next=container.clientWidth;if(Math.abs(next-width)>2){width=next;draw();}});observer.observe(container);
-   component.register(()=>{disposed=true;++serial;clearTimeout(timer);observer.disconnect();header.remove();});await load();
+   component.register(()=>{disposed=true;++serial;clearTimeout(timer);observer.disconnect();header.remove();shell?.classList.remove('noria-overview-card');});await load();
   }
  });
 }

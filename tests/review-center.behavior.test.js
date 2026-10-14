@@ -622,7 +622,7 @@ test("home review focus exposes mount timing diagnostics without adding visual c
 
 test("home review focus exposes model render and evidence phase diagnostics without visual chrome", () => {
   const guide = fs.readFileSync(pluginPath("views/dashboard/home/sections/guide-panels/view.js"), "utf8");
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
 
   ["model", "render", "evidence", "tasks", "git", "stats", "excerpts"].forEach((phase) => {
     assert.match(guide, new RegExp(`data-noria-review-focus-${phase}-ms`));
@@ -1309,7 +1309,7 @@ test("review notes are excluded from evidence file records", () => {
 });
 
 test("task timeline no longer contains the old recap toolbar entry", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const runtime = fs.readFileSync(pluginPath("views/tasks-timeline/view.js"), "utf8");
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
   const combined = `${main}\n${runtime}\n${styles}`;
@@ -1360,7 +1360,7 @@ test("embedded daily review final actionbar does not crush writeback copy into v
 
 
 test("daily review settings expose prompt defaults without internal AI settings", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
 
   assert.match(main, /reviewCenter:\s*\{\s*prompt:\s*JSON\.parse\(JSON\.stringify\(NORIA_DEFAULT_REVIEW_PROMPT_SETTINGS\)\)/);
   assert.match(main, /"settings\.sections\.reviewPrompt"/);
@@ -1376,7 +1376,7 @@ test("daily review settings expose prompt defaults without internal AI settings"
 });
 
 test("daily review evidence keeps file changes in always-visible grouped lists", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
   assert.doesNotMatch(main, /createEl\("details",\s*\{\s*cls:\s*"noria-review-evidence-details"/s);
@@ -1417,7 +1417,7 @@ test("daily review evidence keeps file changes in always-visible grouped lists",
 });
 
 test("home review focus evidence rail uses progressive disclosure", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
   assert.match(main, /isHomeFocusMode\(\)/);
@@ -1438,7 +1438,7 @@ test("home review focus responds to its root widget width instead of the app vie
 });
 
 test("home review focus renders period source map as compact evidence chain", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
   assert.match(main, /renderEvidenceSourceMap\(section,\s*model\)/);
@@ -1459,7 +1459,7 @@ test("home review focus renders period source map as compact evidence chain", ()
 });
 
 test("daily review evidence rows expose quiet source navigation", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
   const collectTasksBody = main.match(/async collectDailyTasks\(date,\s*diaryPath\)\s*\{([\s\S]*?)\n\s*return out;\n\s*\}/);
 
@@ -1484,7 +1484,7 @@ test("daily review evidence rows expose quiet source navigation", () => {
 });
 
 test("review evidence source navigation exposes same-control action state", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
   const fileRowOpenBlock = main.match(/if \(canOpen\) \{\s*([\s\S]*?)\s*const action = row\.createEl\("button"/);
 
@@ -1583,7 +1583,7 @@ test("daily review context markdown renders structured task evidence without obj
 });
 
 test("daily review generation writes JSON evidence and a local prompt file without internal AI adapters", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const generateBody = main.match(/async generateReview\(modeInput\s*=\s*"daily",\s*dateInput,\s*variantInput\s*=\s*""\)\s*\{([\s\S]*?)\n\s*\}/);
 
   assert.ok(generateBody, "expected generateDailyReview body");
@@ -2547,12 +2547,12 @@ test("daily review task collection uses Obsidian metadata to skip files without 
 });
 
 test("daily review evidence and task collection share human-note noise filters", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const src = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const collectTasksBody = main.match(/async collectDailyTasks\(date,\s*diaryPath\)\s*\{([\s\S]*?)\n\s*return out;\n\s*\}/);
 
   assert.ok(collectTasksBody, "expected collectDailyTasks body");
-  assert.match(collectTasksBody[1], /files\.filter\(\(file\)\s*=>\s*this\.isHumanReviewNotePath\([\s\S]*file\.path[\s\S]*\|\| ""\)/);
+  assert.match(collectTasksBody[1], /files\.filter\(\(file\)\s*=>\s*this\.isHumanReviewNotePath\(file\?\.path \|\| ""\)/);
   assert.match(main, /!\/\^\\\.\//);
   assert.match(main, /!p\.startsWith\("99_Attachment\/"\)/);
   assert.match(src, /async collectReviewExcerpts\(diaryPath,\s*git,\s*review\)/);
@@ -2562,7 +2562,7 @@ test("daily review evidence and task collection share human-note noise filters",
 
 test("daily review AI analysis uses markdown preview and ignores seed artifacts", () => {
   const review = loadReviewCenter();
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
+  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
   const seed = [
     "---",
@@ -2622,7 +2622,7 @@ test("daily review AI analysis uses markdown preview and ignores seed artifacts"
   assert.doesNotMatch(review.buildArtifactPreviewMarkdown(generated), /^---/);
   assert.match(review.buildArtifactPreviewMarkdown(generated), /## 综合总结/);
 
-  assert.match(main, /MarkdownRenderer\.render/);
+  assert.match(fs.readFileSync(pluginPath('src/review-workspace.js'), 'utf8'), /MarkdownRenderer\.render/);
   assert.match(fs.readFileSync(pluginPath("src/main.js"), "utf8"), /!artifact\?\.generated/);
   assert.doesNotMatch(main, /text \|\| this\.plugin\.t\("review\.empty"\)/);
   assert.doesNotMatch(main, /noria-review-llm-grid/);

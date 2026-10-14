@@ -2,6 +2,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { transform } from "esbuild";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -65,6 +66,27 @@ for (const record of sourceRecords) {
   buildHash.update("\0");
 }
 const runtimeBuildId = buildHash.digest("hex").slice(0, 16);
+
+// View files are AsyncFunction bodies (some contain top-level await/return).
+// Compact a wrapper, then keep its body without renaming the injected bindings.
+for (const record of sourceRecords) {
+  if (record.key.endsWith('.css')) {
+    record.content = (await transform(record.content, {loader:'css', minify:true, charset:'utf8', legalComments:'inline', target:'chrome102'})).code;
+    continue;
+  }
+  if (!record.key.endsWith('.js')) continue;
+  if (record.key === 'views/dashboard/home/sections/bootstrap-style/view.js') {
+    const css = record.content.match(/style\.textContent\s*=\s*`([\s\S]*?)`;/);
+    if (!css || css[1].includes('${')) throw Error('Expected a static Home stylesheet');
+    const compact = await transform(css[1], {loader:'css', minify:true, charset:'utf8', legalComments:'inline', target:'chrome102'});
+    record.content = record.content.replace(css[0], `style.textContent = ${JSON.stringify(compact.code)};`);
+  }
+  const {code} = await transform(`async function noriaEmbeddedView(ctx,input,app,moment,window,document,globalThis,setIcon){\n${record.content}\n}`, {
+    loader:'js', target:'es2018', minifyWhitespace:true, minifySyntax:true,
+    minifyIdentifiers:false, charset:'utf8', legalComments:'inline'
+  });
+  record.content = code.slice(code.indexOf('{')+1, code.lastIndexOf('}'));
+}
 
 const entries = sourceRecords.map(({ key, content }) => {
   return `  ${JSON.stringify(key)}: ${JSON.stringify(content)}`;

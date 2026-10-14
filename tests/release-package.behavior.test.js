@@ -78,6 +78,11 @@ test("release check accepts only manifest main and styles", () => {
   assert.match(result.stdout, /Noria release check passed/);
 });
 
+test('release check rejects a main bundle above the Sync size budget',()=>{
+  const dir=makeReleaseDir({'manifest.json':'{}','main.js':' '.repeat(5_000_001),'styles.css':''});
+  const result=runReleaseCheck(dir);assert.notEqual(result.status,0);assert.match(result.stderr,/Obsidian Sync size budget/);
+});
+
 test("release check rejects dev and local files even when they are gitignored", () => {
   const dir = makeReleaseDir({
     "manifest.json": "{}\n",
