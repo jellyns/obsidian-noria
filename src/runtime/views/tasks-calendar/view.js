@@ -249,7 +249,6 @@ const payload = {
 if (noriaPluginTabRole) payload.noriaPluginTabRole = noriaPluginTabRole;
 if (resolvedStartPosition) payload.startPosition = resolvedStartPosition;
 if (Array.isArray(input?.monthWeekScrollState)) payload.monthWeekScrollState = input.monthWeekScrollState;
-if (!payload.timelineConfigPath && bridgeConfig.timelineSettingsPath) payload.timelineConfigPath = normalizeNoriaPath(bridgeConfig.timelineSettingsPath);
 if (!payload.templateLibraryPath && bridgeConfig.templateLibraryPath) payload.templateLibraryPath = normalizeNoriaPath(bridgeConfig.templateLibraryPath);
 if (resolvedCss) payload.css = resolvedCss;
 

@@ -15,24 +15,24 @@ async function openDiaryTaskCreate(diary,anchor){
   const beforeSave=async()=>{await diary.flush();return session===diary.session&&!diary.disposed&&!session.dirty&&!session.blocked&&!session.needsAdoption;};
   return openTaskCreate(diary.plugin,selection,anchor,{beforeSave,onSaved:async saved=>{await diary.adoptOwnWrite(session,saved);await diary.refreshTasks();}});
 }
-async function openPeriodTaskCreate(plugin,{mode="daily",date=plugin.getLocalYmd(),anchor,schedule,calendarZone}={}){
+async function openPeriodTaskCreate(plugin,{mode="daily",date=plugin.getLocalYmd(),anchor,schedule,calendarZone,tags="",restoreFocus}={}){
   if(!["daily","weekly","monthly","yearly"].includes(mode))throw Error("Invalid task period");
-  return openTaskCreate(plugin,{mode,anchorDate:date},anchor,{schedule,calendarZone,onSaved:()=>plugin.requestNoriaRefresh("home","home:create-task",{immediate:true})});
+  return openTaskCreate(plugin,{mode,anchorDate:date},anchor,{schedule,calendarZone,tags,restoreFocus,onSaved:()=>plugin.requestNoriaRefresh("home","home:create-task",{immediate:true})});
 }
-async function openTaskCreate(plugin,selection,anchor,{beforeSave=async()=>true,onSaved,schedule,calendarZone}={}){
+async function openTaskCreate(plugin,selection,anchor,{beforeSave=async()=>true,onSaved,schedule,calendarZone,tags="",restoreFocus}={}){
   if(!await beforeSave())return;
   const zone=calendarZone?require('./task-calendar-zone.js').adapter(calendarZone):null;
-  const spec=await plugin.resolveCalendarNoteSpecAsync(selection.mode,selection.anchorDate),key=`${selection.mode}:${spec.path}${zone?":"+zone.display:""}`;
+  const spec=await plugin.resolveCalendarNoteSpecAsync(selection.mode,selection.anchorDate),key=`${selection.mode}:${spec.path}${zone?":"+zone.display:""}${tags?":"+tags:""}`;
   const drafts=plugin._diaryTaskDrafts||(plugin._diaryTaskDrafts=new Map()),draft=drafts.get(key);
   const id=draft?.operationId||globalThis.crypto.randomUUID().replace(/-/g,"");
   const initial=schedule||(selection.mode==="daily"?{start:selection.anchorDate}:null);
-  const initialPatch={id,created:plugin.getLocalYmd(),...(initial?{schedule:{...initial,action:"add"}}:{})};
+  const initialPatch={id,created:plugin.getLocalYmd(),...(tags?{tags}:{}),...(initial?{schedule:{...initial,action:"add"}}:{})};
   const line=T.patchTaskLine("- [ ] ",zone?zone.patch(initialPatch,"- [ ] "):initialPatch,plugin.getLocalYmd());
   let saved=null;
   await plugin.ensureTaskDateTimeEditorApi();
   if(!await beforeSave())return;
   globalThis.__noriaTasksCalendarApi.openTaskDateTimeEditorFromMarkdownLine({filePath:spec.path,lineIndex:0,rawLine:line,returnFocusEl:anchor,
-    workbench:{create:true,timeZone:zone?.display,model:zone?zone.model(line):T.parseTaskLine(line),draft,anchor,presentation:"modal",restoreFocus:()=>anchor?.isConnected&&anchor.focus({preventScroll:true}),
+    workbench:{create:true,timeZone:zone?.display,model:zone?zone.model(line):T.parseTaskLine(line),draft,anchor,presentation:"modal",restoreFocus:restoreFocus||(()=>anchor?.isConnected&&anchor.focus({preventScroll:true})),
       onDraft:value=>drafts.set(key,{...value,operationId:id}),onDiscard:()=>drafts.delete(key),
       onSave:async value=>{
         if(!saved){

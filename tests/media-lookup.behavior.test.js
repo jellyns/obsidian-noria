@@ -11,7 +11,7 @@ function fixture(responder) {
  let tick=10000;const calls=[];
  class Clock extends Date {static now(){return tick;}}
  const lookup=load('media-lookup.js',{obsidian:{requestUrl:async request=>{calls.push({at:tick,...request});return responder(request,calls.length);}}},{Date:Clock,setTimeout:fn=>{tick+=1000;queueMicrotask(fn);}});
- const {createPublicApi}=load('public-api.js',{'./media-lookup.js':lookup});
+ const {createPublicApi}=load('public-api.js',{'./media-feature.js':require('./media-api-fixture.cjs').mediaFeature({'./media-lookup.js':lookup})});
  const plugin={_noriaPluginDisposed:false};return {plugin,api:createPublicApi(plugin),calls};
 }
 const work={key:'/works/OL17267881W',title:'三体',author_name:['刘慈欣'],edition_count:44,number_of_pages_median:450,ratings_average:4.8,cover_i:123};

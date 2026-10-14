@@ -1,323 +1,66 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
-
-const pluginRoot = path.resolve(__dirname, "..");
-const script = path.join(pluginRoot, "scripts", "prepare-release-demo-vault.mjs");
-const retiredBrand = ["ca", "dence"].join("");
-const retiredBrandTitle = `${retiredBrand[0].toUpperCase()}${retiredBrand.slice(1)}`;
-
-function read(root, rel) {
-  return fs.readFileSync(path.join(root, ...rel.split("/")), "utf8");
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {spawnSync}=require('node:child_process');
+const root=path.resolve(__dirname,'..');
+const read=(dir,name)=>fs.readFileSync(path.join(dir,name),'utf8');
+const walk=dir=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);
+function generate(t,locale){
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'noria-story-')),vault=path.join(temp,'vault');
+ t.after(()=>{const absolute=path.resolve(temp),base=path.resolve(os.tmpdir());assert.ok(absolute.startsWith(base+path.sep)&&path.basename(absolute).startsWith('noria-story-'));fs.rmSync(absolute,{recursive:true,force:true});});
+ const result=spawnSync(process.execPath,['scripts/prepare-release-demo-vault.mjs',vault,'--date=2026-10-14','--locale='+locale],{cwd:root,encoding:'utf8'});
+ assert.equal(result.status,0,result.stderr);return vault;
 }
-
-function filesUnder(root) {
-  const out = [];
-  const visit = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const file = path.join(dir, entry.name);
-      if (entry.isDirectory()) visit(file);
-      else out.push(file);
-    }
-  };
-  visit(root);
-  return out;
-}
-
-function checkMediaDemo(root) {
-  const {normalizePages} = require('../src/workbench-pages.js');
-  const {listMedia} = require('../src/media-catalog.js');
-  const data = JSON.parse(read(root, '.obsidian/plugins/noria/data.json'));
-  const pages = normalizePages(data.workbenchPages);
-  const page = pages.pages.find(page => page.id === 'media');
-  assert.ok(page && !page.hidden, 'demo needs a visible media page');
-  assert.equal(pages.pages.some(page => page.id === 'page-media'), false, 'no duplicate legacy media page');
-  assert.equal(pages.defaultPage, 'home');
-  const card = page.widgets.find(card => card.source === 'noria:media-library');
-  assert.ok(card && card.enabled);
-  assert.ok(page.widgets.some(card => card.source === 'noria:media-summary' && card.enabled));
-  assert.ok(page.widgets.some(card => card.source === 'noria:media-distribution' && card.enabled));
-  const directory = path.join(root, ...card.props.folder.split('/'));
-  const files = filesUnder(directory).filter(file => file.endsWith('.md')).map(file => ({
-    path: path.relative(root, file).replace(/\\/g, '/'), basename: path.basename(file, '.md')
-  }));
-  // Generated demo values are JSON scalars/arrays, a subset of YAML; native parsing is checked separately.
-  const values = new Map(files.map(file => {
-    const fm = read(root, file.path).split('---')[1];
-    return [file.path, Object.fromEntries(fm.trim().split('\n').map(line => {
-      const colon = line.indexOf(':'); return [line.slice(0, colon), JSON.parse(line.slice(colon + 1))];
-    }))];
-  }));
-  const plugin = {normalizePath: value => value, filesUnderRoots: () => files,
-    app: {vault: {getAbstractFileByPath: folder => folder === card.props.folder ? {children: []} : null},
-      metadataCache: {getFileCache: file => ({frontmatter: values.get(file.path)})}}};
-  const all = listMedia(plugin, {folder: card.props.folder});
-  const current = listMedia(plugin, {folder: card.props.folder, status: /Locale: zh-CN/.test(read(root, '.noria-demo-vault')) ? '进行中' : 'In progress'});
-  assert.equal(all.total, 6);
-  assert.equal(current.total, 3);
-  assert.deepEqual(current.items.flatMap(item => item.kinds).sort(), ['book', 'game', 'movie']);
-  const book = current.items.find(item => item.kinds.includes('book'));
-  assert.equal(book.properties.pageprogress, 36);
-  assert.equal(book.properties.pagecount, 160);
-  assert.equal(listMedia(plugin, {folder: card.props.folder, kind: 'book'}).total, 2);
-  assert.equal(listMedia(plugin, {folder: card.props.folder, kind: 'music'}).total, 1);
-  assert.deepEqual(data.shortcuts, [{kind:'media',target:book.path}]);
-  const destination = values.get(book.path)['media-open'].slice(2,-2);
-  assert.ok(fs.existsSync(path.join(root, ...destination.split('/'))), 'Read must open an included document');
-  const related = files.filter(file => values.get(file.path).related?.includes(`[[${book.path}]]`));
-  assert.equal(related.length, 1, 'one ordinary dated note is associated with the work');
-  assert.ok(!all.items.some(item => item.path === related[0].path), 'reading note must not become another work');
-  for (const item of all.items) {
-    for (const field of ['rating', 'grade', 'finishedAt', 'playtime', 'viewtime']) assert.equal(field in item.properties, false);
-    assert.ok(item.tags.includes('noria-demo'));
-  }
-  assert.match(read(root, 'README.md'), /36/);
-}
-
-function demoInventory(root) {
-  const contentRoots = ["00_Inbox", "01_Projects", "02_Areas", "03_Resources", "04_Archives", "05_MOC", "06_Diary", "99_Attachment"];
-  const files = contentRoots.flatMap((name) => filesUnder(path.join(root, name)));
-  const relative = files.map((file) => path.relative(root, file).replace(/\\/g, "/"));
-  const text = files
-    .filter((file) => /\.(?:md|base)$/i.test(file))
-    .map((file) => fs.readFileSync(file, "utf8"))
-    .join("\n");
-  const habits = read(root, "02_Areas/Noria/Habits.md");
-  const count = (pattern, source = text) => (source.match(pattern) || []).length;
-  return {
-    files: relative.length,
-    diaries: relative.filter((file) => /^06_Diary\/\d{4}\/\d{4}-\d{2}-\d{2}\.md$/.test(file)).length,
-    inbox: relative.filter((file) => /^00_Inbox\/[^/]+\.md$/.test(file)).length,
-    projects: relative.filter((file) => /^01_Projects\/[^/]+\/[^/]+\.md$/.test(file)).length,
-    habitHistory: count(/\[completion::/g, habits),
-    currentHabits: count(/^- \[ \].*#habit #active.*\[due:: 2026-07-11\]/gm, habits),
-    fields: {
-      start: count(/\[start::/g),
-      scheduled: count(/\[scheduled::/g),
-      due: count(/\[due::/g),
-      completion: count(/\[completion::/g)
-    }
-  };
-}
-
-test("release demo vault is isolated, installable, and populated with current IPARA examples", () => {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "noria-demo-"));
-  const target = path.join(parent, "vault");
-  const result = spawnSync(process.execPath, [script, target, "--date=2026-07-11"], {
-    cwd: pluginRoot,
-    encoding: "utf8"
-  });
-
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.deepEqual(
-    fs.readdirSync(path.join(target, ".obsidian", "plugins", "noria")).sort(),
-    ["data.json", "main.js", "manifest.json", "styles.css"]
-  );
-  assert.deepEqual(JSON.parse(read(target, ".obsidian/community-plugins.json")), ["noria"]);
-  assert.match(read(target, ".noria-demo-vault"), /Noria release demo/);
-  assert.match(read(target, ".noria-demo-vault"), /Locale: en/);
-  const gitignore = read(target, ".gitignore");
-  assert.match(gitignore, /^\.obsidian\/workspace\*\.json$/m);
-  assert.match(gitignore, /^\.obsidian\/plugins\/noria\/main\.js$/m);
-  assert.match(gitignore, /^\.obsidian\/plugins\/noria\/manifest\.json$/m);
-  assert.match(gitignore, /^\.obsidian\/plugins\/noria\/styles\.css$/m);
-  assert.doesNotMatch(gitignore, /data\.json/);
-  assert.equal(fs.existsSync(path.join(target, `.${retiredBrand}-demo-vault`)), false);
-
-  const data = JSON.parse(read(target, ".obsidian/plugins/noria/data.json"));
-  assert.equal(data.onboarding.profile, "standard");
-  assert.equal(data.onboarding.workspaceRoot, "02_Areas/Noria");
-  assert.equal(data.weather.qweatherSecretName, "noria-weather-qweather-key");
-  assert.equal(data.weather.manualCity, "Berlin");
-  assert.equal(Object.prototype.hasOwnProperty.call(data.weather, "qweatherKey"), false);
-  Object.values(data.managedPaths).forEach((managedPath) => {
-    assert.doesNotMatch(managedPath, /^[A-Za-z]:[\\/]/);
-    assert.match(managedPath, /^(?:00_Inbox|01_Projects|02_Areas|06_Diary)(?:\/|$)/);
-  });
-
-  const today = read(target, "06_Diary/2026/2026-07-11.md");
-  assert.match(today, /Process three Inbox notes/);
-  assert.match(today, /Walk and reset attention/);
-  assert.doesNotMatch(today, /Draft the introduction outline/);
-  assert.match(today, /#noria-demo/);
-  assert.doesNotMatch(today, new RegExp(`#${retiredBrand}-demo`, "i"));
-  assert.match(today, /weather: "(?:clear|partly cloudy|overcast|rain)"/);
-  assert.match(read(target, "02_Areas/Noria/Projects.md"), /Research writing/);
-  const researchProject = read(target, "01_Projects/Research writing/Research writing.md");
-  assert.match(researchProject, /Draft the introduction outline/);
-  assert.match(researchProject, /Review the experiment summary/);
-  assert.match(researchProject, /\[start:: 2026-07-11 09:00\]/);
-  assert.match(researchProject, /Review the experiment summary \[start:: 2026-07-12 11:00\]/);
-  const knowledgeProject = read(target, "01_Projects/Knowledge system/Knowledge system.md");
-  assert.match(knowledgeProject, /Organize two evergreen notes \[scheduled:: 2026-07-13 14:00\]/);
-  assert.match(knowledgeProject, /Refine the weekly briefing \[scheduled:: 2026-07-14 15:30\]/);
-  const habits = read(target, "02_Areas/Noria/Habits.md");
-  assert.match(habits, /## Active habits/);
-  assert.match(habits, /## Paused habits/);
-  assert.match(habits, /## Established habits/);
-  assert.match(habits, /## Daily recurring task source/);
-  assert.doesNotMatch(habits, /打卡中的习惯|循环任务源（每日）/);
-  assert.match(habits, /Deep work/);
-  assert.match(habits, /Read for twenty minutes \[type:: check\]/);
-  assert.doesNotMatch(habits, /Read for twenty minutes \[type:: number\]/);
-  assert.ok((habits.match(/\[completion::/g) || []).length >= 40);
-  assert.match(read(target, "02_Areas/Noria/Countdowns.md"), /Draft review/);
-  const inboxWorkflow = read(target, "02_Areas/Noria/Inbox workflow.md");
-  assert.match(inboxWorkflow, /inbox-work/);
-  assert.match(inboxWorkflow, /Assigning SI does not yet start execution/);
-  assert.doesNotMatch(inboxWorkflow, /`triage`|`processing`|`ready`|inbox-review/);
-  const queue = read(target, "02_Areas/Noria/Inbox queue.base");
-  assert.match(queue, /note.inbox-work/);
-  assert.doesNotMatch(queue, /inbox-status|inbox-next/);
-  assert.equal(fs.readdirSync(path.join(target, "06_Diary", "2026")).filter((name) => /^\d{4}-\d{2}-\d{2}\.md$/.test(name)).length, 90);
-
-  const allText = fs.readdirSync(path.join(target, "00_Inbox"))
-    .map((name) => read(target, `00_Inbox/${name}`))
-    .join("\n");
-  assert.doesNotMatch(allText, /inbox-(?:status|action|shape|next|review):/);
-  const assignments = fs.readdirSync(path.join(target, "00_Inbox")).map(name => {
-    const raw=read(target, `00_Inbox/${name}`), match=/^inbox-work: (.+)$/m.exec(raw);
-    return {work:match?JSON.parse(match[1]):""};
-  });
-  const {selectItems, actionCount}=require("../src/inbox-card-model.js");
-  assert.equal(selectItems(assignments,"SI").length,1);
-  assert.equal(actionCount(assignments,"SI","提炼"),1);
-  assert.equal(selectItems(assignments,"我").length,2);
-  assert.equal(assignments.filter(item=>!item.work).length,1);
-  assert.doesNotMatch(allText, /WENO|ZFD|Library|jellyns/i);
+test('public story has a single source for tasks, check-ins and focus records',t=>{
+ const vault=generate(t,'en'),data=JSON.parse(read(vault,'.obsidian/plugins/noria/data.json'));
+ assert.equal(data.onboarding.profile,'ipara');assert.equal(data.weather.enabled,false);
+ for(const name of ['00_Inbox','01_Projects','02_Areas','03_Resources','04_Archives','05_MOC','06_Diary','99_Attachment'])assert.ok(fs.existsSync(path.join(vault,name)));
+ assert.deepEqual(data.workbenchPages.pages.map(p=>p.id),['home','diary','day','calendar']);
+ assert.ok(data.shortcuts.every(e=>e.kind==='file'&&fs.existsSync(path.join(vault,e.target))));
+ assert.ok(data.homeDashboard.mocEntries.every(e=>fs.existsSync(path.join(vault,e.path))));
+ for(const key of ['dailyTemplate','weeklyTemplate','monthlyTemplate','yearlyTemplate'])assert.equal(data.managedPaths[key],'');
+ const today=read(vault,'06_Diary/2026/2026-10-14.md');
+ assert.match(today,/Send the return parcel/);assert.doesNotMatch(today,/^- \[.\] Explain the bookshop design decisions/m);
+ const focus=require('../src/focus-document.js').readFocusDocument(today,'2026-10-14');
+ assert.equal(focus.errors.size,0);assert.equal(focus.records.size,2);
+ const portfolio=read(vault,'01_Projects/Publish my portfolio/Publish my portfolio.md');
+ assert.match(portfolio,/\[start:: 2026-10-14 09:30\] \[due:: 2026-10-14 10:45\]/);
+ assert.match(portfolio,/^- \[ \] Organize the original project files #work$/m);
+ assert.match(portfolio,/Send the preview to a colleague \[due:: 2026-10-16\]/);
+ const registry=read(vault,data.managedPaths.habitRegistry);
+ assert.doesNotMatch(registry,/\[completion::/);
+ const definitions=require('../src/habit-definition.js').readHabitDefinitions(registry);
+ assert.equal(definitions.length,3);assert.equal(definitions.find(h=>h.name==='Strength training').weekdays,'135');
+ const restDay=read(vault,'06_Diary/2026/2026-10-13.md');assert.doesNotMatch(restDay,/^- \[.\] Strength training/m);
+ const diaries=walk(path.join(vault,'06_Diary')).filter(f=>/\d{4}-\d{2}-\d{2}\.md$/.test(f));
+ assert.equal(diaries.length,14);
+ const mood=data.recordFields.find(f=>f.id==='mood'),scale=require('../src/daily-record-chart.js').recordTrendScale(mood,[]);
+ assert.ok(scale,'The translated demo retains the ordered mood scale');
+ const levels=diaries.map(f=>scale.value(JSON.parse(/^mood: (.+)$/m.exec(fs.readFileSync(f,'utf8'))[1])));
+ assert.ok(levels.every(v=>v!==null));assert.ok(new Set(levels).size>=3,'Mood history contains the intended variation');
+ const notes=diaries.map(f=>fs.readFileSync(f,'utf8'));
+ assert.equal(new Set(notes.map(s=>/^## .+$/m.exec(s)[0])).size,14);
+ assert.ok(notes.some(s=>/^- \[ \].*#habit/m.test(s)),'History includes genuinely incomplete targets');
+ const markdown=walk(vault).filter(f=>f.endsWith('.md')).map(f=>read(vault,path.relative(vault,f))).join('\n');
+ assert.doesNotMatch(markdown,/WENO|ZFD|jellyns|Review one captured note|Kept the next action visible/);
+ assert.match(read(vault,'README.md'),/fictional records/);
+ for(const [,target] of markdown.matchAll(/\[\[([^\]|#]+)(?:[^\]]*)\]\]/g)){
+  const name=target.endsWith('.md')||target.endsWith('.base')?target:target+'.md';
+  assert.ok(fs.existsSync(path.join(vault,name))||walk(vault).some(f=>path.basename(f)===name),'Unresolved source: '+target);
+ }
 });
-
-test("release demo vault can generate an equivalent Simplified Chinese fixture", () => {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "noria-demo-zh-"));
-  const target = path.join(parent, "vault");
-  const result = spawnSync(process.execPath, [script, target, "--date=2026-07-11", "--locale=zh-CN"], {
-    cwd: pluginRoot,
-    encoding: "utf8"
-  });
-
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(read(target, ".noria-demo-vault"), /Locale: zh-CN/);
-
-  const data = JSON.parse(read(target, ".obsidian/plugins/noria/data.json"));
-  assert.equal(data.weather.manualCity, "北京");
-  assert.equal(data.home.identity.displayName, "Noria");
-
-  const today = read(target, "06_Diary/2026/2026-07-11.md");
-  assert.match(today, /散步并重置注意力/);
-  assert.match(today, /写下今日复盘/);
-  assert.match(today, /#noria-demo/);
-  assert.match(read(target, "02_Areas/Noria/Projects.md"), /研究写作/);
-  assert.match(read(target, "01_Projects/研究写作/研究写作.md"), /检查实验总结 \[start:: 2026-07-12 11:00\]/);
-  assert.match(read(target, "01_Projects/知识系统/知识系统.md"), /整理两条常青笔记 \[scheduled:: 2026-07-13 14:00\]/);
-  assert.match(read(target, "02_Areas/Noria/Projects.md"), /\[\[01_Projects\/研究写作\/研究写作\.md\|研究写作\]\]/);
-  assert.ok(fs.existsSync(path.join(target, "00_Inbox", "每周简报草稿.md")));
-  const habits = read(target, "02_Areas/Noria/Habits.md");
-  assert.match(habits, /## 打卡中的习惯/);
-  assert.match(habits, /## 暂停的习惯/);
-  assert.match(habits, /## 已养成习惯/);
-  assert.match(habits, /## 循环任务源（每日）/);
-  assert.doesNotMatch(habits, /## Active habits|## Daily recurring task source/);
-  assert.match(habits, /深度工作/);
-  assert.ok((habits.match(/\[completion::/g) || []).length >= 40);
-  assert.match(read(target, "02_Areas/Noria/Countdowns.md"), /初稿评审/);
-  assert.match(read(target, "02_Areas/Noria/Quotes.md"), /知识不在书中/);
-  const inboxWorkflow = read(target, "02_Areas/Noria/Inbox workflow.md");
-  assert.match(inboxWorkflow, /inbox-work/);
-  assert.match(inboxWorkflow, /选择 SI 目前只保存安排/);
-  assert.doesNotMatch(inboxWorkflow, /`triage`|`processing`|`ready`|inbox-review/);
-
-  const englishParent = fs.mkdtempSync(path.join(os.tmpdir(), "noria-demo-equivalent-en-"));
-  const englishTarget = path.join(englishParent, "vault");
-  const englishResult = spawnSync(process.execPath, [script, englishTarget, "--date=2026-07-11"], {
-    cwd: pluginRoot,
-    encoding: "utf8"
-  });
-  assert.equal(englishResult.status, 0, englishResult.stderr || englishResult.stdout);
-  assert.deepEqual(demoInventory(target), demoInventory(englishTarget));
-  checkMediaDemo(target);
-  checkMediaDemo(englishTarget);
-  const inventory = demoInventory(target);
-  assert.equal(inventory.diaries, 90);
-  assert.equal(inventory.inbox, 4);
-  assert.equal(inventory.projects, 2);
-  assert.ok(inventory.habitHistory >= 200);
-  assert.equal(inventory.currentHabits, 4);
-
-  for (const demoRoot of [target, englishTarget]) {
-    assert.equal(fs.existsSync(path.join(demoRoot, retiredBrandTitle)), false);
-    assert.equal(fs.existsSync(path.join(demoRoot, ".obsidian", "plugins", retiredBrand)), false);
-    assert.equal(fs.existsSync(path.join(demoRoot, `.${retiredBrand}-demo-vault`)), false);
-    const diaryText = filesUnder(path.join(demoRoot, "06_Diary"))
-      .map((file) => fs.readFileSync(file, "utf8"))
-      .join("\n");
-    assert.doesNotMatch(diaryText, new RegExp(`#${retiredBrand}-demo`, "i"));
-  }
+test('Chinese and English tell the same story with matching task dates and habit schedules',t=>{
+ const zh=generate(t,'zh-CN'),en=generate(t,'en');
+ const inventory=vault=>{const files=walk(vault).filter(f=>f.endsWith('.md'));const text=files.map(f=>fs.readFileSync(f,'utf8')).join('\n');return {files:files.length,dates:[...text.matchAll(/\[(start|due|scheduled|completion):: ([^\]]+)\]/g)].map(m=>m[1]+':'+m[2]).sort(),focus:(text.match(/\^focus-/g)||[]).length};};
+ assert.deepEqual(inventory(zh),inventory(en));
+ assert.match(read(zh,'06_Diary/2026/2026-10-14.md'),/第一版一直在讲做了什么/);
+ assert.match(read(zh,'06_Diary/2026/2026-W42.md'),/同事对/);
+ assert.match(read(zh,'02_Areas/Noria/Projects.md'),/发布个人作品集/);
 });
-
-test("Chinese showcase vault expresses IPARA, Library identity, and ninety days of source data", () => {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "noria-showcase-zh-"));
-  const target = path.join(parent, "vault");
-  const result = spawnSync(process.execPath, [script, target, "--date=2026-08-10", "--locale=zh-CN"], {
-    cwd: pluginRoot,
-    encoding: "utf8"
-  });
-
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  const data = JSON.parse(read(target, ".obsidian/plugins/noria/data.json"));
-  assert.equal(data.onboarding.workspaceRoot, "02_Areas/Noria");
-  assert.deepEqual(data.managedPaths, {
-    timelineSettings: "02_Areas/Noria/Timeline settings.md",
-    templateLibrary: "02_Areas/Noria/Event library.md",
-    importantDates: "02_Areas/Noria/Countdowns.md",
-    habitRegistry: "02_Areas/Noria/Habits.md",
-    projectRegistry: "02_Areas/Noria/Projects.md",
-    inboxWorkflow: "02_Areas/Noria/Inbox workflow.md",
-    inboxQueue: "02_Areas/Noria/Inbox queue.base",
-    inboxRoot: "00_Inbox",
-    projectsRoot: "01_Projects",
-    diaryRoot: "06_Diary",
-    dailyTemplate: "02_Areas/Noria/Templates/Daily Template.md",
-    weeklyTemplate: "02_Areas/Noria/Templates/Weekly Template.md",
-    monthlyTemplate: "02_Areas/Noria/Templates/Monthly Template.md",
-    yearlyTemplate: "02_Areas/Noria/Templates/Yearly Template.md"
-  });
-  assert.equal(data.home.identity.displayName, "Noria");
-  assert.equal(data.home.identity.greetingName, "Noria");
-  assert.equal(data.home.identity.avatarPath, "99_Attachment/noria.svg");
-  assert.equal(data.home.identity.quoteListPath, "02_Areas/Noria/Quotes.md");
-
-  for (const root of ["00_Inbox", "01_Projects", "02_Areas", "03_Resources", "04_Archives", "05_MOC", "06_Diary", "99_Attachment"]) {
-    assert.ok(fs.existsSync(path.join(target, root)), `missing ${root}`);
-  }
-  assert.equal(fs.existsSync(path.join(target, "Noria")), false);
-  assert.ok(fs.statSync(path.join(target, "99_Attachment", "noria.svg")).size > 100);
-  assert.ok((read(target, "02_Areas/Noria/Quotes.md").match(/^- /gm) || []).length >= 12);
-  assert.ok(fs.existsSync(path.join(target, "05_MOC", "知识管理·MOC.md")));
-  assert.ok(fs.existsSync(path.join(target, "03_Resources", "知识工作", "渐进式提炼.md")));
-  assert.ok(fs.existsSync(path.join(target, "04_Archives", "01_Projects", "工作区初始化", "工作区初始化.md")));
-
-  const diaryFiles = filesUnder(path.join(target, "06_Diary"))
-    .filter((file) => /\d{4}-\d{2}-\d{2}\.md$/.test(file));
-  assert.equal(diaryFiles.length, 90);
-  const diaryText = diaryFiles.map((file) => fs.readFileSync(file, "utf8")).join("\n");
-  assert.equal((diaryText.match(/^created: "\d{4}-\d{2}-\d{2}"$/gm) || []).length, 90);
-  assert.match(diaryText, /#noria-demo/);
-  assert.match(diaryText, /## 复盘/);
-  assert.equal(Object.prototype.hasOwnProperty.call(data, "statsSnapshot"), false);
-});
-
-test("release demo vault refuses to write into a non-empty directory", () => {
-  const target = fs.mkdtempSync(path.join(os.tmpdir(), "noria-demo-existing-"));
-  fs.writeFileSync(path.join(target, "keep.txt"), "keep\n", "utf8");
-
-  const result = spawnSync(process.execPath, [script, target, "--date=2026-07-11"], {
-    cwd: pluginRoot,
-    encoding: "utf8"
-  });
-
-  assert.notEqual(result.status, 0);
-  assert.equal(fs.readFileSync(path.join(target, "keep.txt"), "utf8"), "keep\n");
+test('generator refuses a nonempty destination without changing it',t=>{
+ const vault=generate(t,'en'),before=read(vault,'README.md');
+ const result=spawnSync(process.execPath,['scripts/prepare-release-demo-vault.mjs',vault],{cwd:root,encoding:'utf8'});
+ assert.notEqual(result.status,0);assert.equal(read(vault,'README.md'),before);
 });

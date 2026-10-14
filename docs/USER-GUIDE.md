@@ -4,7 +4,7 @@
 
 Noria connects daily records, accumulated knowledge, planning, execution, and review in one Obsidian workbench. It uses ordinary Markdown as its content foundation and provides a configurable Home, Task Board, Task Timeline, Calendar, Habits, Trends and Statistics, and Review Center so you can see the current state, choose the next useful action, and keep long-term knowledge connected to ongoing work.
 
-This guide starts with installation, then covers every module, common workflows, troubleshooting, paths, and advanced extension boundaries. For the product overview and release information, see the [README](../README.md).
+This guide covers installation, each interface, common workflows and troubleshooting, with data locations and extension details in the appendices. It follows the development version and includes unreleased improvements; see the [changelog](../CHANGELOG.md) for published versions and the [README](../README.md) for an overview.
 
 ## 1. Installation And Initialization
 
@@ -25,27 +25,23 @@ Obsidian creates `data.json` after settings are saved. Do not copy `src/`, `test
 
 The Noria interface follows the Obsidian language. Unsupported languages fall back to English.
 
-### 1.2 Choose A Workspace Mode
+### 1.2 Content locations
 
-The first time you open `Settings -> Noria -> Overview`, choose one mode:
+On first enable, choose the recommended **IPARA**, **One workspace folder**, or **Custom locations** in the location dialog. **Later** defers the prompt for this version without creating folders. Reopen it from **Settings → Noria → Content & templates → Content locations → Change**. Saved changes read and create content in the selected locations; existing files stay in place. Configured installations retain their paths and templates on update without another prompt.
 
-- **Standard workspace**: for a new vault, a test vault, or a vault that keeps Noria-managed content under `Noria/`.
-- **Custom paths**: for a vault that already has Inbox, Projects, Diary, MOC, and template structures.
+`06_Diary` is an editable suggested path, not a required built-in folder. Choose your existing diary folder if preferred. Installing Noria does not create folders. Confirming IPARA creates its eight top-level folders; other layouts create folders when notes are saved. **Use Obsidian diary location** lets you review and reuse its daily-note format and template without changing Obsidian settings.
 
-IPARA is not a third profile. For an IPARA vault, choose Custom paths, keep Noria lists and workflow files under `02_Areas/Noria/`, and map content roots to the existing top-level buckets.
+### 1.3 Get started
 
-### 1.3 Initialization Flow
+1. Choose locations, or edit each one under **Content and templates**.
+2. **Add starter examples** is selected by default: two open tasks, two habits, one countdown, an Inbox note and a project. All are editable and contain no completion history. Uncheck it to start empty. Confirming IPARA completes its eight top-level folders; **Later** creates none.
+3. Confirm to open Home, then create your own task or diary note. Starter notes do not contain invented completions; existing files are never overwritten and repeating setup does not duplicate them.
 
-Noria does not silently create or move files at startup. Use this order:
+Daily, weekly, monthly and yearly notes use built-in templates by default. Preview one, select an existing `.md`, or enter a path and **Save built-in copy**. Built-in help is available offline. Base files are optional native views, created explicitly from core files. An unused folder or list is not an error.
 
-1. Review the workspace preview and missing items.
-2. Check Inbox, Projects, Diary, template, and registry paths.
-3. Confirm which files and parent directories will be created.
-4. Run initialization or repair.
-5. Open Home and add a next step to Noria Workspace. The Project card’s **+** adds a task to the selected project; card settings manage projects.
-6. Complete it or open its details, then find the same task in its source, Diary and Task Board.
+Choosing locations or adding starter notes does not enable weather or synchronize Obsidian settings. To use the same diary settings in Obsidian, first save/select a template, then review and apply **Obsidian integration**.
 
-Initialization supplies the workspace files and entrances without synthetic completions, check-ins or deadlines. Screenshots use a separate demonstration vault.
+Tasks and Inbox have an add button even before setup. An empty card offers the same action in its content area. Inbox shows the destination folder before saving; **Change** opens its location setting and keeps the current draft.
 
 ### 1.4 First Acceptance Check
 
@@ -55,7 +51,7 @@ Initialization supplies the workspace files and entrances without synthetic comp
 - Calendar creates period notes under the configured path.
 - Habit, countdown, project, and MOC entries open their source files.
 - Open Diary from the top navigation and switch to Review; Day, Week, Month and Year are available.
-- Weather is off in a fresh installation. The first explicit workspace initialization enables it; later repairs preserve the user's choice. Configure a location or provider only when weather is needed.
+- Weather stays off until you enable it explicitly. Configure a location or provider only when needed.
 
 ## 2. Home
 
@@ -63,11 +59,15 @@ Use **Add card → Interaction** to select existing content or create questions.
 
 Open **Page settings → Manage pages** to rename, reorder, show or hide navigation entries, choose their pictures, or set the default entry. Create a blank page or start with the trends template, then use **Add a card** to compose it. Each page keeps its own layout while cards read the original notes and tasks. Restore hidden cards from the catalog; removing a custom page does not delete source notes. Diary and Day retain their dedicated features. The default applies to new workbenches; existing workspaces restore their saved page.
 
+The catalog lists removed cards first so you can restore their original settings. An empty custom page offers **Add or restore cards**. If a note card cannot read its source, use **Retry** or **Card settings** to select a source; Diary keeps changes scoped to the current note. Cards unavailable in the current build retain their settings and original records.
+
 Page entries use icons, with names on hover or keyboard focus and a selected background for the current page. Tab into navigation, move focus with the arrow keys, and press Enter or Space to open a page; Home / End move to the first / last entry. On narrow windows, open remaining pages from **More pages**. Change an icon in **Page settings → Manage pages**.
 
 Home is Noria's central workbench, not a fixed collection of features. It organizes current state, next actions, knowledge entrances, and longer-term observations on one configurable page.
 
 ![Noria Home](assets/en/home-dashboard.png)
+
+Screenshots use an isolated fictional workspace: a portfolio launch, an offline-reader app, daily habits and two weeks of notes. Every view reads the same source notes. The card layout, tag colors and 08:00–18:00 visible hours are configurable. Optional onboarding examples are smaller than this demonstration vault.
 
 ### 2.1 First-Screen Structure
 
@@ -109,11 +109,30 @@ An unfinished task can continue the next day. Noria does not treat rollover as p
 
 Inbox lists inputs in your Inbox folder. Filter by Me / SI and action in the header. Click an item to read and edit its source alongside the list. Further selections reuse that reading pane; Up and Down move between visible items. Pin a note to keep it: the next selection opens another tab on the same side. Hold and drag an item to a side action to assign work. The queue Base shares the same inbox-work property. Keep requests in the source note; assigning SI does not start an external assistant. See [Process Inbox](#113-process-inbox) for the steps.
 
+![Inbox: title, preview and assignment](assets/en/home-inbox.png)
+
 ### Habit Card
 
-The Habit card starts with today and separate recent date cells, showing up to seven days on wide cards. Narrow cards reduce historical columns while keeping names and today's controls visible. Numeric habits show today's actual value and unit, including zero. Use the history icon to expand the longer, horizontally scrollable range; click again to return to recent days. The expanded range defaults to 21 days and can be changed in **… → Card settings → History days**. Click a date cell to backfill a check-in, or a habit name to edit its parameters.
+The Habit card shows today and recent dates in separate cells. Date columns adapt to the available width, keeping names and today’s controls accessible in narrow cards. Numeric habits show today's actual value and unit, including zero. Use the history icon to expand the longer, horizontally scrollable range; click again to return to recent days. The expanded range defaults to 21 days and can be changed in **… → Card settings → History days**. Click a date cell to backfill a check-in, or a habit name to edit its parameters.
 
 ![Home habit history](assets/en/home-habits.png)
+
+### Focus Card
+
+Use **Add card → Focus** on Home or in a diary. Choose Pomodoro or free timing inside the dial, and click the time to change its duration. Select a task at the bottom, or drag one onto the card.
+
+1. Drag the **title** of an open task from the Tasks card onto Focus.
+2. Release when **Drop to focus** appears. The timer starts for that task. Task titles in project cards and diary task lists work the same way.
+
+![Drag a task to Focus and wait for the drop hint](assets/en/focus-task-drop.png)
+
+Once started, the task name appears at the bottom. Pause or finish on the right, or open the source note with the document icon. Dragging does not move, reschedule or complete the task.
+
+![After dropping, the timer runs for the original task](assets/en/focus-task-running.png)
+
+If a timer is already active, dropping another task asks you to finish and switch or cancel. Recorded time is kept; dropping the same task does not restart it. Without dragging, use the task chooser or the focus menu in the task editor. If a source has changed or cannot be located, refresh the task list and try again.
+
+Switch **Timer / Review** in the header without interrupting a session. Review shows recorded time; choose a date at the lower left and use **… → Intervals & sources** for details. A separate time ring is available in statistics templates when needed.
 
 ### 2.5 Countdowns
 
@@ -139,17 +158,13 @@ Home, Diary and custom pages support a tall card beside a vertical stack of card
 
 Open **Page settings → Add a card to this page** at the right of the top navigation to add built-in functions, a note / Base, statistics or an available third-party component. Home, Diary and custom pages share this entry. Configure the card with a preview of real content; restore hidden cards from the same catalog.
 
-Choose **Statistics templates** at the top right of the card catalog, then browse Recommended, All styles or My templates. Dashboard statistics includes the overview, note and task trends, habit history, both yearly heatmaps, tag distribution and daily records. These retain their existing metrics and interactions, can be added to Home or custom pages, and can be saved as personal templates. The overview, note and task trends, both heatmaps and daily records also work in Diary, following the selected day, week, month or year by default. Tag distribution reflects the current library and stays on Home or custom pages; Diary uses its existing habit card. The gallery explains these two restrictions. The eleven basic chart types each have a default setup; record templates use configured fields where available. Choose a property if no suitable state field exists. Gallery drawings illustrate styles; the editor previews real data. Recent days includes today, and switching basic charts keeps the date range and filters. Templates store configuration without copying source data; removing one leaves existing cards intact. Ready-made dashboard cards retain their existing range and metric settings rather than offering arbitrary data-source substitution.
+Choose **Statistics templates** at the top right of the card catalog, then browse Recommended, All styles or My templates. Dashboard statistics includes the overview, note and task trends, habit history, both yearly heatmaps, tag distribution and daily records. These retain their existing metrics and interactions, can be added to Home or custom pages, and can be saved as personal templates. The overview, note and task trends, both heatmaps and daily records also work in Diary, following the selected day, week, month or year by default. Tag distribution reflects the current library and stays on Home or custom pages; Diary uses its existing habit card. The gallery explains these two restrictions. Available basic chart types each have a default setup; record templates use configured fields where available. Choose a property if no suitable state field exists. Gallery drawings illustrate styles; the editor previews real data. Recent days includes today, and switching basic charts keeps the date range and filters. Templates store configuration without copying source data; removing one leaves existing cards intact. Ready-made dashboard cards retain their existing range and metric settings rather than offering arbitrary data-source substitution.
 
 Segmented composition restores the earlier percentage strip as a configurable chart. It uses your current record property, supports Follow page for daily/weekly/monthly/yearly notes, and opens the corresponding records from a segment or category detail. Missing values are excluded; overlapping categories and negative values cannot form exclusive shares. Use counts, sums or distributions rather than averages or extrema. The same renderer also serves legacy periodic distributions.
 
 Period trends offers two dual-axis templates: Notes and words, and Task count and completion rate. They work on Home, custom pages and diaries. Follow page is the default; fixed ranges and recent days are also available. Day/week/month buttons change the current view; save the default grouping in card settings. Auto uses days up to 45 days, weeks up to 180 days, and months for longer ranges. Task activity places completed tasks by completion date and open tasks by due/scheduled/start dates or the existing fallback. Rates are recomputed from grouped completed/activity counts, never averaged from daily percentages; periods without tasks have no rate. Values and definitions exposes full period keys, both metrics and their calculation rules. Legends identify the left and right axes. Point or touch the chart to inspect exact values; arrow keys select periods and Home / End jump to the endpoints. Resizing preserves the selected period and expanded values. Click the plot, press Enter, or select View sources beside the readout to inspect the same period: tasks are grouped into completed and open, and notes into newly created notes and diary character sources. Saved cards open the original note, locating the current line for tasks. Configuration previews are read-only and retain unapplied settings when you return. The note chart pairs new-note counts with diary non-whitespace character counts, including Markdown markup; this is not the amount newly written that day.
 
 Home note and task trends support pointer or touch inspection and arrow keys / Home / End, with exact values in the hover or keyboard tooltip. Resizing retains the selected period; zero-valued bars have no height. Generic line and column charts retain the selected date when an in-place property edit refreshes their data.
-
-The **Focus card** switches between Timer and Review without changing its height or interrupting a session. Today’s total or the active timer status sits in the title row. The dial stays centered above a single bottom row: task and timer controls in Timer, a date button at the lower left and timer controls at the lower right in Review. Select the date button to open the date picker; find Intervals & sources in the card’s more menu. Timer mode shares the dial’s status line and can be changed before starting. Pause, resume and finish remain available in Review. Standalone time rings belong on the statistics page by default, including new pages created from the Trends and statistics template. Add them to Home or a diary when needed; upgrades no longer insert a separate ring on Home or remove existing custom cards.
-
-**Focus card** can be placed on Home through Add card. The task row in Timer view switches between Pomodoro and free timing. The dial shows elapsed progress only for Pomodoro; free timing shows elapsed time. Choose a task by its title, or open its note with the source icon. Drag a task title from Home, a project or a diary onto the card to begin. An active session asks you to finish and switch or cancel, retaining recorded time. Dropping the same task does not restart it. The task is not moved, rescheduled or completed. Changed or ambiguous sources require a refresh. Keyboard users can use the focus menu in the task editor.
 
 **Focus time ring** is a shared statistics template for Home, diaries and custom pages. It reads actual focus segments from the timer and ordinary Markdown. The range follows the page by default; the date controls select a day within that range, initially the latest day with a record. Pauses are excluded, midnight crossings are clipped to the day, and overlapping time counts once. No records displays “—”; unrecorded time does not mean free time, and legacy intervals without segments are not inferred. Hover to inspect, click to keep a selection, or use the arrow keys and Home / End. Enter opens the source; **Intervals & sources** beside the date lists dense short segments separately. The center shows the daily total, or the duration and title of the selected interval. Click that title to open its source; hover it for the full time range. Enable **Compare task schedules** in card settings to show explicitly timed task schedules as a fine dashed outer ring, with actual focus on the solid inner ring. New time-ring templates enable this comparison; existing cards keep their setting. The center keeps actual focus and scheduled duration separate. Date-only tasks and deadlines do not imply durations; ambiguous legacy start/due pairs are not inferred. Cancelled schedules are excluded, completed schedules remain available for comparison, and overlapping scheduled time counts once. Clicking a schedule title opens its task; clicking a focus title opens the recorded segment.
 
@@ -161,7 +176,7 @@ In Obsidian Reading view and Markdown rendered by Noria, focus entries show the 
 
 Under **Chart appearance**, choose colors and the density, scale, sample markers or legend options applicable to the chart. Line and column charts support a reference value in the same unit. Values outside a custom scale remain visible, with an expanded-scale notice. **Save appearance** reuses display settings without changing another card's data source, filters or reference value. Removing a preset leaves applied cards unchanged. Empty line and column charts omit unused axes; diary charts retain a date picker for adding records.
 
-Each card’s **…** separates content management from layout: visual width choices, move, collapse, automatic height, duplicate and hide. Copies have independent configuration. Cards in a row share a height; the bottom handle adjusts it, while a narrow single column grows naturally. Home has its own layout. Daily, weekly, monthly and yearly diaries each share a separate layout across dates.
+Each card’s **…** groups content actions, card settings and layout. Add to Home shares the data with independent display settings. Remove card keeps its configuration under **Add card → Removed**. Delete card requires confirmation and removes only this page’s placement, keeping source notes and other pages. Layout controls cover width, order, collapse, automatic height and copying; diary changes distinguish period defaults from the current note.
 
 A Dataview card uses a note containing a query. Its dependency opens in Obsidian’s native plugin installer. Two cards can use separate notes; disabling the dependency affects those cards, and enabling it restores them. Note / Base cards reuse native rendering. Other plugins need an adapter or embeddable note content; arbitrary full plugin interfaces are not supported. See the [card provider API](CARD-PROVIDERS.md).
 
@@ -171,103 +186,19 @@ A Dataview card uses a note containing a query. Its dependency opens in Obsidian
 
 ### 2.8 External Markdown Workbench
 
-Markdown widgets can read daily briefings, current suggestions, weekly reviews, and project-monitor files produced by external agents, RSS workflows, or other scripts. Noria displays the content, source handoff, and freshness state; the external workflow remains responsible for generating it.
+The **Suggestions card** accepts your own notes or results from an external assistant such as Codex. An empty card offers **Add suggestion** and **How it works**; **… → Using suggestions** remains available after suggestions are added.
 
-### Media page and Home shortcuts
+The editor shows the actual destination: the `## 建议` section of the corresponding daily note. Link to `[[Project notes]]` and use each item's **…** to edit or delete it, with Undo after deletion. An assistant with vault access can edit that section while preserving the rest of the note; otherwise paste its response into the editor. Direct Markdown editing needs no external-assistant connection. Help and examples stay inside the plugin, without generating personal suggestions or guide notes.
 
-Start in Media library to browse the collection; Home shows only shortcuts you deliberately add. Both read the original work notes, without creating a second collection.
+Markdown widgets can read daily briefings, current suggestions, weekly reviews, and project-monitor files produced by external assistants or scripts. Noria displays the content, source handoff, and freshness state; the external workflow remains responsible for generating it.
 
-| Entry | Purpose | Selecting a work |
-| --- | --- | --- |
-| Top navigation → Media library → Works | Browse, read, update progress and find notes | Opens work details |
-| Home shortcuts | Open selected works or other content quickly | Opens the explicit reading/playback destination, or details when none is set |
-| Page settings → Add a card to this page → Works list | Put a simple list on another page | Opens the original work note |
+### Home shortcuts
 
-#### Open the library
+Keep frequently used notes and pages on Home. The Shortcuts card initially appears above MOC and can be moved. Select **+** to choose a note, Base, Canvas or Noria page, or paste a web or supported application link.
 
-Open **Media library** from the bookshelf icon in the top navigation. The page title and library, open-book, film, disc and gamepad navigation sit outside the cards and select All, Books, Film & TV, Music, or Games. Hover for names or focus the group and use Left/Right to switch. Works and recent-completion statistics follow the section together.
+Each shortcut shows an icon and name. Its menu changes the display name, picture or opening location; drag to reorder. Removing a shortcut keeps the original file, and changing its display name does not rename it. Renaming or moving a file in Obsidian updates the shortcut. Only items you add appear here.
 
-Choose an existing folder in the **Works** card on All. Other sections inherit this folder when their folder setting is empty, or can select another folder. Each section saves its own cards, order, sizes and settings; **Page settings → Add a card to this page** targets the current section. Switching preserves section search and detail state, and reloading restores the active section. Other custom statistics retain their explicitly configured sources and calculations. No notes need to move.
-
-On the first load, the library prefers an existing `In progress` or `进行中` status. If both are present, it selects the one matching the interface language; if neither is present, it shows all works. Choose **All** to see the whole collection. This initial choice does not translate or rewrite note properties; custom statuses remain available as filters.
-
-Switch between **Cover** and **Detail** views at the right of the page header. Cover view starts with artwork and titles only; Detail view includes creators, progress and excerpts. Excerpts prefer the selected review section, then the description section; an absent description heading uses the legacy description property. Each excerpt identifies its source section and quotes existing text without generating content. **Display settings** controls Creator, Progress and Review / description separately for each view and adjusts cover size. Each section remembers its preferences, while switching views preserves search and filters. Click progress text to edit it directly. A book needs valid page and total counts to show a proportion; otherwise only its page position is shown. Other media use status without inferred percentages. Existing rating fields remain unchanged; direct personal rating is still pending.
-
-Status, search and add actions share one toolbar inside the Works card, wrapping when space is limited. Clear filters to recover from an empty search. Covers retain their proportions and share a bottom edge; shortcut actions appear on hover or focus and remain visible for pinned works. Opening a work and returning keeps the selected section.
-
-Opening a work moves its cover from the collection into the detail page; returning moves it back and restores focus. Section changes use a short transition. Reversing direction, scrolling or switching sections cancels the old transition without blocking controls. The system reduced-motion preference skips these effects. Music keeps square artwork and labels its explicit playback destination **Listen**. With no dated completions, the statistic shows a compact empty state.
-
-#### Add works and choose templates
-
-The library reads ordinary Markdown in its configured folder. Adding or editing a work note in Obsidian or an external editor updates the view automatically after Obsidian detects and indexes the file; another import or manual refresh is unnecessary. The note must be inside the configured works folder and carry a supported media identity tag. Active search and filters still apply. Existing identity tags such as `book`, `movie`, `music` and `game` identify works; other tags organize their categories. Ratings, progress and covers remain properties. Related notes without a media identity tag are not collected as separate works. External type changes update the open detail's Read/Watch action and editing fields. An active review retains its input and cursor; finishing it adopts the new type's section profile without rewriting or deleting the old sections.
-
-Chinese identity tags are also supported: `图书` / `书籍` for books; `电影` / `影视` / `电视剧` / `动画` for film and TV; `音乐` / `专辑` / `歌曲` for music; and `游戏` for games. Both frontmatter and inline tags work, and original spelling is retained. Identity tags are excluded from category charts. Matching is exact: `电影研究` and `电影/科幻` do not identify a film by themselves; add `电影` separately when needed.
-
-Use **＋ Add a work** on the right to enter its title and an existing destination folder. Books, Film & TV, Music and Games inherit their section's type; All and standalone cards retain the type chooser. Choose a subfolder within the card scope; duplicate lookup covers the whole card folder. Matching works show their original paths and open directly. Choose **Add a separate edition** and a free filename when it really is another edition. A matching ISBN or source edition still returns the original record. Creation opens the new work unless you already dismissed the editor, in which case a notice confirms completion without navigating. An omitted status does not become “in progress.” Dismissing or cancelling retains temporary input in the current card, separately by category; rebuilding the page or reloading the plugin may discard it.
-
-For books, enter a title, ISBN or Open Library link and choose **Find details**. Title results lead to specific editions. You can also expand **Work details** without searching and enter the author, publisher, publication text, ISBN, page count and source/cover links manually. Short fields share rows; long links use a full row. Author names are resolved from the edition’s author identifiers. If any remain unavailable, the author field explains what is missing and still allows manual correction. Starting a new search preserves entered details; selecting a specific edition replaces them. **Remove these details** clears the supplemental values while leaving manual entry available. Film/TV, music and game intake is currently manual. Existing music notes expose `artist` for display and search.
-
-Use **Add a work → Template** to choose a vault `.md` file per media type; no special filename suffix is required. Closing template settings returns to Add with the title, folder and metadata retained. The same settings remain available from **Display settings → Work template…** and the work menu. The file-edit icon saves the current settings and opens the original template in Obsidian's editor. New works read the latest template prose and custom properties, with explicitly supplied metadata taking precedence. An existing identity tag for the selected type is retained without adding another alias. `{{title}}` and `{{date}}` are supported; template scripts are not executed. Changing a template never rewrites existing works. A missing or mismatched template stops creation.
-
-Content defaults to **Follow the note**, preserving section order, nested headings and free prose. New sections need no registration. Description/review mappings and optional section selection live under the collapsed **Display and excerpts** options. Existing deliberate section selections remain in effect until you choose Follow the note. Duplicate headings stay readable; edit them in the original note to avoid ambiguous section updates.
-
-Choose **Edit work details** from a work’s menu. Books show author, publisher, ISBN, page count and publication text; film/TV shows directors, music shows artists, and games show developers. These three types also provide a year field. Expand **Source and cover** for links. Changed fields show their original values and a restore action. Save writes only changed fields, preserving status, current page, ratings and prose; clearing an input clears that field. Covers accept vault image paths, wikilinks or HTTP(S) links. A hint appears when the original `image` property takes display priority. A conflicting metadata edit keeps your input visible so you can check the source before reopening. For books, expand **Find edition details** to search by title, ISBN or Open Library link. Select a specific edition, compare each supplied value, and choose **Use** for the fields you want. Selection alone does not replace any input or write the note. A new query clears the suggestions but keeps your edits and adopted values; the source URL is also a separate choice.
-
-Cover references live in the work note's `cover` property as an image wikilink, vault path or HTTP(S) image URL; the existing `image` field retains priority. Editing the reference updates the list and open detail after indexing. Missing or failed images use the default cover. Replacing, deleting or restoring a local image at the same path updates open covers without interrupting prose editing. Failed remote images retry when connectivity returns; successfully loaded images are retained, and remote URLs are not polled. Adding a note does not automatically fetch artwork. If the source is deleted, moved outside the collection or loses every media identity tag, idle details return to the list. Active edits remain visible while stale actions are disabled. Returning after deletion backs up unsaved input using Obsidian text backups without recreating the deleted note. Native Obsidian renames preserve the editor and retarget writes; external renames reported as deletion plus creation follow the missing-source path without guessing file identity.
-
-#### Read, update progress and link notes
-
-**Link destination** and **Change destination** share the same editor. The folder icon beside the input opens the vault file picker; you can also paste a link. Saving returns focus to Read, Watch, Listen or Play. Saving an unchanged destination preserves the source note formatting.
-
-Book lists and details share the same page position. An explicit `pageprogress: 0` shows page zero; lists omit the row when both status and page position are missing. Details keep **Progress** beside Read; films, music and games use **Status**. Once recorded, this action shows the existing status or page position and remains editable. A compact bar appears when a valid total is known and the last page has not been reached. Unknown or inconsistent totals show the current page without a percentage. Record the page number printed in the book; the PDF reader keeps its own location. A sample PDF's length is not the complete book's page count. Reaching the last page does not set a completion date, status or rating. Nonbooks do not infer time-based percentages. Clearing the list's progress returns focus to the work title.
-
-Details provide progress, an optional completion date, a work destination, and related notes. Status and page position share one editable line; **Edit work details** in the work menu changes type-specific metadata: book details and total pages, film directors, music artists, game developers, and release years. Saving refreshes the display and restores focus to the action you used; inputs are disabled during the write. Conflicts retain unsaved input and ask you to check the source note. Selected description, review and additional second-level sections appear below the cover; the file icon beside the Linked notes heading opens the complete work note, next to the add-note action. Hover or keyboard focus reveals its label. Use a section’s pencil to edit it in place. Pausing input autosaves; Finish or Ctrl/Cmd+Enter returns to reading. Autosave waits for IME composition. Changes go to the original section in the same `.md`; independent edits elsewhere are retained. A concurrent edit to that section keeps your input and preserves a text backup instead of overwriting the source. Compare your draft with the original. When the selected description heading is absent, an existing `description` field remains its source, including when edited. Other incoming mentions are collapsed. The explicit work destination uses `media-open`, accepting vault files with locations, web URLs, and Obsidian, Steam or Zotero links. The metadata `source` is not used as a work destination.
-
-Long descriptions in work details start with a roughly six-line plain-text preview. **Read more** reveals complete Markdown and links; **Show less** returns to the preview. Short descriptions remain visible without an extra control. Editing always opens the full section. Disclosure never changes the source note and adapts to the pane width.
-
-Keep short impressions in the work note, and create a linked note when the content deserves its own document. Dated records use `YYYY-MM-DD Title.md`, with known `HHmm` only when needed to distinguish same-day entries; ongoing topics use stable names. Existing experience notes stay linked and are not merged, renamed or moved automatically. Maintain internal links when renaming or moving notes. The dated-note Base gathers independent dated files; dated paragraphs inside the work note are not included yet.
-
-**Linked notes → ＋** offers **New linked note** and **Link an existing note**. New notes ask only for a name and open directly in Obsidian, beside the work, with a `related` link. No date, experience tag or records directory is required. Existing names are never overwritten; use the existing-note option. Existing notes keep their locations. The list shows titles, actual filename dates and source excerpts; edits, renames and deletions refresh it. Undated notes receive no inferred date. Other mentions load excerpts when expanded.
-
-Noria reuses an already open local work or linked-note tab. A destination without an anchor preserves the reader position; a link such as `#page=7` still navigates explicitly. External edits to the work Markdown update the open detail header, cover, categories, progress and destination in place without replacing an active review editor or its selection.
-
-If a configured local file is missing or the destination format is invalid, opening it from Home or work details shows that work's destination editor with the old value retained. Cancel leaves the source unchanged; saving a replacement lets the next click open it directly. Noria does not create a substitute file or use the metadata source URL as a reading destination.
-
-#### Categories and statistics
-
-Use the **filter icon beside Search library** to search and select category tags. Untagged means no category tags; identity tags do not count. Genre property choices appear only when existing notes provide them. Multiple choices within a group match any choice; selected genres and tags must both match. Classification combines with search and status, with counts following the filtered works. Conditions can be removed individually or cleared. Zero results retain conditions; Clear filters clears search, status and classification together.
-
-Returning from details, switching between existing category pages and refreshing note metadata retain current conditions. These session filters are not restored after page recreation or plugin reload. Statistics retain their full collection scope. Existing `genre` values are preserved; tagging does not require duplicating them. Tags match complete names. New distribution cards default to tags; saved grouping choices remain unchanged and can be changed in card settings.
-
-Open a work and select its category text, or **Add categories** when empty, to edit tags. A Genre property input appears only for existing nonempty `genre` values; editing tags does not create that property. Separate entries with semicolons and use existing category suggestions. Changed fields can be restored. Only changed properties are written; filters and distribution refresh from the note. Identity tags are retained. Inline tags are read-only with a source-note link. Repair malformed tags in the source. Competing edits retain unsaved input and show a conflict; Cancel writes nothing.
-
-The default library layout gives works the full width, followed by Recent completions and Collection distribution side by side. Narrow containers stack these cards. Detailed browsing uses two columns in wide cards and one in narrow cards. Music defaults to works and distribution. Untouched older defaults are upgraded; custom sizes, order and settings are retained, and removed cards stay removed.
-
-**Recent completions** counts each work once by its explicit `finishedAt` date, without inferring dates from current status or counting reading or playing sessions. Select a month to see works ordered by completion date, newest first. Titles open work details; file icons open the source notes. Rows retain the completion date and current status. Edits, renames and deletions refresh the list while keeping the selected month. Use Hide works to collapse it. The card menu's Calculation details explains the date rules.
-
-In **All works**, book, film and game icons select separate completion statistics instead of combining their totals. Arrow keys switch categories within this card; the page's work list stays unchanged. Individual category pages follow their own type without duplicate controls. New Music pages start with browsing and collection distribution, without a default completion card. Saved or explicitly added statistics cards are retained; a Music completion card can show explicit completion dates, but these do not measure plays or listening time.
-
-**Recent completions** uses a monthly chart through the shared renderer for 3, 6 or 12 months of explicit `finishedAt: YYYY-MM-DD` records. Choose **Dot matrix** or **Columns** in **… → Card settings → Chart style**; preview and apply use the same works. Dots are the default, with a legend stating the number of works per tile. Larger counts use grouped tiles, with partial fills preserving remainders; pale empty tiles are not completion records. Months run left to right, retaining empty months. Only the inspected value and maximum are labelled; consecutive equal maxima share one label. Hover to inspect and click a month to show its works. Arrow keys select months, Home/End reaches the endpoints, and Enter opens works. Narrow cards reduce axis labels and tighten tile spacing while retaining every month's interaction. Status, page position and impressions do not imply completion dates or experience volume. The common card menu controls settings and layout; an empty folder follows the library folder.
-
-**Collection distribution** is visible by default. Add further instances from **Page settings → Add a card to this page**. Horizontal bars show counts for existing genres or tags. Select a category to view its works and source notes. Long labels wrap above the bars; counts remain aligned on the right. The first six categories appear initially, with an option to show all. The scope includes all collected works in the folder and current category page, regardless of completion dates. Existing libraries receive the missing distribution card once, preserving existing instances. Explicitly emptied or fully hidden pages are not repopulated.
-
-In **… → Card settings**, choose Genre (`genre` text or a text list) or Tags, with an optional tag prefix such as `topic`. Media identity tags such as `book` are excluded, and prefixes match complete tag levels. Each work counts once per category; categories can overlap, so counts are not exclusive shares or measures of preference. **Unclassified** and **Needs review** retain access to missing and invalid classifications. Edit properties or tags in the source note; the chart and open list refresh together without creating another classification record. An empty folder follows the library folder.
-
-#### Home shortcuts
-
-The shared **Shortcuts** area initially sits above MOC. You can move it afterward; restarting does not reset its position. Choose **＋** to search works, ordinary notes, Bases, canvases and Noria pages, or paste a web or supported app link. Entries show a cover or icon and a short name. The context menu edits the display name, picture and destination, reorders entries, or removes a reference. Dragging also reorders. Display-name changes never rename the file; removing a shortcut leaves the original content intact.
-
-**Add to shortcuts** in work details uses this same list. A work opens its explicit work destination, or its detail page when none is configured; its notes button opens related notes. Previous Home media choices migrate with their order preserved. The full library and its statistics stay separate. Adding an entry requires no task, date or duration, and links open only when activated.
-
-These features are in the development version. Isolated tests and representative native operations have passed; real collections, additional themes and full user acceptance remain pending.
-
-### Existing media library card
-
-This optional standalone card differs from Works inside Media library. Use the top-level library for normal browsing; add this card when another page needs direct access to the original notes.
-
-Choose **Page settings → Add a card to this page → Works list** (previously Media library), select the folder containing your works, and apply. Subfolders are included by default. It uses the same identity rules as the library, including the Chinese aliases listed above and existing `book`, `movie` / `tv` / `anime`, `music` / `album` / `song`, or `game` tags; list and template notes beginning with `清单-` or `模板-` are excluded. The default status filter is `进行中` (in progress). In card settings, replace it with the status your notes use, or leave it empty for all works.
-
-Search titles, authors or directors, filter by type and stored status, and click a work to open its original note. The card retains its current filters when opening a source; metadata changes refresh the collection. Choose covers or a compact list in card settings. Local and existing HTTP(S) cover links are supported, with `image` taking precedence over `cover`. Missing images retain the title and type icon. Book pages are a current position, not reading volume; ratings and experience dates are not inferred. Click the status or page position to edit the current status and, for books, the current page. Save changes explicitly; competing status or page edits require reopening the editor. Configuration previews remain read-only.
+Open the original note and return to Noria without losing your place. Links open only when selected; adding one does not run it.
 
 ## 3. Task Board
 
@@ -342,9 +273,9 @@ Selecting a date opens Diary in the workbench. A missing note is created on the 
 
 Task Timeline is Noria's own time view for observing tasks across dates, time blocks, and stages. Tasks still come from source Markdown; the view provides organization, filtering, and interaction.
 
-![Tasks and project phases across two weeks](assets/en/task-timeline-wide.png)
+![Project schedules across two weeks](assets/en/task-timeline-wide.png)
 
-*This section describes Timeline in Noria 0.4.6. Screenshots use example tasks.*
+*Screenshots use fictional tasks from the isolated demonstration vault; this section follows the development version.*
 
 ### 4.1 Main Area And Sidebar
 
@@ -435,7 +366,7 @@ Choose **Add a card → Activity** to browse diary content, captures and task cr
 
 Card settings separately control records, task events, note creation and last modification. Task events require recorded creation/completion dates; planned dates are not treated as actual events. File activity is off by default. Last modification reflects the current file timestamp, not a history of individual edits.
 
-Persistent **Home / Diary** navigation leads to a shared diary page: records above and the confirmed review below, reachable through the outline. They share the selected period, date, and Markdown source; reference material opens on demand. This update is available in the local experience build.
+Persistent **Home / Diary** navigation leads to a shared diary page: records above and the confirmed review below, reachable through the outline. They share the selected period, date, and Markdown source; reference material opens on demand.
 
 ![Diary workspace](assets/en/diary-workspace.png)
 
@@ -463,7 +394,7 @@ Legacy `noria-view / diary-cards` blocks remain readable. On the first card edit
 
 ![Diary editing with autosave](assets/en/diary-editor.png)
 
-*Editing in the local experience build, with example note content. The book icon returns to reading; no separate Save button is needed for normal writing.*
+*Editing an example diary note. The book icon returns to reading; no separate Save button is needed for normal writing.*
 
 ### 5.2 Creation Behavior
 
@@ -493,7 +424,7 @@ The date-note preset uses matching heading levels in reading and Live Preview. I
 
 Calendar supports three sources:
 
-- **Noria** uses Diary root and templates from `Overview -> Paths`.
+- **Noria** uses Diary root and templates from **Content & templates → Diary & templates**.
 - **Daily Notes** reads Obsidian Daily Notes settings.
 - **Custom** uses a separately configured folder, naming pattern, and template.
 
@@ -511,7 +442,7 @@ Mood and Energy beside the daily record use native menus. Clear removes a value;
 
 ![Quick notes and state controls](assets/en/diary-quick-notes.png)
 
-*Example content in the experience build.*
+*Example diary content.*
 
 ### 5.5 Diary templates and card layout
 
@@ -533,7 +464,7 @@ Habits separate today's completion from long-term formation.
 
 ### 6.1 Today's Habits
 
-The compact habit entry under the Home Inbox card is for quick check-in and does not repeat historical charts.
+Check in from the Habit card on Home or in today’s diary. Select today’s cell to record progress, **+** to add a habit, or its name to change settings. Expand history when needed; everyday use keeps names and today’s actions in view.
 
 ### 6.2 Habit Cards
 
@@ -567,7 +498,11 @@ Trends and Statistics are for observing sustained change, not evaluating yoursel
 
 ### 7.1 Shared Range
 
-All statistics cards share one range control:
+The statistics page brings together notes, tasks, habits and daily records. Primary charts stay visible; alternate styles for the same source and purpose can be collapsed. Open the statistics library to find a card by purpose, preview it and configure its source. Save a configured card to My templates or add it to Home.
+
+When adding a diary statistic, choose This note or the period’s default cards. Cards that follow the page use the selected day, week, month or year; a fixed card range keeps its own dates. Cards share source records, while layout and display settings stay in the plugin.
+
+Cards configured to follow the current page use one shared range control:
 
 - Recent 30 days;
 - Week;
@@ -588,6 +523,7 @@ This chart shows total task activity, completed tasks, and completion rate. Comp
 ### 7.4 Habit And Workload Heatmaps
 
 - Habit heatmaps can show one selected habit or the aggregate.
+- Metric buttons appear in the header when space allows and collapse into one selector on narrow cards. Resizing retains the selected metric. Summary values show their units and use two columns on narrow cards.
 - Workload heatmaps normalize note, task, and word-count activity into relative intensity. They are not exact time tracking.
 - Task counts use the configured task scope and actual completion dates. The legacy **Open diary statistics** view uses the same basis in **Completed tasks heatmap**. Open tasks and completions without a date are not assigned to a day. Source failures show an error instead of substituting diary checkbox counts.
 
@@ -603,7 +539,7 @@ Mood and energy are optional presets that can be renamed or disabled. In Diary, 
 
 Enable **Multiple entries per day** on an individual field to retain each entry. Numbers can use a daily total or the latest entry; states use the latest entry, which does not represent an overall feeling for the day. Open the field to add, click a detail row to edit, or delete that row individually. Time is optional and starts blank for historical dates. An existing daily value is retained as an untimed entry; it is never split into invented events.
 
-Diary uses compact, field-colored controls that save a selection immediately. Home’s Daily records card aligns up to three fields on one date axis: bands for categories and independently scaled trends for numbers. Missing dates remain gaps, not zeros. Click the header date to choose a day or return to today; a range containing today initially selects it. Click a field name or value to edit the selected day. Hover or use the arrow keys on a chart to browse dates, then click or press Enter to edit. Saving retains the selected date. Choose displayed fields with the header filter icon, and expand Summary & sources for distributions, averages and source records.
+Diary uses compact, field-colored controls that save a selection immediately. Home’s Daily records card aligns up to three fields on one date axis: bands for categories and independently scaled trends for numbers. Missing dates remain gaps, not zeros. Click the header date to choose a day or return to today; a range containing today initially selects it. Click a field name or value to edit the selected day. Names and values sit beside the plot on wide cards and above it on narrow cards, giving the plot the full row width. Hover or use the arrow keys on a chart to browse dates, then click or press Enter to edit. Saving retains the selected date. Choose displayed fields with the header filter icon, and expand Summary & sources for distributions, averages and source records.
 
 Single values live in the date note’s native properties. Multiple entries live in a dedicated Markdown section; the property is a derived daily summary for Bases. Statistics and bound habits derive their values from the same details. Period averages count daily summaries, not individual events. Existing days keep their stored summary method and remain editable after multiple mode is disabled. If you edit detail Markdown manually, Noria reads those details; its next save updates the property summary. Do not overwrite the property to replace the details.
 
@@ -643,11 +579,11 @@ Missing values remain distinct from zero and false; lines break across missing d
 
 ![Configure a statistics card](assets/en/card-statistics.png)
 
-*Screenshots use isolated demonstration records. Card and configurable-record improvements are in the current experience build and have not been formally released.*
+*Screenshots use isolated demonstration records.*
 
 ## 8. Review Center
 
-Day, Week, Month and Year reviews appear **below the diary body**, also reachable through its outline. Records and review share the selected date and Markdown note. The preview shows confirmed text; recovered drafts and reference material remain separate. Review commands still open the requested period directly. This update is available in the local experience build and has not yet been formally released.
+Day, Week, Month and Year reviews appear **below the diary body**, also reachable through its outline. Records and review share the selected date and Markdown note. The preview shows confirmed text; recovered drafts and reference material remain separate. Review commands still open the requested period directly.
 
 ![Review Center](assets/en/review-center.png)
 
@@ -732,58 +668,23 @@ Closing the task editor keeps input for the current session; **Discard changes**
 
 ## 9. Settings
 
-Noria settings have seven top-level pages.
+Settings use five categories. Search opens and focuses the matching setting.
 
-### 9.1 Overview
+| Category | Contents |
+| --- | --- |
+| General & appearance | Theme, density, colors, personal profile and built-in help |
+| Content & templates | Locations, diary sources and templates, lists, optional native files and query scope |
+| Features | Task Board, Timeline, calendar display, general Home preferences, MOCs, review and module switches |
+| Connections & data | Optional external assistants, weather and settings backups |
+| Advanced & maintenance | Troubleshooting, performance and trusted custom views |
 
-Overview initializes and checks the workspace:
+In **Content & templates → Content locations**, choose **Change**, select IPARA, a workspace folder or current locations, review the changes, then save. The workspace folder is edited in the same panel. Cancel changes nothing; saving never moves existing files. Individual locations remain editable.
 
-- Standard workspace and Custom paths;
-- missing files and directories;
-- folded path groups;
-- module switches;
-- query range and performance;
-- initialize, repair, and open actions.
+**Diary & templates** owns Noria, Obsidian Daily Notes and custom date-path sources. Built-in templates can be saved as ordinary .md files; existing custom templates remain supported. Copying settings to Obsidian is a separate action with a readable folder, date-format and template preview. It is not offered when Obsidian owns the source.
 
-### 9.2 Home
+Add, arrange, remove and configure cards in their pages. Global settings no longer duplicate card composition. Assign Inbox people and actions in the card; the old status and Home-lane editors have been retired. Existing legacy fields and optional Bases are not rewritten automatically.
 
-Home settings cover:
-
-- display name, salutation, avatar, and quotes;
-- level-one Home widgets;
-- MOC entrances;
-- Inbox workflow;
-- review prompts;
-- weather.
-
-Home uses one widget manager instead of separate legacy managers for the first screen, workbench, and trends.
-
-### 9.3 Tasks
-
-Tasks settings control Task Board opening behavior, scan range, include and exclude tags, status policy, and advanced queries.
-
-### 9.4 Timeline
-
-Timeline settings control opening position, drag step, default layers, completion state, scale, named views, and context axis.
-
-### 9.5 Calendar
-
-Calendar settings select Noria, Daily Notes, or Custom as the date source and control confirmation, open-after-create, today highlight, and period templates.
-
-### 9.6 Appearance
-
-Appearance controls density, theme following, status colors, tag colors, and planner details. It presents visible semantic choices instead of requiring ordinary users to edit raw tokens.
-
-### 9.7 Maintenance
-
-Maintenance provides:
-
-- Noria installation checks;
-- a locally saved troubleshooting report;
-- settings backup export and import;
-- SecretStorage status;
-- trusted custom JavaScript view management;
-- developer diagnostics when expanded.
+**External assistants are off by default.** For MCP, open **Connections & data → External assistants → Set up connection**, enable the connection and copy Codex TOML or MCP JSON. Port and credential controls are expandable. Opening setup does not enable the connection. “Available” describes the local interface, not a connected client or an executed task. Suggestions and ordinary Markdown work without this interface; Noria does not run a model or schedule assistant work.
 
 ## 10. Markdown, Data, And External Workflows
 
@@ -824,7 +725,7 @@ Tasks with `#tl/` tags and time fields can enter Task Timeline. Event templates 
 - `#habit` tasks are excluded from ordinary task lists by default.
 - `Projects.md` uses groups and wikilinks for project entrances.
 - `Countdowns.md` stores important dates in a Markdown table.
-- `Inbox workflow.md` explains the workflow; `Inbox queue.base` provides an editable file and property view. Both the card and Base use the note’s `inbox-work` assignment.
+- Inbox help is built into the plugin; the optional `Inbox queue.base` provides an editable file and property view. Both the card and Base use the note’s `inbox-work` assignment.
 - Unmodified default queue and guide files update automatically. Custom or untracked content stays intact, and deleted files are not recreated. To adopt a new version or restore the previous one, open Companion files in the advanced Inbox workflow settings. Restoring keeps your choice instead of automatically replacing it again. If the file was edited after updating, it stays intact and backup details remain available.
 
 ### 10.5 Diary And Review
@@ -880,14 +781,20 @@ Noria does not require every module to be used every day.
 
 ### 11.3 Process Inbox
 
-Capture first, then read and organize when useful. No processing stage is required. Select a title to open its source note; an existing tab is reused. Returning to Inbox keeps the filters and reading position. Long lists scroll inside the card without increasing its height.
+Open an item to read its source and add instructions. Returning keeps your filters and reading position. A label such as “Me · Organize” is an assignment, not a progress status.
 
-- Hold an item to reveal the side actions, then drag and release to assign it. You can also select its existing marker or right-click. Your shortcuts are Read, Organize and Distill; SI offers Organize and Distill. Both support custom actions.
-- Filter by Me / SI and action in the header. The optional text property `inbox-work` stores the current assignment and is shared with `Inbox queue.base`. Editing it in the Base updates the card automatically.
-- Put detailed requests in the source note and keep results in the actual materials. Assigning SI records the work; it does not start an external assistant.
-- Once the destination is clear, use Move out of Inbox to choose an existing folder. Moving preserves the body and clears temporary `inbox-*` properties. The action receipt provides Undo.
+1. **Reveal actions:** hold the title or preview. You can also right-click, click an existing assignment, or press Alt+Enter from the keyboard.
+2. **Choose who and what:** Me is on the left; SI is on the right. Drag to an action and release, or click the action. Custom lets you enter another instruction. Cancel or Escape returns to the list.
 
-Moving removes the item from Inbox by default. Select “Keep in Inbox” to append a plain Markdown link to `Inbox.md` in the Inbox folder; add handoff text directly when useful. No identifiers are generated and old assignments are not inherited. Done removes only the entry and can be undone; sources remain. Assigning Me/SI adds the optional work marker. Automatic triggers are not connected; assigning SI does not start execution.
+![Hold an item and drag toward Organize; the connector shows the selection](assets/en/home-inbox-assign.png)
+
+3. **Check or change it:** the assignment appears beside the preview, or below it in a narrow card. Undo is available in the receipt below. Click the assignment to change it, or choose **Custom → Clear assignment** to remove it.
+
+![The saved assignment and its Undo action](assets/en/home-inbox-assigned.png)
+
+Filter by Me / SI and action in the header. The optional `inbox-work` property in the original note is shared with `Inbox queue.base`; external edits refresh the card. Assigning SI records a handoff but does not start an external assistant. Keep instructions, materials and results in the source notes.
+
+When the destination is clear, choose **Move out** in the action area and select an existing folder. Moving preserves the body, clears temporary `inbox-*` properties and offers Undo. **Keep in Inbox** leaves a plain link in the folder’s `Inbox.md`. Completing that entry removes only the link; its source remains.
 
 ### 11.4 Use Task Board
 
@@ -968,7 +875,7 @@ Confirm that the pane is not a diagnostic shell, narrow the task scan scope, red
 
 ### 12.6 A File Was Created In The Wrong Folder
 
-Check Diary, Inbox, Projects, template, and registry paths under `Overview -> Paths`. **Replace all paths** switches the entire mapping, so inspect the preview before applying it.
+Check Diary, Inbox, Projects, template, and registry paths under **Settings → Noria → Content & templates**. **Change** previews the location changes before saving.
 
 ### 12.7 A Home Widget Has No Content
 
@@ -1000,40 +907,31 @@ Include Noria, Obsidian, and operating-system versions, the affected module, min
 
 ## Appendix A: Paths And Data Storage
 
-### A.1 Standard Workspace
+### A.1 Recommended IPARA locations
 
-| Purpose | Default path |
+| Purpose | Suggested location for a fresh installation |
 | --- | --- |
-| Timeline settings | `Noria/Timeline settings.md` |
-| Event templates | `Noria/Event library.md` |
-| Countdowns | `Noria/Countdowns.md` |
-| Habit registry | `Noria/Habits.md` |
-| Project registry | `Noria/Projects.md` |
-| Inbox workflow | `Noria/Inbox workflow.md` |
-| Inbox queue | `Noria/Inbox queue.base` |
-| Inbox content | `Noria/Inbox/` |
-| Projects root | `Noria/Projects/` |
-| Diary root | `Noria/Diary/` |
-| Daily, weekly, monthly, and yearly templates | `Noria/Templates/` |
-| Avatar and quotes | `Noria/avatar.svg`, `Noria/Quotes.md` |
+| Inbox notes | `00_Inbox/` |
+| Projects | `01_Projects/` |
+| Diary and periodic notes | `06_Diary/`, editable; created when confirming IPARA or saving the first note |
+| Habit, project, important-date and event lists | `02_Areas/知识库管理/`, created when used |
+| Inbox Base | `02_Areas/知识库管理/Inbox queue.base`, optional |
+| Periodic-note templates | Built-in; choose your own `.md` if preferred |
+| Inbox instructions | Built-in help; existing guide notes are preserved |
 
-Standard initialization can also create `Noria/Workflow·MOC.md` and `Noria/Knowledge Base·MOC.md`. The current version does not require `Noria/Home.md`; Home is a plugin view.
+### A.2 Centralized and existing locations
 
-### A.2 Recommended IPARA Mapping
+The centralized option retains `Noria/Inbox/`, `Noria/Projects/` and `Noria/Diary/`; its root folder is editable. Newly applying this option also uses built-in diary templates. Existing installations keep their current template files.
 
-| Purpose | Recommended path |
-| --- | --- |
-| Noria lists and workflow files | `02_Areas/Noria/` |
-| Noria templates | `02_Areas/Noria/Templates/` |
-| Inbox content | `00_Inbox/` |
-| Project content | `01_Projects/` |
-| Diary and period notes | `06_Diary/` |
-| MOC entrances | `05_MOC/` |
-| Avatar and quotes | `02_Areas/Noria/` |
-
-Changing configuration does not move existing files. Initialization creates only missing content.
+Changing locations does not migrate files. Setup does not generate a default avatar, quotes, guide notes, Base files, all periodic templates or today's diary. Existing lists and source notes are kept. Legacy timeline values are imported once into plugin settings with a verified recovery record; the old file is no longer read. Home is a plugin view and does not require `Noria/Home.md`.
 
 ### A.3 Plugin Configuration And Cache
+
+Legacy timeline values are imported once into `defaultStrategy`, `sizing` and `timelineQuickSettings`. Edit quick blocks in **Features → Timeline → Quick time blocks**. The original file's effective priority is preserved; its Markdown and unknown custom fields remain intact. Verified recovery records live under `.obsidian/plugins/noria/migrations/`. They are recovery data, not runtime configuration or disposable cache.
+
+Inbox cards and statistics share notes and linked entries from `Inbox.md`, grouped by `inbox-work`. Statistics describe the **current queue**, even when an earlier range is selected; only dated note creation is attributed to that range. Linked entries have no inferred creation date. Historical review documents and `inbox-*` fields are not rewritten.
+
+New Inbox Bases contain All, Unassigned, Me and SI views. Bases list files; linked entries remain inside `Inbox.md`. **Content and templates → Inbox queue → Check updates** preserves custom columns, sorting and filters by default. Explicitly adopting the generated version replaces the Base with a verified backup and a Restore action.
 
 ```text
 .obsidian/plugins/noria/data.json
@@ -1059,7 +957,12 @@ External analysis artifacts are separate notes under Diary root:
 06_Diary/2026/2026-review-week.md
 ```
 
-The Standard workspace uses the same names under `Noria/Diary/`.
+The centralized option uses the same names under `Noria/Diary/`; custom paths retain your chosen location.
+
+
+Time-block names, times and durations now come from the event-library Markdown. Built-in content is saved as a file only when edited. Single and batch additions share these definitions; an empty library or unchecked rows no longer brings default events back. “Choose blocks” stores only selection and scope: selected day, selected week (7 days), or a number of days from the selected date. Unchecked library rows are hidden from individual shortcuts but may still be explicitly selected for a batch.
+
+Migration saves a recovery receipt first. Matching batch definitions reference existing rows; conflicting definitions are appended with a distinguishable legacy-batch label without overwriting original rows. Location presets affect both reading sources and creation locations. They do not move existing files or replace selected diary templates; saving an unchanged location draft makes no changes.
 
 ### A.5 Migration And Backup
 
@@ -1097,7 +1000,7 @@ Run only code that you wrote or reviewed, and prefer the injected `input.noriaBr
 
 ### B.3 Public Data API
 
-The experience build also exposes `app.plugins.plugins.noria.api` (version 1) for task queries/date/status updates and daily suggestion reads/updates. See [External Agent API](AGENT-API.md) for inputs, conflicts, refresh and lifecycle behavior. The existing Data API below is unchanged; task writes use the new API's `ref`, not the Data API `identity`.
+The development version also exposes `app.plugins.plugins.noria.api` (version 1) for task queries/date/status updates and daily suggestion reads/updates. See [External Agent API](AGENT-API.md) for inputs, conflicts, refresh and lifecycle behavior. The existing Data API below is unchanged; task writes use the new API's `ref`, not the Data API `identity`.
 
 ```js
 bridge.data.resolveRange(request)
@@ -1186,6 +1089,10 @@ Daily record charts use compact bands for scales and trends for continuous numbe
 
 ### Card layout gestures
 
+Custom statistics pages can group cards by topic. In Manage pages, open the page's menu and enable “Group by statistics topic”; new “Trends and statistics” pages enable it automatically. Overview metrics and pinned trends appear first, and each topic's main charts stay visible. Alternative generic styles with the same source, query and purpose start under “Other styles”, which remembers its open state. Different periods, filters, totals and comparisons are kept distinct. Use a card's menu to choose “Always show” or “Move to other styles”, or pin it to the top. Layout editing exposes the original card grid, retaining settings, widths and stacks. Previous whole-topic collapse settings upgrade to this presentation.
+
+The page's Statistics library supports topic filtering and template search. Note trends combine a new-note line and diary-character bars on separate axes. Task trends combine activity bars and a completion line on one count scale. Only selected values and each series' maximum are labelled. Arrow keys select dates; click or Enter opens sources. Home, Diary and Statistics share this presentation, date range and counting rules, without a separate summary-column mode. Page organization stays in plugin settings.
+
 The function picture stays at the far left, frequent actions on the right, and the `…` menu at the far right. Collapse or expand a card from that menu; its title and menu remain available when collapsed. Diary Record and Review sections use their own `…` menus in the same way. They save edits before collapsing and remain visible if saving fails. Drag blank space in the card header to reorder; text, links and buttons retain their normal behavior. Drag the outer right edge to preview a snapped width, release to save, or press Escape to cancel. At narrow viewport widths cards use the responsive layout; the Layout submenu sets the preferred width for a wider view. Height remains adjustable at the bottom edge without entering layout mode.
 
 The native header menu retains content management and Card settings. Its Layout submenu contains Narrow, Medium, Wide, Full row, Move up, Move down, Automatic height, Collapse/expand, and supported Duplicate card and Remove from page actions. Every item has an icon and a short label; the current width has a checkmark. Remove from page retains configuration, contents and position: use Undo or Restore in Add a card to bring it back. There is no separate Hide action. Diary Tasks, Habits, Record and Review support title and picture changes in Card settings, without rewriting source headings or contents. Width is configured only under Layout. Use Move up and Move down for keyboard or touch reordering; with the width handle focused, arrow keys adjust width; the height handle's Home key restores automatic height. Daily, weekly, monthly and yearly diary layouts remain separate.
@@ -1193,3 +1100,5 @@ The native header menu retains content management and Card settings. Its Layout 
 Default mood pictures share one expression family, energy uses five sun states, and focus uses converging rings. Empty fields remain muted. Pictures and state labels remain customizable, and these default pictures are also available in the shared picture picker. Legacy default pictures use the refreshed artwork; custom pictures and state overrides are retained.
 
 New focus records write start/end times at second resolution, without milliseconds. Cross-day dates and paused intervals remain explicit. Legacy millisecond records remain readable; the internal timer still uses milliseconds. Summary displays use minutes or hours where appropriate.
+
+Card menus support Add to Home for portable cards: source data is shared, display settings are copied, and later layouts are independent. Identical Home placements are reused. Remove from page keeps configuration in Add a card → Removed; Delete card confirms removal of this placement only. Diary exclusions leave period defaults and Markdown intact. The record calendar replaces the retired generic heatmap and state grid; existing queries migrate without changing their data.

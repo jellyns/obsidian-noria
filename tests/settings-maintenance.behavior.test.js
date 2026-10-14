@@ -9,6 +9,15 @@ const {
   replaceSettingsFromBackup,
 } = require("../src/settings-maintenance.js");
 
+test("backup restoration migrates raw legacy fields before normalization and fails without replacing current settings",async()=>{
+  const plugin={settings:{keep:true},normalizeSettings:value=>({current:value.current}),saveSettings:async()=>{}};
+  const text=JSON.stringify({format:NORIA_SETTINGS_BACKUP_FORMAT,schemaVersion:1,settings:{legacy:"custom"}});
+  plugin.migrateSettingsInput=async input=>{assert.equal(input.legacy,"custom");throw Error("cannot preserve original");};
+  await assert.rejects(replaceSettingsFromBackup(plugin,text),/preserve/);assert.deepEqual(plugin.settings,{keep:true});
+  plugin.migrateSettingsInput=async input=>({settings:{current:input.legacy}});
+  await replaceSettingsFromBackup(plugin,text);assert.deepEqual(plugin.settings,{current:"custom"});
+});
+
 test("settings backup exports a versioned normalized full snapshot", () => {
   const payload = createSettingsBackupPayload(
     { stale: true, nested: { value: 1 } },

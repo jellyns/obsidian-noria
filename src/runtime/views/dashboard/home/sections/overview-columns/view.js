@@ -17,7 +17,6 @@
   const habitRegistryPath = String(bridge.paths?.habitRegistryPath || "Noria/Habits.md");
   const importantDatesPath = String(bridge.paths?.importantDatesPath || "Noria/Countdowns.md");
   const inboxRoot = normPathLocal(bridge.paths?.inboxRoot || "00_Inbox").replace(/\/+$/, "");
-  const inboxWorkflowPath = normPathLocal(bridge.paths?.inboxWorkflowPath || "Noria/Inbox workflow.md");
   const inboxQueuePath = normPathLocal(bridge.paths?.inboxQueuePath || "Noria/Inbox queue.base");
   function normPathLocal(path) {
     return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
@@ -210,30 +209,15 @@
   }
 
   async function openInboxWorkflow() {
-    return openFilePath(inboxWorkflowPath);
+    return bridge.openHelp("inbox");
   }
 
   async function openInboxQueue() {
     return openFilePath(inboxQueuePath);
   }
 
-  async function newInboxScratch() {
-    const moment = window.moment;
-    const now = new Date();
-    const stamp = moment
-      ? moment().format("YYYY-MM-DD-HHmm")
-      : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}-${Date.now() % 100000}`;
-    const p = norm(`${inboxRoot}/速记-${stamp}.md`);
-    try {
-      await app.vault.create(p, `# 速记 ${stamp}\n\n- `);
-      const f = app.vault.getAbstractFileByPath(p);
-      if (f) await app.workspace.getLeaf(false).openFile(f);
-      return true;
-    } catch (e) {
-      bridge.runtime?.notice?.("runtime.home.notice.createFailed", { message: e?.message || e }, 5000)
-        || new Notice(homeOverviewT("runtime.home.notice.createFailed", { message: e?.message || e }), 5000);
-      return false;
-    }
+  function newInboxScratch() {
+    return bridge.inbox.create(document.activeElement);
   }
 
   function setWorkbenchToolbarActionState(control, state, error = "") {
@@ -548,7 +532,7 @@
       addIconBtn(tool, "list-todo", homeOverviewT("runtime.home.overview.openTasks"), () => openTasksBoard(), { actionKind: "open-tasks-board" });
     }
     if (panelIds.includes("inbox")) {
-      addIconBtn(tool, "library", homeOverviewT("runtime.home.overview.openInboxWorkflow"), () => openInboxWorkflow(), { actionKind: "open-inbox-workflow", target: inboxWorkflowPath, variant: "governance" });
+      addIconBtn(tool, "help-circle", homeOverviewT("runtime.home.overview.openInboxWorkflow"), () => openInboxWorkflow(), { actionKind: "open-inbox-workflow", variant: "governance" });
       addIconBtn(tool, "clipboard-list", homeOverviewT("runtime.home.overview.openInboxQueue"), () => openInboxQueue(), { actionKind: "open-inbox-queue", target: inboxQueuePath });
       addToolbarPlusBtn(tool, homeOverviewT("runtime.home.overview.newInboxScratch"), () => newInboxScratch(), { actionKind: "new-inbox-scratch", target: inboxRoot });
     }

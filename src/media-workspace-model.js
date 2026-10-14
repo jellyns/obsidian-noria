@@ -5,22 +5,7 @@ function initialMediaStatus(items,locale) {
   return choices.find(status=>items.some(item=>item.properties.status===status))||'';
 }
 
-// Only a deliberately configured destination is a reading/playing entry. Metadata source is not one.
-function readingTarget(value) {
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const raw = value.trim();
-  if (/[\x00-\x1f]/.test(raw)) throw Error('阅读入口包含无效字符 / Invalid reading link');
-  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
-    const url = new URL(raw);
-    if (!['https:', 'http:', 'obsidian:', 'steam:', 'zotero:'].includes(url.protocol) || url.username || url.password)
-      throw Error('请选择库内文件、网页或支持的应用链接 / Choose a vault file, web or supported app link');
-    return {type: 'url', value: url.href};
-  }
-  const link = /^!?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/.exec(raw);
-  const path = link ? link[1] : raw;
-  if (!path || /^[\\/]/.test(path) || /[\[\]\\]/.test(path)) throw Error('请选择库内文件 / Choose a vault file');
-  return {type: 'file', value: path};
-}
+const {readingTarget}=require('./link-target.js');
 function validDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const date = new Date(value + 'T12:00:00Z');

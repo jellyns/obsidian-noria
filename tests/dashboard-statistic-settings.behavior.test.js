@@ -25,7 +25,7 @@ test('overview filters selected dated metrics but preserves the current characte
     const rows=[],element=()=>({style:{},addClass(){},setAttribute(){},createDiv(){return element();},createEl(tag,opts){if(tag==='small')rows.push({label:opts.text});if(tag==='b')rows.at(-1).value=opts.text;return element();}});
     const pages=['2026-09-01','2026-09-30','2026-10-01'].map((date,i)=>({created:date,tags:[],file:{path:`Notes/${i}.md`,name:String(i),extension:'md',mtime:1,tasks:[]}}));
     let taskRequest;
-    await vm.runInNewContext(source,{Date,Intl,app:{metadataCache:{unresolvedLinks:{}}},ctx:{io:{load:async()=>'abcdef'}},input:{mount:element(),metricsLayout:'hero',...props,noriaBridge:{locale:'zh',t:key=>key,homeSettings:{trendsRange:{mode:'custom',start:'2026-09-01',end:'2026-09-30'}},data:{resolveRange:async({range})=>range,getTasks:async request=>{taskRequest=request;return {items:[{},{},{}]};}},runtime:{pagesForScope:()=>pages,pagesForManagedPath:()=>[]}}}});
+    await vm.runInNewContext(source,{Date,Intl,ResizeObserver:class{observe(){} disconnect(){}},requestAnimationFrame:()=>0,cancelAnimationFrame(){},app:{metadataCache:{unresolvedLinks:{}}},ctx:{io:{load:async()=>'abcdef'}},input:{mount:element(),metricsLayout:'hero',...props,noriaBridge:{locale:'zh',t:key=>key,homeSettings:{trendsRange:{mode:'custom',start:'2026-09-01',end:'2026-09-30'}},data:{resolveRange:async({range})=>range,getTasks:async request=>{taskRequest=request;return {items:[{},{},{}]};}},runtime:{pagesForScope:()=>pages,pagesForManagedPath:()=>[]}}}});
     return {rows,taskRequest};
   }
   const original=await render({});assert.equal(original.rows.length,8);assert.equal(original.taskRequest.rangePolicy,"allFacts");assert.equal(original.taskRequest.bucketBy,"completion");

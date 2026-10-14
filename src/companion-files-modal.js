@@ -27,7 +27,7 @@ class CompanionFilesModal extends Modal{
     if(this.plugin._companionSyncError)this.showError(Error(this.plugin._companionSyncError));
     for(const item of this.items){
       const row=host.createDiv({cls:"noria-companion-item"}),head=row.createDiv({cls:"noria-companion-heading"});
-      head.createEl("strong",{text:item.id==="inboxQueue"?this.text("Inbox 队列","Inbox queue"):this.text("工作流说明","Workflow guide")});
+      head.createEl("strong",{text:this.text("Inbox 队列","Inbox queue")});
       const preserved=item.keep||["custom","unknown"].includes(item.status);
       head.createSpan({text:preserved?this.text("保留你的版本","Your version is kept"):item.status==="missing"?this.text("尚未创建","Not present"):item.status==="safe"?this.text("待更新","Update pending"):this.text("已是最新","Up to date"),cls:"setting-item-description"});
       row.createDiv({text:item.path,cls:"noria-companion-path"});

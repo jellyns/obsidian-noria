@@ -51,3 +51,16 @@ test('calendar creation keeps source-zone times while its editor uses the select
   assert.match(text,/\[schedule:: 2026-10-10 09:30 \/ 2026-10-10 10:30\]/);
  }finally{globalThis.__noriaTasksCalendarApi=previous;}
 });
+
+test('tagged plan creation keeps its own draft, saves one ordinary task and restores its entry focus',async()=>{
+ const previous=globalThis.__noriaTasksCalendarApi;let request,text='## 计划\n',writes=0,focus=0;
+ globalThis.__noriaTasksCalendarApi={openTaskDateTimeEditorFromMarkdownLine:value=>request=value};
+ const plugin={getLocalYmd:()=> '2026-10-12',getNoriaLocale:()=> 'zh',resolveCalendarNoteSpecAsync:async()=>({path:'Diary/2026-10-13.md'}),ensureTaskDateTimeEditorApi:async()=>{},app:{vault:{getAbstractFileByPath:()=>({})}},loadTextFromVault:async()=>text,processTextAtVaultPath:async(path,fn)=>{text=fn(text);writes++;},requestNoriaRefresh:async()=>{}};
+ try{
+  await openPeriodTaskCreate(plugin,{date:'2026-10-13'});request.workbench.onDraft({patch:{title:'Private draft'}});
+  await openPeriodTaskCreate(plugin,{date:'2026-10-13',tags:'#运动',restoreFocus:()=>focus++});
+  assert.equal(request.workbench.draft,undefined);assert.equal(request.workbench.model.tags,'#运动');assert.equal(writes,0);
+  await request.workbench.onSave({patch:{title:'轻松跑'}});await request.workbench.onSave({patch:{title:'轻松跑'}});request.workbench.restoreFocus();
+  assert.equal(writes,1);assert.equal(focus,1);assert.match(text,/#运动/);assert.match(text,/\[schedule:: 2026-10-13\]/);assert.doesNotMatch(text,/Private draft/);
+ }finally{globalThis.__noriaTasksCalendarApi=previous;}
+});

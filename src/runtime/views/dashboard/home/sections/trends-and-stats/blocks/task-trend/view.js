@@ -75,11 +75,11 @@ explanation.textContent = [
   doneName+' · '+compactText('总计','Total')+': '+doneTotal+' · '+compactText('每个时段平均','Average per bucket')+': '+doneAvg,
   taskTrendT('runtime.home.trends.completionRate')+': '+(activityTotal?rate+'%':'—'),
   ...(undatedCompleted?[taskTrendT('runtime.home.trends.undatedCompleted')+': '+undatedCompleted]:[]),
-  compactText('柱形为活动任务数，折线为完成数，共用个数刻度。完成任务按完成日计入；未完成任务按截止、安排、开始或所在日记日期计入。点击图形可查看该时段来源。','Bars show activity tasks and the line shows completed tasks, using the same count scale. Completed tasks use completion dates; open tasks use due, scheduled, start or diary dates. Activate a point to view its sources.')
+  compactText('完成任务按完成日计入；活动任务包括本期完成和按截止、安排、开始或所在日记日期计入的未完成任务。点击图形可查看该时段来源。','Completed tasks use completion dates; activity includes completions and open tasks dated by due, scheduled, start or diary dates. Activate a point to view its sources.')
 ].join('\n');
 
 const headerTools=!input?.cardContent?head:root.closest?.('.noria-diary-card')?.querySelector('.noria-diary-card-tools')||input?.titleActionsHost;
-if(headerTools&&rangeDescription){
+if(headerTools&&rangeDescription&&input?.statsRange?.mode&&input.statsRange.mode!=='homeCurrent'&&input?.independentRange){
   const rangeLabel=headerTools.createSpan({cls:'noria-card-secondary noria-trend-range',attr:{title:rangeDescription}});
   const showYear=rangeStart.slice(0,4)!==rangeEnd.slice(0,4)||rangeEnd.slice(0,4)!==String(new Date().getFullYear());
   const date=new Intl.DateTimeFormat(noriaBridge.locale||'en',{...(showYear?{year:'numeric'}:{}),month:'numeric',day:'numeric'});
@@ -148,10 +148,14 @@ if(noriaBridge.runtime?.openTrendSources&&series.some(row=>row.sources))chartWra
 chartWrap.setAttribute("tabindex","0");chartWrap.setAttribute("role","group");
 chartWrap.setAttribute("aria-label",/^zh/.test(noriaBridge.locale||"")?"趋势图：左右键选择日期，Home／End 到首尾，点击或 Enter 查看来源。":"Trend: arrow keys select dates; Home / End select first / last. Click or Enter to inspect sources.");
 
+let renderedSize = "";
 const renderChart = () => {
   const chartW = Math.max(240, Math.round(measure(chartWrap, 760)));
   const chartH = Math.max(232, Math.round(measureH(chartWrap, 252)));
-  const padL = chartW < 520 ? 40 : 46;
+  const size = `${chartW}x${chartH}`;
+  if (size === renderedSize) return;
+  renderedSize = size;
+  const padL = chartW < 520 ? 36 : 42;
   const padR = 16;
   const padT = 42;
   const padB = 28;
@@ -169,9 +173,15 @@ const renderChart = () => {
   const chartTitle = setAttrs(svgEl("title"), { id: `${uid}-title` });
   chartTitle.textContent = taskTrendT("runtime.home.trends.taskTrendTitle");
   svg.appendChild(chartTitle);
+  const defs = svgEl("defs");
+  const barGradient = setAttrs(svgEl("linearGradient"), {id: `${uid}-bars`, x1: 0, y1: 0, x2: 0, y2: 1});
+  barGradient.appendChild(setAttrs(svgEl("stop"), {offset: "0%", "stop-color": chartColor("barFill")}));
+  barGradient.appendChild(setAttrs(svgEl("stop"), {offset: "100%", "stop-color": chartColor("barFill"), "stop-opacity": .68}));
+  defs.appendChild(barGradient);
+  svg.appendChild(defs);
 
-  [0, 0.25, 0.5, 0.75, 1].forEach((r) => {
-    const y = padT + plotH - r * plotH;
+  [...new Set([0, Math.ceil(activityMax / 2), activityMax])].forEach((value) => {
+    const y = yLeft(value);
     const grid = svgEl("line");
     setAttrs(grid, {
       x1: padL,
@@ -179,8 +189,9 @@ const renderChart = () => {
       x2: padL + plotW,
       y2: y,
       stroke: chartColor("gridStroke"),
-      "stroke-opacity": Math.min(0.24, Number(chartColor("gridOpacity")) || 0.22),
-      "stroke-dasharray": "3 7"
+      "stroke-opacity": Math.min(0.2, Number(chartColor("gridOpacity")) || 0.2),
+      "stroke-width": .8,
+      "stroke-dasharray": value ? "2 6" : "none"
     });
     svg.appendChild(grid);
   });
@@ -205,13 +216,14 @@ const renderChart = () => {
   });
   const bars = [];
   const markers = [];
-  const barW = Math.min(13, (plotW / days) * 0.54);
+  const barW = Math.min(16, (plotW / days) * 0.56);
   activityData.forEach((v, i) => {
     const baseY = padT + plotH;
     const x = xAt(i) - barW / 2;
     const yTop = yLeft(v);
     const h = Math.max(0, baseY - yTop);
     const bar = svgEl("rect");
+    bar.classList.add("noria-trend-bar");
     setAttrs(bar, {
       x: x.toFixed(1),
       y: yTop.toFixed(1),
@@ -219,10 +231,10 @@ const renderChart = () => {
       height: h.toFixed(1),
       rx: Math.min(4, barW / 2),
       ry: Math.min(4, barW / 2),
-      fill: chartColor("barFill"),
+      fill: `url(#${uid}-bars)`,
       stroke: chartColor("barStroke"),
-      "stroke-width": v > 0 ? Math.min(.7, barW / 4) : 0,
-      opacity: "0.82"
+      "stroke-width": 0,
+      opacity: "0.9"
     });
     svg.appendChild(bar);
     bars[i] = bar;
@@ -245,7 +257,8 @@ const renderChart = () => {
 
   doneData.forEach((v, i) => {
     const c = svgEl("circle");
-    setAttrs(c, { cx: xAt(i).toFixed(1), cy: yRight(v).toFixed(1), r: !v || days > plotW / 8 ? "0" : "2.6", fill: chartColor("lineMarkerFill"), stroke: chartColor("lineMarkerStroke"), "stroke-width": "1.25" });
+    c.classList.add("noria-trend-marker");
+    setAttrs(c, { cx: xAt(i).toFixed(1), cy: yRight(v).toFixed(1), r: !v || days > plotW / 12 ? "0" : "2.3", fill: chartColor("lineMarkerFill"), stroke: chartColor("lineMarkerStroke"), "stroke-width": "1.25" });
     svg.appendChild(c);
     markers[i] = c;
   });
@@ -287,14 +300,16 @@ const renderChart = () => {
     hoverLine.setAttribute("x2", x.toFixed(1));
     hoverLine.setAttribute("opacity", "1");
     bars[i]?.setAttribute("opacity", "1");
-    bars[i]?.setAttribute("stroke-width", activityData[i]>0?"1.25":"0");
+    bars[i]?.setAttribute("stroke-width", activityData[i]>0?".7":"0");
     markers[i]?.setAttribute("r", "4");
     annotations?.update(i);
-    dateLabel.textContent = dayList[i];
-    dateLabel.setAttribute("x",Math.max(padL+33,Math.min(x,padL+plotW-33)));
+    const sameYear = dayList[0]?.slice(0,4) === dayList.at(-1)?.slice(0,4);
+    dateLabel.textContent = sameYear ? (xLabels[i] || dayList[i]) : dayList[i];
+    const halfLabel = Math.max(18, dateLabel.textContent.length * 3);
+    dateLabel.setAttribute("x",Math.max(padL+halfLabel,Math.min(x,padL+plotW-halfLabel)));
     dateLabel.setAttribute("opacity",1);
     const dateX=Number(dateLabel.getAttribute("x"));
-    dateTicks.forEach(node=>node.style.opacity=Math.abs(Number(node.getAttribute('x'))-dateX)<65?'0':'1');
+    dateTicks.forEach(node=>node.style.opacity=Math.abs(Number(node.getAttribute('x'))-dateX)<halfLabel+24?'0':'1');
     announcement.setText(`${dayList[i]} · ${doneName} ${doneData[i]} · ${activityName} ${activityData[i]}`);
   };
   const hideHover = (i) => {
@@ -302,9 +317,9 @@ const renderChart = () => {
     annotations?.update(null);
     dateLabel.setAttribute("opacity",0);
     dateTicks.forEach(node=>node.style.opacity="1");
-    bars[i]?.setAttribute("opacity", "0.82");
-    bars[i]?.setAttribute("stroke-width", activityData[i]>0?String(Math.min(.7,barW/4)):"0");
-    markers[i]?.setAttribute("r", !doneData[i]||days>plotW/8?"0":"2.6");
+    bars[i]?.setAttribute("opacity", "0.9");
+    bars[i]?.setAttribute("stroke-width", "0");
+    markers[i]?.setAttribute("r", !doneData[i]||days>plotW/12?"0":"2.3");
   };
   const select=i=>{hideHover(selectedIndex);selectedIndex=Math.max(0,Math.min(days-1,i));chartWrap.dataset.index=String(selectedIndex);showHover(selectedIndex);};
   chartWrap.onpointermove=event=>{const r=svg.getBoundingClientRect();if(!r.width)return;const i=Math.max(0,Math.min(days-1,Math.floor(((event.clientX-r.left)*chartW/r.width-padL)/plotW*days)));if(i!==selectedIndex)select(i);};
@@ -319,15 +334,17 @@ const renderChart = () => {
 renderChart();
 try {
   if (typeof ResizeObserver !== "undefined") {
+    let frame = 0;
     const ro = new ResizeObserver(() => {
       if (chartWrap.isConnected === false) {
         ro.disconnect();
         return;
       }
-      renderChart();
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(renderChart);
     });
     ro.observe(chartWrap);
-    input?.registerCleanup?.(() => ro.disconnect());
+    input?.registerCleanup?.(() => { ro.disconnect(); cancelAnimationFrame(frame); });
   }
 } catch (_) {}
 })();

@@ -13,6 +13,7 @@ function fixture(t) {
   for (const dir of ["src", "scripts", "node_modules"]) fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.copyFileSync(path.resolve(__dirname, "../scripts/build-plugin.mjs"), path.join(root, "scripts/build-plugin.mjs"));
   fs.symlinkSync(path.dirname(require.resolve("esbuild/package.json")), path.join(root, "node_modules/esbuild"), "junction");
+  fs.copyFileSync(path.resolve(__dirname,'../build-profiles.json'),path.join(root,'build-profiles.json'));
   const output = path.join(root, "main.js");
   const previous = "module.exports = 'previous successful build';\n";
   fs.writeFileSync(output, previous);

@@ -442,8 +442,7 @@
     if (stripped) lines.push(stripped);
   }
   const quote = lines.length ? lines[Math.floor(Math.random() * lines.length)] : "";
-  const fallback = homeIdentityT("runtime.home.identity.quoteFallback");
-  const shown = quote || fallback;
+  const shown = quote;
 
   const welcomeTop = container.createDiv();
   welcomeTop.addClass("dashboard-hero-strip__welcome-top");
@@ -552,10 +551,12 @@
     welcome.textContent = homeIdentityT("runtime.home.identity.welcomeAnonymous");
   }
 
-  const q = textCol.createDiv();
-  q.addClass("dashboard-identity-quote");
-  q.textContent = `「${shown}」`;
-  q.setAttr("title", shown.length > 80 ? shown : "");
+  if (shown) {
+    const q = textCol.createDiv();
+    q.addClass("dashboard-identity-quote");
+    q.textContent = `「${shown}」`;
+    q.setAttr("title", shown.length > 80 ? shown : "");
+  }
 
   const weatherHost = textCol.createDiv();
   weatherHost.addClass("dashboard-hero-weather-inline");

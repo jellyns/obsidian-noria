@@ -6,6 +6,7 @@ const {watchCoverImages}=require('./media-cover.js');
 
 function registerMediaDistribution(system,{plugin,text,folder,works,renderSources}){
  system.register({id:'noria:media-distribution',title:text('作品分布','Collection distribution'),icon:'chart-bar',
+  statistics:{topic:'library',style:'bars',recommended:true,props:{dimension:'tag'}},
   description:text('按已有类型或标签探索作品，并回到原笔记。','Explore works by existing genres or tags and return to their notes.'),
   fields:config=>[
    {key:'folder',label:text('作品目录（留空跟随藏馆）','Media folder (empty follows library)'),type:'folder'},

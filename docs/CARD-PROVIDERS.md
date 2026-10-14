@@ -1,6 +1,6 @@
 # Noria card providers
 
-This interface is part of the current experience build. A provider contributes a card to Home and Diary through `app.plugins.plugins.noria.cards`; it does not embed an arbitrary plugin window. Users install and manage dependencies with Obsidian's community plugin interface.
+This document describes the card interface in the current development build. A provider contributes a card to Home and Diary through `app.plugins.plugins.noria.cards`; it does not embed an arbitrary plugin window. Users install and manage dependencies with Obsidian's community plugin interface.
 
 ## Register a provider
 
@@ -69,12 +69,32 @@ module.exports = class ExamplePlugin extends Plugin {
 | `config` | A copy of this instance's configuration. Changing it does not save settings or affect another card. |
 | `selection` | Only present for `supportsDate: true`: the Diary selection (`mode`, `anchorDate`) when available. Home can pass an empty object. |
 | `openSource(path)` | Open the source in a separate tab. |
+| `reportError(error)` | End a failed asynchronous update and show the shared recovery controls. The current component is unloaded; stop further writes to its container. |
 
 Rendering may be async and may return a cleanup function. Noria calls cleanup when the card is removed, rerendered, its provider unregisters, or Noria unloads. A render that finishes after disposal also has its cleanup called. Providers must cancel their own pending work and stop writing to detached elements. Card previews use the same renderer: rendering must not create or mutate source records; require an explicit user action for writes.
 
 Two instances must keep separate local state. Keep durable data in source files, use current-text writes, and avoid relying on `getActiveFile()` for embedded contents. Hiding, duplicating or removing a card must not remove source data.
 
+An initial render rejection or `reportError(error)` releases registered resources and shows Retry. Retry creates a fresh component for the same card and configuration. Providers that manage a recoverable local state themselves may keep their existing controls instead. Diary recovery settings use the current note's controller; read-only embeds and previews do not expose a settings shortcut.
+
 ## Dependency changes and compatibility
+
+Providers dedicated to statistics can opt into the unified statistics library with a `statistics` descriptor:
+
+```js
+statistics: {
+  topic: "health",       // tasks, notes, habits, health, finance, library or other
+  style: "line",         // chart-type metadata; the provider still renders its own UI
+  recommended: false,    // All styles by default; true also includes Recommended
+  size: "wide",
+  description: "Sleep duration and recorded sleep stages",
+  props: { days: 30 }    // an independent copy for each new card
+}
+```
+
+Only registered providers contribute entries. Noria retains the provider's `source` and configuration when saving or reusing a template; it does not convert the chart into a generic property statistic. Saved templates remain available with an explanation when their provider is unavailable. This descriptor is for statistical cards, not account editors, anatomy navigation or complete collection browsers.
+
+Use `supportsDate: true` only when the renderer handles the supplied diary selection. The declaration passes the selection through; it does not filter source data automatically. The library explains when a diary card retains its own scope. Configuration previews must not alter another card's range or automatically write source records.
 
 If a configured provider is missing or disabled, its card shows a local explanation while retaining settings. Enabling the dependency and registering the provider restores rendering. Author and version information comes from the installed plugin manifest. Installation, updates and removal stay in Obsidian's plugin manager; Noria does not download or execute a separate card-package format.
 

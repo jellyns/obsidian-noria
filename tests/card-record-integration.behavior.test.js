@@ -2,7 +2,7 @@ const test=require("node:test"),assert=require("node:assert/strict"),fs=require(
 const {DiaryHabitStore,habitRecords}=require("../src/diary-habits.js");
 function load(name,stubs){const filename=path.resolve(__dirname,"../src/"+name),module={exports:{}},local=createRequire(filename);vm.runInNewContext(fs.readFileSync(filename,"utf8"),{module,require:id=>id in stubs?stubs[id]:local(id),console,crypto:require("node:crypto").webcrypto});return module.exports;}
 class Component{constructor(){this.cleanups=[];}load(){}register(fn){this.cleanups.push(fn);}unload(){this.cleanups.splice(0).reverse().forEach(fn=>fn());}}
-class Element{createDiv(){return new Element();}empty(){}remove(){this.removed=true;} }
+class Element{removeAttribute(){}createEl(){return new Element();}createDiv(){return new Element();}empty(){}remove(){this.removed=true;} }
 const parse=raw=>Object.fromEntries(raw.split(/\r?\n/).flatMap(line=>{const hit=/^(?:"([^"]+)"|([^:\s]+)):\s*(.+)$/.exec(line);if(!hit)return [];try{return [[hit[1]||hit[2],JSON.parse(hit[3])]];}catch{return [[hit[1]||hit[2],hit[3]]];}}));
 test("provider config is instance-owned and late rendering is disposed exactly once",async()=>{
  const {CardSystem}=load("card-system.js",{"obsidian":{Component},"./card-controls.js":{}}),system=Object.create(CardSystem.prototype);
@@ -41,7 +41,7 @@ test("direct daily controls detect a changed value while allowing unrelated edit
  const {RecordFields}=load("record-fields.js",{"obsidian":{parseYaml:parse},"./record-manager.js":{},"./record-popover.js":{},"./card-controls.js":{iconButton(parent){return parent.createEl("button");}},"./picture-picker.js":{renderPicture(){}}});
  class Control{
   constructor(){this.children=[];this.style={setProperty(){}};this.dataset={};}
-  addClass(){}setAttribute(){}setText(){}focus(){}
+  addClass(){}setAttribute(){}removeAttribute(){}setText(){}focus(){}
   createEl(){const child=new Control();this.children.push(child);return child;}
   createSpan(){return this.createEl();}querySelectorAll(){return [];}
  }

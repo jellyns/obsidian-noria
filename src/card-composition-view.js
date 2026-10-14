@@ -30,6 +30,7 @@ function applyWidgetComposition(root,widgets){
   const hero=hosts.get('identity+metrics');
   const entries=model.order.flatMap(id=>hosts.has(id)?[{id,host:hosts.get(id),stack:model.cards[id].stack,span:Number(hosts.get(id).dataset.noriaWidgetSpan)||4}]:id==='identity'&&hero?[{id:'identity+metrics',host:hero,span:12}]:[]);
   applyCardComposition(root,entries);
+  root._noriaStatisticsLayout?.();
 }
 function applyLiveWidgetComposition(plugin,pageId,widgets){
   const docs=new Set();plugin.app.workspace.iterateAllLeaves(leaf=>{if(leaf.view.containerEl?.ownerDocument)docs.add(leaf.view.containerEl.ownerDocument);});

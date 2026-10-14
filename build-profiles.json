@@ -1,0 +1,4 @@
+{
+  "public": [],
+  "self-use": ["media", "rss", "health", "finance", "inventory", "travel"]
+}

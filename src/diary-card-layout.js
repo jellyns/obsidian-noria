@@ -78,18 +78,23 @@ class DiaryCardLayout {
     const getAnchor=()=>this.cards.get(id)?.host.querySelector('.noria-review-document-actions button[aria-haspopup="menu"]:last-child')||this.cards.get(id)?.button;
     const run=(action,value)=>this.change(id,action,value).catch(error=>{this.workbench.diary.report(error);return false;});
     menu.addSeparator();
+    const homeWidget=this.homeWidget(id);
+    if(homeWidget)for(const action of require('./card-lifecycle.js').lifecycleActions(this.system,homeWidget,this.catalogContext(),this.host.ownerDocument))menu.addItem(item=>item.setTitle(action.label).setIcon(action.icon).onClick(()=>Promise.resolve(action.run()).catch(error=>this.workbench.diary.report(error))));
     menu.addItem(item=>item.setTitle(this.system.text("卡片设置","Card settings")).setIcon("settings-2").onClick(()=>this.system.catalog(this.catalogContext(),id)));
     addCardLayoutMenuItems(menu,{
       state:()=>{const ids=this.visibleIds();return {...(this.layout.cards[id]),first:ids[0]===id,last:ids.at(-1)===id};},t:key=>this.system.t(key),
       ...this.compositionMenu(id),
       openWidth:()=>require("./card-width-picker.js").openCardWidth({anchor:getAnchor(),getAnchor,state:()=>this.layout.cards[id],width:value=>this.change(id,"width",value),t:key=>this.system.t(key)}),move:value=>this.change(id,"move",value),height:value=>this.change(id,"height",value),collapse:()=>this.workbench.diary.toggleModule(id),
-      run:action=>Promise.resolve().then(action).catch(error=>this.workbench.diary.report(error)),
-      remove:async()=>{
+      run:action=>Promise.resolve().then(action).catch(error=>this.workbench.diary.report(error))
+    });
+    menu.addItem(item=>item.setTitle(this.system.t('remove')).setIcon('circle-minus').onClick(async()=>{
+      try{
         if(!await this.workbench.diary.prepareLayoutConceal())return;
         if(await run("hidden",true)===false)return;
         require("./card-direct-controls.js").notifyHidden(this.host.ownerDocument,this.system.t("removed"),()=>this.change(id,"hidden",false),this.system.t("undo"));
-      }
-    });
+      }catch(error){this.workbench.diary.report(error);}
+    }));
+    menu.addSeparator();menu.addItem(item=>item.setTitle(this.system.t('delete')).setIcon('trash-2').onClick(()=>this.deleteCard(id)));
   }
   setAvailable(id,value){const card=this.cards.get(id);if(card)card.available=value;this.apply();}
   section(id,title,count){
@@ -114,24 +119,37 @@ class DiaryCardLayout {
   }
   visibleIds(){return this.layout.order.filter(id=>this.cards.get(id)?.available&&!this.layout.cards[id].hidden);}
   compositionMenu(id){return {stackTargets:()=>this.visibleIds().filter(key=>key!==id).map(key=>({id:key,title:this.cards.get(key)?.title||key})),stack:(target,after)=>this.change(id,'stack',{target,after}),unstack:this.layout.cards[id]?.stack?()=>this.change(id,'unstack'):null};}
+  homeWidget(id){
+    const widget=this.layout.widgets.find(item=>item.id===id),path=this.workbench.diary?.session?.model.path;
+    if(widget)return widget.source==='noria:diary-section'?{...widget,props:{...widget.props,path}}:widget;
+    if(id==='habits')return {id,type:'builtin',builtinId:'habit-history-card',source:'trends-and-stats',title:this.cards.get(id)?.title,size:'wide',props:{renderMode:'block',block:'habit-history',statsRange:{mode:'homeCurrent'}}};
+    if(['record','review'].includes(id)&&path)return {id,type:'extension',source:'noria:diary-section',title:this.cards.get(id)?.title,size:'wide',props:{path,projection:id,period:this.mode,sections:this.layout.cards.record.sections}};
+    return null;
+  }
+  deleteCard(id){return require('./card-lifecycle.js').confirmDelete(this.system,this.cards.get(id)?.title||id,async()=>{
+    if(noteCards.localId(id))await this.updateNoteCards(items=>items.filter(item=>'note:'+item.id!==id));
+    else await this.updatePresentation(layout=>({...layout,deleted:[...new Set([...(layout.deleted||[]),id])],cards:{...layout.cards,[id]:{hidden:true}}}));
+  });}
   openMenu(id,anchor){
     const widget=this.layout.widgets.find(item=>item.id===id),actions=[];
     const manage=this.cards.get(id)?.host._noriaConfigureWidget;
     if(manage)actions.push({label:this.system.text("管理内容","Manage contents"),icon:"list",run:manage});
     if(id==="habits")actions.push({label:this.system.text("管理习惯","Manage habits"),icon:"list",run:()=>this.workbench.diary.habitStore.manage()});
+    const homeWidget=this.homeWidget(id);if(homeWidget)actions.push(...require('./card-lifecycle.js').lifecycleActions(this.system,homeWidget,this.catalogContext(),anchor.ownerDocument));
     actions.push({label:this.system.text("卡片设置","Card settings"),run:()=>this.system.catalog(this.catalogContext(),id)});
     const state=()=>{const visible=this.visibleIds();return {...(this.layout.cards[id]),first:visible.indexOf(id)===0,last:visible.indexOf(id)===visible.length-1};};
     this.closeMenu=openCardMenu({app:this.plugin.app,anchor,title:this.cards.get(id).title,getAnchor:()=>this.cards.get(id)?.button,t:key=>this.system.t(key),state,actions,
       ...this.compositionMenu(id),
       width:value=>this.change(id,"width",value),move:value=>this.change(id,"move",value),collapse:value=>this.change(id,"collapsed",value),
       remove:async()=>{await this.change(id,"hidden",true);require("./card-direct-controls.js").notifyHidden(anchor.ownerDocument,this.system.t("removed"),()=>this.change(id,"hidden",false),this.system.t("undo"));},
+      deleteCard:()=>this.deleteCard(id),
       height:value=>this.change(id,"height",value),copy:widget?async()=>{
         if(noteCards.localId(id)){await this.updateNoteCards(items=>noteCards.addNoteCard(items,{...widget,title:this.system.title(widget)+this.system.text(' 副本',' copy')}));return;}
         await this.updateNoteCards(items=>noteCards.addNoteCard(items,{...widget,title:this.system.title(widget)+this.system.text(' 副本',' copy')}));
       }:null});
   }
   async change(id,action,value,session=this.workbench.diary?.session){
-    const visible=this.visibleIds();await this.updatePresentation(layout=>changeDiaryCardLayout(layout,id,action,value,visible),session);
+    const visible=this.visibleIds();await this.updatePresentation(layout=>({...changeDiaryCardLayout(layout,id,action,value,visible),deleted:layout.deleted}),session);
     this.cards.get(id)?.button?.focus({preventScroll:true});
   }
   restore(value){this.readLayout();this.apply();}
@@ -140,7 +158,7 @@ class DiaryCardLayout {
   async renderExtras(){
     const serial=++this.generation;
     for(const [id,card] of this.cards)if(!CARD_IDS.includes(id)){card.cleanup?.();card.resizeCleanup?.();card.directCleanup?.();card.host.remove();this.cards.delete(id);}
-    for(const widget of this.layout.widgets){
+    for(const widget of this.layout.widgets.filter(require('./build-profile.js').cardAvailable)){
       this.add(widget.id);const card=this.cards.get(widget.id);card.available=true;
       const {body}=this.section(widget.id,this.system.title(widget));
       if(this.layout.cards[widget.id].hidden||this.layout.cards[widget.id].collapsed)continue;

@@ -319,7 +319,7 @@
   function normalizeHomeRangeState(raw) {
     const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const mode = ["last30", "week", "month", "year", "custom"].includes(source.mode) ? source.mode : "last30";
-    return { mode, start: source.start || "", end: source.end || "", yearGranularity: source.yearGranularity === "month" ? "month" : "week" };
+    return { mode, start: source.start || "", end: source.end || "", anchor:source.anchor||"", yearGranularity: source.yearGranularity === "month" ? "month" : "week" };
   }
 
   function readHomeRangeState(bridge) {
@@ -348,6 +348,7 @@
     if (mode === "homeCurrent") {
       const home = readHomeRangeState(bridge);
       mode = home.mode || "last30";
+      if (home.anchor) request.anchor = home.anchor;
       if (home.start && home.end) {
         request.start = home.start;
         request.end = home.end;
@@ -1139,118 +1140,21 @@
       };
     }
 
-    function inboxPages() {
-      const files = filesForManagedPath("inboxRoot");
-      if (files.length) return files.map(pageFromFile);
-      try {
-        return toArray(runtimeBridge.runtime?.pagesForManagedPath?.("inboxRoot"));
-      } catch (_) {
-        return [];
-      }
-    }
-
-    function inboxField(page, key) {
-      for (const source of [page, page?.frontmatter, page?.file?.frontmatter]) {
-        if (!source || typeof source !== "object") continue;
-        if (Object.prototype.hasOwnProperty.call(source, key)) return source[key];
-      }
-      return "";
-    }
-
-    function normalizeInboxWorkflowId(value, fallback = "") {
-      const raw = String(value || "").trim().toLowerCase();
-      const id = raw.replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-      return id || String(fallback || "").trim();
-    }
-
-    function inboxWorkflowConfig() {
-      const raw = runtimeBridge.inboxWorkflow && typeof runtimeBridge.inboxWorkflow === "object" ? runtimeBridge.inboxWorkflow : {};
-      const statuses = Array.isArray(raw.statuses) ? raw.statuses : [];
-      const normalized = statuses
-        .map((status) => {
-          const id = normalizeInboxWorkflowId(status?.id || status?.label);
-          if (!id) return null;
-          return {
-            id,
-            aliases: Array.isArray(status?.aliases) ? status.aliases.map((alias) => String(alias || "").trim()).filter(Boolean) : []
-          };
-        })
-        .filter(Boolean);
-      const statusIds = new Set(normalized.map((status) => status.id));
-      const defaultStatusId = statusIds.has(normalizeInboxWorkflowId(raw.defaultStatusId))
-        ? normalizeInboxWorkflowId(raw.defaultStatusId)
-        : (normalized[0]?.id || "triage");
-      return { statuses: normalized, defaultStatusId };
-    }
-
-    function resolveInboxStatusId(value, workflow) {
-      const raw = String(value || "").trim();
-      const normalized = normalizeInboxWorkflowId(raw);
-      for (const status of workflow.statuses || []) {
-        if (status.id === normalized) return status.id;
-        if ((status.aliases || []).some((alias) => {
-          const aliasNorm = normalizeInboxWorkflowId(alias);
-          return alias === raw || (!!aliasNorm && aliasNorm === normalized);
-        })) return status.id;
-      }
-      if (normalized) return normalized;
-      return workflow.defaultStatusId || "triage";
-    }
-
-    function compactInboxItem(page, status, action) {
-      const pathText = normalizePath(page?.file?.path || page?.path || "");
-      const name = String(page?.file?.name || (pathText.split("/").pop() || "")).replace(/\.md$/i, "");
-      return {
-        path: pathText,
-        name,
-        status,
-        action,
-        work: String(inboxField(page, "inbox-work") || "").trim(),
-        reviewDate: normalizeDateValue(inboxField(page, "inbox-review")),
-        next: String(inboxField(page, "inbox-next") || "").trim(),
-        created: normalizeDateValue(page?.file?.ctime || inboxField(page, "created") || inboxField(page, "date")),
-        modified: normalizeDateValue(page?.file?.mtime || inboxField(page, "modified"))
-      };
-    }
-
     async function collectInboxDomain(resolved) {
-      const workflow = inboxWorkflowConfig();
-      const summary = { total: 0, byStatus: {}, byAction: {}, staleCount: 0, createdInRange: 0 };
+      const items = await runtimeBridge.inbox.collect();
+      const summary = {total:items.length, byActor:{}, byAction:{}, unassigned:0, createdInRange:0};
       const queues = {};
-      const staleItems = [];
-
-      for (const page of inboxPages()) {
-        const pathText = normalizePath(page?.file?.path || page?.path || "");
-        if (!pathText || isReviewNotePath(pathText)) continue;
-        const status = resolveInboxStatusId(inboxField(page, "inbox-status"), workflow);
-        const action = normalizeInboxWorkflowId(inboxField(page, "inbox-action"));
-        const item = compactInboxItem(page, status, action);
-        summary.total += 1;
-        summary.byStatus[status] = (summary.byStatus[status] || 0) + 1;
-        if (action) summary.byAction[action] = (summary.byAction[action] || 0) + 1;
-        if (!queues[status]) queues[status] = [];
-        queues[status].push(item);
-
-        if (item.created && inRange(item.created, resolved.start, resolved.end)) summary.createdInRange += 1;
-        if (item.reviewDate && item.reviewDate <= resolved.end) {
-          summary.staleCount += 1;
-          staleItems.push(item);
-        }
+      for (const row of items) {
+        const actor = row.actor || "unassigned";
+        const item = {...row, created:normalizeDateValue(row.ctime), modified:normalizeDateValue(row.mtime)};
+        summary.byActor[actor] = (summary.byActor[actor] || 0) + 1;
+        if (row.action) summary.byAction[row.action] = (summary.byAction[row.action] || 0) + 1;
+        if (!row.actor) summary.unassigned++;
+        (queues[actor] ||= []).push(item);
+        if (item.created && inRange(item.created, resolved.start, resolved.end)) summary.createdInRange++;
       }
-
-      Object.keys(queues).forEach((key) => {
-        queues[key].sort((a, b) => String(a.created || "").localeCompare(String(b.created || "")));
-        queues[key] = queues[key].slice(0, 80);
-      });
-      staleItems.sort((a, b) => String(a.reviewDate || "").localeCompare(String(b.reviewDate || "")));
-
-      return {
-        summary,
-        queues,
-        evidence: {
-          staleItems: staleItems.slice(0, 20)
-        }
-      };
+      for (const key of Object.keys(queues)) queues[key] = queues[key].slice(0,80);
+      return {basis:"current-queue", asOf:new Date().toISOString(), summary, queues};
     }
 
     function projectRoot() {

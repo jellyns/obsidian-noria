@@ -450,12 +450,10 @@ const openFilePath = async (path) => {
   return true;
 };
 const renderHabitEmptyAction = (key, actionKey, pathText, options = {}) => {
-  const empty = host.createDiv();
-  empty.style.cssText = "display:flex;flex-direction:column;align-items:flex-start;gap:7px;color:var(--text-muted);font-size:.86em;line-height:1.35;padding:4px 1px;";
+  const empty = host.createDiv({cls:'noria-capture-empty'});
   empty.createDiv({ text: runtimeT(key) });
-  const action = empty.createEl("button", { text: runtimeT(actionKey) });
+  const action = empty.createEl("button", {cls:'noria-capture-empty-action', text: runtimeT(actionKey) });
   action.type = "button";
-  action.style.cssText = "height:27px;padding:0 9px;border-radius:8px;border:1px solid color-mix(in srgb,var(--background-modifier-border) 80%,rgba(99,102,241,.22));background:color-mix(in srgb,var(--background-primary) 92%,rgba(99,102,241,.08));color:var(--text-muted);font-size:.82em;font-weight:650;cursor:pointer;";
   const targetPath = pathText || habitRegistryPath;
   const actionKind = String(options.kind || "open-habit-registry");
   markHabitActionTarget(action, { kind: actionKind, path: targetPath });
@@ -760,23 +758,26 @@ const createHabitSourceButton=(parent,icon)=>{
   const button=parent.createEl('button',{cls:'clickable-icon dashboard-guide-icon-btn',attr:{type:'button','aria-label':runtimeT('runtime.habits.noActiveAction'),title:runtimeT('runtime.habits.noActiveAction')}});
   const paint=globalThis.dashboardCore?.utils?.applyLucideIcon;
   if(paint)paint(button,icon);else button.setText('↗');
-  button.onclick=()=>openFilePath(habitRegistryPath);
+  button.onclick=()=>app.vault.getAbstractFileByPath(habitRegistryPath)?openFilePath(habitRegistryPath):openHabitStatusPanel(true);
   return button;
 };
 const habitHeadingIcon=input?.actionsHost?.closest?.('.dashboard-home-trends-habit-history__head')?.querySelector('.dashboard-card-heading-icon');
 if(habitHeadingIcon){const button=createHabitSourceButton(input.actionsHost,'circle-check');button.addClass('dashboard-card-heading-icon','noria-card-open');habitHeadingIcon.replaceWith(button);}
+// Creation and management must remain available before a registry or active habit exists.
+const actionsHost=input?.actionsHost||host.createDiv({cls:'noria-habit-actions'});
+const paintHabitIcon=globalThis.dashboardCore?.utils?.applyLucideIcon;
+const addBtn=actionsHost.createEl("button",{cls:"clickable-icon dashboard-guide-icon-btn dashboard-guide-toolbar-plus",attr:{type:"button",title:runtimeT("runtime.habits.addHabit"),"aria-label":runtimeT("runtime.habits.addHabit")}});
+if(paintHabitIcon)paintHabitIcon(addBtn,"plus");else addBtn.setText("+");
+addBtn.onclick=()=>openHabitStatusPanel(true);
+const habitShell=host.closest?.(".dashboard-home-widget-shell");
+if(habitShell)habitShell._noriaConfigureWidget=()=>openHabitStatusPanel();
+const renderAddHabit=()=>renderHabitEmptyAction("runtime.habits.empty","runtime.habits.addHabit",habitRegistryPath,{
+  kind:"add-habit",run:()=>{openHabitStatusPanel(true);return true;}
+});
 const contentRaw = await ctx.io.load(habitRegistryPath);
 let content = migrateHabitStatusTags(contentRaw || "");
 if (!content) {
-  renderHabitEmptyAction("runtime.habits.noRegistry", "runtime.habits.initializeRegistry", habitRegistryPath, {
-    kind: "initialize-habit-registry",
-    failureKey: "runtime.habits.noticeRegistryInitFailed",
-    run: async (targetPath) => {
-      await ensureHabitFileWithSeed(targetPath, habitRegistryTemplate());
-      scheduleRefresh();
-      return openFilePath(targetPath);
-    }
-  });
+  renderAddHabit();
   return;
 }
 const entries = getSectionTaskEntries(content, "循环任务源（每日）");
@@ -882,7 +883,7 @@ if (sleepCfg && habitMap.has(sleepCfg.name)) {
 
 const habits = [...habitMap.keys()].sort((a, b) => a.localeCompare(b, "zh-CN"));
 if (habits.length === 0) {
-  renderHabitEmptyAction("runtime.habits.noActive", "runtime.habits.noActiveAction", habitRegistryPath);
+  renderAddHabit();
   return;
 }
 
@@ -1035,9 +1036,8 @@ if(typeof input?.registerCleanup==='function'){
   ];
   input.registerCleanup(()=>{clearTimeout(recordTimer);refs.forEach(([owner,ref])=>owner.offref(ref));});
 }
-const actionsHost=input?.actionsHost||wrap;
-const paintHabitIcon=globalThis.dashboardCore?.utils?.applyLucideIcon;
 const rangeBtn=actionsHost.createEl('button',{cls:'clickable-icon dashboard-guide-icon-btn noria-habit-history-toggle',attr:{type:'button'}});
+actionsHost.insertBefore(rangeBtn,addBtn);
 const syncRangeButton=()=>{const label=viewState.expanded?(habitSectionsUseChinese?"收起历史":"Show recent days"):(habitSectionsUseChinese?`查看近 ${HABIT_WINDOW_DAYS} 天`:`Show ${HABIT_WINDOW_DAYS} days`);rangeBtn.title=label;rangeBtn.setAttribute('aria-label',label);rangeBtn.setAttribute('aria-expanded',String(viewState.expanded));};
 if(paintHabitIcon)paintHabitIcon(rangeBtn,'noria-range');else rangeBtn.setText('↔');syncRangeButton();
 const rangeSelect=actionsHost.createEl('select',{cls:'noria-habit-history-range',attr:{'aria-label':habitSectionsUseChinese?'历史范围':'History range'}});
@@ -1053,7 +1053,4 @@ rangeSelect.onchange=async()=>{
 };
 
 rangeBtn.onclick=()=>{viewState.expanded=!viewState.expanded;viewState.atRecentEdge=true;syncRange();syncRangeButton();rangeSelect.hidden=!viewState.expanded;decorators.forEach(decorate=>decorate());};
-if(!habitHeadingIcon)createHabitSourceButton(actionsHost,'file-text');
-const addBtn=actionsHost.createEl("button",{cls:"clickable-icon dashboard-guide-icon-btn dashboard-guide-toolbar-plus",attr:{type:"button",title:runtimeT("runtime.habits.addHabit"),"aria-label":runtimeT("runtime.habits.addHabit")}});
-if(paintHabitIcon)paintHabitIcon(addBtn,"plus");else addBtn.setText("+");addBtn.onclick=()=>openHabitStatusPanel(true);
-const habitShell=host.closest?.(".dashboard-home-widget-shell");if(habitShell)habitShell._noriaConfigureWidget=()=>openHabitStatusPanel();
+if(!habitHeadingIcon)actionsHost.insertBefore(createHabitSourceButton(actionsHost,'file-text'),rangeSelect);

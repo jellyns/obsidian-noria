@@ -409,6 +409,7 @@ function registerMediaWorkspace(system) {
     }});
 
   system.register({id:'noria:media-summary',title:text('近期完成','Recent completions'),icon:'chart-no-axes-combined',
+    statistics:{topic:'library',style:'columns',recommended:true,props:{chartStyle:'dots',months:6}},
     description:text('按明确记录的完成日期回看作品。','Review works by their recorded completion dates.'),
     fields:[{key:'folder',label:text('作品目录（留空跟随藏馆）','Media folder (empty follows library)'),type:'folder'},
       {key:'chartStyle',label:text('图表样式','Chart style'),type:'select',default:'dots',options:[{value:'dots',label:text('点阵','Dot matrix')},{value:'columns',label:text('柱形','Columns')}]},

@@ -64,7 +64,7 @@ test('month drag edits the original note, preserves children and block links, an
   ['- [ ] Read [scheduled:: 2026-09-26 08:15]','- [ ] Read [scheduled:: 2026-09-28 08:15]']]){
   const path='Diary/2026-09-26.md',original=`## Tasks\r\n${before}\r\n  - [ ] Child\r\n  Attached paragraph\r\n`,files=new Map([[path,original]]),writes=[];
   let cached=original;const notifications=[];
-  const c=vm.createContext({moment,app:{workspace:{trigger:(name,payload)=>{assert.equal(cached,files.get(path));notifications.push([name,payload.path,payload.reason]);}}},processTaskMarkdownFile:async(p,fn)=>{writes.push(p);files.set(p,fn(files.get(p)))},
+  const c=vm.createContext({taskCalendarZone:null,moment,app:{workspace:{trigger:(name,payload)=>{assert.equal(cached,files.get(path));notifications.push([name,payload.path,payload.reason]);}}},processTaskMarkdownFile:async(p,fn)=>{writes.push(p);files.set(p,fn(files.get(p)))},
    pickTaskLineIndex:lines=>lines.findIndex(l=>l===before),patchGlobalTasksFromSavedLine(){},
    normalizeVaultRelPath:p=>p,getConfiguredDailyNoteYmdFromPath:()=> '2026-09-26',buildDailyNotePath:d=>`Diary/${d}.md`,
    saveTaskDateTimeRelocateBetweenDailyNotes:()=>{throw Error('must not relocate the task')},

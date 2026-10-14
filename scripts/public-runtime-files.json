@@ -1,9 +1,7 @@
 [
   "config/template-library.md",
-  "config/timeline-settings.md",
   "core/adapters/timeline-actions-adapter.js",
   "core/adapters/timeline-io-adapter.js",
-  "core/adapters/timeline-settings-adapter.js",
   "core/task-query-context.js",
   "views/calendar/view.js",
   "views/dashboard/core/components/boards/habit-week-matrix.js",

@@ -6,8 +6,8 @@ class El{
  empty(){this.children=[];}focus(){}get textContent(){return this.text+this.children.map(el=>el.textContent).join('');}
  all(){return this.children.flatMap(child=>[child,...child.all()]);}
 }
-const box={exports:{}};
-vm.runInNewContext(fs.readFileSync('src/card-catalog.js','utf8'),{module:box,require:id=>id==='obsidian'?{Modal:class{},setIcon(){}}:id==='./card-layout-model.js'?{CARD_IDS:[]}:id==='./statistic-templates.js'?{dashboardTemplates:()=>[]}:id==='./card-controls.js'?{}:require(id),clearTimeout,setTimeout});
+const box={exports:{}},localRequire=require('node:module').createRequire(require('node:path').resolve('src/card-catalog.js'));
+vm.runInNewContext(fs.readFileSync('src/card-catalog.js','utf8'),{module:box,require:id=>id==='obsidian'?{Modal:class{},setIcon(){}}:id==='./card-layout-model.js'?{CARD_IDS:[]}:id==='./statistic-templates.js'?{dashboardTemplates:()=>[]}:id==='./card-controls.js'?{}:localRequire(id),clearTimeout,setTimeout});
 function catalog(existing){
  const template={id:'daily-advice',type:'markdown',enabled:false,size:'full',order:40,props:{sourceMode:'daily-section',heading:'建议'}};
  const widgets=existing?[{...template,...existing}]:[],saved=[];

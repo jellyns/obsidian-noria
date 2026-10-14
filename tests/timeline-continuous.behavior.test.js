@@ -24,7 +24,7 @@ test('hidden or nonmatching tasks do not add empty source dates',async(t)=>{
 });
 test('continuous reading centers an empty today, skips sparse gaps and reads bounded pages in both directions',async()=>{
   const {plugin,reads}=fixture(),reader=await new ContinuousTimeline(plugin,{events:[]},{}).init('2026-09-27');
-  assert.equal(reads.length,14);assert.ok(reader.snapshot().dates.includes('2026-09-27'));
+  assert.deepEqual(reads.slice().sort(),reader.snapshot().dates.filter(date=>reader.recordDates.includes(date)).map(date=>`Diary/${date.slice(0,4)}/${date}.md`).sort());assert.ok(reads.length<=14);assert.ok(reader.snapshot().dates.includes('2026-09-27'));
   const first=reader.snapshot().dates[0],last=reader.snapshot().dates.at(-1);
   await reader.load(-1);assert.ok(reader.snapshot().dates[0]<first);assert.equal(reader.snapshot().dates.at(-1),last);
   await reader.load(1);assert.ok(reader.snapshot().dates.at(-1)>last);assert.equal(new Set(reads).size,reads.length);

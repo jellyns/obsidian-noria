@@ -5,7 +5,7 @@ const {StreamableHTTPClientTransport}=require('@modelcontextprotocol/sdk/client/
 const parse=text=>Object.fromEntries(text.split(/\r?\n/).flatMap(line=>{const m=/^(?:"([^"]+)"|([^:\s]+)):\s*(.+)$/.exec(line);if(!m)return [];try{return [[m[1]||m[2],JSON.parse(m[3])]];}catch{return [[m[1]||m[2],m[3]]];}}));
 function load(name,stubs){const filename=path.resolve(__dirname,'../src/'+name),module={exports:{}},local=createRequire(filename);vm.runInNewContext(fs.readFileSync(filename,'utf8'),{module,require:id=>id in stubs?stubs[id]:local(id)});return module.exports;}
 const service=load('media-record.js',{obsidian:{parseYaml:parse}});
-const {createPublicApi}=load('public-api.js',{'./media-record.js':service});
+const {createPublicApi}=load('public-api.js',{'./media-feature.js':require('./media-api-fixture.cjs').mediaFeature({'./media-record.js':service})});
 function fixture(kind='book'){
  const file={path:'Media/Work.md',basename:'Work',extension:'md'};
  let raw=`---\r\ntags: ["#${kind}"]\r\nstatus: "进行中"\r\npageprogress: 20\r\npagecount: 0\r\nrating: 0\r\n# Keep the original comment\r\nother: "keep"\r\n---\r\n## My notes\r\nKeep my own words.\r\n`,queue=Promise.resolve(),exists=true;

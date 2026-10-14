@@ -124,7 +124,6 @@ test("task calendar high-impact chrome strings use locale catalog", () => {
     "runtime.tasksCalendar.editor.afterThis",
     "runtime.tasksCalendar.nav.prevMonth",
     "runtime.tasksCalendar.nav.nextMonth",
-    "runtime.tasksCalendar.eisenhower.rangeAria",
     "runtime.tasksCalendar.waiting.aria",
     "runtime.tasksCalendar.quickTimeline.title",
     "runtime.tasksCalendar.lab.title",

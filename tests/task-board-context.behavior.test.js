@@ -47,7 +47,7 @@ test('timeline labeling does not demote a task; explicit priority and manual qua
 });
 
 test('calendar counters include a spanning task and deduplicate its date roles across days',()=>{
- const ctx={due:[],start:[],process:[],scheduled:[],recurrence:[],dailyNote:[],overdue:[],done:[],moment:()=>({format:()=> '2026-10-07'}),getTaskKey:t=>t.id};
+ const ctx={due:[],start:[],process:[],scheduled:[],recurrence:[],dailyNote:[],overdue:[],done:[],calendarNow:()=>({format:()=> '2026-10-07'}),moment:()=>({format:()=> '2026-10-07'}),getTaskKey:t=>t.id};
  const run=vm.runInNewContext(section('function collectCalendarRangeTasks(', 'function inheritEisenhowerGranularityFromView(')+';collectCalendarRangeTasks',ctx);
  const stats=vm.runInNewContext(section('function createTaskCalendarRangeStats(', 'function setStatisticValuesFromRangeStats(')+';createTaskCalendarRangeStats',{});
  const open=new Map(),completed=new Map(),span={id:'span'},scheduled={id:'scheduled'},finished={id:'finished'};
@@ -58,7 +58,7 @@ test('calendar counters include a spanning task and deduplicate its date roles a
 });
 
 test('calendar carry-over reminders count only on today, and are not counted twice as a dated task',()=>{
- const task={id:'one'},ctx={due:[task],start:[],process:[],scheduled:[],recurrence:[],dailyNote:[],overdue:[task],done:[],moment:()=>({format:()=> '2026-10-07'}),getTaskKey:t=>t.id};
+ const task={id:'one'},ctx={due:[task],start:[],process:[],scheduled:[],recurrence:[],dailyNote:[],overdue:[task],done:[],calendarNow:()=>({format:()=> '2026-10-07'}),moment:()=>({format:()=> '2026-10-07'}),getTaskKey:t=>t.id};
  const run=vm.runInNewContext(section('function collectCalendarRangeTasks(', 'function inheritEisenhowerGranularityFromView(')+';collectCalendarRangeTasks',ctx);
  const open=new Map(),completed=new Map();run(open,completed,'2026-10-06');assert.equal(open.size,1);assert.equal(open.get('one').typ,'due');
  run(open,completed,'2026-10-07');assert.equal(open.size,1);assert.equal(open.get('one').typ,'overdue');

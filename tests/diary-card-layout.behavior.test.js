@@ -24,6 +24,7 @@ test('diary card removal and undo preserve its configuration and later changes t
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/diary-card-layout.js'),'utf8'),{module,exports:module.exports,require(id){
     if(id==='obsidian')return {setIcon(){}};
     if(id==='./card-layout-model.js')return {normalizeDiaryCards,changeDiaryCardLayout};
+    if(id==='./card-lifecycle.js')return {lifecycleActions:()=>[]};
     if(id==='./diary-cards-document.js')return require('../src/diary-cards-document.js');
     if(id==='./card-controls.js')return {openCardMenu:options=>{menu=options;}};
     if(id==='./card-direct-controls.js')return {notifyHidden:(_doc,_message,restore)=>{undo=restore;}};

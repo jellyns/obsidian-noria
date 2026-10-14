@@ -250,13 +250,14 @@ async function runRuntimeSource(rel, { input = {}, app = {}, ctx = null, ctxFall
     };
   }
   if (rel === "views/periodic/dashboardHabitWeek.js") globals = { requestAnimationFrame: callback => callback(), ...globals };
+  if (rel.endsWith('/heatmaps/view.js')) globals = { ResizeObserver: class {observe(){} disconnect(){}}, requestAnimationFrame: () => 0, cancelAnimationFrame() {}, ...globals };
   const previous = new Map();
   for (const [key, value] of Object.entries(globals)) {
     previous.set(key, globalThis[key]);
     globalThis[key] = value;
   }
   try {
-    const runner = new AsyncFunction("ctx", "input", "app", "moment", "window", "document", "globalThis", source);
+    const runner = new AsyncFunction("ctx", "input", "app", "moment", "window", "document", "globalThis", "requestAnimationFrame", "cancelAnimationFrame", source);
     const result = await runner(
       ctx || ctxFallback,
       input,
@@ -264,7 +265,7 @@ async function runRuntimeSource(rel, { input = {}, app = {}, ctx = null, ctxFall
       globals.window || globalThis.window || {},
       globals.window || globalThis.window || {},
       globals.document || globalThis.document || {},
-      globalThis
+      globalThis, globals.requestAnimationFrame || (()=>0), globals.cancelAnimationFrame || (()=>{})
     );
     await new Promise((resolve) => setImmediate(resolve));
     return result;
@@ -310,7 +311,7 @@ test("runtime source lives under src/runtime while embedded keys stay release co
   const generated = fs.readFileSync(path.join(pluginRoot, "src", "generated", "embedded-runtime-sources.js"), "utf8");
   assert.match(generated, /"views\/tasks-calendar\/runtime-core\.js"/);
   assert.doesNotMatch(generated, /"core\/runtime-host\.js"/);
-  assert.match(generated, /"config\/timeline-settings\.md"/);
+  assert.doesNotMatch(generated, /"config\/timeline-settings\.md"/);
   assert.match(generated, /NORIA_RUNTIME_BUILD_ID/);
 
   const main = fs.readFileSync(path.join(pluginRoot, "src", "main.js"), "utf8");
@@ -5749,7 +5750,7 @@ test("weather service uses the account-specific QWeather host and header authent
 
 test("periodic status selector single-flights weather service loading", async () => {
   const source = readSource("views/periodic/statusSelector.js");
-  const runner = new AsyncFunction("ctx", "input", "app", "moment", "window", "document", "globalThis", source);
+  const runner = new AsyncFunction("ctx", "input", "app", "moment", "window", "document", "globalThis", "requestAnimationFrame", "cancelAnimationFrame", source);
   const weatherPath = ".obsidian/plugins/noria/views/dashboard/core/utils/weather-service.js";
   const blocksPath = ".obsidian/plugins/noria/views/dashboard/core/utils/diary-day-blocks.js";
   let weatherLoadCount = 0;
@@ -5875,7 +5876,7 @@ test("periodic status selector single-flights weather service loading", async ()
 
 test("periodic status selector single-flights diary day block loading", async () => {
   const source = readSource("views/periodic/statusSelector.js");
-  const runner = new AsyncFunction("ctx", "input", "app", "moment", "window", "document", "globalThis", source);
+  const runner = new AsyncFunction("ctx", "input", "app", "moment", "window", "document", "globalThis", "requestAnimationFrame", "cancelAnimationFrame", source);
   const blocksPath = ".obsidian/plugins/noria/views/dashboard/core/utils/diary-day-blocks.js";
   let blocksLoadCount = 0;
   let releaseBlocksSource = null;
@@ -6040,7 +6041,8 @@ test("home overview Inbox toolbar uses managed paths instead of old vault-specif
   const guidePanels = readSource("views/dashboard/home/sections/guide-panels/view.js");
   const overviewColumns = readSource("views/dashboard/home/sections/overview-columns/view.js");
 
-  assert.match(overviewColumns, /inboxWorkflowPath/);
+  assert.doesNotMatch(overviewColumns, /inboxWorkflowPath/);
+  assert.match(overviewColumns, /openHelp/);
   assert.match(overviewColumns, /inboxQueuePath/);
   assert.match(overviewColumns, /newInboxScratch/);
   assert.match(overviewColumns, /panelIds\.includes\("inbox"\)[\s\S]*openInboxWorkflow/);
@@ -6063,9 +6065,9 @@ test("home overview workbench toolbar actions expose observable action states", 
   assert.match(overviewColumns, /setWorkbenchToolbarActionState\(control,\s*"ok"/);
   assert.match(overviewColumns, /setWorkbenchToolbarActionState\(control,\s*"failed"/);
   assert.match(overviewColumns, /data-noria-action-error/);
-  assert.match(overviewColumns, /return openFilePath\(inboxWorkflowPath\)/);
+  assert.match(overviewColumns, /openHelp/);
   assert.match(overviewColumns, /return openFilePath\(inboxQueuePath\)/);
-  assert.match(overviewColumns, /addIconBtn\(tool,\s*"library"[\s\S]*"open-inbox-workflow"/);
+  assert.match(overviewColumns, /addIconBtn\(tool,\s*"help-circle"[\s\S]*"open-inbox-workflow"/);
   assert.match(overviewColumns, /addIconBtn\(tool,\s*"clipboard-list"[\s\S]*"open-inbox-queue"/);
   assert.match(overviewColumns, /addToolbarPlusBtn\(tool[\s\S]*"new-inbox-scratch"/);
 });
@@ -6135,99 +6137,7 @@ test("empty habits countdowns and active projects render explicit empty states",
   assert.match(projects, /proj\.stage === "active"/);
 });
 
-test("habit missing-registry empty state creates and opens a real registry", async () => {
-  const habitPath = "02_Areas/知识库管理/Habits.md";
-  const mount = createFakeElement();
-  const files = new Map();
-  const openedFiles = [];
-  const refreshes = [];
-  let createdText = "";
 
-  await runRuntimeSource("views/periodic/dashboardHabitWeek.js", {
-    input: {
-      mount,
-      actionsHost: createFakeElement(),
-      noriaBridge: {
-        locale: "zh-CN",
-        paths: { habitRegistryPath: habitPath },
-        diaryHabits: {today:()=>"2026-09-24"},
-        refresh: {
-          requestRefresh(scope, reason) {
-            refreshes.push({ scope, reason });
-          }
-        },
-        runtime: {
-          toArray(value) {
-            return Array.from(value || []);
-          },
-          pagesForManagedPath() {
-            return [];
-          }
-        },
-        t(key) {
-          return key;
-        }
-      }
-    },
-    ctxFallback: {
-      io: { load: async () => "" },
-      page: () => null,
-      container: createFakeElement()
-    },
-    app: {
-      setIcon() {},
-      vault: {
-        getAbstractFileByPath(pathText) {
-          return files.get(pathText) || null;
-        },
-        async createFolder(pathText) {
-          files.set(pathText, { path: pathText, name: pathText.split("/").pop(), children: [] });
-        },
-        async create(pathText, text) {
-          createdText = String(text || "");
-          const file = { path: pathText, name: pathText.split("/").pop(), extension: "md" };
-          files.set(pathText, file);
-          return file;
-        },
-        getMarkdownFiles: () => []
-      },
-      metadataCache: { getFileCache: () => null },
-      workspace: {
-        getLeaf() {
-          return {
-            async openFile(file) {
-              openedFiles.push(file);
-            }
-          };
-        }
-      }
-    },
-    globals: {
-      Notice: function Notice() {},
-      window: { innerWidth: 1300 },
-      document: {
-        createElement: (tag) => createFakeElement(tag),
-        body: createFakeElement(),
-        addEventListener() {},
-        removeEventListener() {}
-      }
-    }
-  });
-
-  const action = flattenElements(mount).find((el) => el.attrs?.["data-noria-action-kind"] === "initialize-habit-registry");
-  assert.equal(action?.textContent, "Create habit registry");
-  assert.equal(action?.attrs["data-noria-action-state"], "idle");
-  assert.equal(files.has(habitPath), false);
-
-  await action?.onclick?.();
-
-  assert.equal(action?.attrs["data-noria-action-state"], "ok");
-  assert.equal(files.has(habitPath), true);
-  assert.match(createdText, /## 打卡中的习惯/);
-  assert.match(createdText, /## 循环任务源（每日）/);
-  assert.deepEqual(openedFiles.map((file) => file.path), [habitPath]);
-  assert.deepEqual(refreshes, [{ scope: "home", reason: "habit-registry-write" }]);
-});
 
 test("countdown runtime delegates to the shared component and registers its disposal",async()=>{
   const mount=createFakeElement();mount.dataset={};let received,disposed=0,registered;
@@ -6254,17 +6164,7 @@ test("habit history defaults to 21 days and retains the selected range including
   assert.equal(readDates({}, {diaryHabits:{today:()=>"2026-09-24"},homeSettings:{widgets:[{id:"habit-history-card",props:{historyDays:14}}]}}).dates.length, 14);
 });
 
-test("habit writeback resolves sleep notes from the configured diary root", () => {
-  const habits = readSource("views/periodic/dashboardHabitWeek.js");
-  const pathBlock = habits.slice(
-    habits.indexOf("const getDailyNotePath"),
-    habits.indexOf("const ensureParentFolder")
-  );
 
-  assert.match(habits, /bridge\.paths\?\.diaryRoot/);
-  assert.match(pathBlock, /diaryRoot/);
-  assert.doesNotMatch(pathBlock, /06_Diary/);
-});
 
 test("habit task status writeback follows the unique task after a concurrent line insertion", async () => {
   const file = { path: "Noria/Habits.md" };
@@ -6393,31 +6293,7 @@ test("home project manager applies registry actions to the latest file text", ()
   assert.match(manager,/current\.targetPath!==original\.targetPath/);
 });
 
-test("habit missing-file creation reuses a concurrently created note without overwriting it", async () => {
-  const pathValue = "Noria/Habits.md";
-  const concurrentFile = { path: pathValue };
-  let indexedFile = null;
-  let current = "";
-  let creates = 0;
-  const app = {
-    vault: {
-      getAbstractFileByPath: () => indexedFile,
-      create: async () => {
-        creates += 1;
-        current = "concurrent registry";
-        indexedFile = concurrentFile;
-        throw new Error("File already exists");
-      }
-    }
-  };
-  const ensureHabitFileWithSeed = loadHabitFileEnsurer(app);
 
-  const file = await ensureHabitFileWithSeed(pathValue, "stale seed");
-
-  assert.equal(file, concurrentFile);
-  assert.equal(creates, 1);
-  assert.equal(current, "concurrent registry");
-});
 
 test("habit home block renders active habits without mutating registry on view load", async () => {
   const habitPath = "02_Areas/知识库管理/Habits.md";
@@ -6706,7 +6582,7 @@ test('task trend compares completed and activity counts on one scale and keeps s
  const nodes=flattenElements(mount),svg=nodes.find(el=>el.tagName==='svg'),chart=flattenElements(svg);
  const summary=nodes.find(el=>el.attrs['data-noria-card-explanation']);assert.equal(summary.hidden,true);assert.match(summary.textContent,/Total: 8/);assert.match(summary.textContent,/12.5%/);
  const dots=chart.filter(el=>el.tagName==='circle');assert.equal(dots.length,2);
- const grid=chart.filter(el=>el.tagName==='line'&&el.attrs['stroke-dasharray']==='3 7');
+ const grid=chart.filter(el=>el.tagName==='line'&&el.attrs['stroke-dasharray']!==undefined);
  const base=Number(grid[0].attrs.y1),top=Number(grid.at(-1).attrs.y1);
  assert.ok(Math.abs((base-Number(dots[0].attrs.cy))/(base-top)-.25)<.001,'one completed task has one quarter of the height of four activity tasks');
  assert.equal(Number(dots[1].attrs.cy),base,'zero completed tasks stays at zero');
@@ -7797,7 +7673,7 @@ test('home trends retain their inspected date on leave, blur and redraw, and ope
       input:{mount,statsSnapshot:{domains:{notes:{trend:{series:rows}},tasks:{completion:{series:rows}}}},
         noriaBridge:{locale:'zh',t:key=>key,runtime:{openTrendSources:(type,row)=>opened.push({type,key:row.key})}}},
       ctxFallback:{io:{load:async()=>''},container:createFakeElement()},
-      globals:{dashboardCore:{components:{charts:{trendAnnotations:{createTrendAnnotations:()=>({update:i=>updates.push(i)})}}}},
+      globals:{requestAnimationFrame:fn=>{fn();return 1;},cancelAnimationFrame(){},dashboardCore:{components:{charts:{trendAnnotations:{createTrendAnnotations:()=>({update:i=>updates.push(i)})}}}},
         ResizeObserver:class {constructor(fn){redraw=fn;}observe(){}disconnect(){}},
         document:{createElement:tag=>createFakeElement(tag),createElementNS:(_,tag)=>createFakeElement(tag)}}
     });

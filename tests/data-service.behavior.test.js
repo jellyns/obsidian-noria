@@ -26,7 +26,7 @@ function loadDataService(extra = {}) {
   vm.createContext(context);
   vm.runInContext(code, context, { filename: "data-service.js" });
   const data=context.dashboardCore.data.dataService;
-  return {...data,createDataService:options=>data.createDataService({...options,bridge:{tasks:require('../src/task-document.js'),...options.bridge}})};
+  return {...data,createDataService:options=>data.createDataService({...options,bridge:{tasks:require('../src/task-document.js'),inbox:{collect:async()=>[]},...options.bridge}})};
 }
 
 test('task queries match any arrangement and overlapping dates without duplicating tasks or completions',async()=>{
@@ -380,65 +380,16 @@ test("data service reads notes and daily diary texts in parallel while preservin
   );
 });
 
-test("data service collects inbox domain from managed inbox pages", async () => {
-  const data = loadDataService();
-  const inboxPages = [
-    {
-      file: { path: "00_Inbox/Idea.md", name: "Idea.md", ctime: "2026-05-01T08:00:00.000Z", mtime: "2026-05-02T09:00:00.000Z", tasks: [] },
-      "inbox-status": "triage",
-      "inbox-action": "refine",
-      "inbox-review": "2026-05-06",
-      "inbox-next": "Split into project note"
-    },
-    {
-      file: { path: "00_Inbox/Draft.md", name: "Draft.md", ctime: "2026-05-03T08:00:00.000Z", mtime: "2026-05-04T09:00:00.000Z", tasks: [] },
-      "inbox-status": "processing",
-      "inbox-action": "split"
-    },
-    {
-      file: { path: "00_Inbox/Ready.md", name: "Ready.md", ctime: "2026-04-20T08:00:00.000Z", mtime: "2026-05-07T09:00:00.000Z", tasks: [] },
-      "inbox-status": "ready",
-      "inbox-action": "file"
-    }
-  ];
-  const bridge = {
-    runtimeBuildId: "inbox-domain-build",
-    paths: { diaryRoot: "06_Diary", projectsRoot: "01_Projects", inboxRoot: "00_Inbox" },
-    inboxWorkflow: {
-      statuses: [
-        { id: "triage", label: "Triage", aliases: ["待决"] },
-        { id: "processing", label: "Processing" },
-        { id: "ready", label: "Ready" }
-      ],
-      defaultStatusId: "triage"
-    },
-    runtime: {
-      toArray: (value) => Array.from(value || []),
-      pagesForScope() { return []; },
-      pagesForManagedPath(pathKey) {
-        return pathKey === "inboxRoot" ? inboxPages : [];
-      },
-      tasksForScope() { return []; }
-    }
-  };
-  const service = data.createDataService({ bridge, app: {}, now: "2026-05-08" });
-
-  const snapshot = await service.getSnapshot({
-    preset: "home",
-    include: ["inbox"],
-    range: { mode: "custom", start: "2026-05-01", end: "2026-05-07" }
-  });
-  const inbox = snapshot.domains.inbox;
-
-  assert.equal(inbox.summary.total, 3);
-  assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byStatus)), { triage: 1, processing: 1, ready: 1 });
-  assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byAction)), { refine: 1, split: 1, file: 1 });
-  assert.equal(inbox.summary.createdInRange, 2);
-  assert.equal(Object.prototype.hasOwnProperty.call(inbox.summary, "processedInRange"), false);
-  assert.equal(inbox.summary.staleCount, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(inbox.queues.triage.map((item) => item.path))), ["00_Inbox/Idea.md"]);
-  assert.equal(Object.prototype.hasOwnProperty.call(inbox.evidence, "recentProcessed"), false);
-  assert.deepEqual(JSON.parse(JSON.stringify(inbox.evidence.staleItems.map((item) => item.path))), ["00_Inbox/Idea.md"]);
+test("Inbox summary identifies current queue and never invents entry dates or historical stages",async()=>{
+ const items=[{path:"Inbox/A.md",kind:"note",actor:"SI",action:"整理",work:"SI：整理",ctime:"2026-05-02"},{path:"Inbox/Inbox.md#2",kind:"entry",actor:"我",action:"阅读",work:"我：阅读",ctime:null},{path:"Inbox/B.md",actor:"",action:"",ctime:"2026-04-01"}];
+ const service=loadDataService().createDataService({bridge:{inbox:{collect:async()=>items}},now:"2026-05-08"});
+ const snapshot=await service.getSnapshot({include:["inbox"],range:{mode:"custom",start:"2026-05-01",end:"2026-05-07"}});
+ const inbox=snapshot.domains.inbox;
+ assert.equal(inbox.basis,"current-queue");assert.equal(inbox.summary.total,3);assert.equal(inbox.summary.unassigned,1);assert.equal(inbox.summary.createdInRange,1);
+ assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byActor)),{SI:1,"我":1,unassigned:1});
+ assert.deepEqual(JSON.parse(JSON.stringify(inbox.summary.byAction)),{"整理":1,"阅读":1});
+ assert.equal(inbox.summary.byStatus,undefined);assert.equal(inbox.summary.staleCount,undefined);assert.equal(inbox.summary.processedInRange,undefined);
+ assert.equal(inbox.queues["我"][0].created,"");
 });
 
 test("data service collects projects domain from registry and task facts", async () => {

@@ -12,9 +12,13 @@
 
 **Turn knowledge into action, and action into lasting knowledge.**
 
+> This document follows the development version and includes unreleased improvements. See [Releases](https://github.com/jellyns/obsidian-noria/releases) and the [changelog](CHANGELOG.md) for published versions.
+
 Noria connects daily records, notes, and knowledge management with planning, execution, and review. Its configurable Home brings together Task Board, Task Timeline, Calendar, projects, Inbox and MOCs, habits, trends, and Review Center, helping you see the current state, choose the next useful action, and let long-term knowledge support ongoing work.
 
 ![Noria Home dashboard](docs/assets/en/home-dashboard.png)
+
+Screenshots use an isolated fictional workspace: a portfolio launch, an offline-reader app, daily habits and two weeks of notes. Every view reads the same source notes. The card layout, tag colors and 08:00–18:00 visible hours are configurable. Optional onboarding examples are smaller than this demonstration vault.
 
 ---
 
@@ -39,9 +43,9 @@ The statistics make workload visible. You can see recent note growth, task compl
 
 Home is also a widget dashboard. Built-in widgets can be enabled, disabled, reordered, and resized. You can add content widgets and, after explicitly granting trust under Maintenance, custom JavaScript view widgets from your vault. The default layout is only a starting point.
 
-Each card’s **…** separates content management from width, move, collapse, duplicate and hide controls. Add, configure and restore cards directly in Home or Diary; each diary period has its own shared layout. Note, Base and Dataview cards reuse native rendering and Obsidian’s plugin installer.
+Each card keeps common actions in its header and settings in **…**. Resize from the edges; add or restore cards from the catalog. Removing a card keeps its configuration and leaves source notes intact. Each diary period has a default layout, with separate settings available for an individual note. Note, Base and Dataview cards reuse native rendering and Obsidian’s plugin installer.
 
-Projects, Diary, Task Board, and Timeline share one task editor: check a task to complete it, or click its title to edit the task, dates, status, and tags. Expand repeat rules and dependencies when needed. **Add next step** writes to the project's existing task note, and the editor retains a source-note shortcut.
+Projects, Diary, Task Board and Timeline use the same task editor for content, dates, status and tags, with repeat rules and dependencies available when needed. A Home task title opens its source note; **Add next step** writes to the project’s existing task note, keeping the plan connected to its context.
 
 Home cards share header icons, add controls, and an **…** menu. Cards in the same row align in height; resize a card from its bottom edge, or restore **Automatic height** from its menu.
 
@@ -49,7 +53,7 @@ MOC entries form an aligned grid with small color markers and a separate icon fo
 
 ![MOC entries on Home](docs/assets/en/home-moc.png)
 
-Markdown widgets can display daily briefings, current suggestions, weekly reviews, or project-monitor notes produced elsewhere. Noria reads and links the configured `.md` files; it does not require a model connection or generate those documents itself.
+Markdown widgets can display existing briefings, suggestions, reviews or project-monitor notes. The Suggestions card also lets you add, edit and remove items in the corresponding daily note’s `## 建议` section. An external assistant such as Codex can write to that same source for you to review in Noria. Ordinary Markdown use needs no model connection.
 
 ### Task Board
 
@@ -75,39 +79,45 @@ In project grouping, task labels use the available row width and off-screen task
 
 Task Timeline brings dated tasks and project phases into one view. Use the main area for a broader plan or keep the sidebar open for the current schedule. Zoom from days into hours to see how a day unfolds.
 
-Every task uses a circle followed by a short title. Circle color shows completion while titles stay readable; hover or focus a task to see its full schedule, duration, and source note. Drag the bottom date row or minimap to move through time.
+Expand a project to give each task its own row: bars show intervals, dots mark single dates, and diamonds mark deadlines, with task names alongside. Unscheduled work stays accessible beside the project heading. Free layout combines tasks from different sources on the same timeline. Hover or focus for full dates and source details; drag the date row or minimap to move through time.
 
 Name project or global time annotations to mark phases above the tasks. These periods can be edited without changing task dates, and tasks remain connected to their original Markdown notes.
 
-![Task Timeline showing tasks and project phases across two weeks](docs/assets/en/task-timeline-wide.png)
+![Task Timeline showing project schedules across two weeks](docs/assets/en/task-timeline-wide.png)
 
-*Timeline screenshots use example tasks and show the interactions in Noria 0.4.6.* [Timeline guide](docs/USER-GUIDE.md#4-task-timeline)
+*The screenshot shows project schedules in the development build, using fictional tasks.* [Timeline guide](docs/USER-GUIDE.md#4-task-timeline)
 
 ### Calendar
 
-The sidebar Calendar locates period notes using Noria-managed paths, Obsidian Daily Notes, or a custom folder and naming pattern. In the local experience build, day, week, month, and year entries open Diary; missing notes are created on the first save. Quarterly notes and native entry points with Home disabled retain their existing creation settings.
+The sidebar Calendar locates period notes using Noria-managed paths, Obsidian Daily Notes, or a custom folder and naming pattern. Day, week, month, and year entries open Diary; missing notes are created on the first save. Quarterly notes and native entry points with Home disabled retain their existing creation settings.
 
 ### Habits
 
-Habits separate "did I do this today" from "is this becoming established." The Home Habit card supports direct check-ins and shows 21 days by default. **… → Card settings → History days** offers 7, 14, 21, 30, 60, or 90 days; narrow cards scroll history with names fixed and today visible. Records stay in date Markdown, with heatmaps and aggregate trends available separately.
+Habits separate today’s check-in from a longer view of your routine. Home shows today and recent dates, with columns adapting to the available width. Expand history to see 21 days by default, or change the range in **… → Card settings → History days**. Definitions stay in the habit registry and check-ins in dated Markdown; rest days, numeric targets and backdated entries use those same records.
 
 ![Home habit history](docs/assets/en/home-habits.png)
+
+Start a focus session with a task, or drag a task onto the Focus card. Switch between the timer and a review of recorded time in the same card. Linked tasks connect the board, timeline and focus records so you can compare your plans with the time you spent.
+
+See the [task-to-focus walkthrough](docs/USER-GUIDE.md#focus-card) for drag-and-drop, switching tasks and opening the source.
+
+![Focus timer with today’s recorded time](docs/assets/en/home-focus.png)
 
 ### Trends And Statistics
 
 Trends help you observe change across a period instead of judging each day. Note growth, task completion, habit and workload heatmaps, vault distribution, and daily-state signals share one time range and can be arranged as independent Home widgets.
 
-Define daily record names, types, options and units, then add a trend or distribution from the same property. Statistics also accept any note folder and property, with source drilldown. Countdowns support actual start / end dates, drag rescheduling and archives in the original note. These card and record improvements are in the current experience build.
+Define daily record names, types, options and units, then add a trend or distribution from the same property. Statistics also support note properties and folders, with links back to source records. The statistics page shows primary charts directly; alternate styles for the same query can sit under Other styles. Configure a card in the statistics library and place it on Home or in a diary.
 
 ![Configure a statistics card](docs/assets/en/card-statistics.png)
 
 ### Diary And Review
 
-Persistent **Home / Diary** navigation keeps the workbench easy to return to. Inside Diary, **Record / Review** switches the reading and writing surface while keeping the same period and Markdown source. Other Home cards stay in place.
+Persistent **Home / Diary** navigation makes it easy to return to your workbench. Diary records and review share one page, with the review below the body and accessible through the outline. Both use the same period, date and original Markdown.
 
 Select the date to open the existing calendar on demand, or keep it in the sidebar. Diary brings together period tasks, earlier unfinished work, daily habit records, and date-note prose. The top-three focus appears only in the actual current day, week, month, or year. Longer periods provide a compact summary and on-demand statistics. Missing dates preview the configured template; typing autosaves to the date note without leaving the editor. Browsing alone creates no file, and the source icon can explicitly create and open one.
 
-Focus, tasks, and habits use Home-style cards. The card's **…** menu adjusts width, order, or collapse; the current workbench remembers the layout across dates and reopening.
+Tasks and habits use Home-style cards, with the current period’s priorities above its tasks. Use **…** to adjust display and layout, choosing the period’s default or only the current note. Layout settings stay in the plugin rather than the diary text.
 
 ![Diary workspace](docs/assets/en/diary-workspace.png)
 
@@ -115,7 +125,7 @@ Quick notes keep thoughts, links, and line breaks in the selected day's Inbox. H
 
 ![Quick notes and daily state](docs/assets/en/diary-quick-notes.png)
 
-*Example content in the local experience build.* [Diary guide](docs/USER-GUIDE.md#5-calendar-and-diary)
+*Diary content from the example vault.* [Diary guide](docs/USER-GUIDE.md#5-calendar-and-diary)
 
 Review Center gives daily, weekly, monthly, and yearly reviews the same reading and writing experience. Saved reviews open as readable sections drawn from your Markdown; an unwritten period opens ready to write. Edit one section or the full review, with changes autosaved to the corresponding date note. Open records, earlier reviews, or external analysis as references when useful; analysis joins your review only when you choose to add it. Diary and Review use Obsidian's reading/editing command and your assigned shortcut. An optional outline can help you start; there are no required GDD fields.
 
@@ -125,13 +135,13 @@ Select a passage in a record or review, then use the context menu or **…** to 
 
 ![Review Center](docs/assets/en/review-center.png)
 
-*Example review in the upcoming review update; included in the local experience build.* [Review guide](docs/USER-GUIDE.md#8-review-center)
+*Review content from the example vault.* [Review guide](docs/USER-GUIDE.md#8-review-center)
 
 The same data layer powers Home statistics, task views, timeline summaries, periodic views, review evidence, and exports. This avoids each workflow scanning the vault in its own way and makes Noria data easier to use from external agents, scripts, and synchronization workflows.
 
 ### Configure It Around Your Vault
 
-Noria can run in a new portable `Noria/` workspace or connect to an existing vault through paths and scan scopes. Settings cover paths, Home widgets, task filtering, Calendar sources and period templates, appearance, weather, review prompts, and diagnostics. The goal is to fit your knowledge system rather than force your vault into a fixed directory layout.
+For a new vault, Noria recommends IPARA folders at the vault root. You can also choose one workspace folder or keep existing locations. Preview paths before confirming; later location changes do not move existing files. Diaries use built-in templates unless you choose your own .md. Settings are grouped by purpose, while everyday card controls stay on the page.
 
 ---
 
@@ -149,21 +159,19 @@ Noria is designed around a simple knowledge-work loop:
 
 ## Quick Start
 
-1. Install and enable **Noria** from `Settings -> Community plugins`.
-2. Open `Settings -> Noria -> Overview` and choose **Standard workspace** for a new vault or **Custom paths** for an existing vault.
-3. Review the initialization preview and create the missing registries, templates and entry notes you need. Initialization does not add sample completions or check-ins.
-4. Open **Home**, add a real next step to the **Noria Workspace** project, and open its source note. Use the task editor, Day view or Timeline when you want to arrange a date or time.
-5. Adjust diary paths, templates, modules, and Home widgets only when you need a different structure.
+1. Follow the [installation steps](#installation) below and enable **Noria**.
+2. Choose content locations on first opening: **IPARA** is recommended for a new vault; **Custom locations** can follow your existing structure. Select **Later** to start adding content without setting this up first.
+3. **Add starter examples** is selected by default and can be cleared. Examples include editable tasks, habits, countdowns, Inbox notes and a project, without completed tasks or check-ins.
+4. Open **Home**, add a task, an idea or a habit, and open its source note to see where it is saved.
+5. Use Task Board or Timeline to arrange work, and Diary to keep records. Change locations and templates later under **Settings → Noria → Content & templates**.
 
-Noria can create diary notes from its task and review flows, and it also works with Obsidian's core Templates plugin or calendar-style plugins that create dated notes from templates. Use whichever diary creation flow fits your vault best; Noria only needs the diary root and template paths to be configured correctly.
-
----
+Noria can follow Obsidian Daily Notes or its own diary settings. Default templates are built in; choose an existing Markdown template when you need a different format.
 
 ## Roadmap
 
 - **Workbench experience**: continue refining module interfaces, responsiveness, interaction logic, and narrow-pane behavior so common workflows stay direct.
-- **Composable Home**: improve card creation, visibility, ordering, and sizing, and explore long-term content entrances such as bookshelves, media shelves, and game shelves.
-- **Feeds and briefings**: let RSS and other external workflows write daily feeds, summaries, and project monitoring into agreed Markdown files for Home to present.
+- **Composable Home**: improve card creation, visibility, ordering, and sizing, make notes, projects and frequently used pages easier to reach.
+- **Feeds and briefings**: display briefings, suggestions and project updates written to agreed Markdown files by external workflows.
 - **External agent collaboration**: help external agents organize plans, projects, habits, and periodic reviews within clear data and write-back boundaries.
 
 ---
@@ -216,7 +224,7 @@ It should not contain `src/`, `tests/`, `scripts/`, `node_modules/`, or the full
 
 - Noria requires no account and contains no telemetry, analytics, ads, or payments.
 - Noria does not call an AI service. Review Center prepares local evidence and prompts that you may copy to a tool you choose.
-- Weather is off in a fresh installation. The first explicit workspace initialization enables it; later repairs preserve the user's choice. When weather loads, Noria may contact IP-location and weather services such as `ipwho.is`, `ipapi.co`, Open-Meteo, or `wttr.in`; QWeather is contacted only when you configure its host and API key.
+- Weather stays off until explicitly enabled in settings. Choosing locations or adding starter notes does not enable it. When weather loads, Noria may contact IP-location and weather services such as `ipwho.is`, `ipapi.co`, Open-Meteo, or `wttr.in`; QWeather is contacted only when you configure its host and API key.
 - Review Center keeps its Git evidence field compatible with external evidence providers, but Noria does not execute Git or other shell commands.
 - Custom JavaScript view widgets are disabled by default. If you explicitly enable them under Maintenance, they execute a configured vault-relative JavaScript file with Noria and Obsidian plugin access. Noria blocks protocols, absolute paths, and path traversal; only enable this for files you trust. Built-in Noria views do not require this permission.
 - Settings stay in the plugin `data.json`; supported secrets are stored through Obsidian SecretStorage. Snapshot and review exports remain inside the vault unless you choose another vault path.
@@ -232,13 +240,13 @@ npm install
 npm run check
 ```
 
-To install the current build into a separate test vault while keeping the plugin directory clean:
+To install the current build into a separate test vault while preserving settings and recovery files:
 
 ```bash
 npm run install:vault -- "/path/to/test-vault"
 ```
 
-Replace the example path with a separate test vault. The command builds the plugin and copies only `manifest.json`, `main.js`, and `styles.css` into that vault's `.obsidian/plugins/noria/` directory. Existing Noria `data.json` is preserved.
+Replace the example path with a separate test vault. The command builds the plugin and copies only `manifest.json`, `main.js`, and `styles.css` into that vault's `.obsidian/plugins/noria/` directory. Existing settings, migration receipts, recovery drafts and other files are preserved. Installation does not remove extra files. See [build profiles](docs/BUILD-PROFILES.md).
 
 ---
 

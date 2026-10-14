@@ -3,25 +3,36 @@ const {attachCardResize,openCardMenu}=require('./card-controls.js');
 const {attachCardDirect,notifyHidden}=require('./card-direct-controls.js');
 const {renderPicture}=require('./picture-picker.js');
 
+function mountPageHeader(system,workbench,pageId,panel){
+  const render=system.pageHeaders.get(pageId);
+  if(!render||workbench.disposed||!panel.isConnected)return;
+  const header=panel.createDiv({cls:'noria-custom-page-header'});panel.prepend(header);
+  const cleanup=panel.__noriaHomeCleanup;let dispose;
+  panel.__noriaHomeCleanup=()=>{dispose?.();header.remove();cleanup?.();};
+  try{dispose=render({container:header,pageId,workbench});}
+  catch(error){header.remove();throw error;}
+}
+
 // Mount the existing card grid with a page-local bridge; never replace home settings.
 async function renderCardPage(workbench,pageId,panel){
-  if(pageId==='media'&&!panel.dataset.mediaKind)return require('./media-page.js').renderMediaPage(workbench,panel,renderCardPage);
+  if(pageId==='media'&&!panel.dataset.mediaKind)return require('./media-feature.js')?.renderPage(workbench,panel,renderCardPage);
   const plugin=workbench.plugin,system=plugin.cards,store=system.pages;
-  panel.__noriaHomeCleanup?.();panel.empty();
+  panel.__noriaHomeCleanup?.();panel.__noriaHomeCleanup=null;panel.empty();
   const page=store.get(pageId);if(!page)return;
-  const widgets=page.widgets;
+  const widgets=page.widgets.filter(require('./build-profile.js').cardAvailable);
   if(!widgets.some(w=>w.enabled!==false)){
     const empty=panel.createDiv({cls:'noria-custom-page-empty'});
-    empty.createEl('h3',{text:store.label(page)});
-    const add=empty.createEl('button',{text:store.text('添加卡片','Add a card'),cls:'mod-cta'});
-    add.onclick=()=>system.catalog({page:'custom',pageId});return;
+    empty.createEl('h3',{text:store.text('本页还没有卡片','No cards on this page yet')});
+    empty.createEl('p',{text:widgets.length?store.text('移出的卡片仍保留配置，可以随时恢复。','Removed cards keep their settings and can be restored.'):store.text('选择需要的记录或统计，组成自己的页面。','Choose records or statistics for this page.')});
+    const add=empty.createEl('button',{text:widgets.length?store.text('添加或恢复卡片','Add or restore cards'):store.text('添加卡片','Add a card'),cls:'mod-cta'});
+    add.onclick=()=>system.catalog({page:'custom',pageId});mountPageHeader(system,workbench,pageId,panel);return;
   }
   const bridge=plugin.buildRuntimeBridgeConfig();
   bridge.statisticsPageId=pageId;
   bridge.homeSettings={...bridge.homeSettings,widgets,
     ...(page.trendsRange?{trendsRange:page.trendsRange}:{}),...(page.dailyStateRange?{dailyStateRange:page.dailyStateRange}:{})};bridge.homeWidgetDefaults=[];
   bridge.getHomeTrendsRange=()=>plugin.normalizeHomeTrendsRangeInput(store.get(pageId)?.trendsRange||bridge.homeSettings.trendsRange||{});
-  bridge.saveHomeTrendsRange=async value=>{const range=plugin.normalizeHomeTrendsRangeInput(value);await store.changeCards(pageId,(_,page)=>{page.trendsRange=range;});return {ok:true,range};};
+  bridge.saveHomeTrendsRange=async value=>{const range=plugin.normalizeHomeTrendsRangeInput(value);await store.changeCards(pageId,(_,page)=>{page.trendsRange=range;},{layoutOnly:true,pageId});return {ok:true,range};};
   bridge.getHomeDailyStateRange=()=>plugin.normalizeHomeDailyStateRangeInput(store.get(pageId)?.dailyStateRange||bridge.homeSettings.dailyStateRange||{},bridge.homeSettings.defaults||{});
   bridge.saveHomeDailyStateRange=async value=>{const range=plugin.normalizeHomeDailyStateRangeInput(value,bridge.homeSettings.defaults||{});await store.changeCards(pageId,(_,page)=>{page.dailyStateRange=range;});return {ok:true,range};};
   bridge.homeEditMode=workbench.customEditing===true;
@@ -42,7 +53,12 @@ async function renderCardPage(workbench,pageId,panel){
   bridge.runtime.openHomeWidgetMenu=(id,anchor,visibleIds)=>{
     const state=()=>({...card(id),first:visibleIds[0]===id,last:visibleIds.at(-1)===id});
     const getAnchor=()=>[...panel.querySelectorAll('[data-noria-widget-shell-action="menu"]')].find(el=>el.dataset.noriaWidgetId===id);
-    const actions=[{label:store.text('卡片设置','Card settings'),run:()=>system.catalog(context,id)}];
+    const actions=[...require('./card-lifecycle.js').lifecycleActions(system,card(id),context,anchor.ownerDocument),{label:store.text('卡片设置','Card settings'),run:()=>system.catalog(context,id)}];
+    if(store.get(pageId)?.statisticsView){
+      const page=store.get(pageId),alternative=require('./statistic-topics.js').statisticPlacements(page.widgets,page.statisticsView).get(id)==='alternative';
+      actions.push({label:page.statisticsView.pinned?.includes(id)?store.text('移回分类','Move to category'):store.text('置顶显示','Pin to top'),icon:'pin',run:()=>require('./statistics-page.js').pinStatistic(workbench,pageId,id)},
+        {label:alternative?store.text('常驻显示','Always show'):store.text('移入其他样式','Move to other styles'),icon:alternative?'panel-top':'chevrons-down-up',run:()=>require('./statistics-page.js').placeStatistic(workbench,pageId,id,alternative?'main':'alternative')});
+    }
     const local=anchor.closest('.dashboard-home-widget-shell')?._noriaConfigureWidget;
     if(local)actions.unshift({label:store.text('管理内容','Manage contents'),icon:'list',run:local});
     workbench.closeCardMenu=openCardMenu({app:plugin.app,anchor,title:system.title(card(id)),state,getAnchor,t:key=>system.t(key),actions,
@@ -51,6 +67,7 @@ async function renderCardPage(workbench,pageId,panel){
       move:direction=>{const index=visibleIds.indexOf(id),target=visibleIds[index+(direction==='up'?-1:1)];return target?store.compose(pageId,id,'reorder',{target,after:direction==='down',keepStack:true}):Promise.resolve();},
       height:()=>edit(id,{props:{...card(id)?.props,cardHeight:null}}),
       remove:async()=>{const undo=await store.removeCard(pageId,id);notifyHidden(anchor.ownerDocument,system.t('removed'),undo,system.t('undo'));},
+      deleteCard:()=>require('./card-lifecycle.js').confirmDelete(system,system.title(card(id)),()=>store.changeCards(pageId,(widgets,page)=>require('./card-placement.js').forgetWidget(page,id))),
       copy:()=>store.saveCard(pageId,{...JSON.parse(JSON.stringify(card(id))),id:`card-${crypto.randomUUID()}`,title:system.title(card(id))+store.text(' 副本',' copy'),order:Number(card(id).order)+1})});
   };
   bridge.runtime.attachHomeCardResize=(host,id)=>{
@@ -64,6 +81,8 @@ async function renderCardPage(workbench,pageId,panel){
     return()=>{resize();direct();observer.disconnect();};
   };
   await plugin.runNoriaView('dashboardHome',{workbench:true,noriaBridge:bridge},panel);
+  mountPageHeader(system,workbench,pageId,panel);
+  await require('./statistics-page.js').mountStatisticsPage(workbench,pageId,panel,bridge);
   if(workbench.disposed||!panel.isConnected)panel.__noriaHomeCleanup?.();
 }
 module.exports={renderCardPage};

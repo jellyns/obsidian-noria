@@ -218,8 +218,8 @@ test("English and Chinese public docs keep equivalent demo images in separate lo
     const englishTargets = localMarkdownImages(englishFile);
     const chineseTargets = localMarkdownImages(chineseFile);
     const expectedImages = path.basename(englishFile) === "USER-GUIDE.md"
-      ? [expected[0], "home-habits.png", "home-moc.png", "card-catalog.png", "home-card-menu.png", ...expected.slice(1, 6), "task-timeline-hours.png", expected[6], "diary-editor.png", "diary-quick-notes.png", "daily-state.png", "card-statistics.png", expected[7], "review-task-adoption.png", "workbench-task-editor.png"]
-      : [expected[0], "home-moc.png", ...expected.slice(1, 6), "home-habits.png", "card-statistics.png", expected[6], "diary-quick-notes.png", expected[7]];
+      ? [expected[0], "home-inbox.png", "home-habits.png", "focus-task-drop.png", "focus-task-running.png", "home-moc.png", "card-catalog.png", "home-card-menu.png", ...expected.slice(1, 6), "task-timeline-hours.png", expected[6], "diary-editor.png", "diary-quick-notes.png", "daily-state.png", "card-statistics.png", expected[7], "review-task-adoption.png", "home-inbox-assign.png", "home-inbox-assigned.png", "workbench-task-editor.png"]
+      : [expected[0], "home-moc.png", ...expected.slice(1, 6), "home-habits.png", "home-focus.png", "card-statistics.png", expected[6], "diary-quick-notes.png", expected[7]];
     assert.deepEqual(englishTargets.map((target) => path.basename(target)), expectedImages);
     assert.deepEqual(chineseTargets.map((target) => path.basename(target)), expectedImages);
     assert.ok(englishTargets.every((target) => target.replace(/\\/g, "/").includes("assets/en/")));
@@ -254,12 +254,12 @@ test("bilingual public docs present the Noria-only identity", () => {
   assert.doesNotMatch(englishReadme, /From Noria to Noria|imports your existing settings|reassign custom hotkeys/i);
   assert.doesNotMatch(chineseReadme, /从 Noria 迁移到 Noria|导入已有设置|重新分配自定义快捷键/);
 
-  assert.match(englishGuide, /Noria settings have seven top-level pages/);
-  assert.match(chineseGuide, /Noria 设置按七页组织/);
-  assert.match(englishGuide, /^### 9\.5 Calendar$/m);
-  assert.match(chineseGuide, /^### 9\.5 日历$/m);
-  assert.match(englishGuide, /^### 9\.7 Maintenance$/m);
-  assert.match(chineseGuide, /^### 9\.7 维护$/m);
+  assert.match(englishGuide, /Settings use five categories/);
+  assert.match(chineseGuide, /设置按用途分为五类/);
+
+
+
+
   for (const legacyDoc of [
     pluginPath("docs", "FAQ.md"),
     pluginPath("docs", "SETTINGS-MAPPING.md"),
@@ -373,13 +373,15 @@ test("tagged release workflow builds and publishes only canonical plugin assets"
   assert.deepEqual([...new Set(releaseAssets)].sort(), ["main.js", "manifest.json", "styles.css"]);
 });
 
-test("vault install cleans only Noria development files and preserves Noria data", () => {
+test("vault install preserves existing files, settings and recovery drafts", () => {
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), "noria-vault-"));
   const target = path.join(vault, ".obsidian", "plugins", "noria");
   fs.mkdirSync(path.join(target, "src"), { recursive: true });
   fs.writeFileSync(path.join(target, "src", "main.js"), "dev source\n", "utf8");
   fs.writeFileSync(path.join(target, "README.md"), "dev readme\n", "utf8");
   fs.writeFileSync(path.join(target, "data.json"), "{\"keep\":true}\n", "utf8");
+  fs.mkdirSync(path.join(target,'migrations'),{recursive:true});
+  fs.writeFileSync(path.join(target,'migrations','receipt.json'),'original receipt');
   const recovery = path.join(target, "cache", "review", "recovery-drafts.json");
   fs.mkdirSync(path.dirname(recovery), { recursive: true });
   fs.writeFileSync(recovery, "{\"unsaved\":\"keep this draft\"}\n", "utf8");
@@ -390,9 +392,10 @@ test("vault install cleans only Noria development files and preserves Noria data
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.deepEqual(fs.readdirSync(target).sort(), ["cache", "data.json", "main.js", "manifest.json", "styles.css"]);
+  assert.deepEqual(fs.readdirSync(target).sort(), ["README.md", "cache", "data.json", "main.js", "manifest.json", "migrations", "src", "styles.css"]);
   assert.equal(fs.readFileSync(path.join(target, "data.json"), "utf8"), "{\"keep\":true}\n");
   assert.equal(fs.readFileSync(recovery, "utf8"), "{\"unsaved\":\"keep this draft\"}\n");
+  assert.equal(fs.readFileSync(path.join(target,'migrations','receipt.json'),'utf8'),'original receipt');
   assert.match(result.stdout, /Noria installed to/);
 });
 

@@ -109,7 +109,7 @@ class NoriaWorkbench {
     try{await pending;this.customVersions.set(id,this.cardVersion(page));refs.panel.scrollTop=top;}
     catch(error){this.loads.delete(id);throw error;}
   }
-  cardVersion(page){return JSON.stringify([page.widgets,page.trendsRange,page.dailyStateRange,page.mediaViews]);}
+  cardVersion(page){return JSON.stringify([page.widgets,page.trendsRange,page.dailyStateRange,page.mediaViews,page.statisticsView]);}
   canReplace(panel){return !(panel.contains(panel.ownerDocument.activeElement)&&panel.ownerDocument.activeElement?.matches('input,textarea,select,[contenteditable=true]'))&&
     ![...panel.querySelectorAll('textarea,input[type=text]')].some(input=>input.value!==input.defaultValue);}
   t(key) {return this.plugin.t("workbench." + key);}
@@ -146,6 +146,7 @@ class NoriaWorkbench {
     }
     menu.addSeparator();
     menu.addItem(item=>item.setTitle(this.text("管理页面","Manage pages")).setIcon("panels-top-left").onClick(()=>new (require('./workbench-page-settings.js').PageSettings)(this).open()));
+    menu.addItem(item=>item.setTitle(this.text("Noria 设置…","Noria settings…")).setIcon("settings").onClick(()=>this.plugin.openNoriaSettings("overview")));
     this.layoutButton.setAttribute("aria-expanded","true");
     menu.onHide(()=>{this.layoutButton.setAttribute("aria-expanded","false");this.layoutButton.focus({preventScroll:true});});
     const rect=this.layoutButton.getBoundingClientRect();menu.showAtPosition({x:rect.right,y:rect.bottom});

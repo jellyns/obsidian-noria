@@ -5,7 +5,7 @@ const {StreamableHTTPClientTransport}=require('@modelcontextprotocol/sdk/client/
 const parse=text=>Object.fromEntries(text.split(/\r?\n/).filter(Boolean).map(l=>{const i=l.indexOf(':');return [l.slice(0,i),JSON.parse(l.slice(i+1))];}));
 function load(name,stubs){const file=path.resolve(__dirname,'../src/'+name),m={exports:{}},local=createRequire(file);vm.runInNewContext(fs.readFileSync(file,'utf8'),{module:m,require:id=>Object.hasOwn(stubs,id)?stubs[id]:local(id)});return m.exports;}
 const service=load('media-experiences.js',{obsidian:{parseYaml:parse},'./media-record.js':{readMedia:async(p,{path})=>{if(!p.app.vault.getAbstractFileByPath(path))throw Error('Missing work');return {path,title:'Book',kinds:['book']};}}});
-const {createPublicApi}=load('public-api.js',{'./media-experiences.js':service});
+const {createPublicApi}=load('public-api.js',{'./media-feature.js':require('./media-api-fixture.cjs').mediaFeature({'./media-experiences.js':service})});
 function fixture(){
  const files=new Map([['Media/Book.md','My work note.'],['Diary/2026-10-08.md','## 记录\nKeep my prose.\n']]);
  const get=p=>files.has(p)?{path:p,name:p.split('/').at(-1),basename:p.split('/').at(-1).replace(/\.md$/,''),extension:'md'}:null;

@@ -33,6 +33,9 @@ class SuggestionEditor extends Modal{
     const t=this.t;this.setTitle(this.item?.add?t('添加建议','Add suggestion'):t('修改建议','Edit suggestion'));this.modalEl.addClass('noria-suggestion-editor');this.release=this.plugin.cards.trackModal(this);
     const prior=this.drafts.get(this.key);this.conflicted=!!prior&&prior.revision!==this.source.revision;
     if(this.conflicted){const conflict=this.contentEl.createDiv({cls:'noria-suggestion-edit-conflict',text:t('建议已更新；下面保留你的草稿，请先核对来源。','Suggestions changed; your draft is retained below. Review the source first.')});const latest=conflict.createEl('button',{text:t('放弃草稿并载入最新','Discard draft and load latest')});latest.onclick=async()=>{latest.disabled=true;try{const source=await this.plugin.api.suggestions.read({date:this.source.date});if(source.path!==this.source.path)throw Object.assign(Error('Source moved'),{code:'conflict'});this.drafts.delete(this.key);this.close();new SuggestionEditor(this.plugin,source).open();}catch(error){new Notice(errorText(this.plugin,error));latest.disabled=false;}};}
+    const location=this.contentEl.createDiv({cls:'noria-suggestion-edit-location'});
+    location.createSpan({text:t('保存到：','Save to: ')});
+    location.createSpan({text:this.source.path+' → ## 建议'});
     const host=this.contentEl.createDiv({cls:'noria-diary-editor'});
     this.editor=createReviewMarkdownEditor({app:this.app,container:host,file:this.app.vault.getAbstractFileByPath(this.source.path),value:this.body,onChange:body=>{this.body=body;this.drafts.set(this.key,{markdown:body,revision:prior?.revision||this.source.revision});},onSave:()=>void this.save(),onExit:()=>this.close()});
     this.error=this.contentEl.createDiv({cls:'noria-card-error',attr:{role:'alert'}});this.error.hidden=true;
@@ -68,6 +71,7 @@ async function mountSuggestionActions(plugin,host,selection){
     {label:t('打开建议来源','Open suggestion source'),icon:'file-text',run:()=>openSource(plugin,source)},
     {label:t('移除本次建议','Remove these suggestions'),icon:'circle-minus',run:async()=>showUndo(plugin,await suggestionEdit(plugin.api,source).save(''))}
   ]:[];
+  actions.push({label:t('建议用法','Using suggestions'),icon:'circle-help',run:()=>plugin.openUserGuide('suggestions')});
   const cleanup=await mountItems(plugin,host,shell,source);
   shell._noriaRecordActions=[...shell._noriaRecordActions||[],...actions];
   return()=>{cleanup();shell._noriaRecordActions=(shell._noriaRecordActions||[]).filter(action=>!actions.includes(action));};
@@ -84,7 +88,15 @@ async function mountItems(plugin,host,shell,source){
   // Build off-DOM so a renderer failure leaves the original Markdown readable.
   const list=document.createElement('div');list.className='noria-suggestion-items';
   try{
-    if(!source.markdown.trim())list.createDiv({cls:'noria-card-secondary',text:t('暂无建议','No suggestions yet')});
+    if(!source.markdown.trim()){
+      const empty=list.createDiv({cls:'noria-capture-empty'});
+      empty.createEl('small',{text:t('把自己或助手给出的建议放在这里，方便随时查看和调整。','Keep suggestions from yourself or an assistant here, ready to review and adjust.')});
+      const actions=empty.createDiv({cls:'noria-suggestion-empty-actions'});
+      const create=actions.createEl('button',{cls:'noria-capture-empty-action',text:t('添加建议','Add suggestion')});
+      create.onclick=async()=>{create.disabled=true;try{await add.onclick();}finally{create.disabled=false;}};
+      const guide=actions.createEl('button',{cls:'noria-review-text-action',text:t('如何使用','How it works')});
+      guide.onclick=()=>plugin.openUserGuide('suggestions');
+    }
     for(const [index,item] of suggestionItems(source.markdown).entries()){
       const row=list.createDiv({cls:'noria-suggestion-item'}),body=row.createDiv({cls:'noria-suggestion-item-body markdown-rendered'});
       await MarkdownRenderer.render(plugin.app,item.markdown,body,source.path,component);

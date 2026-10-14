@@ -74,11 +74,11 @@ function injectStyle() {
 }
 .noria-calendar-title {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
+  align-items: baseline;
+  gap: 6px;
+  height: 32px;
   min-width: 0;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 650;
   line-height: 1;
 }
@@ -99,8 +99,8 @@ function injectStyle() {
   position: relative;
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 0 2px;
+  height: 32px;
+  padding: 0 3px;
   box-sizing: border-box;
   color: var(--text-normal);
   font-weight: inherit;
@@ -124,32 +124,39 @@ function injectStyle() {
 .noria-calendar-title button.has-period-note:hover::after {
   background: color-mix(in srgb, var(--text-normal) 78%, transparent);
 }
-.noria-calendar-year {
-  font-weight: 560;
+.noria-calendar-title .noria-calendar-month {
+  font-size: 16px;
+  font-weight: 600;
+}
+.noria-calendar-title .noria-calendar-year {
+  font-size: 12px;
+  font-weight: 400;
+  transform: translateY(1px);
+  color: var(--text-muted);
 }
 .noria-calendar-nav {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 2px;
   flex: 0 0 auto;
 }
 .noria-calendar-nav button {
-  min-width: 18px;
-  height: 22px;
-  border-radius: 5px;
-  padding: 0 3px;
+  min-width: 28px;
+  height: 32px;
+  border-radius: var(--noria-control-radius,9px);
+  padding: 0 6px;
   color: var(--text-muted);
   cursor: pointer;
   line-height: 1;
 }
 .noria-calendar-nav button:hover {
-  background: transparent;
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 .noria-calendar-today {
-  min-width: 30px;
-  font-size: 12px;
-  font-weight: 600;
+  min-width: 38px;
+  font-size: 13px;
+  font-weight: 500;
 }
 .noria-calendar-grid {
   position: relative;
@@ -1044,7 +1051,7 @@ async function render() {
     ? t("runtime.calendar.previousYears")
     : (state.mode === "months" ? t("runtime.calendar.previousYear") : t("runtime.calendar.previousMonth"));
   const prev = el(nav, "button", { attr: { type: "button", title: prevTitle } });
-  setIconButton(prev, "chevron-left", "<");
+  setIconButton(prev, "chevron-left", prevTitle);
   prev.addEventListener("click", () => {
     if (state.mode === "years") {
       state.yearStart = Math.round(Number(state.yearStart || yearStartFor(model.year))) - 16;
@@ -1076,7 +1083,8 @@ async function render() {
     ? t("runtime.calendar.nextYears")
     : (state.mode === "months" ? t("runtime.calendar.nextYear") : t("runtime.calendar.nextMonth"));
   const next = el(nav, "button", { attr: { type: "button", title: nextTitle } });
-  setIconButton(next, "chevron-right", ">");
+  setIconButton(next, "chevron-right", nextTitle);
+  next.classList.add('noria-calendar-next');
   next.addEventListener("click", () => {
     if (state.mode === "years") {
       state.yearStart = Math.round(Number(state.yearStart || yearStartFor(model.year))) + 16;
@@ -1086,9 +1094,11 @@ async function render() {
     } else {
       setAnchorMonth(model.anchor, 1, 0);
     }
-    if (input?.browseHeader) void renderAndFocus(".noria-calendar-nav button:last-child");
+    if (input?.browseHeader) void renderAndFocus(".noria-calendar-next");
     else void render();
   });
+
+  nav.appendChild(today);
 
   if (state.mode === "months") {
     const picker = typeof api.getPickerModel === "function"

@@ -1,6 +1,4 @@
 (() => {
-  const root = globalThis.dashboardCore || (globalThis.dashboardCore = {});
-  root.adapters = root.adapters || {};
 
   function toSlug(raw) {
     return String(raw || "")
@@ -55,7 +53,7 @@
     if (!t) return false;
     const parts = t.split(":").map((n) => parseInt(n, 10));
     const start = parts[0] * 60 + parts[1];
-    return start + normalizeMinutes(durationMin) > 24 * 60;
+    return start + normalizeMinutes(durationMin) >= 24 * 60;
   }
 
   function cleanEventTemplateLabel(body) {
@@ -66,16 +64,6 @@
       .replace(/\s+/g, " ")
       .trim();
   }
-
-  const DEFAULT_EVENT_TEMPLATES = Object.freeze([
-    { key: "breakfast", label: "早餐", timelineTag: "#tl/breakfast", startTime: "08:00", durationMin: 20 },
-    { key: "lunch", label: "午餐", timelineTag: "#tl/lunch", startTime: "12:30", durationMin: 30 },
-    { key: "dinner", label: "晚餐", timelineTag: "#tl/dinner", startTime: "18:30", durationMin: 30 },
-    { key: "nap", label: "午休", timelineTag: "#tl/nap", startTime: "13:00", durationMin: 30 },
-    { key: "sleep", label: "睡眠", timelineTag: "#tl/sleep", startTime: "23:30", durationMin: 450, crossDay: true },
-    { key: "focus", label: "深度工作", timelineTag: "#tl/focus", startTime: "09:00", durationMin: 90 },
-    { key: "review", label: "晚间复盘", timelineTag: "#tl/review", startTime: "21:30", durationMin: 20 }
-  ]);
 
   function normalizeEventTemplate(raw, index) {
     const label = String(raw?.label || raw?.name || "").trim();
@@ -154,18 +142,7 @@
       .split(/\r?\n/)
       .map((line, index) => parseCanonicalEventLine(line, index))
       .filter(Boolean);
-    if (canonical.length) return canonical;
-    return parseMarkdownTableRows(raw);
-  }
-
-  function getDefaultEventTemplates() {
-    return DEFAULT_EVENT_TEMPLATES.map((item, index) => normalizeEventTemplate(item, index)).filter(Boolean);
-  }
-
-  function getEnabledEventTemplates(text, fallbackToDefaults = false) {
-    const parsed = parseEventTemplateLibrary(text).filter((item) => item.enabled !== false);
-    if (parsed.length) return parsed;
-    return fallbackToDefaults ? getDefaultEventTemplates() : [];
+    return canonical.concat(parseMarkdownTableRows(raw));
   }
 
   function buildEventTemplateLine(templateObj, enabled = true) {
@@ -190,44 +167,25 @@
 
   function getVisibleWeekDates(selectedDate, firstDayOfWeek) {
     const base = moment(selectedDate);
-    const currentWeekday = base.format("d");
+    const first = Number(firstDayOfWeek) || 0;
+    const offset = (Number(base.format("d")) - first + 7) % 7;
     const dates = [];
-    for (let i = 0 - currentWeekday + parseInt(firstDayOfWeek, 10); i < 7 - currentWeekday + parseInt(firstDayOfWeek, 10); i++) {
-      dates.push(base.clone().add(i, "days").format("YYYY-MM-DD"));
-    }
+    for (let i=0; i<7; i++) dates.push(base.clone().add(i-offset,"days").format("YYYY-MM-DD"));
     return dates;
   }
 
-  function getPregenDates({ selectedDate, firstDayOfWeek, spanDays }) {
+  function getPregenDates({ selectedDate, firstDayOfWeek, spanDays, strategy }) {
     const weekDates = getVisibleWeekDates(selectedDate, firstDayOfWeek);
     let span = parseInt(spanDays, 10);
     if (!Number.isFinite(span) || span <= 0) span = weekDates.length || 7;
-    const start = weekDates[0] || moment().format("YYYY-MM-DD");
+    if (strategy === 'weekly-all') span = 7;
+    if (strategy === 'daily-only') return [moment(selectedDate).format('YYYY-MM-DD')];
+    const start = strategy === 'mixed' ? moment(selectedDate).format('YYYY-MM-DD') : weekDates[0] || moment().format("YYYY-MM-DD");
     const out = [];
     for (let i = 0; i < span; i++) {
       out.push(moment(start, "YYYY-MM-DD", true).add(i, "days").format("YYYY-MM-DD"));
     }
     return out;
-  }
-
-  function getItemPreset(settings, key) {
-    const raw = (settings?.items && settings.items[key]) ? settings.items[key] : null;
-    if (!raw) return null;
-    let timelineTag = String(raw.timelineTag || raw.tag || "").trim();
-    if (!timelineTag && raw.tags) {
-      const m = String(raw.tags).match(/#(?:tl|timeline)\/[^\s#]+/i);
-      timelineTag = m ? m[0] : "";
-    }
-    if (!timelineTag) {
-      timelineTag = "#tl/" + toSlug(key);
-    }
-    return {
-      label: raw.label || key,
-      startTime: raw.startTime || "",
-      durationMin: normalizeMinutes(raw.durationMin || 30),
-      crossDay: raw.crossDay === true,
-      timelineTag
-    };
   }
 
   function buildTimelineTaskLine(cfg) {
@@ -247,18 +205,22 @@
       + timelineTag;
   }
 
-  root.adapters.timelineActionsAdapter = {
+  const api = {
     toSlug,
     normalizeMinutes,
     addMinutesToTime,
     getVisibleWeekDates,
     getPregenDates,
-    getItemPreset,
     buildTimelineTaskLine,
     parseEventTemplateLibrary,
-    getEnabledEventTemplates,
-    getDefaultEventTemplates,
     buildEventTemplateLine,
-    normalizeTime
+    normalizeTime,
+    normalizeEventTemplate
   };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else {
+    const root = globalThis.dashboardCore || (globalThis.dashboardCore = {});
+    root.adapters = root.adapters || {};
+    root.adapters.timelineActionsAdapter = api;
+  }
 })();

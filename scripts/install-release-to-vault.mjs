@@ -1,75 +1,48 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "..");
-const releaseAssets = ["manifest.json", "main.js", "styles.css"];
-// The cache directory also contains user-authored recovery drafts.
-const preservedInstallFiles = new Set([...releaseAssets, "data.json", "cache"]);
-
-const args = process.argv.slice(2);
-const keepExtra = args.includes("--keep-extra");
-const vaultArg = args.find((arg) => arg !== "--clean" && arg !== "--keep-extra")
-  || process.env.NORIA_VAULT;
-
-function fail(message) {
-  console.error(`Noria install failed: ${message}`);
-  process.exit(1);
+import {createHash} from "node:crypto";
+import {fileURLToPath} from "node:url";
+const repoRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
+const releaseAssets=["manifest.json","main.js","styles.css"];
+const args=process.argv.slice(2),from=args.find(arg=>arg.startsWith('--from='));
+const vaultArg=args.find(arg=>!arg.startsWith('--'))||process.env.NORIA_VAULT;
+function fail(message){console.error(`Noria install failed: ${message}`);process.exit(1);}
+if(args.some(arg=>arg.startsWith('--')&&!arg.startsWith('--from=')&&!['--clean','--keep-extra'].includes(arg)))fail('Unknown option');
+if(!vaultArg)fail('Pass an existing vault path; optionally --from=<built package directory>');
+if(args.includes('--clean'))fail('--clean has been removed: installation preserves settings, migration records and recovery files.');
+const vaultRoot=path.resolve(vaultArg),targetRoot=path.join(vaultRoot,'.obsidian/plugins/noria'),sourceRoot=from?path.resolve(from.slice(7)):repoRoot;
+if(!fs.existsSync(vaultRoot)||!fs.statSync(vaultRoot).isDirectory())fail(`Vault path does not exist: ${vaultRoot}`);
+const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+// An optional self-use package declares its files and hashes outside the installed plugin.
+let hashes=null;
+if(from){
+ const info=JSON.parse(fs.readFileSync(path.join(sourceRoot,'../build-info.json'),'utf8'));
+ if(info.kind!=='self-use'||!info.assets||Array.isArray(info.assets))fail('Not a declared self-use package');
+ hashes=info.assets;
 }
-
-if (!vaultArg) {
-  fail("pass a vault path, for example: npm run install:vault -- F:/NoriaTest");
+const assets=hashes?Object.keys(hashes):releaseAssets;
+if(!releaseAssets.every(name=>assets.includes(name)))fail('Package is missing required plugin files');
+for(const name of assets)if(!releaseAssets.includes(name)&&name!=='background.cjs'&&!/^assets\/(?:[\w.-]+\/)*[\w.-]+$/.test(name)||name.split('/').some(part=>part==='.'||part==='..'))fail(`Invalid program asset: ${name}`);
+function rejectLinks(root,target){
+ const relative=path.relative(root,target);
+ if(path.isAbsolute(relative)||relative==='..'||relative.startsWith('..'+path.sep))fail(`Path escapes its root: ${target}`);
+ let current=root;
+ for(const part of ['',...relative.split(path.sep).filter(Boolean)]){
+  if(part)current=path.join(current,part);
+  if(fs.existsSync(current)&&fs.lstatSync(current).isSymbolicLink())fail(`Refusing symbolic link or junction install path: ${current}`);
+ }
 }
-
-const vaultRoot = path.resolve(vaultArg);
-const obsidianDir = path.join(vaultRoot, ".obsidian");
-const targetRoot = path.join(obsidianDir, "plugins", "noria");
-
-if (!fs.existsSync(vaultRoot) || !fs.statSync(vaultRoot).isDirectory()) {
-  fail(`vault path does not exist: ${vaultRoot}`);
+const contents=new Map();
+for(const name of assets){
+ const source=path.join(sourceRoot,name),target=path.join(targetRoot,name);
+ rejectLinks(sourceRoot,source);rejectLinks(vaultRoot,target);
+ if(!fs.existsSync(source)||!fs.statSync(source).isFile())fail(`Missing release asset, run build first: ${name}`);
+ if(fs.existsSync(target)&&!fs.statSync(target).isFile())fail(`Install file is not a regular file: ${name}`);
+ const bytes=fs.readFileSync(source);if(hashes&&sha(bytes)!==hashes[name])fail(`Package hash mismatch: ${name}`);contents.set(name,bytes);
 }
-
-if (path.basename(targetRoot) !== "noria" || path.basename(path.dirname(targetRoot)) !== "plugins") {
-  fail(`refusing unexpected install target: ${targetRoot}`);
-}
-
-if (fs.existsSync(targetRoot)) {
-  const targetStat = fs.lstatSync(targetRoot);
-  if (targetStat.isSymbolicLink()) {
-    fail(`refusing symbolic link or junction install target: ${targetRoot}`);
-  }
-  if (!targetStat.isDirectory()) {
-    fail(`install target is not a directory: ${targetRoot}`);
-  }
-}
-
-for (const asset of releaseAssets) {
-  const source = path.join(repoRoot, asset);
-  if (!fs.existsSync(source) || !fs.statSync(source).isFile()) {
-    fail(`missing release asset, run npm run build first: ${asset}`);
-  }
-}
-
-fs.mkdirSync(targetRoot, { recursive: true });
-
-if (!keepExtra) {
-  for (const entry of fs.readdirSync(targetRoot, { withFileTypes: true })) {
-    if (preservedInstallFiles.has(entry.name)) continue;
-    fs.rmSync(path.join(targetRoot, entry.name), { recursive: true, force: true });
-  }
-}
-
-for (const asset of releaseAssets) {
-  fs.copyFileSync(path.join(repoRoot, asset), path.join(targetRoot, asset));
-}
-
-const installed = fs.readdirSync(targetRoot).sort();
-const unexpected = installed.filter((name) => !preservedInstallFiles.has(name));
-if (unexpected.length) {
-  console.warn(`Noria install warning: non-release files remain in ${targetRoot}: ${unexpected.join(", ")}`);
-  console.warn("Run without --keep-extra to remove development files while preserving data.json and recovery storage.");
-}
-
+const manifest=JSON.parse(contents.get('manifest.json').toString('utf8'));
+if(manifest.id!=='noria'||manifest.isDesktopOnly!==true)fail('Expected desktop Noria package');
+// Validate the complete package before touching any destination. Never infer that an extra file is disposable.
+for(const [name,bytes]of contents){const target=path.join(targetRoot,name);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes);}
 console.log(`Noria installed to ${targetRoot}`);
-console.log(`Installed files: ${installed.join(", ")}`);
+console.log(`Updated ${assets.length} program files; all other files and settings were preserved.`);

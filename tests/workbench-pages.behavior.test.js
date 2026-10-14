@@ -6,6 +6,15 @@ const fixture=()=>{
   return {plugin,disk,store:new WorkbenchPages(plugin)};
 };
 
+test('new navigation is stable and unavailable extension cards survive configuration upgrades',()=>{
+ const first=normalizePages();assert.equal(first.defaultPage,'home');
+ assert.deepEqual(normalizePages(first),first);
+ const card={id:'saved-card',type:'extension',source:'noria:private-domain',props:{sourceNote:'Travel.md'},layout:{span:7},enabled:false};
+ const upgraded=normalizePages({version:1,defaultPage:'page-personal',pages:[{id:'page-personal',title:'Personal',widgets:[card]}]});
+ assert.deepEqual(upgraded.pages.find(p=>p.id==='page-personal').widgets,[card]);
+ assert.equal(upgraded.defaultPage,'page-personal');assert.deepEqual(normalizePages(upgraded),upgraded);
+});
+
 test('removed custom cards survive reload with configuration and undo preserves subsequent edits',async()=>{
  const {plugin,disk,store}=fixture();
  const card={id:'card-reading',title:'Reading',source:'noria:note',props:{path:'Reading.base',cardHeight:240},size:'wide',order:20,enabled:true};

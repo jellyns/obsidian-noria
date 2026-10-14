@@ -1,7 +1,9 @@
 "use strict";
 const {commitSettingsChange}=require("./settings-change.js");
 const {insertCard}=require("./card-layout-model.js");
-const {libraryView}=require('./media-workspace-model.js');
+const media=require('./media-feature.js');
+const {visiblePages,retainUnavailablePages}=require('./build-profile.js');
+const libraryView=(view,kind)=>media?media.libraryView(view,kind):clone(view);
 const clone=value=>JSON.parse(JSON.stringify(value));
 const BUILTINS=["home","diary","day","calendar","media"];
 const pagePicture=page=>page.picture||({home:'house',diary:'notebook-pen',day:'list-todo',calendar:'calendar-days',media:'library'})[page.id]||'panels-top-left';
@@ -12,13 +14,13 @@ const mediaKind=id=>/^media:(book|movie|music|game)$/.exec(id||'')?.[1]||'';
 function normalizePages(value={}){
   if(value.version!=null&&value.version!==1)throw Error('Unsupported workspace page version');
   const seen=new Set(),pages=[];
-  for(const page of [...(Array.isArray(value.pages)?value.pages:[]),...BUILTINS.map(id=>({id}))]){
+  for(const page of [...(Array.isArray(value.pages)?value.pages:[]),...BUILTINS.filter(id=>id!=='media'||media).map(id=>({id}))]){
     if(!validId(page?.id)||seen.has(page.id))continue;
     seen.add(page.id);
-    pages.push({...clone(page),title:String(page.title||'').trim().slice(0,40),hidden:page.hidden===true,
+    pages.push({...clone(page),...(page.statisticsView?{statisticsView:require('./statistic-topics.js').normalizeStatisticsView(page.statisticsView)}:{}),title:String(page.title||'').trim().slice(0,40),hidden:page.hidden===true,
       ...(page.id==='media'?{widgets:libraryView(page).widgets,...(page.mediaViews?{mediaViews:Object.fromEntries(Object.entries(page.mediaViews).map(([kind,view])=>[kind,libraryView(clone(view),kind)]))}:{})}:BUILTINS.includes(page.id)?{}:{widgets:Array.isArray(page.widgets)?clone(page.widgets):[]})});
   }
-  if(!value.pages?.some(p=>p.id==='media')){
+  if(media&&!value.pages?.some(p=>p.id==='media')){
     const statistics=pages.findIndex(p=>p.widgets?.some(w=>w.source==='noria:period-overview'||w.source==='noria:statistics'||w.type==='statistics'));
     if(statistics>=0){const media=pages.splice(pages.findIndex(p=>p.id==='media'),1)[0];pages.splice(statistics,0,media);}
   }
@@ -31,18 +33,18 @@ function normalizePages(value={}){
 class WorkbenchPages {
   constructor(plugin){this.plugin=plugin;this.listeners=new Set();}
   text(zh,en){return this.plugin.getNoriaLocale()==='zh'?zh:en;}
-  read(){return normalizePages(this.plugin.settings.workbenchPages);}
+  read(){return visiblePages(normalizePages(this.plugin.settings.workbenchPages));}
   get(id){
     const kind=mediaKind(id),page=this.read().pages.find(p=>p.id===(kind?'media':id));
     if(!kind||!page)return page;
-    return {...clone(page.mediaViews?.[kind]||{widgets:require('./media-workspace-model.js').libraryWidgets(kind)}),id,mediaKind:kind,title:this.text(({book:'图书',movie:'影视',music:'音乐',game:'游戏'})[kind],({book:'Books',movie:'Film & TV',music:'Music',game:'Games'})[kind])};
+    return {...clone(page.mediaViews?.[kind]||{widgets:media.libraryWidgets(kind)}),id,mediaKind:kind,title:this.text(({book:'图书',movie:'影视',music:'音乐',game:'游戏'})[kind],({book:'Books',movie:'Film & TV',music:'Music',game:'Games'})[kind])};
   }
   label(page){return page.title||({home:this.text('主页','Home'),diary:this.text('日记','Diary'),day:this.text('任务看板','Task board'),calendar:this.text('日历','Calendar'),media:this.text('藏馆','Media library')})[page.id]||this.text('新页面','New page');}
   subscribe(listener){this.listeners.add(listener);return()=>this.listeners.delete(listener);}
   async update(change,{layoutOnly=false,pageId}={}){
     let previousPage;
     const result=await commitSettingsChange(this.plugin,['workbenchPages'],()=>{
-      const next=this.read();previousPage=clone(next.pages.find(page=>page.id===pageId?.split(':')[0])||null);change(next);this.plugin.settings.workbenchPages=normalizePages(next);return this.read();
+      const next=this.read(),before=clone(next);previousPage=clone(next.pages.find(page=>page.id===pageId?.split(':')[0])||null);change(next);this.plugin.settings.workbenchPages=normalizePages(retainUnavailablePages(this.plugin.settings.workbenchPages,next,before));return this.read();
     });
     await Promise.all([...this.listeners].map(fn=>Promise.resolve().then(()=>fn({layoutOnly,pageId,previousPage})).catch(error=>console.warn('Noria page refresh',error))));
     return result;
@@ -60,7 +62,7 @@ class WorkbenchPages {
       const kind=mediaKind(pageId);
       let page=next.pages.find(p=>p.id===(kind?'media':pageId)&&(p.id==='media'||!BUILTINS.includes(p.id)));
       if(!page)throw Error(this.text('此页面已移除，请重新选择页面。','This page was removed. Choose another page.'));
-      if(kind){page.mediaViews=page.mediaViews||{};page=page.mediaViews[kind]||(page.mediaViews[kind]={widgets:require('./media-workspace-model.js').libraryWidgets(kind)});}
+      if(kind){page.mediaViews=page.mediaViews||{};page=page.mediaViews[kind]||(page.mediaViews[kind]={widgets:media.libraryWidgets(kind)});}
       change(page.widgets,page);
     },options);
   }

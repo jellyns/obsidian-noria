@@ -28,7 +28,7 @@ function sectors(actor, width, height = 390) {
     points.push([mirror(edgeDepth(b)), b * scale], [mirror(0), b * scale]);
     // The tapered last sector carries its label nearer its visual center.
     const y = custom ? 300 : (a + b) / 2;
-    return { actor, action, y: y * scale, x: mirror(edgeDepth(y) * .54), endX: mirror(edgeDepth(y) + 7),
+    return { actor, action, y: y * scale, x: mirror(edgeDepth(y) * .44), endX: mirror(edgeDepth(y) + 7),
       polygon: `polygon(${points.map(p => p.map(v => v.toFixed(2) + "px").join(" ")).join(",")})` };
   });
 }

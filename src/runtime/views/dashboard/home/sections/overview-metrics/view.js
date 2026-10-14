@@ -270,20 +270,30 @@ const renderMetricRows = (rows, style) => {
     row.style.cssText = "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;";
     const labelSh = isHero ? "none" : "0 1px 2px rgba(15,23,42,.22)";
     const valSh = isHero ? "none" : "0 1px 6px rgba(2,6,23,.22)";
-    row.createEl("small", { text: rowSpec.label }).style.cssText =
+    const label = row.createEl("small", { text: rowSpec.label });
+    label.style.cssText =
       `font-size:${labelFs};font-weight:700;opacity:.95;color:${labelColor};letter-spacing:${isHero ? ".12px" : ".22px"};text-align:center;text-shadow:${labelSh};`;
     const n = row.createEl("b", { text: String(rowSpec.value) });
     const valWt = isHero ? "700" : "800";
     const wrapGuard = isHero ? "white-space:nowrap;max-width:100%;overflow:visible;text-overflow:clip;" : "";
     n.style.cssText = `font-size:${rowSpec.big ? bigFs : smFs};line-height:1.06;color:${accent};text-shadow:${valSh};text-align:center;font-weight:${valWt};${wrapGuard}`;
     if(rows.length===1){
-      // Fit the actual glyphs, including long values, inside both dimensions.
-      const fit=()=>{n.style.fontSize=bigFs;const available=body.clientHeight-labelFs.replace('px','')*1.2-6;
-        const size=parseFloat(getComputedStyle(n).fontSize),width=body.clientWidth;
-        if(width>0&&available>0)n.style.fontSize=Math.max(12,Math.min(size,size*width/Math.max(1,n.scrollWidth),available/1.06))+'px';};
-      const observer=new ResizeObserver(fit);observer.observe(card);
-      input?.registerCleanup?.(()=>observer.disconnect());
-      requestAnimationFrame(fit);
+      // Measure the current glyphs without resetting the font during a resize notification.
+      let frame=0;
+      const fit=()=>{
+        if(!card.isConnected)return;
+        const width=body.clientWidth,available=body.clientHeight-label.getBoundingClientRect().height-6;
+        if(width<=0||available<=0)return;
+        const range=document.createRange();range.selectNodeContents(n);
+        const glyphWidth=range.getBoundingClientRect().width,current=parseFloat(getComputedStyle(n).fontSize);
+        const preferred=Math.min(58,Math.max(40,width*.42));
+        const size=Math.max(12,Math.min(preferred,current*width/Math.max(1,glyphWidth),available/1.06));
+        if(Math.abs(current-size)>.2)n.style.fontSize=size+'px';
+      };
+      const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(fit);};
+      const observer=new ResizeObserver(schedule);observer.observe(card);
+      input?.registerCleanup?.(()=>{observer.disconnect();cancelAnimationFrame(frame);});
+      schedule();
     }
   });
 };

@@ -16,9 +16,9 @@ test("group navigation moves the visible group and clamps month/year dates",()=>
  assert.equal(N.shiftGroup({mode:"monthly",anchorDate:"2024-02-29"},1).anchorDate,"2025-02-28");
  assert.equal(N.shiftGroup({mode:"weekly",anchorDate:"2026-09-23"},1).anchorDate,"2026-11-11");
 });
-test("picker follows the diary period and highlights ISO weeks across years",()=>{
+test("picker opens on days and highlights the selected period across years",()=>{
  const state=N.pickerState({mode:"weekly",anchorDate:"2027-01-01"});assert.equal(state.mode,"days");assert.deepEqual(state.selectedRange,{start:"2026-12-28",end:"2027-01-03"});
- assert.equal(N.pickerState({mode:"monthly",anchorDate:"2020-04-02"}).mode,"months");assert.equal(N.pickerState({mode:"yearly",anchorDate:"2020-04-02"}).mode,"years");
+ assert.equal(N.pickerState({mode:"monthly",anchorDate:"2020-04-02"}).mode,"days");assert.equal(N.pickerState({mode:"yearly",anchorDate:"2020-04-02"}).mode,"days");
  assert.match(N.rangeLabel({mode:"daily",anchorDate:"2027-01-01"},"en"),/2026.*2027/);
 });
 test("streak endings use complete history and scheduled days, retaining earlier runs",()=>{

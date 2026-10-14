@@ -5,7 +5,7 @@ const {StreamableHTTPClientTransport} = require('@modelcontextprotocol/sdk/clien
 const parse = raw => Object.fromEntries(raw.split('\n').filter(line => /^[a-z]+: /.test(line)).map(line => { const i = line.indexOf(': '); return [line.slice(0, i), JSON.parse(line.slice(i + 2))]; }));
 function load(name, stubs) { const filename = path.resolve(__dirname, '../src/' + name), module = {exports: {}}, local = createRequire(filename); vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {module, URL, require: id => id in stubs ? stubs[id] : local(id)}); return module.exports; }
 const intake = load('media-intake.js', {obsidian: {parseYaml: parse}});
-const {createPublicApi} = load('public-api.js', {'./media-intake.js': intake});
+const {createPublicApi} = load('public-api.js', {'./media-feature.js':require('./media-api-fixture.cjs').mediaFeature({'./media-intake.js': intake})});
 function fixture() {
   const files = new Map(), cache = new Map(), contents = new Map(); let writes = 0;
   const add = (filePath, title, kind, indexed = true) => {

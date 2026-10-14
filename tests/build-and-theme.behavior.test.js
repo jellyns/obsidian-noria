@@ -38,15 +38,31 @@ function withoutEmptyBaseHeading(source) {
   return source.replace('.noria-period-base .bases-group-heading:has(.bases-group-value:empty) { display:none; }', '');
 }
 
+// These local selectors adapt already-rendered controls/cards to their contents.
+// Keep the allowlist explicit: broad document/ancestor queries remain forbidden.
+function withoutReviewedParentQueries(source) {
+  const selectors = [
+    '.noria-settings-root .setting-item-control:not(:has(> .checkbox-container:only-child))',
+    '.noria-settings-root .setting-item-control:has(> .checkbox-container:only-child)',
+    '.dashboard-home-widget-shell:has(.dashboard-period-task-shell)',
+    '.dashboard-segment-tabs:has(.dashboard-segment-tab)',
+    '.dashboard-home-widget-shell:has(.noria-period-overview)',
+    '.noria-task-timeline-native-task-unit:has(.noria-task-timeline-native-handle:hover)',
+    '.noria-settings-root .setting-item .setting-item-control:has(>button):not(:has(input,select,textarea,.checkbox-container))'
+  ];
+  return selectors.reduce((text,selector)=>text.replaceAll(selector,'.reviewed-scoped-content-selector'),withoutEmptyBaseHeading(source));
+}
+
 function withoutHiddenEnforcement(source) {
   const selectors = new Set([
     '.noria-agent-settings [hidden]', '.noria-suggestion-replies [hidden]', '.noria-inbox-card [hidden]',
     '.noria-media-editor [hidden]', '.noria-media-subpage[hidden]', '.noria-library [hidden]',
     '.noria-media-page-tools[hidden]', '.noria-library-display-tools[hidden]',
     '.noria-media-classification-editor button.noria-media-classification-restore[hidden]',
-    '.noria-record-entry-editor [hidden]'
+    '.noria-record-entry-editor [hidden]',
+    '.dashboard-home-root.noria-statistics-grouped>.is-stat-section-hidden'
   ]);
-  return source.replace(/([^{}]+)\{\s*display:\s*none\s*!important;\s*\}/g,(rule,selector)=>
+  return source.replace(/([^{}]+)\{\s*display:\s*none\s*!important;?\s*\}/g,(rule,selector)=>
     selector.split(',').every(part=>selectors.has(part.trim())) ? '' : rule);
 }
 
@@ -107,8 +123,12 @@ test("release sources follow the supported style subset", () => {
   for (const [label, source] of Object.entries(sources)) {
     // Accessibility-only clipping and scoped hidden-state enforcement are
     // deliberate exceptions, not decorative clipping or cascade overrides.
-    const checkedSource = withoutHiddenEnforcement(withoutEmptyBaseHeading(source))
+    const checkedSource = withoutHiddenEnforcement(withoutReviewedParentQueries(source))
       .replace(/(\.noria-trend-announcement\{[^{}]*?)clip-path:inset\(50%\);/, '$1')
+      // Completion is task state. The date-bar wrapper is a plain structural div;
+      // its child buttons retain their own accessible roles and names.
+      .replace('.noria-task-timeline-native-root [data-noria-project-task].is-done .noria-task-timeline-native-title { text-decoration: line-through; opacity: .65; }', '')
+      .replace('.noria-date-page-bar>.noria-page-date-controls{display:contents;}', '')
       // Preserve the ordinary link affordance in embedded Bases, not decorative text.
       .replace('.noria-period-base .internal-link:hover { color:var(--text-accent);text-decoration:underline; }', '')
       .replace(/(\.tasksCalendar:is\(\[view='week'\],\[view='day'\]\)\.planner-chrome \.timeLane \[data-tc-overflow-hidden='true'\] \{ display: none) !important(; \})/g, '$1$2');
@@ -160,7 +180,7 @@ test("runtime queries stay scoped except reviewed discovery and explicit file se
   assert.match(workspace, /this\.action\(actions, this\.plugin\.t\("review\.final\.copyRecovery"\), async \(\) => \{\s*try \{ await navigator\.clipboard\.writeText\(payload\.body\)/);
 });
 
-test("release styles avoid parent-query invalidation and duplicate completed-task declarations", () => {
+test("release styles limit parent queries to reviewed local controls and avoid duplicate completed-task declarations", () => {
   const sources = {
     "release stylesheet": fs.readFileSync(pluginPath("styles.css"), "utf8"),
     "Home stylesheet source": fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "bootstrap-style", "view.js"), "utf8"),
@@ -169,7 +189,7 @@ test("release styles avoid parent-query invalidation and duplicate completed-tas
   };
 
   for (const [label, source] of Object.entries(sources)) {
-    assertNoPattern(withoutEmptyBaseHeading(source), /:has\s*\(/, `${label} should not use parent-query selectors`);
+    assertNoPattern(withoutReviewedParentQueries(source), /:has\s*\(/, `${label} should not add unreviewed parent-query selectors`);
   }
 
   const completedToggle = sources["Home stylesheet source"].match(
@@ -189,7 +209,7 @@ test("settings tabs and ordinary action buttons keep low visual density", () => 
   const tabs = cssBlock(css, ".noria-settings-tabs");
   const tab = cssBlock(css, ".noria-settings-tab");
   const activeTab = cssBlock(css, ".noria-settings-tab.is-active");
-  const plainButton = cssBlock(css, ".noria-settings-tab-content .setting-item-control button:not(.mod-cta):not(.mod-warning)");
+  const plainButton = cssBlock(css, ".noria-settings-tab-content .setting-item-control button:not(.mod-cta):not(.mod-warning):not(.noria-appearance-choice)");
   const controlGrid = cssBlock(css, ".noria-settings-control-grid");
   const statusCard = cssBlock(css, ".noria-settings-status-card");
   const ordinaryRows = cssBlock(css, ".noria-settings-tab-content > .setting-item,\n.noria-settings-disclosure > .setting-item");
@@ -205,12 +225,9 @@ test("settings tabs and ordinary action buttons keep low visual density", () => 
   assert.match(header, /justify-content:\s*space-between/);
 
   assert.ok(tabs, "settings tabs wrapper should be styled");
-  assert.match(tabs, /gap:\s*0/);
   assert.match(tabs, /flex-wrap:\s*nowrap/);
   assert.match(tabs, /overflow-x:\s*auto/);
-  assert.match(tabs, /border-bottom:\s*1px solid/);
-  assert.match(tabs, /width:\s*100%/);
-  assert.match(tabs, /background:\s*transparent/);
+  assert.match(tabs, /max-width:\s*100%/);
   assert.doesNotMatch(tabs, /padding-bottom:\s*10px/);
 
   assert.ok(tab, "settings tab should be styled");
@@ -220,17 +237,14 @@ test("settings tabs and ordinary action buttons keep low visual density", () => 
   assert.match(tab, /box-shadow:\s*none/);
 
   assert.ok(activeTab, "active settings tab should have its own compact state");
-  assert.match(activeTab, /background:\s*color-mix\(in srgb,\s*var\(--interactive-accent\)\s*8%,\s*transparent\)/);
-  assert.match(activeTab, /box-shadow:\s*none/);
-  assert.match(css, /\.noria-settings-tab\.is-active::after\s*\{[\s\S]*height:\s*2px/);
+  assert.match(activeTab, /background:\s*var\(--background-primary\)/);
   assert.match(css, /\.noria-settings-search\s*\{[\s\S]*position:\s*relative/);
   assert.match(css, /\.noria-settings-search-results\s*\{[\s\S]*position:\s*absolute/);
   assert.match(css, /\.noria-settings-search-result\s*\{[\s\S]*border:\s*0/);
 
   assert.ok(plainButton, "ordinary settings buttons should be secondary by default");
   assert.match(plainButton, /box-shadow:\s*none/);
-  assert.match(plainButton, /height:\s*30px/);
-  assert.match(plainButton, /background:\s*transparent/);
+  assert.match(plainButton, /height:\s*auto/);
 
   assert.ok(controlGrid, "settings control center should be styled");
   assert.match(controlGrid, /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
@@ -907,7 +921,6 @@ test("home workbench task and countdown interiors have stable low-noise contract
     "dashboard-period-task-list",
     "dashboard-period-task-empty",
     "dashboard-period-task-section-label",
-    "dashboard-period-task-summary-meta",
     "dashboard-period-task-group",
     "dashboard-period-task-group-head",
     "dashboard-period-task-group-label",
@@ -1045,7 +1058,7 @@ test("home period control sources retain selected-state attributes", () => {
   const heatmaps = fs.readFileSync(pluginPath("views", "dashboard", "home", "sections", "trends-and-stats", "blocks", "heatmaps", "view.js"), "utf8");
   const todayTasks = fs.readFileSync(pluginPath("views", "periodic", "dashboardTodayTasks.js"), "utf8");
   assert.match(todayTasks, /setAttribute\("aria-pressed"/);
-  assert.match(heatmaps, /setAttribute\("aria-pressed"/);
+  assert.match(heatmaps, /setAttribute\(['"]aria-pressed['"]/);
 });
 
 test("review workbench uses evidence generated and final semantic accents", () => {

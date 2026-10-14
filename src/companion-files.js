@@ -1,7 +1,7 @@
 "use strict";
 const {createHash,randomUUID}=require("crypto");
 const hash=text=>createHash("sha256").update(text).digest("hex");
-const ids=["inboxQueue","inboxWorkflow"];
+const ids=["inboxQueue"];
 const queues=new WeakMap();
 const text=(plugin,zh,en)=>plugin.getNoriaLocale()==="zh"?zh:en;
 function resource(plugin,id){
@@ -9,7 +9,7 @@ function resource(plugin,id){
   const path=plugin.getManagedPath(id);
   if(!path||/^[\\/]|^[A-Za-z]:|\\|(^|\/)\.\.?($|\/)/.test(path)||!path.endsWith(id==="inboxQueue"?".base":".md"))throw Error(text(plugin,"配套文件路径无效，请先检查设置。","Invalid companion path. Check settings first."));
   const content=plugin.getManagedNoteSeed(id);
-  return {id,path,content,version:1,configHash:hash(JSON.stringify({workflow:plugin.getInboxWorkflowConfig(),locale:plugin.getNoriaLocale(),path}))};
+  return {id,path,content,version:2,configHash:hash(JSON.stringify({locale:plugin.getNoriaLocale(),path}))};
 }
 function root(plugin){return `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}/cache/companion-files`;}
 async function readState(plugin){
@@ -143,7 +143,7 @@ async function restore(plugin,item){
   });
 }
 function signature(plugin){
-  return JSON.stringify([plugin.getNoriaLocale(),plugin.getInboxWorkflowConfig(),plugin.getManagedPath("inboxRoot"),...ids.map(id=>plugin.getManagedPath(id))]);
+  return JSON.stringify([plugin.getNoriaLocale(),plugin.getManagedPath("inboxRoot"),...ids.map(id=>plugin.getManagedPath(id))]);
 }
 function schedule(plugin){
   if(!plugin._companionReady||plugin._noriaPluginDisposed)return;

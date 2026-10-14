@@ -67,7 +67,10 @@ async function replaceSettingsFromBackup(plugin, text) {
   const normalize = typeof plugin.normalizeSettingsBackup === "function"
     ? (value) => plugin.normalizeSettingsBackup(value)
     : (value) => plugin.normalizeSettings(value);
-  const parsed = parseSettingsBackupText(text, normalize);
+  const parsed = parseSettingsBackupText(text, value => value);
+  const migrated = typeof plugin.migrateSettingsInput === "function"
+    ? (await plugin.migrateSettingsInput(parsed.settings)).settings : parsed.settings;
+  parsed.settings = normalize(migrated);
   const previous = plugin.settings;
   plugin.settings = parsed.settings;
   try {

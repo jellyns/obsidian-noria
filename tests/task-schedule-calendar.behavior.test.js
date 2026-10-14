@@ -11,7 +11,7 @@ function setup(raw,extra={}){
   coerceTemporalToYmd:v=>v||'',sortTasksByYmdField:t=>t,taskIsOpenForCalendar:t=>!t.completed&&!t.checked,isTimelineTaggedTask:()=>false,
   taskDateSameDay:(a,b)=>a===b,taskDateBeforeDay:(a,b)=>a<b,taskDateAfterDay:(a,b)=>a>b,
   parseDateTimeValue:v=>({date:(v||'').slice(0,10),time:(v||'').slice(11)}),timeToMinutes:v=>v?+v.slice(0,2)*60+ +v.slice(3):Infinity,
-  normalizeTaskIdentitySnippet:v=>v,hashTaskSnippet:v=>v,moment:()=>({format:()=> '2026-10-07'})});
+  normalizeTaskIdentitySnippet:v=>v,hashTaskSnippet:v=>v,calendarNow:()=>({format:()=> '2026-10-07'}),moment:()=>({format:()=> '2026-10-07'})});
  for(const name of ['getCalendarTaskEntries','getTaskKey','taskUsesDiaryDate','collectCalendarRangeTasks'])load(c,name);
  const i=source.indexOf('var taskQueryAdapter =');vm.runInContext(source.slice(i,source.indexOf('\nawait initialize();',i)),c);
  return {task,c,query:date=>c.taskQueryAdapter.collectForDate(date)};

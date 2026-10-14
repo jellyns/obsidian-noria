@@ -121,6 +121,7 @@ function makePlugin(options = {}) {
         deleted.push(p);
       },
       adapter: {
+        async stat(p){return files.has(p)?{type:"file"}:folders.has(p)?{type:"folder"}:null;},
         async exists(filePath) {
           const p = String(filePath || "").replace(/\\/g, "/").replace(/\/+$/, "");
           return files.has(p) || folders.has(p);
@@ -193,7 +194,7 @@ test("phase2 settings schema defaults all modules on and normalizes appearance",
   assert.equal(defaults.home.guidePanels.reviewCenterExpanded, true);
   assert.equal(defaults.onboarding.initializedAt, "");
   assert.equal(defaults.onboarding.dismissedVersion, "");
-  assert.equal(defaults.onboarding.profile, "standard");
+  assert.equal(defaults.onboarding.profile, "ipara");
   assert.equal(defaults.reviewCenter.prompt.skillName, "noria-review");
   assert.equal(defaults.reviewCenter.prompt.promptNotePath, "");
   assert.match(defaults.reviewCenter.prompt.promptTemplate, /review_note/);
@@ -210,11 +211,11 @@ test("phase2 settings schema defaults all modules on and normalizes appearance",
   assert.deepEqual(plain(defaults.home.identity), {
     displayName: "",
     greetingName: "",
-    avatarPath: "Noria/avatar.svg",
-    quoteListPath: "Noria/Quotes.md"
+    avatarPath: "",
+    quoteListPath: ""
   });
-  assert.deepEqual(plain(defaults.homeDashboard.mocEntryPaths), ["Noria/Workflow·MOC.md", "Noria/Knowledge Base·MOC.md"]);
-  assert.equal(defaults.homeDashboard.mocEntries.length, 2);
+  assert.deepEqual(plain(defaults.homeDashboard.mocEntryPaths), []);
+  assert.equal(defaults.homeDashboard.mocEntries.length, 0);
 
   const staleReviewPrompt = plugin.normalizeSettings({
     reviewCenter: {
@@ -365,7 +366,7 @@ test("legacy starter settings normalize into the current standard workspace defa
   assert.equal(normalized.onboarding.profile, "standard");
   assert.equal(Object.prototype.hasOwnProperty.call(normalized.managedPaths, "entryNote"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(normalized.managedPaths, "taskRegistry"), false);
-  assert.equal(normalized.managedPaths.inboxWorkflow, "Noria/Inbox workflow.md");
+  assert.equal(normalized.managedPaths.inboxWorkflow, undefined);
   assert.equal(normalized.managedPaths.inboxQueue, "Noria/Inbox queue.base");
   assert.equal(normalized.weather.enabled, false);
   assert.deepEqual(plain(normalized.homeDashboard.mocEntryPaths), ["Noria/Workflow·MOC.md", "Noria/Knowledge Base·MOC.md"]);
@@ -455,8 +456,8 @@ test("query scope helpers resolve managed and custom native scan specs", () => {
   plugin.settings = plugin.normalizeSettings({});
   const defaultNotes = plugin.getScopeSpec("notes");
   assert.equal(defaultNotes.mode, "managed");
-  assert.deepEqual(plain(defaultNotes.roots), ["Noria/Diary", "Noria/Projects", "Noria/Inbox"]);
-  assert.equal(defaultNotes.query, '"Noria/Diary" or "Noria/Projects" or "Noria/Inbox"');
+  assert.deepEqual(plain(defaultNotes.roots), ["06_Diary", "01_Projects", "00_Inbox"]);
+  assert.equal(defaultNotes.query, '"06_Diary" or "01_Projects" or "00_Inbox"');
   assert.equal(Object.prototype.hasOwnProperty.call(defaultNotes, "isAllVault"), false);
 });
 
@@ -812,100 +813,19 @@ test("runtime bridge exposes module flags and pomodoro disabled state", () => {
   });
 });
 
-test("setup status reports missing seed notes and initialization creates only missing files", async () => {
-  const plugin = makePlugin({
-    externalPlugins: false,
-    files: {
-      "Z/Entry.md": "legacy entry"
-    }
-  });
-  plugin.settings = plugin.normalizeSettings({
-    managedPaths: {
-      entryNote: "Z/Entry.md",
-      timelineSettings: "Z/Timeline.md",
-      templateLibrary: "Z/Templates.md",
-      importantDates: "Z/Dates.md",
-      habitRegistry: "Z/Habits.md",
-      projectRegistry: "Z/Projects.md",
-      inboxWorkflow: "Z/Inbox workflow.md",
-      inboxQueue: "Z/Inbox queue.base",
-      inboxRoot: "Inbox",
-      projectsRoot: "Projects",
-      diaryRoot: "Diary",
-      dailyTemplate: "Z/Daily.md",
-      weeklyTemplate: "Z/Weekly.md",
-      monthlyTemplate: "Z/Monthly.md",
-      yearlyTemplate: "Z/Yearly.md"
-    }
-  });
-  const refreshes = [];
-  plugin.requestNoriaRefresh = async (...args) => {
-    refreshes.push(args);
-    return { ok: true };
-  };
-
-  assert.equal(typeof plugin.getSetupStatus, "function");
-  assert.equal(typeof plugin.initializeMissingManagedNotes, "function");
-
-  const status = await plugin.getSetupStatus();
-  assert.equal(status.dataRuntime.available, true);
-  assert.equal(status.missing.some((item) => item.key === "entryNote"), false);
-  assert.ok(status.missing.some((item) => item.key === "inboxWorkflow"));
-  assert.ok(status.missing.some((item) => item.key === "inboxQueue"));
-  assert.ok(status.missing.some((item) => item.key === "importantDates"));
-  assert.equal(plugin.__created.length, 0, "status check must not write vault files");
-
-  const result = await plugin.initializeMissingManagedNotes();
-
-  assert.ok(result.created.some((item) => item.key === "importantDates"));
-  assert.equal(result.created.some((item) => item.key === "taskRegistry"), false);
-  assert.ok(result.created.some((item) => item.key === "todayDiary"));
-  assert.ok(result.created.some((item) => item.key === "homeQuoteList"));
-  assert.ok(result.created.some((item) => item.key === "homeAvatar"));
-  assert.ok(result.created.some((item) => item.key === "inboxQueue"));
-  assert.ok(result.created.some((item) => item.key === "inboxWorkflow"));
-  assert.equal(result.created.filter((item) => item.key === "starterProject").length, 1);
-  assert.equal(result.created.filter((item) => item.key === "starterInboxNote").length, 0);
-  assert.ok(result.created.filter((item) => item.key === "starterMoc").length >= 2);
-  assert.equal(plugin.__files.get("Z/Entry.md").text, "legacy entry");
-  assert.equal(plugin.__files.has("Z/Dates.md"), true);
-  assert.equal(plugin.__files.has("Z/Inbox workflow.md"), true);
-  assert.equal(plugin.__files.has("Z/Inbox queue.base"), true);
-  assert.match(plugin.__files.get("Z/Inbox queue.base").text, /views:\n\s+- type: table/);
-  assert.equal(plugin.__files.has("Z/Tasks.md"), false);
-  assert.doesNotMatch(plugin.__files.get("Z/Habits.md").text, /\[[ x]\]|completion::/);
-  assert.match(plugin.__files.get("Z/Habits.md").text, /## Active habits/);
-  assert.doesNotMatch(plugin.__files.get("Z/Habits.md").text, /打卡中的习惯|循环任务源/);
-  assert.match(plugin.__files.get("Z/Projects.md").text, /## Active projects/);
-  assert.match(plugin.__files.get("Z/Projects.md").text, /## Planned projects/);
-  assert.doesNotMatch(plugin.__files.get("Z/Projects.md").text, /进行中的项目|计划中的项目/);
-  assert.match(plugin.__files.get("Z/Projects.md").text, /\[\[Projects\//);
-  assert.equal([...plugin.__files.keys()].filter((p) => p.startsWith("Projects/") && p.endsWith(".md")).length, 1);
-  assert.equal([...plugin.__files.keys()].filter((p) => p.startsWith("Inbox/") && p.endsWith(".md")).length, 0);
-  assert.equal(plugin.__files.has(plugin.getDiaryPathForDate(new Date())), true);
-  assert.deepEqual(JSON.parse(plugin.__files.get(".obsidian/daily-notes.json").text), {
-    folder: "Diary",
-    format: "YYYY/YYYY-MM-DD",
-    template: "Z/Daily"
-  });
-  assert.deepEqual(JSON.parse(plugin.__files.get(".obsidian/templates.json").text), {
-    folder: "Z"
-  });
-  assert.equal(plugin.__files.has("Noria/Quotes.md"), true);
-  assert.equal(plugin.__files.has("Noria/avatar.svg"), true);
-  assert.equal(plugin.__files.has("Noria/Home.md"), false);
-  assert.equal(plugin.settings.onboarding.initializedAt.length > 0, true);
-  assert.equal(plugin.settings.weather.enabled, true, "first explicit initialization should enable weather");
-  assert.deepEqual(plain(refreshes), [["reload", "seed:create", { immediate: true, reloadViews: true }]]);
-
-  plugin.settings.weather.enabled = false;
-  await plugin.initializeMissingManagedNotes();
-  assert.equal(plugin.settings.weather.enabled, false, "later repairs must preserve the user's weather choice");
+test('initialization creates selected directories without filling optional notes', async () => {
+  const plugin=makePlugin({files:{"06_Diary/Keep.md":"My existing entry"}});plugin.settings=plugin.normalizeSettings({});
+  const result=await plugin.initializeMissingManagedNotes();
+  assert.equal(plugin.__files.size,1);assert.equal(plugin.__files.get("06_Diary/Keep.md").text,"My existing entry");
+  assert.equal(plugin.__deleted.length,0);assert.equal(result.created.length,0);
+  for(const root of require("../src/workspace-setup.js").iparaFolders)assert.ok(plugin.__folders.has(root),root);
+  await plugin.initializeMissingManagedNotes();assert.equal(plugin.__files.size,1);
 });
 
 test("obsidian template config sync aligns daily notes and templates with managed paths", async () => {
   const plugin = makePlugin({
     files: {
+      "02_Areas/Templates/Daily Template.md":"## {{date}}\n",
       ".obsidian/daily-notes.json": JSON.stringify({
         autorun: true,
         folder: "06_Diary/2026",
@@ -951,6 +871,7 @@ test("obsidian template and Daily Notes config follow a custom vault config dire
   const plugin = makePlugin({
     configDir: ".obsidian-custom",
     files: {
+      "Noria/Templates/Daily.md":"## {{date}}\n",
       ".obsidian-custom/daily-notes.json": JSON.stringify({ folder: "Old", format: "YYYY-MM-DD" }),
       ".obsidian-custom/templates.json": JSON.stringify({ folder: "Old/Templates" })
     }
@@ -1048,108 +969,26 @@ test("custom workspace setup status ignores standard starter seed files", async 
   assert.equal(status.unsupported.some((item) => item.key === "homeAvatar"), false);
 });
 
-test("setup repair refreshes recognizable old starter defaults without overwriting user notes", async () => {
-  const oldTaskSeed = "## Tasks\n\n- [ ] 熟悉 Noria 主页和任务看板 ![[2026-05-05]]\n- [ ] 整理一个项目入口 ![[2026-05-12]]\n- [ ] 完成第一次日复盘 ![[2026-05-05]]\n\n## Later\n\n- [ ] 规划下一个月度复盘 ![[2026-06-04]]\n";
-  const userProject = "## 进行中的项目\n\n- [[我的真实项目]]\n";
-  const plugin = makePlugin({
-    externalPlugins: false,
-    files: {
-      "Noria/Tasks.md": oldTaskSeed,
-      "Noria/Habits.md": "## 打卡中的习惯\n\n- [ ] 早间整理 10 分钟 #habit\n- [ ] 阅读或摘录 20 分钟 #habit\n- [ ] 睡前复盘 5 分钟 #habit\n\n## 暂停的习惯\n\n- 每日长跑\n\n## 已养成习惯\n\n- 每周整理 Inbox\n\n## 循环任务源（每日）\n\n- [ ] 检查今日任务 #habit\n",
-      "Noria/MOC.md": "## MOC\n\n- [[Tasks]]：任务入口和暂存任务。\n- [[Projects]]：项目清单。\n- [[Habits]]：习惯打卡。\n- [[Countdowns]]：倒计时和重要日期。\n",
-      "Noria/Projects.md": userProject
-    },
-    folders: ["Noria"]
-  });
-  plugin.settings = plugin.normalizeSettings({
-    onboarding: { profile: "standard", workspaceRoot: "Noria", initializedAt: "2026-05-05T00:00:00.000Z" },
-    managedPaths: plugin.getStarterManagedPaths("Noria"),
-    home: { identity: plugin.getStarterHomeIdentity("Noria") },
-    homeDashboard: plugin.getStarterHomeDashboard("Noria")
-  });
-
-  const status = await plugin.getSetupStatus();
-  assert.equal(status.canRepair, true);
-  assert.ok(status.repairPlan.some((item) => item.key === "legacyTaskRegistry" && item.action === "delete"));
-
-  const result = await plugin.initializeMissingManagedNotes();
-
-  assert.ok(plugin.__deleted.includes("Noria/Tasks.md"));
-  assert.match(plugin.__files.get("Noria/Habits.md").text, /早间整理 10 分钟 #habit/);
-  assert.equal(result.repaired.some(item=>item.key === "legacyHabitRegistry"),false);
-  assert.match(plugin.__files.get("Noria/Workflow·MOC.md").text, /## /);
-  assert.equal(plugin.__files.get("Noria/Projects.md").text, userProject);
-  assert.ok(result.repaired.some((item) => item.key === "legacyTaskRegistry"));
+test('initialization preserves legacy-looking tasks and personal source notes', async () => {
+  const originals={"Noria/Tasks.md":"## Tasks\n- [ ] Familiarize yourself with Noria\n","Noria/Habits.md":"## Active habits\n- Read #habit\n","Noria/Projects.md":"## Active projects\n- [[My research project]]\n"};
+  const plugin=makePlugin({files:originals,folders:["Noria"]});plugin.settings=plugin.normalizeSettings({onboarding:{profile:"standard",workspaceRoot:"Noria",initializedAt:"2026-05-05"}});
+  await plugin.initializeMissingManagedNotes();
+  for(const [path,text]of Object.entries(originals))assert.equal(plugin.__files.get(path).text,text);
+  assert.equal(plugin.__deleted.length,0);assert.equal(plugin.__created.filter(x=>x.type==="file").length,0);
 });
 
-test("setup repair refreshes empty and legacy event libraries for any workspace profile", async () => {
-  const legacyEventLibrary = [
-    "## Event library",
-    "",
-    "| Name | Start | Duration | Tag |",
-    "| --- | --- | --- | --- |",
-    "| Deep work | 09:00 | 90 | #tl/focus |",
-    "| Lunch break | 12:30 | 45 | #tl/break |",
-    "| Evening review | 21:30 | 20 | #tl/review |",
-    ""
-  ].join("\n");
-  const plugin = makePlugin({
-    files: {
-      "Config/Empty events.md": "",
-      "Config/Legacy events.md": legacyEventLibrary
-    },
-    folders: ["Config"]
-  });
-
-  plugin.settings = plugin.normalizeSettings({
-    onboarding: { profile: "custom", initializedAt: "2026-05-05T00:00:00.000Z" },
-    managedPaths: {
-      templateLibrary: "Config/Empty events.md"
-    }
-  });
-
-  const emptyStatus = await plugin.getSetupStatus();
-  assert.ok(emptyStatus.repairPlan.some((item) => item.key === "templateLibrary" && item.action === "replace"));
-  assert.equal(emptyStatus.canRepair, true);
-  const emptyResult = await plugin.initializeMissingManagedNotes();
-  assert.ok(emptyResult.repaired.some((item) => item.key === "templateLibrary"));
-  assert.match(plugin.__files.get("Config/Empty events.md").text, /#tl\/template/);
-  assert.match(plugin.__files.get("Config/Empty events.md").text, /\[default_tag:: #tl\/breakfast\]/);
-
-  plugin.settings = plugin.normalizeSettings({
-    onboarding: { profile: "custom", initializedAt: "2026-05-05T00:00:00.000Z" },
-    managedPaths: {
-      templateLibrary: "Config/Legacy events.md"
-    }
-  });
-
-  const legacyResult = await plugin.initializeMissingManagedNotes();
-  assert.ok(legacyResult.repaired.some((item) => item.key === "templateLibrary"));
-  assert.match(plugin.__files.get("Config/Legacy events.md").text, /#tl\/template/);
-  assert.doesNotMatch(plugin.__files.get("Config/Legacy events.md").text, /\|\s*Name\s*\|\s*Start\s*\|\s*Duration\s*\|\s*Tag\s*\|/);
+test('initialization leaves empty and legacy event libraries for explicit editing', async () => {
+  for(const original of ["","## Event library\n| Name | Start | Duration | Tag |\n| Deep work | 09:00 | 90 | #tl/focus |\n"]){
+    const path="Config/Events.md",plugin=makePlugin({files:{[path]:original},folders:["Config"]});
+    plugin.settings=plugin.normalizeSettings({onboarding:{profile:"custom"},managedPaths:{templateLibrary:path}});
+    await plugin.initializeMissingManagedNotes();assert.equal(plugin.__files.get(path).text,original);assert.equal(plugin.__deleted.length,0);
+  }
 });
 
-test("initialization moves missing legacy quote default back into the starter workspace", async () => {
-  const plugin = makePlugin({ externalPlugins: false });
-  plugin.settings = plugin.normalizeSettings({
-    onboarding: { profile: "standard", workspaceRoot: "Noria" },
-    home: {
-      identity: {
-        avatarPath: "",
-        quoteListPath: "02_Areas/知识库管理/清单-名言.md"
-      }
-    }
-  });
-
-  const result = await plugin.initializeMissingManagedNotes();
-
-  assert.equal(plugin.settings.home.identity.avatarPath, "Noria/avatar.svg");
-  assert.equal(plugin.settings.home.identity.quoteListPath, "Noria/Quotes.md");
-  assert.ok(result.defaultedSupportFields.includes("home.identity.avatarPath"));
-  assert.ok(result.defaultedSupportFields.includes("home.identity.quoteListPath"));
-  assert.equal(plugin.__files.has("Noria/avatar.svg"), true);
-  assert.equal(plugin.__files.has("Noria/Quotes.md"), true);
-  assert.equal(plugin.__files.has("02_Areas/知识库管理/清单-名言.md"), false);
+test('initialization preserves optional avatar and quote selections without generating assets', async () => {
+  const plugin=makePlugin();plugin.settings=plugin.normalizeSettings({onboarding:{profile:"standard",workspaceRoot:"Noria"},home:{identity:{avatarPath:"",quoteListPath:"My quotes.md"}}});
+  await plugin.initializeMissingManagedNotes();assert.equal(plugin.settings.home.identity.avatarPath,"");assert.equal(plugin.settings.home.identity.quoteListPath,"My quotes.md");
+  assert.equal(plugin.__created.filter(x=>x.type==="file").length,0);
 });
 
 test("setup status separates missing parent folders, absolute paths, and seed create plan", async () => {
@@ -1163,10 +1002,9 @@ test("setup status separates missing parent folders, absolute paths, and seed cr
   plugin.settings = plugin.normalizeSettings({
     managedPaths: {
       entryNote: "Z/Entry.md",
-      timelineSettings: "Z/Nested/Timeline.md",
+      habitRegistry: "Z/Nested/Habits.md",
       templateLibrary: "C:/external/Templates.md",
       importantDates: "Z/Dates.md",
-      habitRegistry: "Z/Habits.md",
       projectRegistry: "Z/Projects.md"
     }
   });
@@ -1175,137 +1013,20 @@ test("setup status separates missing parent folders, absolute paths, and seed cr
 
   assert.ok(status.parentDirectories.some((item) => item.path === "Z/Nested" && item.exists === false));
   assert.ok(status.unsupported.some((item) => item.key === "templateLibrary" && item.reason === "absolute-path"));
-  assert.ok(status.seedPlan.some((item) => item.key === "timelineSettings" && item.action === "create"));
+  assert.ok(status.seedPlan.some((item) => item.key === "habitRegistry" && item.action === "create"));
   assert.equal(status.seedPlan.some((item) => item.key === "templateLibrary" && item.action === "create"), false);
   assert.equal(plugin.__created.length, 0);
 });
 
-test("settings IA moves ordinary settings out of Advanced", () => {
-  const main = fs.readFileSync(pluginPath("main.js"), "utf8");
 
-  assert.match(bodyOf(main, "renderOverviewTab"), /renderSetupWizard/);
-  assert.match(bodyOf(main, "renderOverviewTab"), /renderOverviewDataSourcesSection/);
-  assert.match(bodyOf(main, "renderOverviewTab"), /addSettingHeading\(containerEl,\s*"settings\.sections\.modules"\)/);
-  assert.match(bodyOf(main, "renderOverviewTab"), /renderAdvancedDisclosure\(containerEl,\s*"settings\.modules\.featureSwitches",\s*"settings\.desc\.modules"/);
-  assert.match(bodyOf(main, "renderOverviewTab"), /renderModuleSettings\(details,\s*\{\s*heading:\s*false\s*\}\)/);
-  assert.match(bodyOf(main, "renderOverviewDataSourcesSection"), /renderManagedPathGroup/);
-  assert.match(bodyOf(main, "renderHomeTab"), /settings\.weather\.enabled/);
-  assert.match(bodyOf(main, "renderHomeDefaultSettings"), /workbench\.reviewPageSetting/);
-  assert.match(bodyOf(main, "renderHomeDefaultSettings"), /openReviewCenterInHome/);
-  assert.match(bodyOf(main, "renderTasksTab"), /settings\.tasks\.includeTags/);
-  assert.doesNotMatch(bodyOf(main, "renderTimelineTab"), /settings\.timeline\.pomodoroModule|settings\.features\.modules\.pomodoro/);
-  assert.match(bodyOf(main, "renderModuleSettings"), /settings\.modules\.pomodoro/);
-  assert.doesNotMatch(bodyOf(main, "renderCalendarTab"), /calendarEnabled|settings\.calendar\.enabled/);
-  assert.match(main, /async openCalendarLeaf\(selection\)\s*\{\s*if \(!this\.isModuleEnabled\("calendar"\)\)/);
-  assert.match(bodyOf(main, "renderAppearanceTab"), /renderAppearancePresetSettings/);
-  for (const tab of ["renderHomeTab", "renderTasksTab", "renderTimelineTab"]) {
-    assert.doesNotMatch(bodyOf(main, tab), /renderManagedPathStatusSummary/, tab);
-  }
 
-  const advanced = bodyOf(main, "renderAdvancedTab");
-  for (const oldLabel of [
-    "MOC entry paths",
-    "Weather provider",
-    "Timeline quick settings",
-    "Task tag filter",
-    "Runtime base directory",
-    "Planner UX",
-    "Month tag color map",
-    "Raw visual tuning is in Advanced"
-  ]) {
-    assert.doesNotMatch(advanced, new RegExp(oldLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
-});
 
-test("overview module switches stay folded and expose stable row hooks", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const overview = bodyOf(main, "renderOverviewTab");
-  const moduleSettings = bodyOf(main, "renderModuleSettings");
-  const advancedDisclosure = bodyOf(main, "renderAdvancedDisclosure");
 
-  assert.match(overview, /addSettingHeading\(containerEl,\s*"settings\.sections\.modules"\)/);
-  assert.match(overview, /renderAdvancedDisclosure\(containerEl,\s*"settings\.modules\.featureSwitches",\s*"settings\.desc\.modules"/);
-  assert.match(overview, /renderModuleSettings\(details,\s*\{\s*heading:\s*false\s*\}\)/);
-  assert.match(overview, /className:\s*"noria-settings-feature-switches"/);
-  assert.match(advancedDisclosure, /renderAdvancedDisclosure\(containerEl,\s*titleKey,\s*descKey,\s*renderContent,\s*options\s*=\s*\{\}\)/);
-  assert.match(advancedDisclosure, /options\.className\s*\|\|\s*"noria-settings-diagnostics"/);
-  assert.match(moduleSettings, /renderModuleSettings\(containerEl,\s*options\s*=\s*\{\}\)/);
-  assert.match(moduleSettings, /if\s*\(options\.heading\s*!==\s*false\)/);
-  assert.match(moduleSettings, /setting\.settingEl\?\.addClass\?\.\("noria-settings-module-row"\)/);
-  assert.match(moduleSettings, /setting\.settingEl\?\.setAttr\?\.\("data-noria-module-key",\s*key\)/);
-});
 
-test("overview quick actions expose same-control action diagnostics", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const quickActions = bodyOf(main, "renderOverviewQuickActions");
-  const decorateAction = bodyOf(main, "decorateSettingsActionButton");
-  const setAction = bodyOf(main, "setSettingsActionButtonState");
-  const runAction = bodyOf(main, "runSettingsActionButton");
 
-  assert.match(decorateAction, /buttonEl/);
-  assert.match(decorateAction, /noria-settings-action-button/);
-  assert.match(decorateAction, /data-noria-action-source/);
-  assert.match(decorateAction, /data-noria-action-kind/);
-  assert.match(decorateAction, /data-noria-action-state",\s*"idle"/);
-  assert.match(setAction, /data-noria-action-state",\s*state/);
-  assert.match(setAction, /aria-busy/);
-  assert.match(setAction, /data-noria-action-error/);
-  assert.match(runAction, /setSettingsActionButtonState\(btn,\s*"pending"\)/);
-  assert.match(runAction, /setSettingsActionButtonState\(btn,\s*state,\s*message\)/);
-  assert.match(runAction, /setSettingsActionButtonState\(btn,\s*"failed",\s*message\)/);
 
-  for (const kind of ["open-user-guide", "sync-obsidian-templates", "apply-missing-defaults", "replace-all-defaults"]) {
-    assert.match(quickActions, new RegExp(`decorateSettingsActionButton\\(btn,\\s*"settings-overview",\\s*"${kind}"`));
-  }
-  assert.match(quickActions, /runSettingsActionButton\(btn,\s*\(\) => this\.plugin\.openUserGuide\(\)\)/);
-  assert.match(quickActions, /runSettingsActionButton\(btn,\s*async \(\) => \{/);
-});
 
-test("settings polish exposes setup summary query preview and appearance token preview", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
 
-  assert.match(bodyOf(main, "renderSetupWizard"), /renderSetupWizardSummary/);
-  assert.match(bodyOf(main, "renderSetupWizard"), /if \(!status\.canInitialize\) return;/);
-  assert.match(bodyOf(main, "renderOverviewTab"), /renderSettingsControlCenter/);
-  assert.match(bodyOf(main, "renderOverviewDataSourcesSection"), /renderManagedPathGroup/);
-  assert.match(bodyOf(main, "renderQueryScopeSettings"), /renderQueryScopePreview/);
-  assert.match(bodyOf(main, "renderAppearancePresetSettings"), /renderAppearancePreview/);
-  assert.match(bodyOf(main, "renderAppearancePresetSettings"), /renderAppearanceTagColorSettings/);
-  assert.match(main, /setAppearanceTagColor/);
-  assert.match(bodyOf(main, "renderAdvancedTab"), /details/);
-  assert.doesNotMatch(bodyOf(main, "renderAdvancedTab"), /实验面板|Advanced lab|Week\/day advanced lab/);
-
-  for (const key of [
-    "settings.setup.runtime",
-    "settings.setup.seedPlan",
-    "settings.setup.parentDirs",
-    "settings.setup.unsupported",
-    "settings.performance.scopePreview",
-    "settings.appearance.invalidTagColor",
-    "settings.appearance.previewDensity",
-    "settings.appearance.previewAccent"
-  ]) {
-    assert.match(main, new RegExp(JSON.stringify(key)));
-  }
-});
-
-test("Maintenance tab keeps only actionable recovery and developer controls", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const maintenance = bodyOf(main, "renderAdvancedTab");
-
-  for (const key of [
-    "settings.sections.maintenanceTroubleshooting",
-    "settings.sections.maintenanceBackup",
-    "settings.sections.maintenanceDeveloper"
-  ]) {
-    assert.match(maintenance, new RegExp(JSON.stringify(key)));
-  }
-  assert.match(maintenance, /renderMaintenanceTroubleshooting/);
-  assert.match(maintenance, /renderMaintenanceBackup/);
-  assert.match(maintenance, /renderAdvancedDisclosure/);
-  assert.doesNotMatch(maintenance, /renderPlannerVisualTuning|advancedDiagnostics|advancedRawTuning/);
-  assert.doesNotMatch(maintenance, /buildRuntimeBridgeConfig\(\)\.runtimePaths|createEl\("pre"/);
-});
 
 test("appearance token map applies density accent status card and tag variables", () => {
   const plugin = makePlugin();

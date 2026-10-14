@@ -175,11 +175,11 @@ explanation.textContent = [
   rangeDescription,
   noteName+' · '+compactText('总计','Total')+': '+noteTotal+' · '+compactText('每个时段平均','Average per bucket')+': '+noteAvg,
   wordName+' · '+compactText('总计','Total')+': '+wordTotal.toLocaleString()+' · '+compactText('每个时段平均','Average per bucket')+': '+wordAvg.toLocaleString(),
-  compactText('折线为新建笔记数，使用左轴；柱形为对应日期日记去除空白后的字符数，使用右轴，包含 Markdown 标记。点击图形可查看该时段来源。','The line shows new notes on the left axis; bars show non-whitespace characters in dated diaries on the right, including Markdown markup. Activate a point to view its sources.')
+  compactText('笔记数按新建日期统计；日记字符为对应日期日记当前去除空白后的字符数，包含 Markdown 标记。点击图形可查看该时段来源。','Notes are counted by creation date; diary characters are current non-whitespace characters in dated diaries, including Markdown markup. Activate a point to view its sources.')
 ].join('\n');
 
 const headerTools=!input?.cardContent?head:root.closest?.('.noria-diary-card')?.querySelector('.noria-diary-card-tools')||input?.titleActionsHost;
-if(headerTools&&rangeDescription){
+if(headerTools&&rangeDescription&&input?.statsRange?.mode&&input.statsRange.mode!=='homeCurrent'&&input?.independentRange){
   const rangeLabel=headerTools.createSpan({cls:'noria-card-secondary noria-trend-range',attr:{title:rangeDescription}});
   const showYear=rangeStart.slice(0,4)!==rangeEnd.slice(0,4)||rangeEnd.slice(0,4)!==String(new Date().getFullYear());
   const date=new Intl.DateTimeFormat(noriaBridge.locale||'en',{...(showYear?{year:'numeric'}:{}),month:'numeric',day:'numeric'});
@@ -249,11 +249,15 @@ if(noriaBridge.runtime?.openTrendSources&&snapshotRows.some(row=>row.sources))ch
 chartWrap.setAttribute("tabindex","0");chartWrap.setAttribute("role","group");
 chartWrap.setAttribute("aria-label",/^zh/.test(noriaBridge.locale||"")?"趋势图：左右键选择日期，Home／End 到首尾，点击或 Enter 查看来源。":"Trend: arrow keys select dates; Home / End select first / last. Click or Enter to inspect sources.");
 
+let renderedSize = "";
 const renderChart = () => {
   const chartW = Math.max(240, Math.round(measure(chartWrap, 760)));
   const chartH = Math.max(232, Math.round(measureH(chartWrap, 252)));
-  const padL = chartW < 520 ? 40 : 46;
-  const padR = chartW < 520 ? 42 : 48;
+  const size = `${chartW}x${chartH}`;
+  if (size === renderedSize) return;
+  renderedSize = size;
+  const padL = chartW < 520 ? 36 : 42;
+  const padR = chartW < 520 ? 38 : 44;
   const padT = 42;
   const padB = 28;
   const plotW = Math.max(120, chartW - padL - padR);
@@ -270,9 +274,15 @@ const renderChart = () => {
   const chartTitle = setAttrs(svgEl("title"), { id: `${uid}-title` });
   chartTitle.textContent = noteTrendT("runtime.home.trends.noteTrendAria", { days });
   svg.appendChild(chartTitle);
+  const defs = svgEl("defs");
+  const barGradient = setAttrs(svgEl("linearGradient"), {id: `${uid}-bars`, x1: 0, y1: 0, x2: 0, y2: 1});
+  barGradient.appendChild(setAttrs(svgEl("stop"), {offset: "0%", "stop-color": chartColor("barFill")}));
+  barGradient.appendChild(setAttrs(svgEl("stop"), {offset: "100%", "stop-color": chartColor("barFill"), "stop-opacity": .68}));
+  defs.appendChild(barGradient);
+  svg.appendChild(defs);
 
-  [0, 0.25, 0.5, 0.75, 1].forEach((r) => {
-    const y = padT + plotH - r * plotH;
+  [...new Set([0, Math.ceil(noteMax / 2), noteMax])].forEach((value) => {
+    const y = yLeft(value);
     const grid = svgEl("line");
     setAttrs(grid, {
       x1: padL,
@@ -280,8 +290,9 @@ const renderChart = () => {
       x2: padL + plotW,
       y2: y,
       stroke: chartColor("gridStroke"),
-      "stroke-opacity": Math.min(0.24, Number(chartColor("gridOpacity")) || 0.22),
-      "stroke-dasharray": "3 7"
+      "stroke-opacity": Math.min(0.2, Number(chartColor("gridOpacity")) || 0.2),
+      "stroke-width": .8,
+      "stroke-dasharray": value ? "2 6" : "none"
     });
     svg.appendChild(grid);
   });
@@ -303,27 +314,28 @@ const renderChart = () => {
   const tickNote = [...new Set([0, Math.ceil(noteMax / 2), noteMax])];
   tickNote.forEach((val) => {
     const tx = svgEl("text");
-    setAttrs(tx, { x: padL - 8, y: yLeft(val) + 4, "text-anchor": "end", fill: "var(--text-muted)", "font-size": "10.5", "font-weight": "400" });
+    setAttrs(tx, { x: padL - 8, y: yLeft(val) + 4, "text-anchor": "end", fill: chartColor("tickLeft"), "font-size": "10.5", "font-weight": "400" });
     tx.textContent = String(val);
     svg.appendChild(tx);
   });
   const tickWord = [...new Set([0, Math.ceil(wordMax / 2), wordMax])];
   tickWord.forEach((val) => {
     const tx = svgEl("text");
-    setAttrs(tx, { x: padL + plotW + 8, y: yRight(val) + 4, "text-anchor": "start", fill: "var(--text-muted)", "font-size": "10.5", "font-weight": "400" });
+    setAttrs(tx, { x: padL + plotW + 8, y: yRight(val) + 4, "text-anchor": "start", fill: chartColor("tickRight"), "font-size": "10.5", "font-weight": "400" });
     tx.textContent = fmtSmall(val);
     svg.appendChild(tx);
   });
 
   const bars = [];
   const markers = [];
-  const barW = Math.min(13, (plotW / days) * 0.54);
+  const barW = Math.min(16, (plotW / days) * 0.56);
   wordData.forEach((v, i) => {
     const baseY = padT + plotH;
     const x = xAt(i) - barW / 2;
     const yTop = yRight(v);
     const h = Math.max(0, baseY - yTop);
     const bar = svgEl("rect");
+    bar.classList.add("noria-trend-bar");
     setAttrs(bar, {
       x: x.toFixed(1),
       y: yTop.toFixed(1),
@@ -331,10 +343,10 @@ const renderChart = () => {
       height: h.toFixed(1),
       rx: Math.min(4, barW / 2),
       ry: Math.min(4, barW / 2),
-      fill: chartColor("barFill"),
+      fill: `url(#${uid}-bars)`,
       stroke: chartColor("barStroke"),
-      "stroke-width": v > 0 ? Math.min(.7, barW / 4) : 0,
-      opacity: "0.82"
+      "stroke-width": 0,
+      opacity: "0.9"
     });
     const tip = svgEl("title");
     tip.textContent = noteTrendT("runtime.home.trends.diaryWordsTooltip", { date: dayList[i], value: v });
@@ -358,7 +370,8 @@ const renderChart = () => {
 
   noteData.forEach((v, i) => {
     const c = svgEl("circle");
-    setAttrs(c, { cx: xAt(i).toFixed(1), cy: yLeft(v).toFixed(1), r: !v || days > plotW / 8 ? "0" : "2.6", fill: chartColor("lineMarkerFill"), stroke: chartColor("lineMarkerStroke"), "stroke-width": "1.25" });
+    c.classList.add("noria-trend-marker");
+    setAttrs(c, { cx: xAt(i).toFixed(1), cy: yLeft(v).toFixed(1), r: !v || days > plotW / 12 ? "0" : "2.3", fill: chartColor("lineMarkerFill"), stroke: chartColor("lineMarkerStroke"), "stroke-width": "1.25" });
     svg.appendChild(c);
     markers[i] = c;
   });
@@ -402,14 +415,16 @@ const renderChart = () => {
     hoverLine.setAttribute("x2", x.toFixed(1));
     hoverLine.setAttribute("opacity", "1");
     bars[i]?.setAttribute("opacity", "1");
-    bars[i]?.setAttribute("stroke-width", wordData[i]>0?"1.25":"0");
+    bars[i]?.setAttribute("stroke-width", wordData[i]>0?".7":"0");
     markers[i]?.setAttribute("r", "4");
     annotations?.update(i);
-    dateLabel.textContent = dayList[i];
-    dateLabel.setAttribute("x",Math.max(padL+33,Math.min(x,padL+plotW-33)));
+    const sameYear = dayList[0]?.slice(0,4) === dayList.at(-1)?.slice(0,4);
+    dateLabel.textContent = sameYear ? (xLabels[i] || dayList[i]) : dayList[i];
+    const halfLabel = Math.max(18, dateLabel.textContent.length * 3);
+    dateLabel.setAttribute("x",Math.max(padL+halfLabel,Math.min(x,padL+plotW-halfLabel)));
     dateLabel.setAttribute("opacity",1);
     const dateX=Number(dateLabel.getAttribute("x"));
-    dateTicks.forEach(node=>node.style.opacity=Math.abs(Number(node.getAttribute('x'))-dateX)<65?'0':'1');
+    dateTicks.forEach(node=>node.style.opacity=Math.abs(Number(node.getAttribute('x'))-dateX)<halfLabel+24?'0':'1');
     announcement.setText(`${dayList[i]} · ${noteName} ${noteData[i]} · ${wordName} ${wordData[i]}`);
   };
   const hideHover = (i) => {
@@ -417,9 +432,9 @@ const renderChart = () => {
     annotations?.update(null);
     dateLabel.setAttribute("opacity",0);
     dateTicks.forEach(node=>node.style.opacity="1");
-    bars[i]?.setAttribute("opacity", "0.82");
-    bars[i]?.setAttribute("stroke-width", wordData[i]>0?String(Math.min(.7,barW/4)):"0");
-    markers[i]?.setAttribute("r", !noteData[i]||days>plotW/8?"0":"2.6");
+    bars[i]?.setAttribute("opacity", "0.9");
+    bars[i]?.setAttribute("stroke-width", "0");
+    markers[i]?.setAttribute("r", !noteData[i]||days>plotW/12?"0":"2.3");
   };
   const select=i=>{hideHover(selectedIndex);selectedIndex=Math.max(0,Math.min(days-1,i));chartWrap.dataset.index=String(selectedIndex);showHover(selectedIndex);};
   chartWrap.onpointermove=event=>{const r=svg.getBoundingClientRect();if(!r.width)return;const i=Math.max(0,Math.min(days-1,Math.floor(((event.clientX-r.left)*chartW/r.width-padL)/plotW*days)));if(i!==selectedIndex)select(i);};
@@ -434,15 +449,17 @@ const renderChart = () => {
 renderChart();
 try {
   if (typeof ResizeObserver !== "undefined") {
+    let frame = 0;
     const ro = new ResizeObserver(() => {
       if (chartWrap.isConnected === false) {
         ro.disconnect();
         return;
       }
-      renderChart();
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(renderChart);
     });
     ro.observe(chartWrap);
-    input?.registerCleanup?.(() => ro.disconnect());
+    input?.registerCleanup?.(() => { ro.disconnect(); cancelAnimationFrame(frame); });
   }
 } catch (_) {}
 })();

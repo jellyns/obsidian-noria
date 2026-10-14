@@ -10,9 +10,26 @@ function readPluginSource(relativePath = "src/main.js") {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
+test("an in-flight settings action cannot run twice and releases its button", async () => {
+  const body=extractBody(readPluginSource(), 'runSettingsActionButton');
+  const run=vm.runInNewContext(`(async function(btn, action) ${body})`, {obsidian:{Notice:class {}}});
+  const attributes=new Map(),element={disabled:false,getAttribute:key=>attributes.get(key)};
+  const btn={buttonEl:element,setDisabled:value=>{element.disabled=value;}};
+  const target={setSettingsActionButtonState:(_btn,state)=>attributes.set('data-noria-action-state',state)};
+  let release,calls=0;
+  const pending=new Promise(resolve=>{release=resolve;});
+  const first=run.call(target,btn,()=>{calls++;return pending;});
+  await run.call(target,btn,()=>{calls++;});
+  assert.equal(calls,1);assert.equal(element.disabled,true);
+  release({ok:true});await first;
+  assert.equal(element.disabled,false);assert.equal(attributes.get('data-noria-action-state'),'ok');
+  await run.call(target,btn,()=>{throw Error('Save failed');});
+  assert.equal(element.disabled,false);assert.equal(attributes.get('data-noria-action-state'),'failed');
+});
+
 function extractBody(source, name) {
   const declaration = source.indexOf(`${name}(containerEl) {`);
-  const start = declaration !== -1 ? declaration : source.indexOf(`${name}(`);
+  const start = declaration !== -1 ? declaration : source.search(new RegExp(`\\n  (?:async )?${name}\\(`));
   assert.notEqual(start, -1, `Expected ${name} to exist`);
   const brace = source.indexOf("{", start);
   assert.notEqual(brace, -1, `Expected ${name} body to exist`);
@@ -140,68 +157,19 @@ test("saved timeline views restore their orientation and survive failed writes w
  assert.equal(reopened._timelineFilterState.query,"old");assert.equal(reopened._timelineFilterState.showDone,false);assert.equal(reopened._timelineActivePresetId,"legacy");
 });
 
-test("settings overview owns data source paths without a separate data sources tab", () => {
-  const source = readPluginSource();
-  assert.match(source, /id:\s*"overview"/);
-  assert.doesNotMatch(source, /id:\s*"dataSources"/);
-  assert.doesNotMatch(source, /id:\s*"ai"/);
-  assert.match(source, /settings\.tabs\.overview/);
-  assert.doesNotMatch(source, /settings\.tabs\.ai/);
-  assert.match(source, /renderOverviewTab\(/);
-  assert.match(source, /renderOverviewDataSourcesSection\(/);
-  assert.doesNotMatch(source, /renderAiTab\(/);
-  assert.match(source, /renderSettingsSearch\(/);
 
-  const overview = extractBody(source, "renderOverviewTab");
-  assert.match(overview, /renderSetupWizard/);
-  assert.match(overview, /renderSettingsControlCenter/);
-  assert.match(overview, /renderOverviewDataSourcesSection/);
-  assert.doesNotMatch(overview, /renderDependencyStatus/);
-  assert.match(overview, /addSettingHeading\(containerEl,\s*"settings\.sections\.modules"\)/);
-  assert.match(overview, /renderAdvancedDisclosure\(containerEl,\s*"settings\.modules\.featureSwitches",\s*"settings\.desc\.modules"/);
-  assert.match(overview, /renderModuleSettings\(details,\s*\{\s*heading:\s*false\s*\}\)/);
 
-  const dataSources = extractBody(source, "renderOverviewDataSourcesSection");
-  assert.match(dataSources, /renderManagedPathGroup/);
-  assert.match(dataSources, /renderPerformanceSettings/);
-});
 
-test("overview control summary reports coherent workspace data-source and module facts", () => {
-  const source = readPluginSource();
-  const controlCenter = extractBody(source, "renderSettingsControlCenter");
 
-  assert.match(controlCenter, /settings\.sections\.setupWizard/);
-  assert.match(controlCenter, /settings\.sections\.paths/);
-  assert.match(controlCenter, /settings\.sections\.modules/);
-  assert.doesNotMatch(controlCenter, /settings\.sections\.reviewPrompt/);
-  assert.doesNotMatch(controlCenter, /reviewPrompt\.skillName/);
-  assert.doesNotMatch(controlCenter, /settings\.review\.promptTemplateDesc/);
-});
-
-test("starter defaults use Noria root and year-bucket diary paths", () => {
-  const plugin = makePlugin();
-  const settings = plugin.normalizeSettings({});
-  assert.equal(settings.onboarding.profile, "standard");
-  assert.equal(settings.onboarding.workspaceRoot, "Noria");
-  assert.equal(Object.prototype.hasOwnProperty.call(settings.managedPaths, "entryNote"), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(settings, "viewNotePath"), false);
-  assert.equal(settings.managedPaths.diaryRoot, "Noria/Diary");
-  assert.equal(settings.managedPaths.projectsRoot, "Noria/Projects");
-  assert.equal(settings.managedPaths.inboxRoot, "Noria/Inbox");
-  assert.equal(settings.managedPaths.inboxWorkflow, "Noria/Inbox workflow.md");
-  assert.equal(settings.managedPaths.inboxQueue, "Noria/Inbox queue.base");
-  assert.equal(settings.managedPaths.timelineSettings, "Noria/Timeline settings.md");
-  assert.equal(settings.managedPaths.templateLibrary, "Noria/Event library.md");
-  assert.equal(Object.prototype.hasOwnProperty.call(settings.managedPaths, "taskRegistry"), false);
-  assert.equal(settings.managedPaths.importantDates, "Noria/Countdowns.md");
-  assert.equal(settings.managedPaths.dailyTemplate, "Noria/Templates/Daily template.md");
-  assert.deepEqual(JSON.parse(JSON.stringify(settings.homeDashboard.mocEntryPaths)), ["Noria/Workflow·MOC.md", "Noria/Knowledge Base·MOC.md"]);
-  assert.equal(settings.homeDashboard.mocEntries.length, 2);
-  assert.notEqual(settings.homeDashboard.mocEntries[0].color, settings.homeDashboard.mocEntries[1].color);
-  assert.equal(settings.weather.enabled, false);
-  assert.equal(Object.prototype.hasOwnProperty.call(settings.managedPaths, "reviewArtifactBase"), false);
-  assert.equal(plugin.getDiaryPathForDate(new Date("2026-05-03T12:00:00Z")), "Noria/Diary/2026/2026-05-03.md");
-  assert.equal(plugin.getReviewNotePathForDate(new Date("2026-05-03T12:00:00Z")), "Noria/Diary/2026/2026-05-03-review.md");
+test('starter defaults use IPARA roots and built-in optional content', async () => {
+  const plugin=makePlugin(),settings=plugin.normalizeSettings({});
+  assert.equal(settings.onboarding.profile,"ipara");
+  for(const [key,value] of Object.entries({diaryRoot:"06_Diary",projectsRoot:"01_Projects",inboxRoot:"00_Inbox",dailyTemplate:"",weeklyTemplate:"",monthlyTemplate:"",yearlyTemplate:""}))assert.equal(settings.managedPaths[key],value,key);
+  for(const key of ["entryNote","timelineSettings","inboxWorkflow","taskRegistry"])assert.equal(Object.hasOwn(settings.managedPaths,key),false,key);
+  assert.equal(settings.managedPaths.templateLibrary,"02_Areas/知识库管理/Event library.md");
+  assert.equal(settings.homeDashboard.mocEntries.length,0);assert.equal(settings.weather.enabled,false);
+  assert.equal(plugin.getDiaryPathForDate(new Date("2026-05-03T12:00:00Z")),"06_Diary/2026/2026-05-03.md");
+  assert.equal(plugin.getReviewNotePathForDate(new Date("2026-05-03T12:00:00Z")),"06_Diary/2026/2026-05-03-review.md");
 });
 
 test("settings registry makes important controls searchable", () => {
@@ -210,14 +178,14 @@ test("settings registry makes important controls searchable", () => {
   assert.equal(typeof plugin.searchSettingsRegistry, "function");
 
   const registry = plugin.getSettingsRegistry();
-  assert.ok(registry.find((entry) => entry.id === "managedPaths.diaryRoot" && entry.tab === "overview"));
-  assert.ok(registry.find((entry) => entry.id === "performance.queryScopes.tasks" && entry.tab === "overview"));
-  assert.ok(registry.find((entry) => entry.id === "features.modules.home" && entry.tab === "overview"));
+  assert.ok(registry.find((entry) => entry.id === "managedPaths.diaryRoot" && entry.tab === "content"));
+  assert.ok(registry.find((entry) => entry.id === "performance.queryScopes.tasks" && entry.tab === "content"));
+  assert.ok(registry.find((entry) => entry.id === "features.modules.home" && entry.tab === "features"));
   assert.ok(registry.find((entry) => entry.id === "home.dailyState.defaultRange" && entry.status !== "planned"));
-  assert.ok(registry.find((entry) => entry.id === "calendar.calendarIntegrationMode" && entry.tab === "calendar"));
-  assert.ok(registry.find((entry) => entry.id === "calendar.calendarCustomFilePattern" && entry.tab === "calendar"));
-  assert.ok(registry.find((entry) => entry.id === "tasksCalendar.openingBehavior" && entry.tab === "tasks"));
-  assert.ok(registry.find((entry) => entry.id === "tasksCalendar.taskTimelineOpenMode" && entry.tab === "timeline"));
+  assert.ok(registry.find((entry) => entry.id === "calendar.calendarIntegrationMode" && entry.tab === "content"));
+  assert.ok(registry.find((entry) => entry.id === "calendar.calendarCustomFilePattern" && entry.tab === "content"));
+  assert.ok(registry.find((entry) => entry.id === "tasksCalendar.openingBehavior" && entry.tab === "features"));
+  assert.ok(registry.find((entry) => entry.id === "tasksCalendar.taskTimelineOpenMode" && entry.tab === "features"));
 
   assert.ok(plugin.searchSettingsRegistry("diary").some((entry) => entry.id === "managedPaths.diaryRoot"));
   assert.ok(plugin.searchSettingsRegistry("calendar").some((entry) => entry.id === "calendar.calendarIntegrationMode"));
@@ -246,7 +214,6 @@ test("settings search hands off to stable rendered targets instead of only chang
     "home.identity.${key}",
     "home.dailyState.defaultRange",
     "home.defaults.rememberBlockSelections",
-    "inboxWorkflow.${key}",
     "tasksCalendar.openingBehavior",
     "tasksCalendar.taskTimelineOpenMode",
     "tasksCalendar.categoryColors",
@@ -283,45 +250,31 @@ test("settings chrome uses a compact product hierarchy and actionable disclosure
   assert.match(search, /role:\s*"option"/);
   assert.match(search, /event\.key\s*===\s*"Escape"/);
   assert.match(search, /input\.value\s*=\s*""/);
-  assert.match(overview, /settings\.sections\.workspace/);
+  assert.match(overview, /renderStarterProfileSettings/);
   assert.match(source, /renderAdvancedDisclosure\(containerEl,[\s\S]*noria-settings-disclosure-summary/);
   assert.match(source, /noria-settings-disclosure-chevron/);
   assert.match(source, /setIcon\([^,]+,\s*"chevron-right"\)/);
-  assert.match(source, /noria-settings-overview-advanced[\s\S]*noria-settings-disclosure-summary/);
   assert.doesNotMatch(source, /renderDataSourcesHint\(containerEl\)/);
 });
 
-test("applying starter defaults fills missing paths without overwriting manual paths", () => {
-  const plugin = makePlugin({
-    settings: {
-      onboarding: { workspaceRoot: "Noria" },
-      managedPaths: {
-        inboxWorkflow: "Custom/Inbox workflow.md",
-        diaryRoot: "",
-      },
-    },
-  });
-  assert.equal(typeof plugin.applyStarterWorkspaceDefaults, "function");
-
-  plugin.applyStarterWorkspaceDefaults({ workspaceRoot: "Noria", replaceAll: false });
-  assert.equal(plugin.settings.managedPaths.inboxWorkflow, "Custom/Inbox workflow.md");
-  assert.equal(plugin.settings.managedPaths.diaryRoot, "Noria/Diary");
-
-  plugin.applyStarterWorkspaceDefaults({ workspaceRoot: "Noria", replaceAll: true });
-  assert.equal(plugin.settings.managedPaths.inboxWorkflow, "Noria/Inbox workflow.md");
-  assert.equal(plugin.settings.managedPaths.diaryRoot, "Noria/Diary");
+test('applying directory defaults preserves custom paths unless replacement is explicit', async () => {
+  const plugin=makePlugin({settings:{onboarding:{profile:"custom"},managedPaths:{habitRegistry:"Custom/Habits.md",diaryRoot:"Journal"}}});
+  plugin.applyStarterWorkspaceDefaults({profile:"ipara",replaceAll:false});
+  assert.equal(plugin.settings.managedPaths.habitRegistry,"Custom/Habits.md");assert.equal(plugin.settings.managedPaths.diaryRoot,"Journal");
+  plugin.applyStarterWorkspaceDefaults({profile:"ipara",replaceAll:true});
+  assert.equal(plugin.settings.managedPaths.habitRegistry,"02_Areas/知识库管理/Habits.md");assert.equal(plugin.settings.managedPaths.diaryRoot,"06_Diary");
 });
 
 test("release settings schema exposes standard workspace home defaults and task calendar defaults", () => {
   const plugin = makePlugin();
   const settings = plugin.normalizeSettings({});
 
-  assert.equal(settings.onboarding.profile, "standard");
+  assert.equal(settings.onboarding.profile, "ipara");
   assert.deepEqual(JSON.parse(JSON.stringify(settings.home.identity)), {
     displayName: "",
     greetingName: "",
-    avatarPath: "Noria/avatar.svg",
-    quoteListPath: "Noria/Quotes.md"
+    avatarPath: "",
+    quoteListPath: ""
   });
   assert.equal(settings.home.defaults.dailyStateRangeDays, 30);
   assert.equal(settings.home.defaults.rememberBlockSelections, true);
@@ -373,6 +326,7 @@ test("release settings schema exposes standard workspace home defaults and task 
     showDone: true,
     timelineTagPlacement: "start-due-only",
     overviewContextLabels: true,
+    overviewVisibility: "auto",
     presets: []
   });
   assert.deepEqual(
@@ -433,97 +387,25 @@ test("release settings schema exposes standard workspace home defaults and task 
   assert.deepEqual(JSON.parse(JSON.stringify(plugin.normalizeSettings({ timelineView: { defaultLayers: ["task", "git", "bad"] } }).timelineView.defaultLayers)), ["task", "git"]);
   assert.equal(settings.calendar.calendarIntegrationMode, "noria");
   assert.equal(settings.calendar.calendarPlacement, "right-sidebar");
-  assert.equal(settings.calendar.calendarRootFolder, "Noria/Diary");
+  assert.equal(settings.calendar.calendarRootFolder, "06_Diary");
   assert.equal(settings.calendar.calendarConfirmBeforeCreate, false);
 
   assert.equal(typeof plugin.getStarterProfileManagedPaths, "function");
   assert.equal(plugin.getStarterProfileManagedPaths("standard").diaryRoot, "Noria/Diary");
   assert.equal(plugin.getStarterProfileManagedPaths("starter").diaryRoot, "Noria/Diary");
-  assert.equal(plugin.normalizeSettings({ onboarding: { profile: "ipara" } }).onboarding.profile, "custom");
+  assert.equal(plugin.normalizeSettings({ onboarding: { profile: "ipara" } }).onboarding.profile, "ipara");
   assert.equal(plugin.getStarterProfileManagedPaths("custom").diaryRoot, settings.managedPaths.diaryRoot);
 });
 
-test("user guide action opens external documentation instead of creating a vault docs note", () => {
-  const source = readPluginSource();
-
-  assert.match(source, /NORIA_USER_GUIDE_URL\s*=/);
-  assert.match(source, /NORIA_USER_GUIDE_URL_ZH\s*=/);
-  assert.match(source, /openUserGuide\(\)\s*\{[\s\S]*getNoriaLocale\(\)\s*===\s*"zh"[\s\S]*NORIA_USER_GUIDE_URL_ZH[\s\S]*NORIA_USER_GUIDE_URL/);
-  assert.doesNotMatch(source, /openLinkText\?\.\(\s*"docs\/USER-GUIDE\.md"/);
-  assert.doesNotMatch(source, /openLinkText\(\s*"docs\/USER-GUIDE\.md"/);
+test('user guide opens built-in help without writing a vault documentation note', async () => {
+  const source=readPluginSource();
+  assert.match(extractBody(source,"openUserGuide"), /workspace-setup\.js.*openHelp/s);
+  const help=readPluginSource("src/workspace-setup.js");
+  assert.match(help,/function openHelp/);assert.doesNotMatch(help.slice(help.indexOf("function openHelp"),help.indexOf("function renderStart")), /vault\.(?:create|modify)/);
+  assert.doesNotMatch(source,/openLinkText\??\.?\(\s*"docs\/USER-GUIDE\.md"/);
 });
 
-test("settings renderers include release control center anchors", () => {
-  const source = readPluginSource();
 
-  for (const key of [
-    "settings.overview.profileStandard",
-    "settings.overview.openUserGuide",
-    "settings.home.profile",
-    "settings.home.displayName",
-    "settings.home.greetingName",
-    "settings.home.avatarPath",
-    "settings.home.quoteListPath",
-    "settings.home.sections",
-    "settings.home.dailyStateDefaultRange",
-    "settings.home.rememberBlockSelections",
-    "settings.tasks.openingBehavior",
-    "settings.tasks.calendarDensity",
-    "settings.tasks.taskColors",
-    "settings.tasks.showSourceChips",
-    "settings.tasks.showCompletedTasks",
-    "settings.tasks.monthOverflowBehavior",
-    "settings.tasks.advancedFilters",
-    "settings.tasks.addTag",
-    "settings.timeline.openMode",
-    "settings.timeline.scaleMode",
-    "settings.timeline.timelineTagPlacement",
-    "settings.timeline.defaultLayers",
-    "settings.timeline.showDone",
-    "settings.timeline.presets",
-    "settings.tabs.calendar",
-    "settings.calendar.calendarIntegrationMode",
-    "settings.calendar.calendarCustomFilePattern",
-    "settings.calendar.confirmBeforeCreate",
-    "settings.calendar.rootFolder"
-  ]) {
-    assert.match(source, new RegExp(JSON.stringify(key)), key);
-  }
-
-  const overview = extractBody(source, "renderOverviewTab");
-  assert.match(overview, /renderSetupWizard/);
-  assert.match(overview, /renderStarterProfileSettings/);
-  assert.match(overview, /renderOverviewQuickActions/);
-  assert.doesNotMatch(overview, /renderManagedPathStatusSummary/);
-  assert.doesNotMatch(source, /settings\.overview\.profileIpAra/);
-  assert.doesNotMatch(source, /Existing IPARA/);
-
-  const home = extractBody(source, "renderHomeTab");
-  assert.match(source, /renderHomeProfileSettings/);
-  assert.match(home, /renderHomeDefaultSettings/);
-  assert.doesNotMatch(home, /renderManagedPathStatusSummary/);
-
-  const tasks = extractBody(source, "renderTasksTab");
-  assert.match(tasks, /renderTasksCalendarDefaultSettings/);
-  assert.match(tasks, /renderTaskTagEditor/);
-  assert.match(tasks, /settings\.tasks\.advancedFilters/);
-  assert.doesNotMatch(tasks, /renderManagedPathStatusSummary/);
-  assert.doesNotMatch(tasks, /renderPlannerVisualTuning/);
-
-  assert.match(source, /renderCalendarTab\(/);
-  const calendar = extractBody(source, "renderCalendarTab");
-  assert.match(calendar, /calendar/);
-  assert.match(calendar, /calendarIntegrationMode/);
-  assert.match(calendar, /renderCalendarCustomPeriodSettings/);
-  assert.match(calendar, /renderCalendarDisplaySettings/);
-
-  const customCalendar = extractBody(source, "renderCalendarCustomPeriodSettings");
-  assert.match(customCalendar, /calendarCustomFilePattern/);
-
-  const calendarDisplay = extractBody(source, "renderCalendarDisplaySettings");
-  assert.match(calendarDisplay, /addDropdown\("calendarLocale"/);
-  assert.doesNotMatch(calendarDisplay, /addText\("calendarLocale"/);
-});
 
 test("timeline settings copy describes user-facing defaults without diagnostic modes", () => {
   const source = readPluginSource();
@@ -756,7 +638,7 @@ test("task timeline filter chrome localizes the focused filter hierarchy", () =>
 
 test("weather settings expose only SecretStorage capability beside Weather", () => {
   const plugin = makePlugin();
-  const home = extractBody(readPluginSource(), "renderHomeTab");
+  const home = extractBody(readPluginSource(), "renderWeatherSettings");
 
   assert.equal(typeof plugin.hasWeatherSecretStorage, "function");
   plugin.app.secretStorage = { async getSecret() {}, async setSecret() {} };
@@ -864,7 +746,7 @@ test("calendar settings render source summaries custom period rows and a separat
   assert.match(calendar, /renderCalendarManagedSourceSummary/);
   assert.match(calendar, /renderCalendarDailyNotesStatus/);
   assert.match(calendar, /renderCalendarCustomPeriodSettings/);
-  assert.match(calendar, /settings\.calendar\.display/);
+  assert.match(extractBody(source,"renderFeaturesTab"), /renderCalendarDisplaySettings/);
   assert.doesNotMatch(calendar, /addText\("calendarCustomFilePattern"/);
   assert.match(customPeriods, /daily[\s\S]*weekly[\s\S]*monthly[\s\S]*quarterly[\s\S]*yearly/);
   assert.match(customPeriods, /patternKey/);
@@ -946,9 +828,35 @@ test("conditional calendar search follows the active owner without changing mode
     const r=plugin.resolveSettingsTarget(root),p=plugin.resolveSettingsTarget(pattern);
     assert.equal(r.targetId || r.id, mode === "custom" ? root.id : mode === "noria" ? "managedPaths.diaryRoot" : "calendar.calendarIntegrationMode");
     assert.equal(p.targetId || p.id, mode === "custom" ? pattern.id : "calendar.calendarIntegrationMode");
-    assert.equal(r.tab,mode === "noria" ? "overview" : "calendar");
+    assert.equal(r.tab,"content");
+    const managed=plugin.resolveSettingsTarget({id:'managedPaths.diaryRoot',tab:'content'});
+    assert.equal(managed.targetId||managed.id,mode==='daily-notes'?'calendar.calendarIntegrationMode':mode==='custom'?'calendar.calendarRootFolder':'managedPaths.diaryRoot');
     assert.equal(plugin.settings.calendar.calendarIntegrationMode,mode);
   }
+});
+
+test('settings search routes supported controls to the five live tabs and omits retired files',()=>{
+  const plugin=makePlugin(),entries=plugin.getSettingsRegistry(),tabs=new Set(['general','content','features','connections','advanced']);
+  assert.ok(entries.every(entry=>tabs.has(entry.tab)));
+  for(const [id,tab]of [['managedPaths.diaryRoot','content'],['features.modules.home','features'],['weather.enabled','connections'],['agentConnection.enabled','connections'],['appearance.density','general']])assert.equal(entries.find(entry=>entry.id===id)?.tab,tab,id);
+  for(const id of ['managedPaths.timelineSettings','managedPaths.inboxWorkflow','inboxWorkflow.statuses'])assert.equal(entries.some(entry=>entry.id===id),false,id);
+});
+
+test('settings composition separates directory selection, appearance, features and connections',()=>{
+  const source=readPluginSource();
+  const render=name=>{
+    const calls=[],target=new Proxy({}, {get:(_,key)=>(...args)=>calls.push([key,...args])});
+    const run=vm.runInNewContext(`(function(containerEl) ${extractBody(source,name)})`,{
+      obsidian:{},require:id=>{assert.equal(id,'./agent-settings-ui.js');return {renderAgentSettings:()=>calls.push(['agent'])};}
+    });run.call(target,{});return calls;
+  };
+  const content=render('renderOverviewTab');
+  assert.deepEqual(content.filter(row=>row[0]==='renderManagedPathGroup').flatMap(row=>Array.from(row[4])),['inboxRoot','projectsRoot','importantDates','habitRegistry','projectRegistry','templateLibrary','inboxQueue']);
+  assert.ok(content.some(row=>row[0]==='renderSetupWizard'));assert.ok(!content.some(row=>/Module|Weather|Appearance/.test(row[0])));
+  assert.equal(render('renderGeneralTab')[0][0],'renderAppearanceTab');
+  const features=render('renderFeaturesTab').map(row=>row[2]);
+  for(const key of ['settings.tabs.tasks','settings.tabs.timeline','settings.tabs.calendar','settings.tabs.home','settings.sections.review','settings.modules.featureSwitches'])assert.ok(features.includes(key),key);
+  const connections=render('renderConnectionsTab');assert.equal(connections[0][0],'agent');assert.ok(connections.some(row=>row[0]==='renderMaintenanceBackup'));
 });
 
 test("task weather range settings keep disabled and follow-calendar values through normalization", () => {

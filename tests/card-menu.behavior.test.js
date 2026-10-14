@@ -23,9 +23,9 @@ test('native card menu preserves content actions, failure feedback, and focus on
  const anchor={ownerDocument:doc,closest:()=>null,setAttribute:(k,v)=>attrs[k]=v,focus:()=>events.push('focus'),getBoundingClientRect:()=>({right:20,bottom:30})};
  const close=api.openCardMenu({anchor,t:k=>k,state:()=>({size:'medium',collapsed:true}),actions:[{label:'Manage',run:()=>events.push('manage')}],width:async()=>{},move:async()=>{throw Error('disk full');},collapse(){},copy(){},remove:()=>events.push('remove')});
  const menu=Menu.open;assert.equal(attrs['aria-haspopup'],'menu');assert.equal(menu.items[0].title,'Manage');
- assert.deepEqual(menu.items.filter(i=>!i.separator).map(i=>i.title),['Manage','layout']);
+ assert.deepEqual(menu.items.filter(i=>!i.separator).map(i=>i.title),['Manage','layout','remove']);
  const sub=menu.items.find(i=>i.title==='layout').sub.items;
- assert.ok(sub.find(i=>i.title==='expand'));assert.ok(sub.find(i=>i.title==='copy'));assert.ok(sub.find(i=>i.title==='remove'));assert.ok(!sub.find(i=>i.title==='hide'));
+ assert.ok(sub.find(i=>i.title==='expand'));assert.ok(sub.find(i=>i.title==='copy'));assert.ok(menu.items.find(i=>i.title==='remove'));assert.ok(!sub.find(i=>i.title==='hide'));
  close();assert.equal(attrs['aria-expanded'],'false');assert.deepEqual(events,['focus']);
  await menu.items.find(i=>i.title==='layout').sub.items.find(i=>i.title==='down').click();assert.deepEqual(api.errors,['disk full']);
 });

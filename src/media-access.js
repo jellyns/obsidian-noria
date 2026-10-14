@@ -41,18 +41,7 @@ async function openReading(plugin, path) {
   } else window.open(target.value, '_blank', 'noopener');
   return true;
 }
-// Returning to an open work keeps its reader position; explicit anchors still navigate.
-async function openMediaLink(plugin, link, sourcePath) {
-  const {workspace,metadataCache}=plugin.app;
-  const target=metadataCache.getFirstLinkpathDest(link.split('#')[0],sourcePath);
-  let existing;
-  if(target)workspace.iterateAllLeaves?.(leaf=>{if(!existing&&leaf.view?.file?.path===target.path)existing=leaf;});
-  if(existing){
-    await workspace.revealLeaf(existing);
-    workspace.setActiveLeaf(existing,{focus:true});
-    if(link.includes('#'))await workspace.openLinkText(link,sourcePath,false);
-  }else await workspace.openLinkText(link,sourcePath,true);
-}
+const {openVaultLink:openMediaLink}=require('./link-target.js');
 function linkedNotes(plugin, path) {
   const cache = plugin.app.metadataCache, file = plugin.app.vault.getAbstractFileByPath(path), found = new Map();
   if (!file) return [];

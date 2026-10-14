@@ -425,7 +425,6 @@
   .tasksCalendar .tc-nav-arrows button.tcNavToday { padding-inline: 6px; }
   .tasksCalendar .tc-context-row { gap: 6px; }
   .tasksCalendar .buttons .tc-context-row .current { font-size: 19px; }
-  .tasksCalendar:not([view='month']) .buttons .current .current-sub { display: none; }
   .tasksCalendar .tc-nav-period > .tc-weather .tc-weather-temperatures { display: none; }
   .tasksCalendar .tc-button-row button.previous,
   .tasksCalendar .tc-button-row button.next { width: 24px; min-width: 24px; padding-inline: 0; }
@@ -498,9 +497,6 @@
   pointer-events: none;
 }
 /* 原生 date 隐形锚点：禁止参与命中（与 runtime positionToolbarNativeDateInputBelowPeriodButton 一致），避免偶发盖住工具栏 */
-.tasksCalendar input.tc-nav-native-date {
-  pointer-events: none ;
-}
 .tasksCalendar .tc-nav-arrows button.tcNavToday {
   flex: 0 0 auto;
   min-height: 34px ;
@@ -8452,3 +8448,67 @@
 .tasksCalendar .tc-calendar-zone-caption,.tc-planner-te-head .tc-calendar-zone-caption { font-size:11px; color:var(--text-muted); white-space:nowrap; }
 .tasksCalendar .tc-nav-period .tc-calendar-zone-caption { overflow:hidden; text-overflow:ellipsis; max-width:140px; }
 @container noria-tc-toolbar (max-width:440px) { .tasksCalendar .tc-nav-period .tc-calendar-zone-caption { max-width:64px; font-size:10px; } }
+
+/* One stable toolbar. Context belongs in the grid or the action menu. */
+.tasksCalendar .tc-button-row{display:flex;align-items:center;gap:16px;height:46px;min-height:46px;padding:0 2px;}
+.tasksCalendar .tc-button-row>.tc-toolbar-start{margin-inline-start:auto;gap:6px;flex-wrap:nowrap;flex:none;}
+.tasksCalendar .buttons .btn-group.left.tc-toolbar-start{flex:none;}
+.tasksCalendar .tc-button-row>.tc-toolbar-start{margin-inline:auto;}
+.tasksCalendar .tc-button-row{position:relative;}
+@container noria-tc-toolbar (min-width:1000px){
+ .tasksCalendar .tc-button-row>.tc-toolbar-start{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;}
+ .tasksCalendar .buttons .tc-button-row>.tc-toolbar-end{margin-inline-start:auto;}
+}
+.tasksCalendar .tc-button-row>.tc-toolbar-end{margin-inline-start:0;gap:4px;flex-wrap:nowrap;}
+.tasksCalendar .tc-button-row>.tc-nav-period{flex:none;}
+.tasksCalendar .tc-context-tools,.tasksCalendar .tc-toolbar-planner-slot{gap:4px;min-height:32px;}
+.tasksCalendar .tc-view-compact{display:none;}
+.tasksCalendar .tc-view-compact,.tasksCalendar .tc-eisen-granularity{border:0;box-shadow:none;background:var(--background-secondary);color:var(--text-normal);height:32px;min-width:50px;width:56px;padding:0 6px;border-radius:var(--noria-control-radius,9px);font-size:13px;}
+.tasksCalendar .tc-view-compact,.tasksCalendar .tc-toolbar-start .tc-eisen-granularity{appearance:auto;display:block;line-height:normal;padding:0 6px;align-items:center;}
+.tasksCalendar .tc-view-compact{display:none;}
+.tasksCalendar[class*='focus'] .buttons .tc-toolbar-filter{background:var(--background-modifier-hover);color:var(--text-accent);}
+.tasksCalendar[view=list] .tc-toolbar-planner-slot .tc-eisen-granularity{display:block;grid-template-columns:none;}
+.tasksCalendar .tc-date-navigation{gap:2px;}
+.tasksCalendar .buttons .tc-date-navigation>button{height:32px;min-width:30px;padding:0 6px;box-shadow:none;border:0;border-radius:var(--noria-control-radius,9px);background:transparent;color:var(--text-normal);transform:none;}
+.tasksCalendar .buttons .tc-date-navigation>button.current{width:224px;max-width:224px;min-height:38px;height:38px;justify-content:flex-start;font-size:18px;line-height:1.2;gap:6px;}
+.tasksCalendar .buttons .tc-period-text{display:flex;align-items:baseline;flex-direction:row;gap:6px;max-width:none;overflow:visible;text-align:left;}
+.tasksCalendar .buttons .tc-date-navigation .current-main{display:block;font-size:18px;font-weight:600;max-width:none;overflow:visible;text-overflow:clip;white-space:nowrap;}
+.tasksCalendar .buttons .tc-date-navigation .current-sub{display:block;font-size:12px;font-weight:400;color:var(--text-muted);max-width:none;overflow:visible;text-overflow:clip;white-space:nowrap;transform:translateY(1px);}
+.tasksCalendar .buttons .tc-date-navigation>button.tcNavToday{width:46px;font-size:13px;color:var(--text-muted);margin:0;}
+.tasksCalendar .buttons .tc-date-navigation>button:hover{background:var(--background-modifier-hover);}
+.tasksCalendar .buttons .tc-date-navigation>button:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:2px;}
+.tasksCalendar .buttons .tc-segmented{border:0;border-radius:var(--noria-segment-radius,12px);padding:3px;gap:2px;background:var(--background-secondary);box-shadow:none;}
+.tasksCalendar .buttons .tc-panel-segment-button{min-width:40px;height:30px;border-radius:var(--noria-control-radius,9px);font-size:13px;font-weight:500;color:var(--text-muted);box-shadow:none;background:transparent;}
+.tasksCalendar[view=month] .buttons .monthView,.tasksCalendar[view=week] .buttons .weekView,.tasksCalendar[view=day] .buttons .dayView,.tasksCalendar[view=list] .buttons .listView{background:var(--background-primary);color:var(--text-normal);box-shadow:var(--noria-control-shadow);}
+.tasksCalendar .buttons .tc-toolbar-end button{min-width:30px;width:30px;height:32px;padding:0;border:0;box-shadow:none;background:transparent;transform:none;color:var(--text-muted);}
+.tasksCalendar .buttons .tc-toolbar-end button:hover{background:var(--background-modifier-hover);color:var(--text-normal);}
+.tasksCalendar .buttons .tc-toolbar-end svg{stroke:currentColor;}
+.tasksCalendar .buttons .tc-date-navigation svg{stroke:currentColor;}
+.tasksCalendar .grid>.tc-hours-view-toggle{position:absolute;left:8px;top:2px;z-index:7;width:26px;min-width:26px;height:26px;min-height:26px;padding:5px;border:0;border-radius:7px;box-shadow:none;background:var(--background-primary);color:var(--text-muted);display:flex;align-items:center;justify-content:center;}
+.tasksCalendar .grid>.tc-hours-view-toggle:hover{color:var(--text-normal);background:var(--background-modifier-hover);}
+.tasksCalendar .grid>.tc-hours-view-toggle:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:1px;}
+.tasksCalendar .grid>.tc-hours-view-toggle[hidden]{display:none;}
+.tasksCalendar .grid>.tc-hours-view-toggle svg{display:block;width:16px;height:16px;}
+@container noria-tc-toolbar (max-width:680px){
+ .tasksCalendar .tc-button-row{gap:8px;}
+ .tasksCalendar .buttons .tc-date-navigation>button.current{width:200px;max-width:200px;}
+ .tasksCalendar .buttons .tc-date-navigation .current-main{font-size:16px;}
+ .tasksCalendar .tc-toolbar-start>.tc-segmented{display:none;}
+ .tasksCalendar .tc-view-compact{display:block;}
+ .tasksCalendar .buttons .tc-toolbar-start>.tc-eisen-granularity{display:none;}
+ .tasksCalendar[view=list] .tc-view-compact{width:78px;}
+ .tasksCalendar .tc-nav-period{gap:4px;}
+ .tasksCalendar .tc-nav-period>.tc-calendar-zone-caption{display:none;}
+}
+@container noria-tc-toolbar (max-width:460px){
+ .tasksCalendar .tc-button-row{gap:4px;}
+ .tasksCalendar .buttons .tc-date-navigation>button.current{width:150px;max-width:150px;}
+ .tasksCalendar .buttons .tc-date-navigation .current-main{font-size:14px;}
+ .tasksCalendar .buttons .tc-date-navigation .current-sub{font-size:11px;}
+ .tasksCalendar .buttons .tc-date-navigation>button{min-width:26px;padding:0 3px;}
+ .tasksCalendar .buttons .tc-date-navigation>button.tcNavToday{width:34px;}
+ .tasksCalendar .buttons .tc-toolbar-end{gap:2px;}
+ .tasksCalendar .buttons .tc-toolbar-end button{min-width:28px;width:28px;}
+ .tasksCalendar .tc-view-compact,.tasksCalendar .tc-eisen-granularity{width:50px;min-width:44px;}
+ .tasksCalendar .tc-nav-period>.tc-weather{display:none;}
+}

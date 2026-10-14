@@ -1624,7 +1624,7 @@ const HOME_STAT_METRIC_REGISTRY = {
   "diary.words": { labelKey: "runtime.home.stat.diaryWords", path: "domains.notes.diaryWords.total", format: "compact" },
   "daily.validDays": { labelKey: "runtime.home.stat.dailyValidDays", path: "domains.dailyState.summary.validDays" },
   "inbox.total": { labelKey: "runtime.home.stat.inboxTotal", path: "domains.inbox.summary.total", include: ["inbox"] },
-  "inbox.stale": { labelKey: "runtime.home.stat.inboxStale", path: "domains.inbox.summary.staleCount", include: ["inbox"] },
+  "inbox.unassigned": { labelKey: "runtime.home.stat.inboxUnassigned", path: "domains.inbox.summary.unassigned", include: ["inbox"] },
   "projects.active": { labelKey: "runtime.home.stat.projectsActive", path: "domains.projects.summary.activeCount", include: ["projects"] },
   "projects.open": { labelKey: "runtime.home.stat.projectsOpen", path: "domains.projects.summary.taskOpen", include: ["projects"] },
   "projects.completionRate": { labelKey: "runtime.home.stat.projectsCompletionRate", path: "domains.projects.summary.completionRate", suffix: "%", include: ["projects"] },
@@ -3428,8 +3428,10 @@ async function renderConfiguredWidgets() {
     }
     if (consumed.has(widget.id)) continue;
     const entry = HOME_WIDGET_REGISTRY[widget.builtinId || widget.id] || {};
-    const title = homeEditMode ? resolveWidgetEditTitle(widget, entry) : resolveWidgetTitle(widget, entry);
+    const quietHero = ['identity','metrics'].includes(widget.builtinId || widget.id);
+    const title = quietHero ? '' : homeEditMode ? resolveWidgetEditTitle(widget, entry) : resolveWidgetTitle(widget, entry);
     const shell = createWidgetShell(widget, title, entry);
+    if(quietHero){const host=shell.content.parentElement;host?.setAttribute('aria-label',resolveWidgetEditTitle(widget,entry));host?.classList.add('noria-quiet-hero');}
     if (widget.enabled === false) continue;
     if (widget.collapsed === true) continue;
     widgetJobs.push((async () => {

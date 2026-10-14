@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),{createRequire}=require('node:module');
 function fixture(read){
  const file=path.resolve(__dirname,'../src/shortcut-card.js'),local=createRequire(file),entry={exports:{}},opened=[];
- const links=[],stubs={obsidian:{SuggestModal:class{},Modal:class{}},'./card-controls.js':{},'./picture-picker.js':{},'./media-card.js':{},'./media-access.js':{openReading:read,openMediaLink:async(...args)=>links.push(args.slice(1))},'./media-workspace.js':{openWork:async(...args)=>opened.push(args.slice(1))}};
+ const links=[],stubs={obsidian:{SuggestModal:class{},Modal:class{}},'./card-controls.js':{},'./picture-picker.js':{},'./media-card.js':{},'./link-target.js':{openVaultLink:async(...args)=>links.push(args.slice(1))},'./media-feature.js':{openReading:read,openWork:async(...args)=>opened.push(args.slice(1))}};
  vm.runInNewContext(fs.readFileSync(file,'utf8'),{module:entry,require:id=>id in stubs?stubs[id]:local(id)});
  const plugin={getNoriaLocale:()=> 'zh',app:{metadataCache:{getFirstLinkpathDest:()=>({path:'Books/原子习惯.md'})}}};
  return {open:(shortcut={kind:'media',target:'Books/原子习惯.md'})=>entry.exports.openShortcut(plugin,shortcut),opened,links};

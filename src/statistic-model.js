@@ -1,7 +1,7 @@
 "use strict";
 const {summarize,categoryValues}=require("./property-statistics.js");
 const {dayNumber}=require("./countdown-document.js");
-const temporal=new Set(["trend","line","columns","heatmap","strip","states"]);
+const temporal=new Set(["trend","line","columns","calendar","strip"]);
 const shift=(date,n)=>new Date((dayNumber(date)+n)*86400000).toISOString().slice(0,10);
 function datesIn(range){
  const length=dayNumber(range?.end)-dayNumber(range?.start)+1;
@@ -19,9 +19,9 @@ function chartOptions(config,field){
  const category=field?['option','toggle'].includes(field.type):config.calculate==='distribution';
  const grouped=!!config.group||config.calculate==='distribution',rate=config.calculate==='rate';
  if(rate)return ['metric','progress','comparison'];
- if(category&&!config.group)return ['metric','strip','states','bars','donut','composition'];
+ if(category&&!config.group)return ['metric','strip','calendar','bars','donut','composition'];
  if(grouped)return ['metric','bars','donut',...(['count','sum','distribution'].includes(config.calculate)?['composition']:[])];
- return ['metric','line','columns','trend','heatmap','strip','progress','comparison'];
+ return ['metric','line','columns','trend','calendar','strip','progress','comparison'];
 }
 function dateGroups(result,config){
  return summarize(result.rows,{...config,group:'',display:'trend',calculate:config.calculate==='distribution'?'count':config.calculate}).groups;

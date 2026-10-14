@@ -30,7 +30,7 @@ test('localized stat ranges retain both years across a year boundary',()=>{
  for(const locale of ['zh','en']){const text=formatStatRange({start:'2025-12-31',end:'2026-01-02'},locale);assert.match(text,/2025/);assert.match(text,/2026/);}
  assert.match(formatStatRange({start:'2026-01-02',end:'2026-01-02'},'zh'),/2026/);
 });
-function element(options={}){return {text:options.text||'',cls:options.cls,children:[],style:{setProperty(k,v){this[k]=v;}},dataset:{},attributes:{},addClass(name){this.cls+=' '+name;},focus(){this.onfocus?.();},scrollIntoView(){},setAttribute(k,v){this.attributes[k]=String(v);},setText(v){this.text=v;},append(child){this.children.push(child);},ownerDocument:{createElementNS(ns,tag){const child=element();child.tag=tag;return child;}},createEl(tag,opt){const child=element(opt);child.tag=tag;this.children.push(child);return child;},createDiv(opt){return this.createEl('div',opt);},createSpan(opt){return this.createEl('span',opt);}};}
+function element(options={}){return {text:options.text||'',cls:options.cls,children:[],empty(){this.children=[];},remove(){if(this.parent)this.parent.children=this.parent.children.filter(e=>e!==this);},querySelectorAll(tag){return this.children.flatMap(c=>[...(c.tag===tag?[c]:[]),...c.querySelectorAll(tag)]);},style:{setProperty(k,v){this[k]=v;}},dataset:{},attributes:{},addClass(name){this.cls+=' '+name;},focus(){this.onfocus?.();},scrollIntoView(){},setAttribute(k,v){this.attributes[k]=String(v);},setText(v){this.text=v;},append(child){this.children.push(child);},ownerDocument:{createElementNS(ns,tag){const child=element();child.tag=tag;return child;}},createEl(tag,opt){const child=element(opt);child.parent=this;child.tag=tag;for(const [k,v]of Object.entries(opt?.attr||{})){child.attributes[k]=v;if(k.startsWith('data-'))child.dataset[k.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]=v;}this.children.push(child);return child;},createDiv(opt){return this.createEl('div',opt);},createSpan(opt){return this.createEl('span',opt);}};}
 const options={text:(a,b)=>b,number:v=>v==null?'—':String(v),display:(f,v)=>v};
 
 test('monthly columns retain empty and cross-year months without expanding into daily observations',()=>{
@@ -76,24 +76,21 @@ test('dot scale bounds the displayed grid rather than creating one node per work
  assert.deepEqual(periodDotScale([0,1,12]),{step:1,rows:8,capacity:24});
  for(const maximum of [0,24,35,36,37,109,10000]){const scale=periodDotScale([maximum]);assert.ok(scale.capacity>=maximum);assert.ok(scale.rows>=8&&scale.rows<=12);assert.equal(scale.step,Math.ceil(maximum/36)||1);}
 });
-test('calendar colors distinguish signed values, zero and absence, and preserve keyboard selection on refresh',()=>{
- const {summarize}=require('../src/property-statistics.js'),config={property:'v',calculate:'mean',display:'heatmap'},viewState={};
+test('record calendar reads signed values and absence, opens original rows, and retains keyboard selection',()=>{
+ const {summarize}=require('../src/property-statistics.js'),config={property:'v',calculate:'mean',display:'calendar'},viewState={};
  const rows=[-5,0,5].map((v,i)=>({path:i+'.md',date:'2026-09-0'+(i+1),properties:{v}})),result={...summarize(rows,config),range:{start:'2026-09-01',end:'2026-09-04'}},host=element();let opened;
  renderChart(host,result,config,{...options,viewState,activate:(_,rows,date)=>opened={rows,date}});
- const grid=host.children.find(e=>e.cls.includes('noria-stat-calendar')),cells=grid.children.filter(e=>e.cls==='noria-stat-day');
- assert.equal(new Set(cells.map(e=>e.style.background)).size,4);assert.equal(cells[1].dataset.missing,'false');assert.equal(cells[3].dataset.missing,'true');
- assert.equal(cells.filter(e=>e.tabIndex===0).length,1);cells[2].onkeydown({key:'ArrowLeft',preventDefault(){}});assert.equal(viewState.date,'2026-09-02');cells[1].onclick();assert.equal(opened.rows[0].path,'1.md');
- grid.scrollLeft=42;grid.onscroll();const next=element();renderChart(next,result,config,{...options,viewState});const nextGrid=next.children.find(e=>e.cls.includes('noria-stat-calendar'));
- assert.equal(nextGrid.scrollLeft,42);assert.equal(nextGrid.children.find(e=>e.dataset.selected==='true').dataset.date,'2026-09-02');
+ const section=host.children.find(e=>e.cls==='noria-stat-record-calendar'),grid=section.children[1],cells=()=>grid.children.filter(e=>e.cls==='noria-stat-calendar-cell');
+ assert.deepEqual(cells().slice(0,4).map(b=>b.children[1].text),['-5','0','5','—']);assert.equal(cells()[1].dataset.missing,'false');assert.equal(cells()[3].dataset.missing,'true');
+ assert.equal(cells().filter(b=>b.tabIndex===0).length,1);cells()[2].onkeydown({key:'ArrowLeft',preventDefault(){}});assert.equal(viewState.date,'2026-09-02');cells()[1].onclick();assert.equal(opened.rows[0].path,'1.md');
+ const next=element();renderChart(next,result,config,{...options,viewState});assert.equal(next.querySelectorAll('button').find(b=>b.dataset.selected==='true').dataset.date,'2026-09-02');
 });
-test('calendar month transitions and cross-year week coordinates remain aligned',()=>{
- const config={property:'v',calculate:'mean',display:'heatmap'},result={rows:[],groups:[],range:{start:'2026-09-28',end:'2026-10-04'}},host=element();
- renderChart(host,result,config,options);const grid=host.children.find(e=>e.cls.includes('noria-stat-calendar'));
- assert.deepEqual(grid.children.filter(e=>e.cls==='noria-stat-month-label').map(e=>e.text),['2026-09','2026-10']);
- const oct=grid.children.findIndex(e=>e.dataset.date==='2026-10-01');assert.equal(grid.children.slice(oct-3,oct).filter(e=>e.cls==='noria-stat-calendar-pad').length,3);
- const yearly=element();renderChart(yearly,{...result,range:{start:'2025-12-30',end:'2026-03-05'}},config,options);
- const annual=yearly.children.find(e=>e.cls.includes('noria-stat-calendar')),jan=annual.children.find(e=>e.dataset.date==='2026-01-01');assert.equal(jan.style.gridRow,'5');assert.equal(jan.style.gridColumn,'2');
- assert.deepEqual(annual.children.filter(e=>e.cls==='noria-stat-month-label').map(e=>e.text),['2026-01','2026-02','2026-03']);
+test('record calendar keeps month coordinates and clamps navigation to the queried dates',()=>{
+ const host=element(),state={date:'2026-10-01'},config={property:'v',calculate:'mean',display:'calendar'};
+ renderChart(host,{rows:[],groups:[],range:{start:'2026-09-28',end:'2026-10-04'}},config,{...options,viewState:state});
+ const section=host.children.find(e=>e.cls==='noria-stat-record-calendar'),head=section.children[0],grid=section.children[1];
+ const first=grid.children.findIndex(c=>c.dataset.date==='2026-10-01');assert.equal(first,10);assert.equal(head.children[2].disabled,true);
+ head.children[0].onclick();assert.equal(head.children[0].disabled,true);assert.equal(state.month,'2026-09');assert.equal(grid.children.filter(c=>c.tag==='button'&&!c.disabled).length,3);
 });
 
 test('composition uses exclusive counts, retains false and zero, and opens the selected sources',()=>{
@@ -222,7 +219,7 @@ test('numeric readout keeps date and value separate and preserves missing versus
 
 test('strip date anchors belong to its scroll grid and calendars avoid duplicate range footers',()=>{
  const result={rows:[],groups:[],range:{start:'2025-12-29',end:'2026-01-05'}};
- for(const style of ['strip','states','heatmap']){
+ for(const style of ['strip']){
   const host=element();renderChart(host,result,{property:'mood',calculate:'distribution',display:style},options);
   assert.equal(host.children.some(x=>x.cls==='noria-stat-axis'),false);
   const grid=host.children.find(x=>x.cls?.includes('noria-stat-calendar')),dates=grid.children.filter(x=>x.cls==='noria-stat-strip-date');

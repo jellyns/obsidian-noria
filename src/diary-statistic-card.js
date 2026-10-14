@@ -8,6 +8,7 @@ function diaryStatisticInput(widget,selection){
   if(!supportsRange(widget))throw Error('Unsupported diary statistic');
   const props={...widget.props,lazy:false,cardContent:true};
   const follow=!props.statsRange||props.statsRange.mode==='homeCurrent';
+  props.independentRange=!follow;
   if(follow)props.statsRange={mode:'custom',...diaryRange(selection)};
   return {widget:{...widget,props},follow};
 }

@@ -4,14 +4,20 @@ function renderAgentSettings(tab, parent, {Setting,Notice,setIcon}) {
   const zh=tab.plugin.getNoriaLocale()==='zh';
   const text=(cn,en)=>zh?cn:en;
   const host=parent.createDiv({cls:'noria-agent-settings'});
-  host.createEl('h3',{text:text('外部工具连接','External tools')});
-  let busy=false,actionError='',format='json',portDirty=false,client,toggle,copy,retry,port,save,reset;
-  const row=new Setting(host).setName(text('允许本机 Agent 连接','Allow local Agent connections'))
-    .setDesc(text('让本机外部助手通过 MCP 使用 Noria；启用后随本库打开。','Let an external assistant on this computer use Noria through MCP. Starts with this vault when enabled.'))
-    .addToggle(control=>{toggle=control;control.onChange(value=>void act(()=>service.setEnabled(value)));});
-  tab.decorateSettingsTarget(row,'agentConnection.enabled');
+  let busy=false,painting=false,expanded=false,actionError='',format='codex',portDirty=false,client,toggle,copy,retry,port,save,reset,configure;
+  const entry=new Setting(host).setName(text('外部助手','External assistants'))
+    .setDesc(text('让 Codex 等本机助手读取或更新 Noria 数据。建议卡和普通笔记无需开启。','Allow local assistants such as Codex to read or update Noria data. Suggestions and ordinary notes work without this connection.'))
+    .addButton(button=>{configure=button;button.setButtonText(text('设置连接','Set up connection')).onClick(()=>{expanded=!expanded;paint();if(expanded)toggle.toggleEl.focus();});});
+  tab.decorateSettingsTarget(entry,'agentConnection.enabled');
   const status=host.createDiv({cls:'setting-item-description noria-agent-status',attr:{role:'status','aria-live':'polite'}});
-  const actions=new Setting(host).setName(text('客户端配置','Client configuration'))
+  const panel=host.createDiv({cls:'noria-settings-editor noria-agent-editor'});panel.hidden=true;
+  const panelId=`noria-agent-editor-${Math.random().toString(36).slice(2)}`;panel.id=panelId;
+  configure.buttonEl.setAttribute('aria-controls',panelId);
+  const row=new Setting(panel).setName(text('允许本机连接','Allow local connections'))
+    .setDesc(text('通过 MCP 连接；开启后随本库启动，关闭 Obsidian 后停止。不会自动运行助手。','Connect through MCP. Starts with this vault when enabled and stops with Obsidian. Does not run an assistant automatically.'))
+    .addToggle(control=>{toggle=control;control.onChange(value=>{if(!painting)void act(()=>service.setEnabled(value));});});
+  const controls=panel.createDiv();
+  const actions=new Setting(controls).setName(text('连接客户端','Connect a client'))
     .addDropdown(control=>{client=control;control.addOption('json','MCP JSON').addOption('codex','Codex · TOML').setValue(format).onChange(value=>{format=value;describeConfig();});control.selectEl.setAttribute('aria-label',text('配置格式','Configuration format'));})
     .addButton(button=>{copy=button;button.setButtonText(text('复制配置','Copy configuration')).onClick(()=>void act(async()=>{const config=service.clientConfig(format);try{await navigator.clipboard.writeText(typeof config==='string'?config:JSON.stringify(config,null,2));}catch{throw Object.assign(Error('clipboard-failed'),{code:'clipboard-failed'});}new Notice(text('连接配置已复制','Connection configuration copied'));}));})
     .addButton(button=>{retry=button;button.setButtonText(text('重试连接','Retry connection')).onClick(()=>void act(()=>service.setEnabled(true)));});
@@ -20,7 +26,7 @@ function renderAgentSettings(tab, parent, {Setting,Notice,setIcon}) {
     ?text('将片段加入 Codex 的 config.toml；已有 noria 配置时替换该段。配置含凭据，请勿分享。','Add this section to Codex config.toml, replacing an existing noria section. It contains a credential; do not share it.')
     :text('适用于接受 mcpServers JSON 的本机 HTTP 客户端。配置含凭据，请只粘贴到可信客户端。','For local HTTP clients accepting mcpServers JSON. Contains a credential; paste only into a trusted client.'));}
   describeConfig();
-  const details=host.createEl('details',{cls:'noria-settings-disclosure'});
+  const details=panel.createEl('details',{cls:'noria-settings-disclosure'});
   const summary=details.createEl('summary',{cls:'noria-settings-disclosure-summary'});
   summary.createSpan({cls:'noria-settings-disclosure-title',text:text('端口与凭据','Port and credential')});
   const chevron=summary.createSpan({cls:'noria-settings-disclosure-chevron',attr:{'aria-hidden':'true'}});setIcon(chevron,'chevron-right');
@@ -48,8 +54,13 @@ function renderAgentSettings(tab, parent, {Setting,Notice,setIcon}) {
   };
   function paint(){
     const s=service.status(),running=s.state==='listening',failure=actionError||s.error;
+    painting=true;
     toggle.setValue(s.enabled).setDisabled(busy||(!s.available&&!s.enabled));
-    status.setText(failure?(errors[failure]||text('连接操作失败，请重试。','Connection operation failed. Retry.')):running?text(`可连接 · ${s.url}`,`Available · ${s.url}`):s.available?text('已关闭 · 仅在本机启用','Off · enabled on this device only'):errors['storage-unavailable']);
+    painting=false;
+    panel.hidden=!expanded;controls.hidden=!s.enabled;
+    configure.setButtonText(expanded?text('收起','Close setup'):s.enabled?text('管理连接','Manage connection'):text('设置连接','Set up connection'));
+    configure.buttonEl.setAttribute('aria-expanded',String(expanded));
+    status.setText(failure?(errors[failure]||text('连接操作失败，请重试。','Connection operation failed. Retry.')):running?text('已开启 · 可供本机助手连接','On · available to local assistants'):s.available?text('未开启','Off'):errors['storage-unavailable']);
     status.classList.toggle('is-error',!!failure);
     client.setDisabled(busy);copy.setDisabled(busy||!s.canCopy);reset.setDisabled(busy||!s.available);
     retry.buttonEl.hidden=!(s.enabled&&!running);retry.setDisabled(busy);

@@ -2,6 +2,7 @@
 const {Modal, setIcon} = require("obsidian");
 const {CARD_IDS,normalizeDiaryCards} = require("./card-layout-model.js");
 const {iconButton} = require("./card-controls.js");
+const {isStatistic} = require('./statistic-templates.js');
 const clone=value=>JSON.parse(JSON.stringify(value));
 
 class CardCatalog extends Modal {
@@ -9,7 +10,7 @@ class CardCatalog extends Modal {
   text(zh,en){return this.system.text(zh,en);}
   get custom(){return this.context.page==="custom";}
   get diaryLayout(){return this.context.noteCards?.layout()||this.system.layout(this.context.mode);}
-  get widgets(){if(this.custom)return this.system.pages.get(this.context.pageId)?.widgets||[];return this.context.page==="home"?this.plugin.settings.home.widgets:this.diaryLayout.widgets;}
+  get widgets(){return (this.custom?(this.system.pages.get(this.context.pageId)?.widgets||[]):this.context.page==="home"?this.plugin.settings.home.widgets:this.diaryLayout.widgets).filter(require('./build-profile.js').cardAvailable);}
   onOpen(){
     this.modalEl.addClass("noria-card-catalog");const widget=this.widgets.find(item=>item.id===this.id);
     if(widget)this.edit(widget);
@@ -28,6 +29,14 @@ class CardCatalog extends Modal {
     const statistics=toolbar.createEl('button',{cls:'noria-stat-catalog-entry',attr:{type:'button'}});setIcon(statistics.createSpan(),'chart-no-axes-combined');statistics.createSpan({text:this.text('统计模板','Statistics templates')});statistics.onclick=()=>{this.statBaseWidget=null;this.statistics();};
     const list=this.contentEl.createDiv({cls:"noria-card-catalog-list"});
     const entries=[];
+    // Deleted inherited cards are available as fresh defaults, not as removed instances.
+    if(this.context.noteCards)for(const id of this.diaryLayout.deleted||[]){
+      const shared=this.system.layout(this.context.mode),widget=shared.widgets.find(w=>w.id===id);
+      if(!CARD_IDS.includes(id)&&!widget)continue;
+      entries.push({name:widget?this.system.title(widget):this.diaryTitle(id),description:this.text('添加默认卡片','Add the default card'),icon:'plus',run:async()=>{
+        await this.context.noteCards.configure(layout=>{const next={...layout,deleted:(layout.deleted||[]).filter(key=>key!==id),cards:{...layout.cards}};delete next.cards[id];return next;});this.close(true);
+      }});
+    }
     if(this.context.defaults){
       for(const id of CARD_IDS)entries.push({name:this.diaryTitle(id),description:this.text('同类日记的默认设置','Defaults for this diary period'),icon:'settings-2',run:()=>{
         const state=this.diaryLayout.cards[id];this.edit({id,type:'diary-core',title:this.diaryTitle(id),props:{picture:state.picture,...(id==='record'&&state.sections?{sections:state.sections}:{})}});
@@ -62,16 +71,19 @@ class CardCatalog extends Modal {
     }
     const replaced=new Set(this.widgets.map(w=>w.replaces).filter(Boolean));
     const hidden=this.context.page==="home"||this.custom?this.widgets.filter(w=>w.enabled===false):this.diaryLayout.order.filter(id=>this.diaryLayout.cards[id].hidden&&!replaced.has(id)).map(id=>({id,title:this.diaryTitle(id)}));
-    for(const item of hidden.filter(item=>item.id!==advice?.id))entries.push({name:this.text("恢复 · ","Restore · ")+this.system.title(item),description:this.text("保留原内容和配置","Keeps the original contents and settings"),icon:"eye",run:async()=>{
+    const restored=[];
+    for(const item of hidden.filter(item=>item.id!==advice?.id&&!this.diaryLayout?.deleted?.includes(item.id)))restored.push({name:this.text("恢复 · ","Restore · ")+this.system.title(item),description:this.text("保留原内容和配置","Keeps the original contents and settings"),icon:"eye",run:async()=>{
       if(this.custom)await this.system.pages.saveCard(this.context.pageId,{...item,enabled:true});
       else if(this.context.page==="home")await this.system.saveHome({...item,enabled:true});
       else if(this.context.noteCards)await this.context.noteCards.change(item.id,'hidden',false);
       else await this.system.updateLayout(this.context.mode,layout=>{layout.cards[item.id].hidden=false;return layout;});this.close(true);
     }});
-    const paint=()=>{this.cardSearch=search.value;list.empty();const matches=entries.filter(e=>(e.name+" "+e.description).toLowerCase().includes(search.value.trim().toLowerCase()));
+    const paint=()=>{this.cardSearch=search.value;list.empty();const match=e=>(e.name+" "+e.description).toLowerCase().includes(search.value.trim().toLowerCase()),removed=restored.filter(match),matches=entries.filter(match);
+      let restoredList;
+      if(removed.length){const section=list.createEl('details',{cls:'noria-card-removed'});section.open=!!search.value;section.createEl('summary',{text:this.text('已移出','Removed')+' · '+removed.length});restoredList=section.createDiv({cls:'noria-card-catalog-list'});}
       if(!matches.length){const empty=list.createDiv({cls:'noria-card-catalog-empty',attr:{role:'status'}});empty.createSpan({text:this.text('没有匹配的卡片','No matching cards')});const clear=empty.createEl('button',{text:this.text('清除搜索','Clear search')});clear.onclick=()=>{search.value='';paint();search.focus();};}
-      for(const item of matches){
-      const button=list.createEl("button",{cls:"noria-card-choice"});button.disabled=!!item.disabled;setIcon(button.createSpan({cls:"noria-card-choice-icon"}),item.icon);
+      for(const item of [...removed,...matches]){
+      const button=(removed.includes(item)?restoredList:list).createEl("button",{cls:"noria-card-choice"});button.disabled=!!item.disabled;setIcon(button.createSpan({cls:"noria-card-choice-icon"}),item.icon);
       const info=button.createDiv({cls:"noria-card-choice-info"});info.createEl("strong",{text:item.name});if(item.description)info.createDiv({cls:"noria-card-secondary",text:item.description});
       if(item.provider?.pluginId!=="noria"&&item.provider){const manifest=this.app.plugins.manifests[item.provider.pluginId];
         info.createDiv({cls:"noria-card-secondary",text:manifest?`${manifest.name} · ${this.app.plugins.plugins[manifest.id]?this.text("已启用","Enabled"):this.text("需启用","Enable to use")}`:this.text("需要安装插件","Requires plugin installation")});}
@@ -107,7 +119,7 @@ class CardCatalog extends Modal {
   edit(widget){
     if(widget.source==='noria:statistics'&&widget.props?.display==='trend')widget={...widget,props:{...widget.props,display:'columns'}};
     this.clean();this.original=clone(widget);this.draft=clone(widget);this.setTitle(this.text("卡片设置","Card settings"));
-    if(['noria:statistics','noria:periodic-statistics','noria:period-overview'].includes(widget.source))this.modalEl.dataset.statisticsEditor='true';
+    if(widget.type==='extension'&&isStatistic(widget,this.system.providers))this.modalEl.dataset.statisticsEditor='true';
     const head=this.contentEl.createDiv({cls:"noria-card-form-head"});const backLabel=this.returnTo==="statistics"?this.text("统计模板","Statistics templates"):this.text("全部卡片","All cards"),back=iconButton(head,"arrow-left",backLabel,()=>this.goBack());back.addClass("noria-card-back");back.createSpan({text:backLabel});
     this.scopeControl(head,widget);
     this.originalNote=this.context.noteCards?.items().find(item=>'note:'+item.id===widget.id);
@@ -120,13 +132,13 @@ class CardCatalog extends Modal {
     require("./picture-picker.js").pictureField(this.plugin,appearance,widget.props?.picture,value=>{this.draft.props={...this.draft.props,picture:value};this.dirty=true;this.schedulePreview();});
     if(core&&widget.id==='record')require('./diary-record-settings.js').recordScopeSettings(this,form);
     const provider=this.system.providers.get(widget.source);
-    if(['noria:statistics','noria:periodic-statistics','noria:period-overview'].includes(widget.source)||require('./statistic-templates.js').isDashboardStatistic(widget)){const choose=head.createEl('button',{cls:'noria-card-change-template',text:this.text('更换模板','Change template')});choose.onclick=()=>this.confirmDiscard(()=>{this.statBaseWidget=clone(this.draft);this.statistics();});}
+    if(isStatistic(widget,this.system.providers)){const choose=head.createEl('button',{cls:'noria-card-change-template',text:this.text('更换模板','Change template')});choose.onclick=()=>this.confirmDiscard(()=>{this.statBaseWidget=clone(this.draft);this.statistics();});}
     if(widget.type==="extension"){
       if(provider){
         if(provider.id==='noria:interaction')void require('./interaction-editor.js').interactionPicker(this.plugin,form,this);
         if(provider.templates&&provider.id!=='noria:statistics'){const templates=typeof provider.templates==='function'?provider.templates():provider.templates;
           const chooser=this.field(form,this.text('快速配置','Quick setup'),'select','',value=>{const template=templates.find(t=>t.id===value);if(!template)return;const draft=clone(this.draft);draft.props=clone(template.props);draft.title=template.title;this.edit(draft);this.dirty=true;},[{value:'',label:this.text('选择模板…','Choose a template…')},...templates.map(t=>({value:t.id,label:t.title}))]);chooser.dataset.statTemplates='true';}
-        const fields=typeof provider.fields==="function"?provider.fields(this.draft.props):provider.fields;
+        const fields=typeof provider.fields==="function"?provider.fields(this.draft.props,{widgetId:widget.id,context:this.context}):provider.fields;
         const advancedKeys=new Set(["recursive","tag","group","filterProperty","filterValue","unitProperty"]);
         let advanced;
         for(const [index,field] of (fields||[]).entries()){
@@ -156,7 +168,7 @@ class CardCatalog extends Modal {
     this.footer=this.contentEl.createDiv({cls:"noria-card-form-footer"});
     const cancel=this.footer.createEl("button",{text:this.text("取消","Cancel")});cancel.onclick=()=>this.close();
     this.applyButton=this.footer.createEl("button",{text:this.text("应用","Apply"),cls:"mod-cta"});this.applyButton.onclick=()=>this.save();
-    if(['noria:statistics','noria:periodic-statistics','noria:period-overview'].includes(widget.source)||require('./statistic-templates.js').isDashboardStatistic(widget))require('./statistic-template-ui.js').templateSaveAction(this);
+    if(isStatistic(widget,this.system.providers))require('./statistic-template-ui.js').templateSaveAction(this);
     this.preview();
   }
   schedulePreview(){clearTimeout(this.timer);this.timer=setTimeout(()=>this.preview(),250);}
@@ -226,7 +238,7 @@ class CardCatalog extends Modal {
   async validateDraft(draft){
     if(draft.type==='diary-core'&&draft.id==='record'&&Array.isArray(draft.props.sections)&&!draft.props.sections.length)throw Error(this.text('请选择至少一个章节，或改为整篇。','Select at least one section, or choose Full note.'));
     require("./dashboard-statistic-settings.js").validateDashboardStatistic(draft,this.plugin,(zh,en)=>this.text(zh,en));
-    const provider=this.system.providers.get(draft.source),fields=typeof provider?.fields==='function'?provider.fields(draft.props):provider?.fields||[];
+    const provider=this.system.providers.get(draft.source),fields=typeof provider?.fields==='function'?provider.fields(draft.props,{widgetId:draft.id,context:this.context}):provider?.fields||[];
     for(const field of fields)if(field.required&&!String(draft.props[field.key]??'').trim())throw Error(this.text('请填写：','Required: ')+field.label);
     for(const field of fields)if(field.type==='file'&&draft.props[field.key]&&!this.app.vault.getAbstractFileByPath(draft.props[field.key]))throw Error(this.text('找不到源文件','Source file not found'));
     await provider?.validate?.(draft.props,{selection:this.context.selection});

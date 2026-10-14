@@ -6,7 +6,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 const LABELS={layout:["布局","Layout"],width:["宽度","Width"],small:["窄","Narrow"],medium:["中","Medium"],wide:["宽","Wide"],full:["整行","Full row"],
   up:["上移","Move up"],down:["下移","Move down"],collapse:["收起","Collapse"],expand:["展开","Expand"],
   stack:["叠放到…","Stack with…"],stackAbove:["放在上方","Place above"],stackBelow:["放在下方","Place below"],unstack:["独立排布","Place separately"],stackWidth:["组合宽度","Stack width"],
-  remove:["移出本页","Remove from page"],removeHint:["移除本页卡片，保留来源内容","Remove this card; keep source contents"],removed:["卡片已移出本页","Card removed from this page"],
+  remove:["移出本页","Remove from page"],delete:["删除卡片…","Delete card…"],removeHint:["移除本页卡片，保留来源内容","Remove this card; keep source contents"],removed:["卡片已移出本页","Card removed from this page"],
   autoHeight:["自动高度","Automatic height"],copy:["复制卡片","Duplicate card"],hide:["隐藏卡片","Hide card"],show:["显示卡片","Show card"],
   resizeWidth:["拖动调整宽度；方向键左右调整","Drag to resize width; use Left or Right keys"],undo:["撤销","Undo"],hidden:["卡片已隐藏","Card hidden"]};
 
@@ -14,6 +14,7 @@ const LABELS={layout:["布局","Layout"],width:["宽度","Width"],small:["窄","
 class CardSystem {
   constructor(plugin) {
     this.plugin=plugin;this.app=plugin.app;this.listeners=new Set();this.statisticRangeListeners=new Map();this.providers=new Map();this.mounted=new Set();this.modals=new Set();this.queue=Promise.resolve();
+    this.pageHeaders=new Map();
     this.ready=new Promise(resolve=>{this.resolveReady=resolve;});
     this.pages=new (require("./workbench-pages.js").WorkbenchPages)(plugin);
     this.registerBuiltins();
@@ -35,6 +36,7 @@ class CardSystem {
   dependencies(){return Object.keys(this.app.plugins.plugins).sort().join("|");}
   async initialize(){
     if(this.disposed)return;
+    const migratedStatistics=require('./card-statistics-migration.js').migrateStatisticCalendars(this.plugin.settings);
     await this.plugin.shortcuts.initialize();
     const candidates=[];
     const visit=value=>{
@@ -51,7 +53,7 @@ class CardSystem {
     }
     const before=this.plugin.settings.cardLayouts;
     this.plugin.settings.cardLayouts=migrateDiaryLayouts(before,candidates);
-    if(migratedHeight||JSON.stringify(before)!==JSON.stringify(this.plugin.settings.cardLayouts))await this.plugin.saveSettings();
+    if(migratedStatistics||migratedHeight||JSON.stringify(before)!==JSON.stringify(this.plugin.settings.cardLayouts))await this.plugin.saveSettings();
     const avatarPath=this.plugin.settings.home?.identity?.avatarPath;
     const avatar=avatarPath && this.app.vault.getAbstractFileByPath(avatarPath);
     if(avatar && avatar.extension==="svg") {
@@ -61,6 +63,11 @@ class CardSystem {
     this.resolveReady();this.emit();this.app.workspace.trigger("noria:cards-ready",this);
   }
   subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn);}
+  registerPageHeader(pageId,render){
+    if(this.pageHeaders.has(pageId))throw Error('Page header already registered');
+    this.pageHeaders.set(pageId,render);
+    return()=>{if(this.pageHeaders.get(pageId)===render)this.pageHeaders.delete(pageId);};
+  }
   onStatisticRange(pageId,callback){
     let listeners=this.statisticRangeListeners.get(pageId);
     if(!listeners){listeners=new Set();this.statisticRangeListeners.set(pageId,listeners);}
@@ -213,6 +220,10 @@ class CardSystem {
       state:()=>({...widget(),first:visibleIds.indexOf(id)===0,last:visibleIds.indexOf(id)===visibleIds.length-1}),
       width:value=>this.composeHome(id,'width',value),move:direction=>{const target=visibleIds[visibleIds.indexOf(id)+(direction==='up'?-1:1)];return target?this.composeHome(id,'reorder',{target,after:direction==='down',keepStack:true}):Promise.resolve();},
       remove:async()=>{const undo=await this.removeHome(id);require("./card-direct-controls.js").notifyHidden(anchor.ownerDocument,this.t("removed"),undo,this.t("undo"));},
+      deleteCard:()=>require('./card-lifecycle.js').confirmDelete(this,this.title(widget()),()=>this.changeHomeCards(home=>{
+        require('./card-placement.js').forgetWidget(home,id);
+        home.removedWidgetIds=[...new Set([...(home.removedWidgetIds||[]),id])];
+      },`cards:delete:${id}`)),
       collapse:value=>this.plugin.setHomeWidgetCollapsed(id,value),
       height:async()=>{const reset=getAnchor()?.closest(".dashboard-home-widget-shell")?._noriaResetHeight;if(reset)await reset();},
       copy:async()=>{const copy=clone(widget());copy.id=`card-${crypto.randomUUID()}`;if(copy.type==="builtin")copy.builtinId=copy.builtinId||id;
@@ -230,10 +241,10 @@ class CardSystem {
     require('./diary-section-card.js').registerDiarySection(this);
     require("./interaction-card.js").registerInteractionCard(this);
     require("./activity-card.js").registerActivityCard(this);
-    require("./media-card.js").registerMediaCard(this);
+    require('./media-feature.js')?.register(this);
     require("./shortcut-card.js").registerShortcutCard(this);
     require('./focus-card.js').registerFocusCard(this);
-    require("./media-workspace.js").registerMediaWorkspace(this);
+
     this.plugin.propertyStats?.register(this);
     require('./periodic-stat-cards.js').registerPeriodicStats(this,this.plugin);
     require('./period-overview-card.js').registerPeriodOverview(this,this.plugin);
@@ -248,7 +259,7 @@ class CardSystem {
       }});
     this.register({id:"noria:countdown",title:this.text("倒计时","Countdowns"),icon:"calendar-clock",description:this.text("重要日期、到期提醒与归档。","Important dates, deadlines and archives."),fields:[],render:({container})=>this.plugin.countdowns.render(container)});
     this.register({id:"noria:note",title:this.text("笔记与 Base","Note or Base"),icon:"file-text",supportsDate:true,description:this.text("嵌入已有笔记、查询或 Base。","Embed an existing note, query or Base."),fields:[{key:"path",label:this.text("源文件","Source file"),type:"file",required:true}],
-      render:async({container,component,config,selection})=>{
+      render:async({container,component,config,selection,reportError})=>{
         const file=this.app.vault.getAbstractFileByPath(config.path);if(!file||!("extension" in file))throw Error(this.text("找不到源文件","Source file not found"));
         const sourcePath=file.extension==="base"&&selection?.mode
           ? (await this.plugin.resolveCalendarNoteSpecAsync(selection.mode,selection.anchorDate)).path : file.path;
@@ -266,7 +277,8 @@ class CardSystem {
           if(shell){if(bound)shell._noriaConfigureWidget=configure;else if(shell._noriaConfigureWidget===configure)delete shell._noriaConfigureWidget;}
           if(child)component.removeChild(child);child=new Component();component.addChild(child);container.empty();await MarkdownRenderer.render(this.app,content,container,sourcePath,child);};
         component.register(()=>{disposed=true;++generation;if(shell?._noriaConfigureWidget===configure)delete shell._noriaConfigureWidget;});
-        await paint();component.registerEvent(this.app.vault.on("modify",changed=>{if(changed.path===file.path)void paint().catch(error=>{if(disposed)return;container.empty();container.createDiv({cls:'noria-card-empty',text:error.message||String(error)});});}));
+        await paint();component.registerEvent(this.app.vault.on("modify",changed=>{if(changed.path===file.path)void paint().catch(error=>{if(!disposed)reportError(error);});}));
+        component.registerEvent(this.app.vault.on('delete',changed=>{if(changed===file)reportError(Error(this.text('找不到源文件','Source file not found')));}));
         component.registerDomEvent(container,"click",event=>{const link=event.target.closest?.("a.internal-link");if(link&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();void this.app.workspace.openLinkText(link.dataset.href||link.getAttribute("href"),file.path,true);}},true);
       }});
     for(const [id,title] of [["dataview","Dataview"]]){
@@ -280,30 +292,62 @@ class CardSystem {
     context=context|| (selection?.pageId?{page:"custom",pageId:selection.pageId}:selection?.mode?{page:"diary",mode:selection.mode,selection}:{page:"home"});
     const mediaKind=require('./workbench-pages.js').mediaKind(context.pageId);
     if(context.pageId==='media'||mediaKind)context={...context,mediaPage:true,mediaKind};
-    const component=new Component();component.load();let disposed=false;
-    const provider=this.providers.get(widget.source);
-    const instance={provider,dispose:()=>{if(disposed)return;disposed=true;component.unload();this.mounted.delete(instance);}};
+    let component,mount,disposed=false,generation=0,busy=false,offRange,pendingRange=false;
+    const domainRange=!!this.providers.get(widget.source)?.statistics&&(context.page==='home'||!!this.pages.get(context.pageId)?.statisticsView)&&!selection?.mode;
+    const instance={provider:null,dispose:()=>{if(disposed)return;disposed=true;++generation;offRange?.();component?.unload();mount?.remove();this.mounted.delete(instance);}};
     this.mounted.add(instance);
-    const mount=container.createDiv({cls:"noria-card-embedded markdown-rendered"});
-    try{
-      if(require('./statistic-templates.js').isDashboardStatistic(widget)&&selection?.mode){
-        await require('./diary-statistic-card.js').renderDiaryStatistic(this.plugin,widget,mount,selection,component);
-        return instance.dispose;
+    const attempt=async(restoreFocus=false)=>{
+      if(disposed||busy)return;
+      busy=true;const serial=++generation;component?.unload();mount?.remove();
+      const current=new Component();component=current;current.load();
+      const host=container.createDiv({cls:'noria-card-embedded markdown-rendered',attr:{'aria-busy':'true'}});mount=host;
+      const provider=this.providers.get(widget.source);instance.provider=provider;
+      let failed=false;
+      const fail=error=>{
+        if(disposed||serial!==generation||failed)return;failed=true;current.unload();host.empty();host.removeAttribute('aria-busy');
+        const missing=!provider,owner=provider?.pluginId||widget.source?.split(':')[0],dependency=owner&&owner!=='noria'&&(missing||!this.app.plugins.plugins[owner]);
+        const box=host.createDiv({cls:'noria-card-recovery',attr:{role:'status'}});
+        box.createEl('strong',{text:missing||dependency?this.text('此卡片当前不可用','This card is unavailable'):this.text('暂时无法显示','Could not display this card')});
+        box.createDiv({cls:'noria-card-recovery-message',text:missing?this.text('当前版本未提供此卡片，原配置仍保留。','This build does not provide this card. Its settings are kept.'):error.message||String(error)});
+        const actions=box.createDiv({cls:'noria-card-recovery-actions'});
+        const retry=actions.createEl('button',{text:this.text('重试','Retry'),attr:{type:'button'}});retry.onclick=()=>attempt(true);
+        if(dependency){const enable=actions.createEl('button',{text:this.text('安装或启用','Install or enable'),attr:{type:'button'}});enable.onclick=()=>this.openPlugin(owner);}
+        // A diary card must keep the note-scoped controller; never fall back to period defaults.
+        const diaryHost=container.closest?.('.noria-diary-card');
+        if(!missing&&!dependency&&!context.preview&&(diaryHost?._noriaDiaryContext||context.noteCards||context.page!=='diary')){
+          const settings=actions.createEl('button',{text:this.text('卡片设置','Card settings'),attr:{type:'button'}});
+          settings.onclick=()=>this.catalog(diaryHost?._noriaDiaryContext?.()||context,widget.id);
+        }
+      };
+      try{
+        if(require('./statistic-templates.js').isDashboardStatistic(widget)&&selection?.mode){
+          await require('./diary-statistic-card.js').renderDiaryStatistic(this.plugin,widget,host,selection,current);
+        }else{
+          if(!provider)throw Error('Card provider unavailable');
+          if(provider.pluginId!=='noria'&&!this.app.plugins.plugins[provider.pluginId])throw Error(this.text(`需要启用 ${provider.title}`,`Enable ${provider.title} to use this card`));
+          let resolvedSelection=selection;
+          if(domainRange){const requested=context.pageId?this.pages.get(context.pageId)?.trendsRange:this.plugin.settings.home?.trendsRange;const range=await(await this.plugin.createDataService()).resolveRange(requested||{mode:'last30'});resolvedSelection={...selection,range};}
+          const cleanup=await provider.render({app:this.app,container:host,component:current,config:clone(widget.props||{}),widgetId:widget.id,context:clone(context),selection:provider.supportsDate?clone(resolvedSelection||{}):null,
+            openSource:path=>this.app.workspace.openLinkText(path,'',true),reportError:fail});
+          if(typeof cleanup==='function'){if(disposed||serial!==generation||failed)cleanup();else current.register(cleanup);}
+        }
+      }catch(error){fail(error);}
+      finally{
+        if(serial===generation){busy=false;host.removeAttribute('aria-busy');
+          if(restoreFocus&&!disposed&&(host.ownerDocument.activeElement===host.ownerDocument.body||host.contains(host.ownerDocument.activeElement))){
+            const target=host.querySelector('button:not([disabled]),a[href],input:not([disabled]),[tabindex="0"]')||host;
+            if(target===host)host.tabIndex=-1;target.focus({preventScroll:true});
+          }
+        }
+        if(disposed||serial!==generation)host.remove();
+        else if(pendingRange){pendingRange=false;void attempt();}
       }
-      if(!provider)throw Error(this.text("组件尚未注册，请启用提供它的插件。","Card is unavailable. Enable its provider plugin."));
-      if(provider.pluginId!=="noria"&&!this.app.plugins.plugins[provider.pluginId]){
-        mount.createDiv({cls:"noria-card-empty",text:this.text(`需要启用 ${provider.title}`,`Enable ${provider.title} to use this card`)});
-        const button=mount.createEl("button",{text:this.text("安装或启用","Install or enable")});button.onclick=()=>this.openPlugin(provider.pluginId);return instance.dispose;
-      }
-      const config=clone(widget.props||{});
-      const cleanup=await provider.render({app:this.app,container:mount,component,config,widgetId:widget.id,context:clone(context),selection:provider.supportsDate?clone(selection||{}):null,
-        openSource:path=>this.app.workspace.openLinkText(path,"",true)});
-      if(typeof cleanup==="function"){if(disposed)cleanup();else component.register(cleanup);}
-      if(disposed)mount.remove();
-    }catch(error){if(!disposed){mount.empty();mount.createDiv({cls:"noria-card-empty",text:error.message||String(error)});}}
+    };
+    if(domainRange)offRange=this.onStatisticRange(context.pageId||'home',()=>{if(busy)pendingRange=true;else void attempt();});
+    await attempt();
     return instance.dispose;
   }
   openPlugin(id){window.open(`obsidian://show-plugin?id=${encodeURIComponent(id)}`);}
-  dispose(){this.disposed=true;for(const modal of [...this.modals]){modal.dirty=false;modal.close(true);}this.modals.clear();this.closeMenu?.(false);for(const item of [...this.mounted])item.dispose();this.listeners.clear();this.providers.clear();this.resolveReady();}
+  dispose(){this.disposed=true;for(const modal of [...this.modals]){modal.dirty=false;modal.close(true);}this.modals.clear();this.closeMenu?.(false);for(const item of [...this.mounted])item.dispose();this.listeners.clear();this.providers.clear();this.pageHeaders.clear();this.resolveReady();}
 }
 module.exports={CardSystem};

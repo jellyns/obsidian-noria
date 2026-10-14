@@ -1,6 +1,6 @@
 "use strict";
 const {commitSettingsChange}=require('./settings-change.js');
-const {readingTarget}=require('./media-workspace-model.js');
+const {readingTarget}=require('./link-target.js');
 const key=entry=>`${entry.kind==='media'?'file':entry.kind}:${entry.target}`;
 function normalize(entries){
  const seen=new Set();return (Array.isArray(entries)?entries:[]).filter(e=>e&&['file','media','page','url'].includes(e.kind)&&typeof e.target==='string'&&e.target.trim()).map(e=>({...e,target:e.target.trim()})).filter(e=>{const id=key(e);if(seen.has(id))return false;seen.add(id);return true;});

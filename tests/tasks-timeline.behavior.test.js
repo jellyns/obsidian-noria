@@ -431,7 +431,6 @@ test("shared task row uses circle state only and hides overdue badge by default"
 test("timeline event library parser reads checked template rows and legacy tables", () => {
   const adapter = loadTimelineActionsAdapter();
   assert.equal(typeof adapter.parseEventTemplateLibrary, "function");
-  assert.equal(typeof adapter.getEnabledEventTemplates, "function");
 
   const canonical = [
     "# 事件库",
@@ -450,9 +449,6 @@ test("timeline event library parser reads checked template rows and legacy table
   assert.equal(parsed[0].durationMin, 90);
   assert.equal(parsed[1].enabled, false);
   assert.equal(parsed[2].crossDay, true);
-
-  const enabled = adapter.getEnabledEventTemplates(canonical);
-  assert.deepEqual(Array.from(enabled, (item) => item.label), ["深度工作", "睡眠"]);
 
   const legacy = [
     "## Event library",
@@ -1874,7 +1870,7 @@ test("timeline reads and moves date aliases without altering code examples or le
 function timelineDragFixture(initial, snapshot, line = 1) {
  const view=fs.readFileSync(pluginPath('views/task-timeline/view.js'),'utf8');
  let text=initial;const notices=[],refreshes=[],receipts=[];
- const c=vm.createContext({app:{vault:{getAbstractFileByPath:()=>({extension:'md'}),process:async(f,fn)=>{text=fn(text)}}},
+ const c=vm.createContext({taskTimelineClock:null,app:{vault:{getAbstractFileByPath:()=>({extension:'md'}),process:async(f,fn)=>{text=fn(text)}}},
    taskTimelineNotifyFailure:message=>notices.push(message),taskTimelineRuntimeMessage:(key,fallback)=>fallback,
    taskTimelineBridge:{tasks:{locateSource:require('../src/task-document.js').locateTask,showMoveUndo:receipt=>receipts.push(receipt)},refresh:{requestRefresh:(...args)=>refreshes.push(args)}}});
  let i=view.indexOf('function taskTimelineEventNoria(');vm.runInContext(view.slice(i,view.indexOf('\nfunction taskTimelinePickMarkdownLeaf',i)),c);
@@ -3036,33 +3032,17 @@ test("task calendar adapter loader scopes globals by runtime build and records d
   assert.match(runtime, /adapterMeta\.status = "failed"/);
 });
 
-test("task calendar runtime stores local preferences through bridge before localStorage fallback", () => {
-  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
-  const main = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
-
-  assert.match(runtime, /function getTasksCalendarRuntimeSettings\(\)/);
-  assert.match(runtime, /function getTasksCalendarGranularityPreference\(/);
-  assert.match(runtime, /function getTasksCalendarBooleanPreference\(/);
-  assert.match(runtime, /function saveTasksCalendarRuntimePreference\(/);
-  assert.match(runtime, /getTasksCalendarGranularityPreference\("eisenhowerGranularity",\s*"week",\s*"noria\.eisen\.granularity"\)/);
-  assert.match(runtime, /getTasksCalendarBooleanPreference\("showEarlyHours",\s*false,\s*"noria-tc-show-early-hours"\)/);
-
-  const granStart = runtime.indexOf('["day", tcRuntimeT("runtime.tasksCalendar.view.shortDay")]');
-  const granEnd = runtime.indexOf("setQuickTimelinePanel", granStart);
-  assert.ok(granStart > 0 && granEnd > granStart, "quadrant granularity button setup should be found");
-  const granBody = runtime.slice(granStart, granEnd);
-  assert.match(granBody, /saveTasksCalendarRuntimePreference\("eisenhowerGranularity",\s*ek,\s*"noria\.eisen\.granularity"\)/);
-  assert.doesNotMatch(granBody, /localStorage\.setItem\("noria\.eisen\.granularity"/);
-
-  const earlyStart = runtime.indexOf("function ensurePlannerChromeToolbarChromeButtonsExist");
-  const earlyEnd = runtime.indexOf("function ensurePlannerChromePlannerLabPanel", earlyStart);
-  assert.ok(earlyStart > 0 && earlyEnd > earlyStart, "planner chrome toolbar setup should be found");
-  const earlyBody = runtime.slice(earlyStart, earlyEnd);
-  assert.match(earlyBody, /openPlannerHoursSettings\(ax\)/);
-  assert.doesNotMatch(earlyBody, /localStorage\.setItem\("noria-tc-show-early-hours"/);
-
-  assert.match(main, /async saveTasksCalendarPreference\(/);
-  assert.match(main, /tasksCalendar:\s*\{[\s\S]*savePreference\(key,\s*value\)/);
+test("task calendar runtime stores local preferences through bridge before localStorage fallback", async () => {
+ const runtime=fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"),"utf8"),writes=[],saves=[],settings={eisenhowerGranularity:"month",showEarlyHours:false};
+ const c=vm.createContext({bridgeCfg:{tasksCalendar:{getSettings:()=>settings,savePreference:(key,value)=>{saves.push([key,value]);return Promise.resolve({settings:{...settings,[key]:value}});}}},localStorage:{getItem:()=>"year",setItem:(...args)=>writes.push(args)}});
+ const start=runtime.indexOf('function getTasksCalendarRuntimeSettings()'),end=runtime.indexOf('// Error Handling',start);vm.runInContext(runtime.slice(start,end),c);
+ assert.equal(c.getTasksCalendarGranularityPreference('eisenhowerGranularity','week','legacy'),'month');
+ assert.equal(c.getTasksCalendarBooleanPreference('showEarlyHours',true,'legacy'),false);
+ assert.equal(c.saveTasksCalendarRuntimePreference('eisenhowerGranularity','day','legacy'),true);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(saves,[['eisenhowerGranularity','day']]);assert.deepEqual(writes,[]);assert.equal(c.bridgeCfg.tasksCalendarSettings.eisenhowerGranularity,'day');
+ c.bridgeCfg={};assert.equal(c.getTasksCalendarGranularityPreference('eisenhowerGranularity','week','legacy'),'year');
+ assert.equal(c.saveTasksCalendarRuntimePreference('eisenhowerGranularity','month','legacy'),false);assert.deepEqual(writes,[['legacy','month']]);
 });
 
 test("task calendar quadrant treats normalized low priorities as not important", () => {
@@ -3141,7 +3121,7 @@ test("task calendar quadrant drag keeps dates intact and persists an explicit ma
   const css = fs.readFileSync(pluginPath("views/tasks-calendar/default.css"), "utf8");
 
   const helperStart = runtime.indexOf("function normalizeEisenhowerBucketOverride");
-  const helperEnd = runtime.indexOf("async function saveTaskEisenhowerBucket", helperStart);
+  const helperEnd = runtime.indexOf("function getMeta(tasks)", helperStart);
   assert.ok(helperStart > 0 && helperEnd > helperStart, "quadrant override helpers should exist");
   const context = {
     globalThis: null,
@@ -4064,50 +4044,13 @@ test("task calendar now marker uses a grid-level accent clock hand for day and w
   assert.doesNotMatch(css, /\.timeLane \.tc-now-needle/);
 });
 
-test("task calendar period controls use compact borderless mode buttons", () => {
-  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
-  const css = fs.readFileSync(pluginPath("views/tasks-calendar/default.css"), "utf8");
-
-  assert.match(runtime, /className:\s*"tc-segmented tc-panel-segment-group"/);
-  assert.match(runtime, /eb\.className = "tc-eisen-gran-btn tc-panel-segment-button"/);
-  const segmentBlock = css.match(/\.tasksCalendar \.tc-segmented\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(segmentBlock, "task calendar segmented style should exist");
-  assert.match(segmentBlock, /background:\s*transparent/);
-  assert.match(segmentBlock, /border:\s*0/);
-  assert.match(segmentBlock, /box-shadow:\s*none/);
-  const buttonBlock = css.match(/\.tasksCalendar \.tc-segmented button\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(buttonBlock, "task calendar segmented button style should exist");
-  assert.match(buttonBlock, /border:\s*0/);
-  assert.match(buttonBlock, /background:\s*transparent/);
-  assert.match(buttonBlock, /background-image:\s*none/);
-  assert.match(buttonBlock, /height:\s*var\(--noria-panel-segment-height,\s*28px\)/);
-  assert.match(buttonBlock, /font-size:\s*var\(--noria-panel-segment-font-size,\s*13px\)/);
-  assert.match(buttonBlock, /font-weight:\s*(?:var\(--noria-panel-segment-weight,\s*)?650/);
-  assert.doesNotMatch(buttonBlock, /border-right/);
-  const labelBlock = css.match(/\.tasksCalendar \.tc-segmented button \.tc-btn-label\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(labelBlock, "segmented button label should inherit panel-level typography");
-  assert.match(labelBlock, /font-size:\s*inherit/);
-  assert.match(labelBlock, /font-weight:\s*inherit/);
-  const activeBlock = css.match(/\.tasksCalendar\[view='month'\] \.tc-segmented button\.monthView,[\s\S]*?\.tasksCalendar\[view='list'\] \.tc-segmented button\.listView\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(activeBlock, "task calendar active segmented style should exist");
-  assert.match(activeBlock, /font-weight:\s*(?:var\(--noria-panel-segment-active-weight,\s*)?720/);
-  const eisenBlock = css.match(/\.tasksCalendar \.tc-eisen-granularity\.tc-segmented \.tc-eisen-gran-btn\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(eisenBlock, "Eisenhower segmented button style should exist");
-  assert.match(eisenBlock, /font-weight:\s*(?:var\(--noria-panel-segment-weight,\s*)?650/);
-  const eisenListButtonBlocks = Array.from(css.matchAll(
-    /\.tasksCalendar\[view='list'\] \.tc-toolbar-planner-slot \.tc-eisen-granularity\.tc-segmented button\s*\{[\s\S]*?\n\}/g
-  ), (match) => match[0]);
-  assert.ok(eisenListButtonBlocks.length > 0, "list-view Eisenhower button styles should exist");
-  eisenListButtonBlocks.forEach((block) => {
-    assert.match(block, /height:\s*(?:var\(--noria-panel-segment-height,\s*)?28px/);
-    assert.doesNotMatch(block, /height:\s*32px/);
-  });
-  const plannerButtonBlock = css.match(/\.tasksCalendar \.buttons button\.tc-toolbar-planner,\s*\n\.tasksCalendar \.tc-planner-axis-toggle\.tc-toolbar-planner\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(plannerButtonBlock, "planner toolbar auxiliary button style should exist");
-  assert.match(plannerButtonBlock, /height:\s*var\(--noria-panel-segment-height,\s*28px\)/);
-  assert.match(plannerButtonBlock, /font-size:\s*var\(--noria-panel-segment-aux-font-size,\s*12\.5px\)/);
-  assert.match(plannerButtonBlock, /font-weight:\s*var\(--noria-panel-segment-aux-weight,\s*620\)/);
-  assert.match(plannerButtonBlock, /background:\s*transparent/);
+test("task calendar quadrant scope is visible only in its view and keeps the selected period", () => {
+ const runtime=fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"),"utf8"),control={style:{},value:''};let view='list';
+ const c=vm.createContext({eisenhowerGranularity:'month',rootNode:{querySelector:()=>control,getAttribute:()=>view}});
+ const start=runtime.indexOf('function paintEisenhowerGranularityUI()'),end=runtime.indexOf('\n/**',start);vm.runInContext(runtime.slice(start,end),c);
+ c.paintEisenhowerGranularityUI();assert.equal(control.value,'month');assert.equal(control.style.display,'block');
+ view='day';c.paintEisenhowerGranularityUI();assert.equal(control.style.display,'none');assert.equal(control.value,'month');
+ view='list';c.eisenhowerGranularity='year';c.paintEisenhowerGranularityUI();assert.equal(control.value,'year');
 });
 
 test("task calendar toolbar actions expose stable diagnostics metadata", () => {
@@ -4153,44 +4096,44 @@ test("task calendar toolbar actions expose stable diagnostics metadata", () => {
   assert.match(css, /\.theme-dark \.tasksCalendar \.buttons button\[data-noria-action-state="failed"\]/);
 });
 
-test("task board week navigation follows firstDayOfWeek independently of Moment locale", () => {
-  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
-  const todayStart = runtime.indexOf("function navigatePeriodToToday()");
-  const todayEnd = runtime.indexOf("function noriaTcMoreCompositeForCal", todayStart);
-  const todayBlock = runtime.slice(todayStart, todayEnd);
+// Calendar examples below use independent UTC Date arithmetic, not Moment's week rules.
+function calendarNavigationFixture() {
+ const runtime=fs.readFileSync(pluginPath('views/tasks-calendar/runtime-core.js'),'utf8');
+ function moment(value) {
+  const text=String(value||'2026-10-17 23:30');
+  const d=value&&typeof value==='object'?new Date(+value):new Date(text.replace(' ','T')+(text.length===10?'T00:00:00Z':'Z'));
+  const api={valueOf:()=>+d,clone:()=>moment(api),day:()=>d.getUTCDay(),format:()=>d.toISOString().slice(0,10),
+   add(n){d.setUTCDate(d.getUTCDate()+n);return api;},subtract(n){return api.add(-n);},
+   startOf(unit){d.setUTCHours(0,0,0,0);if(unit==='month')d.setUTCDate(1);if(unit==='year')d.setUTCMonth(0,1);return api;},
+   endOf(unit){if(unit==='month')d.setUTCMonth(d.getUTCMonth()+1,0);if(unit==='year')d.setUTCMonth(11,31);return api;},
+   date(n){if(n===undefined)return d.getUTCDate();d.setUTCDate(n);return api;}};return api;
+ }
+ const renders=[],c=vm.createContext({moment,firstDayOfWeek:1,taskCalendarZone:{now:()=> '2026-10-18 00:30'},bridgeCfg:{locale:'zh-CN',dateControls:require('../src/date-control-model.js')},
+  tasks:[],rootNode:{getAttribute:()=> 'week',classList:{add(){},remove(){}},querySelector:()=>null},
+  getWrapperTimelineCompat:()=>({}),toBoolOr:(v,f)=>v===undefined?f:v,tcFeatureFlags:{dayView:true},tcTaskTimelineMode:false,
+  getWeek:(_tasks,date)=>renders.push(date.format('YYYY-MM-DD')),requestAnimationFrame:fn=>fn()});
+ for(const [start,end] of [
+  ['function calendarNow()','var tasksCalendarRuntimeBuildId'],['function tasksCalendarRuntimeLocale()','function enMonthName'],
+  ['function taskCalendarConfiguredWeekStart(value)','if (startPosition)'],['function taskCalendarDateHeading(anchor, period)','function applyNavigationFromPickedYmd'],
+  ['function navigatePeriodToToday()','function noriaTcMoreCompositeForCal']]) {
+  const a=runtime.indexOf(start),b=runtime.indexOf(end,a);assert.ok(a>=0&&b>a);vm.runInContext(runtime.slice(a,b),c);
+ }return {c,renders};
+}
 
-  assert.match(runtime, /function taskCalendarConfiguredWeekStart\(value\)/);
-  assert.match(runtime, /var delta = \(anchor\.day\(\) - firstDay \+ 7\) % 7/);
-  assert.match(todayBlock, /selectedDate = taskCalendarConfiguredWeekStart\(moment\(\)\)/);
-  assert.doesNotMatch(todayBlock, /startOf\("isoWeek"\)|startOf\("week"\)/);
-  assert.match(runtime, /selectedWeek = taskCalendarConfiguredWeekStart\(moment\(\)\)/);
+test("task board week navigation follows the display date and configured first weekday", () => {
+ const {c,renders}=calendarNavigationFixture();c.navigatePeriodToToday();assert.deepEqual(renders,['2026-10-12']);
+ c.firstDayOfWeek=0;c.navigatePeriodToToday();assert.equal(renders.at(-1),'2026-10-18');
+ c.firstDayOfWeek=1;c.taskCalendarZone.now=()=> '2027-01-01 00:30';c.navigatePeriodToToday();assert.equal(renders.at(-1),'2026-12-28');
+ c.taskCalendarZone=null;c.firstDayOfWeek=0;c.navigatePeriodToToday();assert.equal(renders.at(-1),'2026-10-11');
 });
 
-test("task board period titles follow the Noria runtime locale", () => {
-  const runtime = fs.readFileSync(pluginPath("views/tasks-calendar/runtime-core.js"), "utf8");
-  const weekStart = runtime.indexOf("function applyWeekCurrentTitle(week)");
-  const weekEnd = runtime.indexOf("function applyDayCurrentTitle(day)", weekStart);
-  const weekBlock = runtime.slice(weekStart, weekEnd);
-  const dayEnd = runtime.indexOf("function unbindPlannerChromeNowNeedleListeners", weekEnd);
-  const dayBlock = runtime.slice(weekEnd, dayEnd);
-  const monthStart = runtime.indexOf("function getMonth(tasks, month)");
-  const monthEnd = runtime.indexOf("function ", monthStart + 30);
-  const monthBlock = runtime.slice(monthStart, monthEnd);
-
-  assert.match(runtime, /function tasksCalendarRuntimeLocale\(\)/);
-  assert.match(runtime, /bridgeCfg\.locale[\s\S]*bridgeCfg\.i18n\.locale/);
-  assert.match(runtime, /function formatTasksCalendarWeekTitle\(week\)/);
-  assert.match(runtime, /wb\.start\.clone\(\)\.add\(3,\s*"days"\)\.isoWeek\(\)/);
-  assert.match(runtime, /function formatTasksCalendarDayTitle\(day\)/);
-  assert.match(runtime, /function formatTasksCalendarMonthTitle\(month\)/);
-  assert.match(weekBlock, /formatTasksCalendarWeekTitle\(week\)/);
-  assert.match(dayBlock, /formatTasksCalendarDayTitle\(day\)/);
-  assert.match(monthBlock, /formatTasksCalendarMonthTitle\(month\)/);
-  assert.match(runtime, /locale === "zh-CN"/);
-  assert.match(runtime, /enMonthName/);
-  const titleFormatterStart = runtime.indexOf("function formatTasksCalendarWeekTitle(week)");
-  const titleFormatterEnd = runtime.indexOf("function formatTasksCalendarDayTitle(day)", titleFormatterStart);
-  assert.doesNotMatch(runtime.slice(titleFormatterStart, titleFormatterEnd), /format\("\[W\]w"\)/);
+test("task board period titles use shared headings, locale and exact week bounds", () => {
+ const {c}=calendarNavigationFixture();
+ assert.equal(c.taskCalendarDateHeading('2026-10-18','week'),"<span class='current-main'>2026年10月</span><span class='current-sub'>12–18日</span>");
+ assert.equal(c.taskCalendarDateHeading('2027-01-01','week'),"<span class='current-main'>2026–2027</span><span class='current-sub'>12/28–1/3</span>");
+ assert.equal(c.taskCalendarDateHeading('2026-10-14','day'),"<span class='current-main'>10月14日</span><span class='current-sub'>周三 · 2026</span>");
+ c.bridgeCfg.locale='en';assert.equal(c.taskCalendarDateHeading('2026-10-14','month'),"<span class='current-main'>Oct</span><span class='current-sub'>2026</span>");
+ assert.equal(c.taskCalendarDateHeading('2026-10-18','week'),"<span class='current-main'>Oct 2026</span><span class='current-sub'>12–18</span>");
 });
 
 test("task board deferred title work cannot overwrite a newer view", () => {

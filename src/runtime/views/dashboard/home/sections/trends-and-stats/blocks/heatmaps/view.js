@@ -427,48 +427,29 @@ const longestStreak = (m) => {
   }
   return max;
 };
-const renderBottomStats = (parent, m, showPeakValues = true) => {
+const heatmapText = (zh, en) => /^zh/.test(bridge.locale || bridge.i18n?.locale || '') ? zh : en;
+const renderBottomStats = (parent, m, showPeakValues = true, unit = '') => {
   parent.empty();
   parent.className = "dashboard-heatmap-bottom-stats";
-  parent.style.cssText = "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:auto auto;gap:3px 8px;align-items:baseline;margin-top:4px;padding:0 2px;min-width:0;";
-  const statAccent = "color-mix(in srgb,var(--dash-heatmap-habit-level-5,#42bd95) 78%,var(--interactive-accent,#2563eb) 22%)";
-  const formatStatParts = (value) => {
-    if (value && typeof value === "object") return value;
-    const raw = String(value || heatmapT("runtime.home.trends.none"));
-    const streakMatch = raw.match(new RegExp("^(\\d+)\\s*(" + heatmapT("runtime.home.trends.dayUnit").replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")$"));
-    if (streakMatch) return { main: "", metric: streakMatch[1], unit: streakMatch[2] };
-    return { main: raw, metric: "", unit: "" };
-  };
   const items = [
     [heatmapT("runtime.home.trends.activeMonth"), activeMonth(m)],
     [heatmapT("runtime.home.trends.activeDay"), activeDay(m)],
-    [heatmapT("runtime.home.trends.longestStreak"), `${longestStreak(m)} ${heatmapT("runtime.home.trends.dayUnit")}`],
-    [heatmapT("runtime.home.trends.currentStreak"), `${calcStreak(m)} ${heatmapT("runtime.home.trends.dayUnit")}`]
+    [heatmapT("runtime.home.trends.longestStreak"), {metric: String(longestStreak(m)), unit: heatmapT("runtime.home.trends.dayUnit")}],
+    [heatmapT("runtime.home.trends.currentStreak"), {metric: String(calcStreak(m)), unit: heatmapT("runtime.home.trends.dayUnit")}]
   ];
-  if (!showPeakValues) items.slice(0, 2).forEach(([, value]) => { value.metric = ''; value.unit = ''; });
-  items.forEach(([label], index) => {
-    const labelEl = parent.createDiv({ text: label });
-    labelEl.style.cssText = `grid-column:${index + 1};grid-row:1;text-align:center;font-size:.72em;font-weight:650;color:var(--text-muted);white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;`;
-  });
   items.forEach(([label, value], index) => {
-    const valueEl = parent.createDiv();
-    valueEl.style.cssText = `grid-column:${index + 1};grid-row:2;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:baseline;gap:3px;text-align:center;font-size:.8em;font-weight:760;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:0;overflow:visible;color:var(--text-normal);`;
-    const parts = formatStatParts(value);
-    if (parts.main && parts.metric) {
-      valueEl.createEl("span", { text: parts.main }).style.cssText = "grid-column:2;color:var(--text-normal);min-width:0;text-align:center;";
-      const metricGroup = valueEl.createEl("span");
-      metricGroup.style.cssText = "grid-column:3;justify-self:start;display:inline-flex;align-items:baseline;gap:3px;min-width:0;";
-      metricGroup.createEl("span", { text: "·" }).style.cssText = "color:var(--text-faint);font-weight:650;";
-      metricGroup.createEl("span", { text: parts.metric }).style.cssText = `color:${statAccent};font-weight:820;`;
-      if (parts.unit) metricGroup.createEl("span", { text: parts.unit }).style.cssText = "color:var(--text-muted);font-weight:650;";
-    } else if (parts.metric) {
-      const centered = valueEl.createEl("span");
-      centered.style.cssText = "grid-column:1 / span 3;justify-self:center;display:inline-flex;align-items:baseline;gap:3px;";
-      centered.createEl("span", { text: parts.metric }).style.cssText = "color:var(--text-normal);font-weight:820;";
-      if (parts.unit) centered.createEl("span", { text: parts.unit }).style.cssText = "color:var(--text-muted);font-weight:650;";
-    } else {
-      valueEl.createEl("span", { text: parts.main || heatmapT("runtime.home.trends.none") }).style.cssText = "grid-column:1 / span 3;justify-self:center;min-width:0;overflow:hidden;text-overflow:ellipsis;";
+    const parts = {...value};
+    if (index < 2) { parts.unit = unit; if (!showPeakValues) parts.metric = ''; }
+    const item = parent.createDiv({cls:'noria-heatmap-stat'});
+    const readout = item.createDiv({cls:'noria-heatmap-stat-value'});
+    if (parts.main) readout.createSpan({text:parts.main});
+    if (parts.metric) {
+      if (parts.main) readout.createSpan({cls:'noria-heatmap-stat-separator',text:'·'});
+      const number=readout.createSpan({cls:'noria-heatmap-stat-number',text:parts.metric});
+      if (parts.unit) number.createSpan({cls:'noria-heatmap-stat-unit',text:' '+parts.unit});
     }
+    item.createDiv({cls:'noria-heatmap-stat-label',text:label});
+    item.title=label+' · '+readout.textContent;
   });
 };
 const createChartRow = (parent) => {
@@ -482,16 +463,25 @@ const createChartRow = (parent) => {
 const wrap = root.createDiv();
 wrap.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr));gap:10px;width:100%;margin-bottom:8px;";
 if (heatmapMode !== 'all') { wrap.style.height = '100%'; wrap.style.marginBottom = '0'; wrap.style.gridTemplateRows = 'minmax(0,1fr)'; }
-const heatmapModeButtonBase =
-  "appearance:none;-webkit-appearance:none;min-height:28px;height:28px;padding:0 9px;border:0;border-radius:8px;box-shadow:none;outline:none;font-size:13px;line-height:1;letter-spacing:0;";
-const setHeatmapModeButton = (b, active) => {
-  const isActive = active === true;
-  try { b.setAttribute("aria-pressed", isActive ? "true" : "false"); } catch (_) {}
-  try { b.classList.add("dashboard-heatmap-mode-button"); } catch (_) {}
-  try { b.classList.toggle("is-active", isActive); } catch (_) {}
-  b.style.cssText = isActive
-    ? `${heatmapModeButtonBase}background:color-mix(in srgb,var(--interactive-accent) 14%,var(--background-primary));color:var(--text-normal);font-weight:720;`
-    : `${heatmapModeButtonBase}background:transparent;color:var(--text-muted);font-weight:650;`;
+// Keep one choice across tabs and the compact native picker; width only changes its presentation.
+const createModePicker = (bar, options, initial, onChange) => {
+  const tabs=bar.createDiv({cls:'noria-heatmap-tabs'});
+  const select=bar.createEl('select',{cls:'noria-heatmap-select',attr:{'aria-label':heatmapText('选择统计项目','Choose metric')}});
+  const buttons=new Map();let selected=initial,frame=0;
+  const choose=mode=>{selected=mode;select.value=mode;buttons.forEach((button,key)=>{button.classList.toggle('is-active',key===mode);button.setAttribute('aria-pressed',String(key===mode));});onChange(mode);};
+  for(const {mode,label} of options){
+    const button=tabs.createEl('button',{cls:'dashboard-heatmap-mode-button',text:label,attr:{type:'button',title:mode}});
+    buttons.set(mode,button);button.onclick=()=>choose(mode);
+    select.createEl('option',{value:mode,text:label});
+  }
+  select.onchange=()=>choose(select.value);
+  const fit=()=>{if(!bar.isConnected||!bar.clientWidth)return;const compact=tabs.scrollWidth>bar.clientWidth+1;
+    const active=bar.ownerDocument.activeElement,restore=compact?tabs.contains(active):active===select;
+    bar.dataset.compact=String(compact);tabs.inert=compact;select.hidden=!compact;
+    if(restore)(compact?select:buttons.get(selected))?.focus({preventScroll:true});};
+  const observer=new ResizeObserver(()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(fit);});observer.observe(bar);
+  input?.registerCleanup?.(()=>{observer.disconnect();if(frame)cancelAnimationFrame(frame);});
+  choose(initial);frame=requestAnimationFrame(fit);
 };
 if (showHabit) {
 const habitCard = wrap.createDiv();
@@ -511,8 +501,7 @@ const habitBar = habitHeadLeft.createDiv();
 habitBar.addClass('noria-home-heatmap-modes');
 const { host: habitChart } = createChartRow(habitCard);
 const habitBottomStats = habitCard.createDiv();
-const habitNames = Object.keys(byHabit).sort((a, b) => a.localeCompare(b, "zh-CN")),
-  habitBtnRefs = [];
+const habitNames = Object.keys(byHabit).sort((a, b) => a.localeCompare(b, "zh-CN"));
 const drawHabit = (mode) => {
   habitChart.empty();
   const map = mode === MODE_OVERVIEW ? habitTotalMap : byHabit[mode] || {};
@@ -521,19 +510,9 @@ const drawHabit = (mode) => {
     tooltip: (date, rawValue) => `${date} · ${MODE_CHECKINS} ${rawValue}`,
     valueLabel: (_date, rawValue) => `${MODE_CHECKINS} ${rawValue}`
   });
-  renderBottomStats(habitBottomStats, map);
-  habitBtnRefs.forEach((x) => setHeatmapModeButton(x.btn, x.mode === mode));
+  renderBottomStats(habitBottomStats, map, true, heatmapText('次','checks'));
 };
-const mkHabitBtn = (mode, active) => {
-  const b = habitBar.createEl("button", { text: mode });
-  b.type = "button";
-  b.onclick = () => drawHabit(mode);
-  habitBtnRefs.push({ mode, btn: b });
-  setHeatmapModeButton(b, !!active);
-};
-mkHabitBtn(MODE_OVERVIEW, true);
-habitNames.forEach((h) => mkHabitBtn(h, false));
-drawHabit(MODE_OVERVIEW);
+createModePicker(habitBar,[MODE_OVERVIEW,...habitNames].map(mode=>({mode,label:mode})),MODE_OVERVIEW,drawHabit);
 }
 
 if (showWorkload) {
@@ -563,25 +542,16 @@ const definitions = {
   [MODE_TASKS]: heatmapT('runtime.home.trends.completedDefinition'),
   [MODE_WORDS]: heatmapT('runtime.home.trends.charactersDefinition')
 };
-const btnRefs = [];
 const workStatMap = (mode) => mode === MODE_ACTIVITY ? maps[mode] || {} : workEntryOptions[mode]?.rawMap || maps[mode] || {};
 const draw = (mode) => {
   chart.empty();
   renderNativeHeatmap(chart, maps[mode] || {}, "work", workEntryOptions[mode] || {});
-  renderBottomStats(workBottomStats, workStatMap(mode), mode !== MODE_ACTIVITY);
+  const unit=mode===MODE_WORDS?heatmapText('字','chars'):mode===MODE_NEW_NOTES?heatmapText('篇','notes'):heatmapText('项','tasks');
+  renderBottomStats(workBottomStats, workStatMap(mode), mode !== MODE_ACTIVITY, unit);
   definitionText.textContent = definitions[mode];
   const undated = Number(statsSnapshot?.domains?.tasks?.completion?.undatedCompleted || 0);
   if (mode === MODE_TASKS && undated) definitionText.textContent += ' ' + heatmapT('runtime.home.trends.undatedDefinition', { count: undated });
-  btnRefs.forEach((x) => setHeatmapModeButton(x.btn, x.mode === mode));
 };
-[MODE_ACTIVITY, MODE_NEW_NOTES, MODE_TASKS, MODE_WORDS].forEach((mode, i) => {
-  const label = [MODE_OVERVIEW, heatmapT("runtime.home.trends.notesShort"), heatmapT("runtime.home.trends.tasksShort"), heatmapT("runtime.home.trends.wordsShort")][i];
-  const b = bar.createEl("button", { text: label, attr: {title: mode, "aria-label": mode} });
-  b.type = "button";
-  b.onclick = () => draw(mode);
-  btnRefs.push({ mode, btn: b });
-  setHeatmapModeButton(b, i === 0);
-});
-draw(MODE_ACTIVITY);
+createModePicker(bar,[MODE_ACTIVITY, MODE_NEW_NOTES, MODE_TASKS, MODE_WORDS].map((mode,i)=>({mode,label:[MODE_OVERVIEW,heatmapT("runtime.home.trends.notesShort"),heatmapT("runtime.home.trends.tasksShort"),heatmapT("runtime.home.trends.wordsShort")][i]})),MODE_ACTIVITY,draw);
 }
 })();

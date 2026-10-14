@@ -3,15 +3,12 @@ const {SuggestModal,Modal,Menu,Notice}=require('obsidian');
 const {Shortcuts,key}=require('./shortcuts.js');
 const {iconButton}=require('./card-controls.js');
 const {renderPicture,pictureField}=require('./picture-picker.js');
-const {mediaTypes}=require('./media-catalog.js');
-const {coverSource}=require('./media-card.js');
-const {bindCoverImage,watchCoverImages}=require('./media-cover.js');
-const {readingTarget}=require('./media-workspace-model.js');
-const {openReading,openMediaLink}=require('./media-access.js');
+const media=require('./media-feature.js');
+const {readingTarget,openVaultLink}=require('./link-target.js');
 const t=plugin=>(zh,en)=>plugin.getNoriaLocale()==='zh'?zh:en;
 const run=fn=>void Promise.resolve().then(fn).catch(e=>new Notice(e.message));
 function fileEntry(plugin,file){
- const cache=plugin.app.metadataCache.getFileCache(file),types=file.extension==='md'?mediaTypes(cache?.frontmatter||{},(cache?.tags||[]).map(e=>e.tag)).types:[];
+ const cache=plugin.app.metadataCache.getFileCache(file),types=file.extension==='md'?(media?.types(cache?.frontmatter||{},(cache?.tags||[]).map(e=>e.tag)).types||[]):[];
  return {kind:types.length?'media':'file',target:file.path};
 }
 function describe(plugin,entry){
@@ -20,9 +17,9 @@ function describe(plugin,entry){
  if(entry.kind==='url'){let title=entry.target;try{title=new URL(entry.target).hostname||entry.target;}catch{}return {title:entry.title||title,picture:entry.picture||'link'};}
  const file=plugin.app.metadataCache.getFirstLinkpathDest(entry.target.split('#')[0],'');
  const fm=file?plugin.app.metadataCache.getFileCache(file)?.frontmatter||{}:{};
- const kind=mediaTypes(fm).types[0];
+ const kind=media?.types(fm).types[0];
  return {title:entry.title||fm.title||file?.basename||entry.target.split('/').at(-1),picture:entry.picture||({base:'table',canvas:'layout-dashboard',pdf:'file-text'})[file?.extension]||({book:'book-open',movie:'film',music:'disc-3',game:'gamepad-2'})[kind]||'file-text',
-  image:!entry.picture&&file?coverSource(plugin,{path:file.path,properties:fm}):'',missing:!file};
+  image:!entry.picture&&file?media?.coverSource(plugin,{path:file.path,properties:fm}):'',missing:!file};
 }
 class ShortcutPicker extends SuggestModal {
  constructor(plugin,choose){super(plugin.app);this.plugin=plugin;this.choose=choose;this.text=t(plugin);this.setPlaceholder(this.text('搜索笔记、页面，或粘贴链接','Find a note or page, or paste a link'));}
@@ -53,17 +50,17 @@ async function openShortcut(plugin,entry){
  if(entry.kind==='url'){const link=readingTarget(entry.target);if(link?.type!=='url')throw Error('Invalid link');window.open(link.value,'_blank','noopener');return;}
  if(entry.kind==='page'){if(!plugin.cards.pages.get(entry.target))throw Error(t(plugin)('页面已移除，请更换入口。','Page removed; choose another destination.'));const leaf=await plugin.openDashboardHomeLeaf(false);await leaf.view.workbench.show(entry.target);return;}
  if(!plugin.app.metadataCache.getFirstLinkpathDest(entry.target.split('#')[0],''))throw Error(t(plugin)('文件已移动或删除，请更换入口。','File unavailable; choose another destination.'));
- if(entry.kind==='media'){
+ if(entry.kind==='media'&&media){
   let opened;
-  try{opened=await openReading(plugin,entry.target);}
-  catch(error){if(error.code!=='media-destination')throw error;await require('./media-workspace.js').openWork(plugin,entry.target,false,error.message);return;}
-  if(!opened)await require('./media-workspace.js').openWork(plugin,entry.target);return;
+  try{opened=await media.openReading(plugin,entry.target);}
+  catch(error){if(error.code!=='media-destination')throw error;await media.openWork(plugin,entry.target,false,error.message);return;}
+  if(!opened)await media.openWork(plugin,entry.target);return;
  }
- await openMediaLink(plugin,entry.target,'');
+ await openVaultLink(plugin,entry.target,'');
 }
 function registerShortcutCard(system){
  const plugin=system.plugin,text=t(plugin),store=plugin.shortcuts=new Shortcuts(plugin);
- system.register({id:'noria:shortcuts',title:text('快捷入口','Shortcuts'),icon:'bookmark',fields:[],description:text('把作品、笔记、页面和链接放在手边。','Keep works, notes, pages and links at hand.'),
+ system.register({id:'noria:shortcuts',title:text('快捷入口','Shortcuts'),icon:'bookmark',fields:[],description:media?text('把作品、笔记、页面和链接放在手边。','Keep works, notes, pages and links at hand.'):text('把笔记、页面和链接放在手边。','Keep notes, pages and links at hand.'),
   render:async({container,component})=>{
    await system.ready;let disposed=false,timer;container.addClass('noria-shortcuts');
    const toolbar=container.createDiv({cls:'noria-shortcut-tools'}),plus=iconButton(toolbar,'plus',text('添加快捷入口','Add shortcut'),()=>new ShortcutPicker(plugin,entry=>store.put(entry)).open());
@@ -74,10 +71,10 @@ function registerShortcutCard(system){
     for(const entry of entries){const value=describe(plugin,entry),id=key(entry),tile=grid.createDiv({cls:'noria-shortcut'});tile.dataset.shortcut=id;tile.draggable=true;tile.classList.toggle('is-unavailable',!!value.missing);
      const button=tile.createEl('button',{cls:'noria-shortcut-open',attr:{type:'button',title:value.title,'aria-label':value.title}}),art=button.createSpan({cls:'noria-shortcut-art',attr:{'aria-hidden':'true'}});
      renderPicture(plugin,art,value.picture);
-     bindCoverImage(art,()=>describe(plugin,entry).image,{loadedClass:'has-image'});
+     media?.bindCoverImage(art,()=>describe(plugin,entry).image,{loadedClass:'has-image'});
      button.createSpan({cls:'noria-shortcut-name',text:value.title});button.onclick=()=>run(()=>openShortcut(plugin,entry));
      const actions=tile.createDiv({cls:'noria-shortcut-actions'});
-     if(entry.kind==='media')iconButton(actions,'notebook-pen',text('笔记与记录','Notes & entries'),()=>run(()=>require('./media-workspace.js').openWork(plugin,entry.target,true)));
+     if(entry.kind==='media'&&media)iconButton(actions,'notebook-pen',text('笔记与记录','Notes & entries'),()=>run(()=>media.openWork(plugin,entry.target,true)));
      const showMenu=event=>{event?.preventDefault();tile.addClass('is-menu-open');more.setAttribute('aria-expanded','true');const menu=new Menu();menu.addItem(i=>i.setTitle(text('编辑入口','Edit shortcut')).setIcon('pencil').onClick(()=>new ShortcutEditor(plugin,entry).open()));
       const index=entries.findIndex(e=>key(e)===id);for(const [step,label,icon]of[[-1,text('前移','Move earlier'),'arrow-left'],[1,text('后移','Move later'),'arrow-right']])menu.addItem(i=>i.setTitle(label).setIcon(icon).setDisabled(!entries[index+step]).onClick(()=>run(()=>store.move(id,key(entries[index+step])))));
       menu.addItem(i=>i.setTitle(text('移出快捷入口','Remove shortcut')).setIcon('minus-circle').onClick(()=>run(()=>store.remove(id))));const r=more.getBoundingClientRect();menu.onHide(()=>{tile.removeClass('is-menu-open');more.setAttribute('aria-expanded','false');if(more.isConnected)more.focus({preventScroll:true});});menu.showAtPosition({x:event?.type==='contextmenu'?event.clientX:r.left,y:event?.type==='contextmenu'?event.clientY:r.bottom});};
@@ -86,7 +83,7 @@ function registerShortcutCard(system){
     }
     if(focused){const tiles=[...grid.querySelectorAll('[data-shortcut]')],next=tiles.find(e=>e.dataset.shortcut===focused)||tiles[Math.min(position,tiles.length-1)];next?.querySelector('button')?.focus({preventScroll:true});}
    };
-   const refresh=()=>{clearTimeout(timer);timer=setTimeout(paint,180);};component.register(store.subscribe(paint));component.register(system.pages.subscribe(refresh));component.registerEvent(plugin.app.metadataCache.on('changed',refresh));component.registerEvent(plugin.app.vault.on('delete',file=>{if(!/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(file.path))refresh();}));watchCoverImages(plugin,component,container);component.register(()=>{disposed=true;clearTimeout(timer);});paint();
+   const refresh=()=>{clearTimeout(timer);timer=setTimeout(paint,180);};component.register(store.subscribe(paint));component.register(system.pages.subscribe(refresh));component.registerEvent(plugin.app.metadataCache.on('changed',refresh));component.registerEvent(plugin.app.vault.on('delete',file=>{if(!/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(file.path))refresh();}));media?.watchCoverImages(plugin,component,container);component.register(()=>{disposed=true;clearTimeout(timer);});paint();
   }});
 }
 module.exports={registerShortcutCard,openShortcut,describe};

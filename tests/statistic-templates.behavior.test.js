@@ -5,12 +5,12 @@ const en=(zh,en)=>en;
 test('every distinct style has a compatible complete default, using configured fields when available',()=>{
  const fields=[{id:'mood',name:'Mood',property:'feeling',type:'option'},{id:'energy',name:'Energy',property:'energy_level',type:'level'}];
  const {styles,recommended}=builtInTemplates(fields,en);
- assert.equal(styles.length,13);assert.equal(new Set(styles.map(t=>t.props.display)).size,13);
+ assert.equal(styles.length,12);assert.equal(new Set(styles.map(t=>t.props.display)).size,12);
  assert.deepEqual(styles.map(t=>t.props.display),STYLES.map(t=>t[0]));
  for(const t of styles){const p=t.props,field=fields.find(f=>f.property===p.property);assert.ok(chartOptions(p,field).includes(p.display),t.id);assert.ok(p.source&&p.calculate&&p.scope);}
  assert.equal(styles.find(t=>t.style==='line').props.property,'energy_level');
- assert.equal(styles.find(t=>t.style==='states').props.property,'feeling');assert.ok(recommended.some(t=>t.props.source==='habits'));
- const empty=builtInTemplates([],en).styles;assert.equal(empty.find(t=>t.style==='line').props.source,'tasks');assert.equal(empty.find(t=>t.style==='states').props.property,'');
+ assert.equal(styles.find(t=>t.style==='calendar').props.property,'feeling');assert.ok(recommended.some(t=>t.props.source==='habits'));
+ const empty=builtInTemplates([],en).styles;assert.equal(empty.find(t=>t.style==='line').props.source,'tasks');assert.equal(empty.find(t=>t.style==='calendar').props.property,'');
 });
 test('saved templates copy data configuration and picture but do not copy placement identity or manual height',()=>{
  const widget={id:'card-original',type:'extension',source:'noria:statistics',size:'wide',props:{source:'notes',folder:'Projects',display:'trend',calculate:'sum',property:'hours',scope:'fixed',start:'2026-09-01',end:'2026-09-29',picture:'lucide:timer',cardHeight:420}};
@@ -32,7 +32,9 @@ test('dashboard templates preserve the existing renderer when replacing a generi
  const defaults=[{id:'note-trend-card',type:'builtin',source:'trends-and-stats',size:'wide',props:{renderMode:'block',block:'note-trend',lazy:true}},{id:'inbox-card',type:'builtin',source:'overview-columns',props:{}}];
  const templates=dashboardTemplates(defaults,en);assert.equal(templates.length,1);
  const prior={id:'card-existing',order:7,type:'extension',source:'noria:statistics',props:{property:'energy'}};
- const result=widgetFromTemplate(templates[0],prior);assert.equal(result.id,prior.id);assert.equal(result.order,7);assert.equal(result.type,'builtin');assert.equal(result.builtinId,'note-trend-card');assert.equal(result.source,'trends-and-stats');assert.deepEqual(result.props,defaults[0].props);
+ const original=templates[0];assert.equal(original.style,'combo');
+ const result=widgetFromTemplate(original,prior);assert.equal(result.id,prior.id);assert.equal(result.order,7);assert.equal(result.type,'builtin');assert.equal(result.builtinId,'note-trend-card');assert.equal(result.source,'trends-and-stats');assert.deepEqual(result.props,defaults[0].props);
+ assert.equal(templateFromWidget(result,'Note trend').style,'combo');
  result.props.block='task-trend';assert.equal(defaults[0].props.block,'note-trend');assert.equal(templates[0].props.block,'note-trend');
  const back=widgetFromTemplate(builtInTemplates([],en).styles[0],result);assert.equal(back.id,prior.id);assert.equal(back.source,'noria:statistics');assert.equal(back.builtinId,undefined);assert.equal(back.props.block,undefined);
 });
@@ -50,4 +52,37 @@ test('overview templates retain their provider and independent placements',()=>{
  const saved=templateFromWidget({type:'extension',source:'noria:period-overview',size:'full',props:{row1:'focus',row2:'habits',scope:'fixed',start:'2026-01-01',end:'2026-12-31'}},'概览','overview');
  assert.equal(saved.kind,'overview');const widget=widgetFromTemplate(saved,{id:'new-overview'},true);
  assert.equal(widget.source,'noria:period-overview');assert.equal(widget.props.scope,'follow');assert.equal(widget.size,'full');
+});
+
+test('registered domain statistics expose reusable presets without including non-statistical cards',()=>{
+ const {providerTemplates,isStatistic}=require('../src/statistic-templates.js');
+ const providers=new Map([
+  ['health:sleep',{id:'health:sleep',title:'Sleep',icon:'moon',statistics:{topic:'health',style:'line',recommended:true,props:{days:30}}}],
+  ['health:editor',{id:'health:editor',title:'Edit records'}]
+ ]);
+ const templates=providerTemplates(providers);assert.equal(templates.length,1);assert.equal(templates[0].source,'health:sleep');
+ templates[0].props.days=7;assert.equal(providers.get('health:sleep').statistics.props.days,30);
+ assert.equal(isStatistic({type:'extension',source:'health:sleep'},providers),true);
+ assert.equal(isStatistic({type:'extension',source:'health:editor'},providers),false);
+ assert.deepEqual(providerTemplates(new Map()),[]);
+});
+
+test('domain templates preserve their provider configuration and do not reinterpret diary scope',async()=>{
+ const providers=new Map([['health:sleep',{id:'health:sleep',icon:'moon',statistics:{topic:'health',style:'line'}}]]);
+ let disk;const plugin={settings:{},cards:{providers},async saveSettings(){disk=structuredClone(this.settings);}};
+ const widget={id:'sleep-card',type:'extension',source:'health:sleep',size:'wide',props:{metric:'sleepStages',days:365,display:'trend',scope:'own',cardHeight:240}};
+ const saved=await new StatisticTemplates(plugin).save(widget,'Sleep stages');
+ const loaded=new StatisticTemplates({settings:disk}).read()[0];assert.deepEqual(loaded,saved);assert.equal(loaded.kind,'provider');
+ const reused=widgetFromTemplate(loaded,{id:'replacement',order:8},true);
+ assert.equal(reused.source,'health:sleep');assert.equal(reused.id,'replacement');assert.equal(reused.order,8);
+ assert.deepEqual(reused.props,{metric:'sleepStages',days:365,display:'trend',scope:'own'});
+ reused.props.metric='duration';assert.equal(loaded.props.metric,'sleepStages');assert.equal(widget.props.cardHeight,240);
+ providers.clear();assert.equal(new StatisticTemplates({settings:disk}).read()[0].source,'health:sleep');
+ assert.throws(()=>templateFromWidget(widget,'Sleep',undefined,providers),/Only statistics/);
+});
+
+test('explicit statistical topics take precedence over source-name guesses',()=>{
+ const {statisticTopic}=require('../src/statistic-topics.js');
+ assert.equal(statisticTopic({source:'third-party:sleep',topic:'health'}),'health');
+ assert.equal(statisticTopic({source:'noria:finance-cashflow',topic:'unknown'}),'finance');
 });

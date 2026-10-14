@@ -1,7 +1,8 @@
 "use strict";
 const {setIcon}=require('obsidian');
 const {iconButton}=require('./card-controls.js');
-const {STYLES,dashboardTemplates,widgetFromTemplate}=require('./statistic-templates.js');
+const {STYLES,dashboardTemplates,providerTemplates,widgetFromTemplate}=require('./statistic-templates.js');
+const {TOPICS,statisticTopic}=require('./statistic-topics.js');
 const clone=value=>JSON.parse(JSON.stringify(value));
 
 function styleSample(host,style){
@@ -19,7 +20,7 @@ function styleSample(host,style){
   else if(style==='progress-rings'){for(const [i,r]of [17,11].entries()){add('circle',{cx:80,cy:21,r,fill:'none',stroke:'currentColor','stroke-width':3,opacity:.15});add('circle',{cx:80,cy:21,r,fill:'none',stroke:'currentColor','stroke-width':3,'stroke-dasharray':`${2*Math.PI*r*(i?.45:.7)} ${2*Math.PI*r}`,transform:'rotate(-90 80 21)'});}}
   else if(style==='time-ring'){add('circle',{cx:80,cy:21,r:17,fill:'none',stroke:'currentColor','stroke-width':3,opacity:.2});add('circle',{cx:80,cy:21,r:17,fill:'none',stroke:'currentColor','stroke-width':4,'stroke-dasharray':'20 12 15 60',transform:'rotate(-90 80 21)'});}
   else if(style==='donut'){add('circle',{cx:80,cy:21,r:15,fill:'none',stroke:'currentColor','stroke-width':8,opacity:.2});add('circle',{cx:80,cy:21,r:15,fill:'none',stroke:'currentColor','stroke-width':8,'stroke-dasharray':'62 95',transform:'rotate(-90 80 21)'});}
-  else if(style==='heatmap'||style==='states'){for(let i=0;i<21;i++)add('rect',{x:4+(i%7)*22,y:2+Math.floor(i/7)*14,width:17,height:10,rx:2,fill:'currentColor',opacity:[.2,.5,.8,.35][i%4]});}
+  else if(style==='calendar'){for(let i=0;i<21;i++)add('rect',{x:4+(i%7)*22,y:2+Math.floor(i/7)*14,width:17,height:10,rx:2,fill:'currentColor',opacity:[.2,.5,.8,.35][i%4]});}
   else if(style==='strip'){for(let i=0;i<12;i++)add('rect',{x:3+i*13,y:14,width:10,height:14,rx:2,fill:'currentColor',opacity:[.25,.6,.85,.4][i%4]});}
   else if(style==='progress'){add('rect',{x:3,y:16,width:154,height:10,rx:5,fill:'currentColor',opacity:.15});add('rect',{x:3,y:16,width:105,height:10,rx:5,fill:'currentColor'});}
   else if(style==='bars'||style==='comparison'){[126,85,52].slice(0,style==='comparison'?2:3).forEach((width,i)=>add('rect',{x:3,y:5+i*13,width,height:8,rx:3,fill:'currentColor',opacity:i?.5:1}));}
@@ -34,29 +35,41 @@ function templateGallery(catalog,tab='recommended'){
   const back=iconButton(head,'arrow-left',t('全部卡片','All cards'),()=>catalog.list());back.addClass('noria-card-back');back.createSpan({text:t('全部卡片','All cards')});
   const tabs=head.createDiv({cls:'noria-stat-template-tabs',attr:{'aria-label':t('统计模板','Statistics templates')}});
   const search=navigation.createEl('input',{cls:'noria-card-search',attr:{type:'search','aria-label':t('搜索统计模板','Search statistics templates'),placeholder:t('搜索模板名称、图形或用途','Search templates, chart types or purposes')}});search.value=catalog.statNavigation?.query||'';
+  const topic=navigation.createEl('select',{cls:'noria-stat-topic-filter',attr:{'aria-label':t('统计主题','Statistics topic')}});topic.createEl('option',{value:'all',text:t('全部主题','All topics')});for(const [key,zh,en]of TOPICS)topic.createEl('option',{value:key,text:t(zh,en)});topic.value=catalog.statNavigation?.topic||'all';
   navigation.createDiv({cls:'noria-card-secondary noria-stat-template-note',text:t('选择模板后，可配置并预览真实数据。下方图形为样式示意。','Choose a template to configure and preview your data. Illustrations below show chart types.')});
   const gallery=contentEl.createDiv({cls:'noria-stat-template-gallery'}),groups=stats.templateGroups();
   const dashboard=dashboardTemplates(plugin.buildRuntimeBridgeConfig().homeWidgetDefaults||[],t);
+  const domain=providerTemplates(catalog.system.providers);
   const periodic=[require('./period-overview-card.js').overviewTemplate(t),...require('./periodic-stat-cards.js').periodicTemplates(t)];
   const acceptsDashboard=catalog.context.page==='home'||catalog.custom;
   const paint=()=>{
-    catalog.statNavigation={tab,query:search.value};gallery.empty();for(const b of tabs.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.tab===tab));
-    let templates;try{templates=tab==='mine'?stats.templateLibrary.read():tab==='styles'?[...groups.styles,...periodic,...dashboard]:[...periodic,...dashboard,...groups.recommended];}catch(e){catalog.showError(e);return;}
+    catalog.statNavigation={tab,query:search.value,topic:topic.value};gallery.empty();for(const b of tabs.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.tab===tab));
+    let templates;try{templates=tab==='mine'?stats.templateLibrary.read():tab==='styles'?[...groups.styles,...periodic,...dashboard,...domain]:[...periodic,...dashboard,...groups.recommended,...domain.filter(item=>item.recommended)];}catch(e){catalog.showError(e);return;}
     if(!templates.length){gallery.createDiv({cls:'noria-card-empty',text:t('还没有自己的模板。编辑统计后，选择“保存为模板”。','No saved templates yet. Edit a statistic and choose Save as template.')});return;}
     const query=search.value.trim().toLowerCase();templates=templates.filter(template=>{const style=STYLES.find(s=>s[0]===(template.style||template.props.display));return [template.title,template.description,style?.[1],style?.[2]].join(' ').toLowerCase().includes(query);});
-    if(!templates.length){const empty=gallery.createDiv({cls:'noria-card-catalog-empty',attr:{role:'status'}});empty.createSpan({text:t('没有匹配的模板','No matching templates')});const clear=empty.createEl('button',{text:t('清除搜索','Clear search')});clear.onclick=()=>{search.value='';paint();search.focus();};return;}
+    templates=templates.filter(template=>topic.value==='all'||statisticTopic(template)===topic.value);
+    templates.sort((a,b)=>TOPICS.findIndex(([key])=>key===statisticTopic(a))-TOPICS.findIndex(([key])=>key===statisticTopic(b)));
+    if(!templates.length){const empty=gallery.createDiv({cls:'noria-card-catalog-empty',attr:{role:'status'}});empty.createSpan({text:t('没有匹配的模板','No matching templates')});const clear=empty.createEl('button',{text:t('清除筛选','Clear filters')});clear.onclick=()=>{search.value='';topic.value='all';paint();search.focus();};return;}
     let section;
     for(const template of templates){
-      const native=template.kind==='dashboard';
-      const group=template.kind||'basic';
-      if(tab!=='mine'&&section!==group){section=group;gallery.createEl('h3',{cls:'noria-stat-template-section',text:group==='periodic'?t('周期趋势 · 日记与页面通用','Period trends · Diaries and pages'):native?t('主页与趋势统计','Dashboard statistics'):tab==='styles'?t('基础图形 · 可自定义数据','Chart types · Choose your data'):t('按记录与用途创建','Start from records and goals')});}
+      const native=template.kind==='dashboard',provider=template.kind==='provider'?catalog.system.providers.get(template.source):null;
+      const group=template.kind||'basic',topicId=statisticTopic(template);
+      if(section!==topicId){section=topicId;const definition=TOPICS.find(([key])=>key===topicId);gallery.createEl('h3',{cls:'noria-stat-template-section',text:t(definition[1],definition[2])});}
       const type=STYLES.find(s=>s[0]===(template.props.display==='trend'?'columns':template.props.display)),tile=gallery.createDiv({cls:'noria-stat-template-tile'});
+      if(group==='provider')tile.addClass('is-domain');
       const use=tile.createEl('button',{cls:'noria-stat-template-use',attr:{type:'button','data-stat-template':template.id}}),title=use.createDiv({cls:'noria-stat-template-title'});setIcon(title.createSpan(),template.icon||type?.[3]||'chart-no-axes-combined');title.createEl('strong',{text:template.title});
-      const nativeNames={metric:t('指标概览','Metric overview'),combo:t('双轴组合图','Dual-axis combination'),year:t('年度热力图','Yearly heatmap'),history:t('打卡记录','Check-in history'),records:t('多项记录','Multiple records'),donut:t('环形分布','Donut distribution')};
-      title.createSpan({cls:'noria-stat-template-kind',text:native||group==='periodic'?nativeNames[template.style]||t('统计','Statistics'):type?t(type[1],type[2]):t('统计','Statistics')});
-      styleSample(use,template.style||template.props.display);
+      const nativeNames={metric:t('指标概览','Metric overview'),combo:t('组合趋势图','Combined trend'),year:t('年度热力图','Yearly heatmap'),history:t('打卡记录','Check-in history'),records:t('多项记录','Multiple records'),donut:t('环形分布','Donut distribution')};
+      if(group!=='provider'){
+        title.createSpan({cls:'noria-stat-template-kind',text:native||group==='periodic'?nativeNames[template.style]||t('统计','Statistics'):type?t(type[1],type[2]):t('统计','Statistics')});
+        styleSample(use,template.style||template.props.display);
+      }
       if(template.description)use.createSpan({cls:'noria-card-secondary',text:template.description});
       if(native&&!acceptsDashboard&&!require('./dashboard-statistic-settings.js').supportsRange({builtinId:template.builtinId})){use.disabled=true;tile.createSpan({cls:'noria-card-secondary noria-stat-template-availability',text:template.builtinId==='habit-history-card'?t('日记使用已有的习惯记录卡','Use the diary’s existing habit card'):t('当前资料统计，可添加到主页或自定义页面','Current-library statistics, available on Home or custom pages')});}
+      if(group==='provider'){
+        const unavailable=!provider||provider.pluginId!=='noria'&&!plugin.app.plugins.plugins[provider.pluginId];
+        if(unavailable){use.disabled=true;tile.createSpan({cls:'noria-card-secondary noria-stat-template-availability',text:t('当前未启用此统计模块，模板仍保留','This statistics module is unavailable; the template is kept')});}
+        else if(catalog.context.page==='diary')tile.createSpan({cls:'noria-card-secondary noria-stat-template-availability',text:provider.supportsDate?t('跟随本篇日期','Follows this diary period'):t('使用卡片自身范围，不随本篇日期切换','Uses its own scope, independent of this diary period')});
+      }
       use.onclick=()=>{catalog.returnTo='statistics';catalog.statReturnId=template.id;catalog.edit(widgetFromTemplate(template,catalog.statBaseWidget,catalog.context.page==='diary'&&tab!=='mine'));catalog.dirty=true;};
       if(tab==='mine'){
         const remove=tile.createEl('button',{cls:'noria-stat-template-remove',attr:{'aria-label':t('移除模板：','Remove template: ')+template.title},text:t('移除','Remove')});
@@ -67,7 +80,7 @@ function templateGallery(catalog,tab='recommended'){
     }
   };
   for(const [key,label] of [['recommended',t('推荐模板','Recommended')],['styles',t('全部样式','All styles')],['mine',t('我的模板','My templates')]]){const b=tabs.createEl('button',{text:label,attr:{type:'button','data-tab':key,'aria-pressed':String(tab===key)}});b.onclick=()=>{tab=key;paint();};}
-  search.oninput=paint;paint();const selected=[...gallery.querySelectorAll('[data-stat-template]')].find(b=>b.dataset.statTemplate===catalog.statReturnId&&!b.disabled);if(selected)selected.focus();else tabs.querySelector('[aria-pressed="true"]').focus();
+  search.oninput=paint;topic.onchange=paint;paint();const selected=[...gallery.querySelectorAll('[data-stat-template]')].find(b=>b.dataset.statTemplate===catalog.statReturnId&&!b.disabled);if(selected)selected.focus();else tabs.querySelector('[aria-pressed="true"]').focus();
 }
 
 function templateSaveAction(catalog){

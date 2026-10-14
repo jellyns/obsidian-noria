@@ -1,368 +1,85 @@
-import fs from "node:fs";
-import inboxSeeds from "../src/inbox-seeds.js";
-import mediaWorkspace from "../src/media-workspace-model.js";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import inboxSeeds from '../src/inbox-seeds.js';
+import habitDefinition from '../src/habit-definition.js';
+import focusDocument from '../src/focus-document.js';
+import {workspaceStory} from './demo-assets/workspace-story.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "..");
-const targetArg = process.argv[2];
-const dateArg = process.argv.find((arg) => arg.startsWith("--date="));
-const localeArg = process.argv.find((arg) => arg.startsWith("--locale="));
-
-function fail(message) {
-  console.error(`Noria demo vault: ${message}`);
-  process.exit(1);
-}
-
-if (!targetArg) fail("pass a new empty target directory");
-const targetRoot = path.resolve(targetArg);
-const anchorDate = String(dateArg ? dateArg.slice("--date=".length) : new Date().toISOString().slice(0, 10));
-const locale = String(localeArg ? localeArg.slice("--locale=".length) : "en");
-if (!/^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) fail("--date must use YYYY-MM-DD");
-if (!["en", "zh-CN"].includes(locale)) fail("--locale must be en or zh-CN");
-const isZh = locale === "zh-CN";
-const tx = (english, chinese) => isZh ? chinese : english;
-
-if (fs.existsSync(targetRoot) && fs.readdirSync(targetRoot).length) {
-  fail(`target directory is not empty: ${targetRoot}`);
-}
-fs.mkdirSync(targetRoot, { recursive: true });
-
-function targetPath(rel) {
-  return path.join(targetRoot, ...String(rel).split("/"));
-}
-
-function write(rel, content) {
-  const file = targetPath(rel);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, String(content).replace(/\r\n/g, "\n"), "utf8");
-}
-
-function copyReleaseAsset(name) {
-  const source = path.join(repoRoot, name);
-  if (!fs.existsSync(source)) fail(`missing ${name}; run npm run build first`);
-  const destination = targetPath(`.obsidian/plugins/noria/${name}`);
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.copyFileSync(source, destination);
-}
-
-function copyDemoAsset(name, destinationPath) {
-  const source = path.join(repoRoot, "scripts", "demo-assets", name);
-  if (!fs.existsSync(source)) fail(`missing demo asset: ${name}`);
-  const destination = targetPath(destinationPath);
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.copyFileSync(source, destination);
-}
-
-function utcDate(iso) {
-  const [year, month, day] = iso.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.toISOString().slice(0, 10) !== iso) fail(`invalid date: ${iso}`);
-  return date;
-}
-
-function shiftDate(iso, days) {
-  const date = utcDate(iso);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function dailyNote(date, index) {
-  const weather = (isZh ? ["晴", "多云", "阴", "晴", "雨"] : ["clear", "partly cloudy", "overcast", "clear", "rain"])[index % 5];
-  const mood = (isZh ? ["稳定", "很好", "一般", "稳定", "很好"] : ["steady", "great", "neutral", "steady", "great"])[index % 5];
-  const focus = (isZh ? ["基本专注", "很专注", "易分心", "基本专注", "很专注"] : ["mostly focused", "deeply focused", "distracted", "mostly focused", "deeply focused"])[index % 5];
-  const energy = 3 + (index % 3);
-  const historical = date !== anchorDate;
-  const tasks = historical
-    ? [
-        `- [x] ${tx("Review one captured note", "回看一条已捕捉笔记")} [completion:: ${date}] #noria-demo`,
-        ...(index % 3 === 0 ? [`- [x] ${tx("Complete a focused writing block", "完成一个专注写作时段")} [completion:: ${date}] #noria-demo`] : [])
-      ]
-    : [
-        `- [x] ${tx("Process three Inbox notes", "处理三条 Inbox 笔记")} [start:: ${date} 08:20] [due:: ${date} 08:50] [completion:: ${date}] #noria-demo`,
-        `- [ ] ${tx("Walk and reset attention", "散步并重置注意力")} [start:: ${date} 17:30] [due:: ${date} 18:00] #wellbeing`,
-        `- [ ] ${tx("Read for twenty minutes", "阅读二十分钟")} [start:: ${date} 20:00] [due:: ${date} 20:20] #habit`,
-        `- [ ] ${tx("Write the daily review", "写下今日复盘")} [start:: ${date} 21:20] [due:: ${date} 21:40] #review`
-      ];
-  const habits = historical
-    ? [
-        ...(index % 5 !== 0 ? [`- [x] ${tx("Morning planning", "晨间规划")} #habit #active [due:: ${date}] [completion:: ${date}]`] : []),
-        ...(index % 3 !== 0 ? [`- [x] ${tx("Read for twenty minutes", "阅读二十分钟")} #habit #active [due:: ${date}] [completion:: ${date}]`] : []),
-        ...(index % 4 !== 0 ? [`- [x] ${tx("Deep work", "深度工作")} #habit #active [due:: ${date}] [completion:: ${date}]`] : []),
-        ...(index % 6 !== 0 ? [`- [x] ${tx("Evening reflection", "晚间复盘")} #habit #active [due:: ${date}] [completion:: ${date}]`] : [])
-      ]
-    : [
-        `- [ ] ${tx("Morning planning", "晨间规划")} #habit #active [due:: ${date}]`,
-        `- [ ] ${tx("Read for twenty minutes", "阅读二十分钟")} #habit #active [due:: ${date}]`,
-        `- [ ] ${tx("Deep work", "深度工作")} #habit #active [due:: ${date}]`,
-        `- [ ] ${tx("Evening reflection", "晚间复盘")} #habit #active [due:: ${date}]`
-      ];
-  return `---
-date: "${date}"
-created: "${date}"
-weather: "${weather}"
-mood: "${mood}"
-energy: ${energy}
-sleep_hours: ${[7, 7.5, 8, 6.5, 7.5][index % 5]}
-focus: "${focus}"
-tags:
-  - daily-plan
-cssclasses:
-  - daily-clean
----
-
-## ${tx("Today", "今日")}
-
-${tasks.join("\n")}
-
-## ${tx("Habits", "习惯")}
-
-${habits.join("\n")}
-
-## Inbox
-
-${historical ? tx("- One useful idea captured and routed.", "- 捕捉并分流了一条有用想法。") : tx("- Capture before deciding where the material belongs.", "- 先捕捉，再决定材料的归属。")}
-
-## ${tx("Review", "复盘")}
-
-- ${tx("Highlight", "亮点")}: ${historical ? tx("Kept the next action visible.", "让下一步行动保持可见。") : tx("Protected one focused block.", "保护了一个专注时段。")}
-- ${tx("Adjustment", "调整")}: ${historical ? tx("Reduce context switching.", "减少上下文切换。") : tx("Leave more space between writing and review.", "在写作与复盘之间留出更多空间。")}
-`;
-}
-
-for (const asset of ["manifest.json", "main.js", "styles.css"]) copyReleaseAsset(asset);
-write(".gitignore", [
-  ".obsidian/workspace*.json",
-  ".obsidian/plugins/noria/main.js",
-  ".obsidian/plugins/noria/manifest.json",
-  ".obsidian/plugins/noria/styles.css",
-  ".trash/",
-  ".DS_Store",
-  "Thumbs.db",
-  ""
-].join("\n"));
-write(".obsidian/community-plugins.json", `${JSON.stringify(["noria"], null, 2)}\n`);
-write(".obsidian/appearance.json", `${JSON.stringify({ baseFontSize: 16, theme: "moonstone" }, null, 2)}\n`);
-write(".obsidian/app.json", `${JSON.stringify({ attachmentFolderPath: "99_Attachment", newFileLocation: "folder", newFileFolderPath: "00_Inbox" }, null, 2)}\n`);
-
-const managedPaths = {
-  timelineSettings: "02_Areas/Noria/Timeline settings.md",
-  templateLibrary: "02_Areas/Noria/Event library.md",
-  importantDates: "02_Areas/Noria/Countdowns.md",
-  habitRegistry: "02_Areas/Noria/Habits.md",
-  projectRegistry: "02_Areas/Noria/Projects.md",
-  inboxWorkflow: "02_Areas/Noria/Inbox workflow.md",
-  inboxQueue: "02_Areas/Noria/Inbox queue.base",
-  inboxRoot: "00_Inbox",
-  projectsRoot: "01_Projects",
-  diaryRoot: "06_Diary",
-  dailyTemplate: "02_Areas/Noria/Templates/Daily Template.md",
-  weeklyTemplate: "02_Areas/Noria/Templates/Weekly Template.md",
-  monthlyTemplate: "02_Areas/Noria/Templates/Monthly Template.md",
-  yearlyTemplate: "02_Areas/Noria/Templates/Yearly Template.md"
-};
-const mediaRoot = tx("02_Areas/Media", "02_Areas/书影音游");
-const currentMediaStatus = tx("In progress", "进行中");
-const demoBookPath = `${mediaRoot}/${tx("Books", "书籍")}/${tx("The quiet notebook", "安静的笔记本")}.md`;
-const demoReadingPath = `03_Resources/${tx("Noria demo", "Noria 示例")}/${tx("The quiet notebook - excerpt", "安静的笔记本 - 节选")}.md`;
-const mediaWidgets = mediaWorkspace.libraryWidgets();
-mediaWidgets.find(widget => widget.source === 'noria:media-library').props.folder = mediaRoot;
-const pluginData = {
-  managedPaths,
-  shortcuts: [{kind: "media", target: demoBookPath}],
-  recordFields: [
-    {id:"mood",property:"mood",name:tx("Mood","心情"),type:"option",options:isZh?["很好","稳定","一般","偏低","很差"]:["great","steady","neutral","low","rough"],icon:"smile",enabled:true,legacy:"mood"},
-    {id:"energy",property:"energy",name:tx("Energy","精力"),type:"level",min:1,max:5,icon:"battery-medium",enabled:true,legacy:"energy"},
-    {id:"sleep",property:"sleep_hours",name:tx("Sleep duration","睡眠时长"),type:"number",unit:tx("hours","小时"),icon:"moon",color:"#8b7cf6",enabled:true}
-  ],
-  onboarding: {
-    profile: "standard",
-    workspaceRoot: "02_Areas/Noria",
-    initializedAt: `${anchorDate}T08:00:00.000Z`,
-    dismissedVersion: ""
-  },
-  home: {
-    profilePreset: "default",
-    identity: {
-      displayName: "Noria",
-      greetingName: "Noria",
-      avatarPath: "99_Attachment/noria.svg",
-      quoteListPath: "02_Areas/Noria/Quotes.md"
-    },
-    guidePanels: { inbox: true, projects: true, moc: true, reviewCenter: true, reviewCenterExpanded: false }
-  },
-  homeDashboard: {
-    mocEntryPaths: ["05_MOC/工作流\u00b7MOC.md", "05_MOC/知识管理\u00b7MOC.md"]
-  },
-  workbenchPages: {
-    version: 1,
-    defaultPage: "home",
-    pages: [
-      ...["home", "diary", "day", "calendar"].map(id => ({id})),
-      {id: "media", title: "", picture: "library", hidden: false, widgets: mediaWidgets}
-    ]
-  },
-  tasksCalendar: { defaultView: "week", taskTimelineOpenMode: "right-sidebar" },
-  performance: {
-    queryScopes: {
-      tasks: { mode: "managed", customRoots: [] },
-      notes: { mode: "managed", customRoots: [] }
-    }
-  },
-  weather: {
-    enabled: true,
-    provider: "open-meteo",
-    qweatherSecretName: "noria-weather-qweather-key",
-    qweatherApiHost: "",
-    manualCity: tx("Berlin", "北京"),
-    cacheMinutes: 45
-  },
-  features: {
-    modules: { home: true, tasksBoard: true, taskTimeline: true, pomodoro: false, diaryStats: true, calendar: true }
-  }
-};
-write(".obsidian/plugins/noria/data.json", `${JSON.stringify(pluginData, null, 2)}\n`);
-write(".noria-demo-vault", `Noria release demo\nDate: ${anchorDate}\nLocale: ${locale}\n`);
-
-write("99_Attachment/noria.svg", fs.readFileSync(path.join(repoRoot, "docs/assets/brand/noria-avatar.svg"), "utf8"));
-if (isZh) copyDemoAsset("Quotes.zh-CN.md", "02_Areas/Noria/Quotes.md");
-else write("02_Areas/Noria/Quotes.md", `- Knowledge becomes useful when it changes the next action.\n- Review connects activity with direction.\n- A system should make useful work easier to see.\n`);
-const researchProjectName = tx("Research writing", "研究写作");
-const knowledgeProjectName = tx("Knowledge system", "知识系统");
-const researchProjectPath = `01_Projects/${researchProjectName}/${researchProjectName}.md`;
-const knowledgeProjectPath = `01_Projects/${knowledgeProjectName}/${knowledgeProjectName}.md`;
-write("02_Areas/Noria/Projects.md", `---\ncreated: "${shiftDate(anchorDate, -75)}"\ntags:\n  - noria-demo\n---\n\n## ${tx("Active projects", "进行中的项目")}\n\n- [[${researchProjectPath}|${researchProjectName}]]: ${tx("turn notes into a clear draft.", "把分散材料推进为一版可讨论的研究初稿。")}\n- [[${knowledgeProjectPath}|${knowledgeProjectName}]]: ${tx("improve capture, navigation, and reuse.", "让捕捉、组织、提炼与复用形成连贯流程。")}\n\n## ${tx("Planned projects", "计划中的项目")}\n\n- ${tx("Reading synthesis", "专题阅读综合")}\n\n## ${tx("Completed projects", "已完成项目")}\n\n- [[04_Archives/01_Projects/工作区初始化/工作区初始化.md|${tx("Workspace setup", "工作区初始化")}]]\n`);
-write(researchProjectPath, `---\nproject: ${researchProjectName}\nstatus: active\ncreated: "${shiftDate(anchorDate, -68)}"\ntags:\n  - project/research\n---\n\n## ${tx("Outcome", "目标结果")}\n\n${tx("A readable first draft with a clear problem, evidence chain, and next validation step.", "形成一版问题清楚、证据可追溯、下一步验证明确的研究初稿。")}\n\n## ${tx("Next actions", "下一步行动")}\n\n- [ ] ${tx("Draft the introduction outline", "起草引言提纲")} [start:: ${anchorDate} 09:00] [due:: ${anchorDate} 10:30] #project/writing\n- [ ] ${tx("Review the experiment summary", "检查实验总结")} [start:: ${shiftDate(anchorDate, 1)} 11:00] [due:: ${shiftDate(anchorDate, 1)} 11:40] #project/research\n- [ ] ${tx("Prepare a readable first draft", "准备一版可读初稿")} [due:: ${shiftDate(anchorDate, 7)}] #project/writing\n`);
-write(knowledgeProjectPath, `---\nproject: ${knowledgeProjectName}\nstatus: active\ncreated: "${shiftDate(anchorDate, -54)}"\ntags:\n  - project/knowledge\n---\n\n## ${tx("Outcome", "目标结果")}\n\n${tx("A low-friction knowledge workflow that keeps useful material connected to action.", "形成一套低负担的知识工作流程，让长期积累持续服务于行动。")}\n\n## ${tx("Next actions", "下一步行动")}\n\n- [ ] ${tx("Organize two evergreen notes", "整理两条常青笔记")} [scheduled:: ${shiftDate(anchorDate, 2)} 14:00] #knowledge\n- [ ] ${tx("Refine the weekly briefing", "完善每周简报")} [scheduled:: ${shiftDate(anchorDate, 3)} 15:30] #writing\n- [ ] ${tx("Review navigation entry points", "检查导航入口")} [due:: ${shiftDate(anchorDate, 5)}] #knowledge\n`);
-const habitHistory = [];
-for (let index = 0; index < 89; index += 1) {
-  const date = shiftDate(anchorDate, index - 89);
-  if (index % 5 !== 0) habitHistory.push(`- [x] ${tx("Morning planning", "晨间规划")} #habit #active [due:: ${date}] [completion:: ${date}]`);
-  if (index % 5 !== 0) habitHistory.push(`- [x] ${tx("Deep work", "深度工作")} #habit #active [due:: ${date}] [completion:: ${date}]`);
-  if (index % 3 !== 0) habitHistory.push(`- [x] ${tx("Read for twenty minutes", "阅读二十分钟")} #habit #active [due:: ${date}] [completion:: ${date}]`);
-  if (index % 4 !== 0) habitHistory.push(`- [x] ${tx("Evening reflection", "晚间反思")} #habit #active [due:: ${date}] [completion:: ${date}]`);
-}
-const habitPlanning = tx("Morning planning", "晨间规划");
-const habitDeepWork = tx("Deep work", "深度工作");
-const habitReading = tx("Read for twenty minutes", "阅读二十分钟");
-const habitReflection = tx("Evening reflection", "晚间反思");
-write("02_Areas/Noria/Habits.md", `---\ncreated: "${shiftDate(anchorDate, -82)}"\ntags:\n  - noria-demo\n---\n\n## ${tx("Active habits", "打卡中的习惯")}\n\n- ${habitPlanning} [type:: check]\n- ${habitDeepWork} [type:: check]\n- ${habitReading} [type:: check]\n- ${habitReflection} [type:: check]\n\n## ${tx("Paused habits", "暂停的习惯")}\n\n- ${tx("Weekly planning", "每周计划")} [type:: check]\n\n## ${tx("Established habits", "已养成习惯")}\n\n- ${tx("Clear the desk", "清理桌面")} [type:: check]\n\n## ${tx("Daily recurring task source", "循环任务源（每日）")}\n\n${habitHistory.join("\n")}\n- [ ] ${habitPlanning} #habit #active [due:: ${anchorDate}]\n- [ ] ${habitDeepWork} #habit #active [due:: ${anchorDate}]\n- [ ] ${habitReading} #habit #active [due:: ${anchorDate}]\n- [ ] ${habitReflection} #habit #active [due:: ${anchorDate}]\n`);
-write("02_Areas/Noria/Countdowns.md", `---\ncreated: "${shiftDate(anchorDate, -40)}"\ntags:\n  - noria-demo\n---\n\n## ${tx("Countdowns", "倒计时")}\n\n| ${tx("Date", "日期")} | ${tx("Name", "名称")} | ${tx("Type", "类型")} | ${tx("Note", "说明")} |\n| --- | --- | --- | --- |\n| ${shiftDate(anchorDate, 12)} | ${tx("Draft review", "初稿评审")} | project | ${tx("Share a readable first draft", "分享一版可读初稿")} |\n| ${shiftDate(anchorDate, 30)} | ${tx("Monthly reflection", "月度复盘")} | review | ${tx("Review projects, habits, and notes", "回看项目、习惯与笔记")} |\n`);
-write("05_MOC/工作流\u00b7MOC.md", `---\ncreated: "${shiftDate(anchorDate, -72)}"\ntags:\n  - moc\n  - noria-demo\n---\n\n# ${tx("Workflow MOC", "工作流 MOC")}\n\n- [[02_Areas/Noria/Projects.md|${tx("Projects", "项目")}]]\n- [[02_Areas/Noria/Inbox queue.base|Inbox]]\n- [[02_Areas/Noria/Habits.md|${tx("Habits", "习惯")}]]\n- [[02_Areas/Noria/Countdowns.md|${tx("Countdowns", "倒计时")}]]\n`);
-write("05_MOC/知识管理\u00b7MOC.md", `---\ncreated: "${shiftDate(anchorDate, -66)}"\ntags:\n  - moc\n  - knowledge-management\n---\n\n# ${tx("Knowledge management MOC", "知识管理 MOC")}\n\n## ${tx("Current projects", "当前项目")}\n\n- [[${researchProjectPath}|${researchProjectName}]]\n- [[${knowledgeProjectPath}|${knowledgeProjectName}]]\n\n## ${tx("Reusable knowledge", "可复用知识")}\n\n- [[03_Resources/知识工作/渐进式提炼.md|${tx("Progressive distillation", "渐进式提炼")}]]\n- [[03_Resources/知识工作/行动与知识的连接.md|${tx("Connect knowledge with action", "行动与知识的连接")}]]\n\n## ${tx("Lifecycle", "知识生命周期")}\n\nCapture -> Organize -> Distill -> Express\n`);
-const inboxWorkflowDocument = inboxSeeds.inboxWorkflowSeed({locale:isZh?"zh":"en",root:managedPaths.inboxRoot,queue:managedPaths.inboxQueue});
-write(managedPaths.inboxWorkflow, `---\ncreated: "${shiftDate(anchorDate, -80)}"\ntags:\n  - noria-demo\n---\n\n${inboxWorkflowDocument}`);
-write(managedPaths.inboxQueue, inboxSeeds.inboxQueueSeed({locale:isZh?"zh":"en",root:managedPaths.inboxRoot}));
-
-const inboxRows = [
-  [tx("reading-notes-to-synthesize", "待综合的阅读笔记"), tx("Reading notes to synthesize", "待综合的阅读笔记"), "SI：提炼", tx("Compare these reading notes and extract the claims that can support the writing project. Keep the evidence links beside each claim.", "比较这些阅读记录，提炼能用于写作项目的观点，并保留各自的依据链接。")],
-  [tx("meeting-idea-to-evaluate", "待评估的会议想法"), tx("Meeting idea to evaluate", "待评估的会议想法"), "我：整理", tx("Could a short preparation note make the next meeting more useful? Decide what belongs in the project before scheduling another meeting.", "提前准备一小段说明，能否让下次会议更有效？先判断哪些内容归入项目，再决定是否约下一次讨论。")],
-  [tx("weekly-briefing-draft", "每周简报草稿"), tx("Weekly briefing draft", "每周简报草稿"), "我：阅读", tx("Read the draft, check its central claim and add your own judgment. Keep useful conclusions in the writing project.", "读一遍草稿，检查主要观点并补上自己的判断；有价值的结论归入写作项目。")],
-  [tx("reference-image-without-context", "缺少上下文的参考图片"), tx("Reference image without context", "缺少上下文的参考图片"), "", tx("Keep this input until its source and intended use are clear; it has no assignment yet.", "先保留这条输入，等来源和用途更清楚后再处理，暂不安排。")]
+const repoRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const fail=message=>{console.error(`Noria demo vault: ${message}`);process.exit(1);};
+const targetArg=process.argv[2];if(!targetArg)fail('pass a new empty target directory');
+const targetRoot=path.resolve(targetArg);
+const date=process.argv.find(x=>x.startsWith('--date='))?.slice(7)||new Date().toISOString().slice(0,10);
+const locale=process.argv.find(x=>x.startsWith('--locale='))?.slice(9)||'en';
+if(!['zh-CN','en'].includes(locale))fail('--locale must be en or zh-CN');
+if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)fail('--date must be a valid YYYY-MM-DD');
+if(fs.existsSync(targetRoot)&&fs.readdirSync(targetRoot).length)fail(`target directory is not empty: ${targetRoot}`);
+for(const name of ['main.js','manifest.json','styles.css'])if(!fs.existsSync(path.join(repoRoot,name)))fail(`missing ${name}; build the public plugin first`);
+const zh=locale==='zh-CN',tx=(en,cn)=>zh?cn:en;
+const day=offset=>{const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+offset);return d.toISOString().slice(0,10);};
+const story=workspaceStory({date,day,tx,zh});
+const write=(rel,content)=>{const dest=path.join(targetRoot,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.writeFileSync(dest,String(content).replace(/\r\n/g,'\n'),'utf8');};
+const note=(rel,body,offset=-13,extra={})=>write(rel,'---\n'+Object.entries({created:day(offset),tags:['noria-demo'],...extra}).map(([k,v])=>`${k}: ${JSON.stringify(v)}`).join('\n')+'\n---\n\n'+body+'\n');
+for(const name of ['00_Inbox','01_Projects','02_Areas','03_Resources','04_Archives','05_MOC','06_Diary','99_Attachment'])fs.mkdirSync(path.join(targetRoot,name),{recursive:true});
+for(const name of ['main.js','manifest.json','styles.css']){const dest=path.join(targetRoot,'.obsidian/plugins/noria',name);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(path.join(repoRoot,name),dest);}
+write('.noria-demo-vault',`Noria release demo\nScenario: portfolio-and-offline-reader\nDate: ${date}\nLocale: ${locale}\n`);
+write('.gitignore','.obsidian/workspace*.json\n.obsidian/plugins/noria/main.js\n.obsidian/plugins/noria/manifest.json\n.obsidian/plugins/noria/styles.css\n.trash/\n');
+write('.obsidian/community-plugins.json',JSON.stringify(['noria']));
+write('.obsidian/appearance.json',JSON.stringify({baseFontSize:16,theme:'moonstone'}));
+write('.obsidian/app.json',JSON.stringify({attachmentFolderPath:'99_Attachment',newFileLocation:'folder',newFileFolderPath:'00_Inbox'}));
+const workflow=`05_MOC/${tx('Workflow','工作流')}·MOC.md`,craft=`05_MOC/${tx('Design notes','设计笔记')}·MOC.md`;
+const managedPaths={templateLibrary:'02_Areas/Noria/Event library.md',importantDates:'02_Areas/Noria/Countdowns.md',habitRegistry:'02_Areas/Noria/Habits.md',projectRegistry:'02_Areas/Noria/Projects.md',inboxQueue:'02_Areas/Noria/Inbox queue.base',inboxRoot:'00_Inbox',projectsRoot:'01_Projects',diaryRoot:'06_Diary',dailyTemplate:'',weeklyTemplate:'',monthlyTemplate:'',yearlyTemplate:''};
+const data={managedPaths,shortcuts:[{kind:'file',target:story.portfolioPath},{kind:'file',target:craft}],
+  onboarding:{profile:'ipara',workspaceRoot:'02_Areas/Noria',initializedAt:date+'T08:00:00.000Z',dismissedVersion:''},
+  home:{profilePreset:'default',identity:{displayName:'Noria',greetingName:'Noria',avatarPath:'99_Attachment/noria.svg',quoteListPath:'02_Areas/Noria/Quotes.md'},guidePanels:{inbox:true,projects:true,moc:true,reviewCenter:true,reviewCenterExpanded:false}},
+  homeDashboard:{mocEntryPaths:[workflow,craft],mocEntries:[{path:workflow,color:'#8b78be'},{path:craft,color:'#4286b9'}]},
+  workbenchPages:{version:1,defaultPage:'home',pages:['home','diary','day','calendar'].map(id=>({id}))},
+  tasksCalendar:{defaultView:'week',taskTimelineOpenMode:'main-tab',activeHours:{start:480,end:1080,fullDay:false}},
+  appearance:{tagColorMap:{work:'#7082c5',life:'#4c9f8a',review:'#b5844c'}},
+  performance:{queryScopes:{tasks:{mode:'managed',customRoots:[]},notes:{mode:'managed',customRoots:[]}}},
+  weather:{enabled:false,provider:'open-meteo',qweatherSecretName:'noria-weather-qweather-key',manualCity:tx('Berlin','北京'),cacheMinutes:45},
+  features:{modules:{home:true,tasksBoard:true,taskTimeline:true,pomodoro:true,diaryStats:true,calendar:true}},
+  recordFields:[{id:'mood',property:'mood',name:tx('Mood','心情'),type:'option',options:['很好','稳定','一般','偏低','很差'],icon:'smile',enabled:true,legacy:'mood'},{id:'energy',property:'energy',name:tx('Energy','精力'),type:'level',min:1,max:5,icon:'battery-medium',enabled:true,legacy:'energy'},{id:'sleep',property:'sleep_hours',name:tx('Sleep','睡眠时长'),type:'number',unit:tx('h','小时'),icon:'moon',color:'#8b78be',enabled:true}]};
+write('.obsidian/plugins/noria/data.json',JSON.stringify(data,null,2)+'\n');
+write('99_Attachment/noria.svg',fs.readFileSync(path.join(repoRoot,'docs/assets/brand/noria-avatar.svg'),'utf8'));
+note('02_Areas/Noria/Quotes.md',`- ${tx('Leave room for the work that matters.','给重要的事留出空间。')}\n- ${tx('Make the next step clear.','让下一步清楚一点。')}`);
+note(story.portfolioPath,`## ${tx('Outcome','完成时是什么样子')}\n\n${tx('Publish three case studies that explain the problem, design choices and result. Share a preview with a colleague before launch.','发布三个能讲清问题、设计取舍与结果的案例。上线前先请同事看一遍预览。')}\n\n## ${tx('Next actions','行动')}\n\n${story.portfolioTasks.join('\n')}\n\n## ${tx('Decisions','取舍')}\n\n${tx('Keep the original bookshop lettering as a familiar landmark. Explain that choice with a before-and-after image. Homepage animation is outside this release.','保留书店原有字形作为熟悉的识别点，用前后对照图解释这项选择。首页动效不在这轮范围里。')}`,-13,{project:story.portfolio,status:'active',tags:['project/work','noria-demo']});
+note(story.readerPath,`## ${tx('Outcome','完成条件')}\n\n${tx('Ship a small desktop reader that imports an article, saves it locally and resumes reading after a restart without a network connection. Two readers must finish this flow before version 1.0 ships.','交付一个桌面阅读应用：导入文章、本地保存，断网重启后能从上次位置继续阅读。邀请两位读者独立走通这条路径后发布 1.0。')}\n\n## ${tx('Prototype','原型')}\n\n${story.readerTasks.slice(0,2).join('\n')}\n\n## ${tx('Build and verify','开发与验证')}\n\n${story.readerTasks.slice(2,6).join('\n')}\n\n## ${tx('Beta and release','试用与发布')}\n\n${story.readerTasks.slice(6,8).join('\n')}\n\n## ${tx('Later','后续考虑')}\n\n${story.readerTasks.slice(8).join('\n')}\n\n## ${tx('Scope decisions','范围与取舍')}\n\n${tx('The first release supports article text and reading position on one device. Cloud sync, recommendations and full-text search remain outside this release. The saved-state feedback came from a prototype trial; verify it again with imported articles.','首版只做单设备正文阅读与进度恢复。云同步、内容推荐、全文搜索不进入首版。保存成功的反馈来自原型试用，导入真实文章后再检查一次。')}`,-13,{project:story.reader,status:'active',tags:['project/work','noria-demo']});
+const archive=`04_Archives/01_Projects/${tx('Publish a wayfinding article','发表导视设计文章')}/${tx('Publish a wayfinding article','发表导视设计文章')}.md`;
+note(archive,`## ${tx('Done','已完成')}\n\n${tx('Published an illustrated article explaining three wayfinding decisions, with image permission and a final editorial check. The public version is complete; future feedback belongs in a new revision.','发表一篇图文文章，解释三个导视设计取舍，已确认图片许可并完成编辑校对。公开稿已交付，后续反馈留待另一次修订。')}\n\n${story.task(tx('Confirm the image permissions','确认配图许可'),{done:-9})}\n${story.task(tx('Proofread and publish the final article','校对并发表终稿'),{done:-3})}`,-10,{status:'archived',completed:day(-3)});
+note(managedPaths.projectRegistry,`## ${tx('Active projects','进行中的项目')}\n\n- [[${story.portfolioPath}|${story.portfolio}]]\n- [[${story.readerPath}|${story.reader}]]\n\n## ${tx('Completed projects','已完成项目')}\n\n- [[${archive}|${tx('Publish a wayfinding article','发表导视设计文章')}]]`);
+let registry=tx('Fictional definitions. Check-ins live in their dated notes.','虚构示例定义。每次打卡保存在对应日期笔记。');
+for(const h of story.habits)registry=habitDefinition.writeHabitDefinition(registry,null,{...h,type:'',stage:'active',startedOn:day(-13)},{id:h.id,zh,today:date});
+write(managedPaths.habitRegistry,registry);
+note(managedPaths.importantDates,`## ${tx('Important dates','重要日期')}\n\n| ${tx('Date','日期')} | ${tx('Name','名称')} | ${tx('Type','类型')} | ${tx('Note','说明')} |\n| --- | --- | --- | --- |\n| ${day(16)} | ${tx('Reader 1.0 release','阅读应用 1.0 发布')} | project | [[${story.readerPath}]] |\n| ${day(9)} | ${tx('Portfolio launch','作品集上线')} | project | [[${story.portfolioPath}]] |`);
+note(managedPaths.templateLibrary,`## ${tx('Time blocks','时间块')}\n\n- [x] ${tx('Write a case study','案例写作')} [default_tag:: #work] [default_start::09:30] [default_duration_min::75] #tl/template\n- [x] ${tx('Weekly review','每周回顾')} [default_tag:: #review] [default_start::17:00] [default_duration_min::30] #tl/template`);
+write(managedPaths.inboxQueue,inboxSeeds.inboxQueueSeed({locale:zh?'zh':'en',root:'00_Inbox'}));
+const inbox=[
+ [tx('The bookshop feedback','书店的反馈'),'我：整理',tx('The owner liked keeping the familiar lettering. Save the exact feedback beside the case study before editing the introduction.','店主很喜欢保留熟悉字形的处理。先把原话放到案例旁边，再改开头。')],
+ [tx('Questions from the portfolio review','作品集试读问题'),'SI：提炼',tx('Group the questions about navigation, image order and the opening paragraph. Keep the original wording; do not turn every suggestion into a task.','把关于导航、图片顺序和开头段落的问题整理一下，保留原话，不把所有建议直接变成任务。')],
+ [tx('A weekend ceramics class','周末陶艺课'),'',tx('A friend mentioned a nearby studio. I may want to try it after the portfolio is published. No booking or date yet.','朋友提到附近有家工作室，作品集发完以后也许可以去试试。目前还没决定，不安排日期。')],
+ [tx('Readable signs in old streets','旧街里好读的招牌'),'我：阅读',tx('Look at the photo notes from the evening walk. Which signs were readable from across the road, and what made the difference?','回看傍晚散步时记下的照片。哪些招牌隔着马路也容易认出来，差别在哪里？')]
 ];
-for (const [slug, title, work, body] of inboxRows) {
-  write(`00_Inbox/${slug}.md`, `---\ncreated: "${shiftDate(anchorDate, -4)}"\n${work?`inbox-work: ${JSON.stringify(work)}\n`:""}tags:\n  - noria-demo\n---\n\n## ${title}\n\n${body}\n`);
+for(const [name,work,body] of inbox)note(`00_Inbox/${name}.md`,`## ${name}\n\n${body}`,-1,work?{'inbox-work':work}:{});
+const source=`03_Resources/${tx('Design','设计')}/${tx('The questions a case study should answer','案例需要回答的问题')}.md`;
+note(source,`## ${tx('A reading checklist','阅读时检查什么')}\n\n${tx('What was difficult before the change? What alternatives were considered? Why was this choice made? What evidence shows the result? Keep observations separate from claims that still need support.','调整之前难在哪里？考虑过哪些做法？为什么选这一种？结果由什么支撑？把观察与还需要依据的判断分开。')}`,-6);
+note(workflow,`## ${tx('Working notes','常用原文')}\n\n- [[${managedPaths.projectRegistry}|${tx('Projects','项目')}]]\n- [[${managedPaths.habitRegistry}|${tx('Habits','习惯')}]]\n- [[${managedPaths.inboxQueue}|${tx('Inbox','收集箱')}]]`);
+note(craft,`## ${tx('Use in a project','在项目里用')}\n\n- [[${story.portfolioPath}|${story.portfolio}]]\n\n## ${tx('Keep for later','留待下次使用')}\n\n- [[${source}|${tx('Questions for a case study','案例需要回答的问题')}]]`);
+for(const entry of story.diaries){
+ const ymd=entry.date;
+ let raw='---\n'+Object.entries({date:ymd,created:ymd,tags:['daily-plan','noria-demo'],mood:entry.mood,energy:entry.energy,sleep_hours:entry.sleep}).map(([k,v])=>`${k}: ${JSON.stringify(v)}`).join('\n')+'\n---\n\n'+entry.body+'\n';
+ for(const [offset,start,duration] of [[-6,'09:30',25],[-2,'10:00',40],[0,'09:30',25],[0,'10:05',25]])if(entry.offset===offset){
+   const begin=new Date(ymd+'T'+start+':00'),end=new Date(+begin+duration*60000);
+   raw=focusDocument.appendFocusRecord(raw,{record:{path:story.portfolioPath,titleSnapshot:tx('Explain the bookshop design decisions','补齐书店案例的设计取舍')},session:{start:begin.toISOString(),segments:[{start:begin.toISOString(),end:end.toISOString()}],completed:true},day:ymd,heading:tx('Focus','专注')});
+ }
+ if(entry.offset===0)raw+=`\n## 建议\n\n- ${tx('Before sharing','发预览前')} [[${story.portfolioPath}|${tx('the portfolio preview',story.portfolio)}]]${tx(', add the comparison image from the feedback. Animation can wait.','，先补上试读反馈里提到的对照图。动效继续留在未安排里即可。')}\n`;
+ write(`06_Diary/${ymd.slice(0,4)}/${ymd}.md`,raw);
 }
-
-write("02_Areas/Noria/Timeline settings.md", `---\ncreated: "${shiftDate(anchorDate, -79)}"\ntimeline_settings:\n  defaultStrategy: daily-only\n  pregenSpanDays: 7\n---\n\n# ${tx("Timeline settings", "时间轴设置")}\n`);
-write("02_Areas/Noria/Event library.md", `---\ncreated: "${shiftDate(anchorDate, -78)}"\ntags:\n  - noria-demo\n---\n\n# ${tx("Event library", "事件库")}\n\n- [x] ${tx("Deep work", "深度工作")} [default_tag:: #tl/focus] [default_start::09:00] [default_duration_min::90] #tl/template\n- [x] ${tx("Reading", "阅读")} [default_tag:: #tl/reading] [default_start::20:00] [default_duration_min::20] #tl/template\n- [x] ${tx("Review", "复盘")} [default_tag:: #tl/review] [default_start::21:20] [default_duration_min::20] #tl/template\n`);
-write("02_Areas/Noria/Templates/Daily Template.md", `---\ntags:\n  - daily-plan\ncssclasses:\n  - daily-clean\n---\n\n## ${tx("Today", "今日")}\n\n## ${tx("Habits", "习惯")}\n\n## Inbox\n\n## ${tx("Review", "复盘")}\n`);
-write("02_Areas/Noria/Templates/Weekly Template.md", `---\ntags:\n  - weekly-plan\n---\n\n## ${tx("Focus", "聚焦")}\n\n## ${tx("Tasks", "任务")}\n\n## ${tx("Review", "复盘")}\n`);
-write("02_Areas/Noria/Templates/Monthly Template.md", `---\ntags:\n  - monthly-plan\n---\n\n## ${tx("Direction", "方向")}\n\n## ${tx("Projects", "项目")}\n\n## ${tx("Review", "复盘")}\n`);
-write("02_Areas/Noria/Templates/Yearly Template.md", `---\ntags:\n  - yearly-plan\n---\n\n## ${tx("Direction", "方向")}\n\n## ${tx("Projects", "项目")}\n\n## ${tx("Review", "复盘")}\n`);
-
-write("03_Resources/知识工作/渐进式提炼.md", `---\ncreated: "${shiftDate(anchorDate, -62)}"\ntags:\n  - knowledge-work\n  - evergreen\n---\n\n## 核心判断\n\n笔记不是一次完成的容器，而是在使用中逐步提炼的工作材料。先保留来源，再提炼判断，最后把可复用部分连接到项目和 MOC。\n`);
-write("03_Resources/知识工作/行动与知识的连接.md", `---\ncreated: "${shiftDate(anchorDate, -47)}"\ntags:\n  - knowledge-work\n  - action\n---\n\n## 核心判断\n\n知识管理的价值不在于保存更多，而在于让过去的记录更容易支持当前判断和下一步行动。\n`);
-write("03_Resources/研究方法/证据与判断.md", `---\ncreated: "${shiftDate(anchorDate, -31)}"\ntags:\n  - research-method\n  - evidence\n---\n\n## 原则\n\n事实、推断和计划应保持清晰边界；完成状态必须由可核验产物、测试或记录支持。\n`);
-write("04_Archives/01_Projects/工作区初始化/工作区初始化.md", `---\ncreated: "${shiftDate(anchorDate, -88)}"\ncompleted: "${shiftDate(anchorDate, -76)}"\nstatus: archived\ntags:\n  - project/archive\n---\n\n## 结果\n\n完成 IPARA 根桶、Noria 入口、模板和第一批 MOC 的初始化，并将后续改进转入持续领域。\n`);
-const mediaEntries = [
-  [tx("Books", "书籍"), tx("The quiet notebook", "安静的笔记本"), "book", currentMediaStatus, {pageprogress: 36, pagecount: 160, "media-open": `[[${demoReadingPath}]]`}, tx("Return to the chapter about noticing small changes.", "接着读观察细微变化的那一章。")],
-  [tx("Books", "书籍"), tx("A map of ordinary days", "日常地图"), "book", tx("Planned", "计划中"), {}, tx("Read when there is time for a new book.", "有时间开始新书时再读。")],
-  [tx("Film and TV", "影视"), tx("Letters from the harbor", "港口来信"), "tv", currentMediaStatus, {}, tx("Continue with the next episode.", "接着看下一集。")],
-  [tx("Film and TV", "影视"), tx("An afternoon train", "午后列车"), "movie", tx("Finished", "已完成"), {}, tx("Keep this entry for later notes; no viewing date has been recorded.", "保留作品入口供以后补充想法，尚未记录观看日期。")],
-  [tx("Games", "游戏"), tx("The clockwork garden", "发条花园"), "game", currentMediaStatus, {}, tx("Continue exploring the garden.", "继续探索花园。")],
-  [tx("Music", "音乐"), tx("Morning refrain", "清晨副歌"), "music", "", {}, tx("A fictional song for exploring music notes. Link a recording before listening.", "用于熟悉音乐笔记的虚构歌曲。关联音源后再聆听。")]
-];
-for (const [folder, title, kind, status, details, body] of mediaEntries) {
-  const properties = {title, tags: [kind, "noria-demo"], ...(status ? {status} : {}), ...details};
-  const frontmatter = Object.entries(properties).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n");
-  write(`${mediaRoot}/${folder}/${title}.md`, `---\n${frontmatter}\n---\n\n## ${tx("Notes", "随记")}\n\n${body}\n`);
-}
-write(demoReadingPath, `---\ntags: ["noria-demo"]\n---\n\n## ${tx("A small observation", "一个小观察")}\n\n${tx("This short text belongs only to the fictional demo book. Notice one detail on a familiar route, write it down, and return to it tomorrow. A reading destination can be an ordinary Markdown document; it does not need another work tag.", "这段短文只属于虚构示例书。在熟悉的路上留意一个细节，把它记下来，明天再回看。阅读入口可以是普通 Markdown 正文，不需要再添加作品身份标签。")}\n`);
-write(`${mediaRoot}/${tx("Books", "书籍")}/${anchorDate} ${tx("Noticing small changes", "留意细微变化")}.md`, `---\ntags: ["noria-demo"]\nrelated: [${JSON.stringify(`[[${demoBookPath}]]`)}]\n---\n\n## ${tx("Reading note", "阅读记录")}\n\n${tx("A fictional reading note: keep one specific observation instead of a long checklist. The work page gathers this dated note through its related link.", "虚构阅读记录：先保留一个具体观察，不必列很长的清单。作品页通过 related 关联汇集这篇日期笔记。")}\n`);
-
-const demoReadme = isZh
-  ? [
-      "# Noria 中文演示库",
-      "",
-      "这是一个可直接打开的中文 Obsidian Vault，用一组自洽的示例笔记展示 Noria 如何连接日常记录、任务推进、项目管理、知识积累、习惯观察与复盘。",
-      "",
-      "## 从这里开始",
-      "",
-      "把整个目录作为 Obsidian 仓库打开。首次打开会询问是否信任仓库作者；确认这是你自己生成或核验过的 Noria 示例后，选择信任并启用插件。界面语言跟随 Obsidian，示例笔记语言由生成时的 --locale 决定。",
-      "",
-      "1. 打开 [[05_MOC/知识管理·MOC.md|知识管理 MOC]]，了解知识与行动如何连接。",
-      "2. 使用命令面板运行 **Noria: 打开主页**，进入完整工作台。",
-      "3. 从主页继续打开任务看板、任务时间轴、日历、趋势统计和复盘中心。",
-      "4. 点击顶部藏馆图标（悬停显示“藏馆”），浏览图书、影视、音乐与游戏。",
-      "",
-      "## 可以看到什么",
-      "",
-      "- **主页**：身份概览、今日待办、Inbox、项目、习惯、倒计时和复盘入口。",
-      "- **任务看板**：月、周、日与四象限四种视图，共用同一批 Markdown 任务。",
-      "- **任务时间轴**：在侧栏中观察任务的时间分布、跨度和完成状态。",
-      "- **日历**：从日期进入对应日记，连接计划与时间记录。",
-      "- **习惯**：查看四项习惯的连续记录与历史变化。",
-      "- **趋势统计**：从笔记、任务和日态字段计算趋势、分布与热力图。",
-      "- **复盘中心**：基于日记与任务证据整理日、周、月、年复盘。",
-      "- **藏馆**：默认继续三部进行中的作品，点击“全部”可见六部；下方提供近期完成与作品分布。顶部类型切换可分别查看图书、影视、音乐和游戏，作品区支持封面与详细两种视图。",
-      "",
-      "## 走一遍作品流程",
-      "",
-      "1. 在藏馆打开《安静的笔记本》，点击“阅读”，打开库内附带的 Markdown 节选。",
-      "2. 返回作品详情，将 36 / 160 页的当前页改为 40 并保存；在“关联笔记”旁点击原笔记图标，核对 pageprogress 已更新。",
-      "3. 在详情的关联笔记中打开带日期的《留意细微变化》，可看到它通过 related 链接关联作品。它是普通阅读笔记，不会成为第二部作品。",
-      "4. 主页 MOC 上方的快捷入口已放入这本书，可直接阅读；其他进行中的作品不会自动挤入主页，可按需要主动添加。",
-      "5. 直接编辑作品 Markdown 的标题、标签或进度，返回藏馆查看更新。添加作品时可选择自己的 Markdown 模板。",
-      "",
-      "示例作品未填写 finishedAt，因此近期完成图表没有完成日期数据；“已完成”状态不会被当作某天完成的证据。",
-      "",
-      "## IPARA 内容结构",
-      "",
-      "| 目录 | 演示内容 |",
-      "| --- | --- |",
-      "| 00_Inbox | 未安排、自己处理及交给 SI 的输入 |",
-      "| 01_Projects | 研究写作与知识系统两个活跃项目 |",
-      "| 02_Areas | Noria 清单、工作流、模板与作品笔记 |",
-      "| 03_Resources | 可复用的知识工作与研究方法笔记 |",
-      "| 04_Archives | 已完成项目及其结果记录 |",
-      "| 05_MOC | 工作流与知识管理入口 |",
-      "| 06_Diary | 连续 90 天的任务、习惯和日态证据 |",
-      "| 99_Attachment | 演示库自带头像与引用素材 |",
-      "",
-      "所有统计均由库内 Markdown 与元数据重新计算，没有预写图表结果。示例内容不包含真实私人数据，六部作品、节选与阅读记录均为虚构，可以自由修改、删除或替换；未填个人评分或体验时长。",
-      ""
-    ].join("\n")
-  : [
-      "# Noria demo vault", "",
-      "This isolated Obsidian vault connects daily notes, tasks, projects, knowledge, habits, statistics, and reviews. Start from [[05_MOC/知识管理·MOC.md|Knowledge management MOC]] or run **Noria: Open Home**.", "",
-      "Open this whole folder as an Obsidian vault. On first opening, Obsidian asks whether you trust its author. Enable the included plugin only after confirming this is the Noria demo you generated or verified. Interface language follows Obsidian; --locale selects the language of the sample notes.", "",
-      "## Try the media library", "",
-      "Click the top navigation library icon (hover for **Media library**). It starts with three In progress works; choose All to see six. Recent completions and collection distribution appear below. Switch between books, film and TV, music, and games at the top; use the cover/detail controls in the collection.", "",
-      "1. Open *The quiet notebook* and click **Read** to open its included Markdown excerpt.",
-      "2. Return to its details, change **36 / 160 pages** to page 40 and save. Use the source-note icon beside **Linked notes** to check pageprogress in the original Markdown.",
-      "3. Open the dated *Noticing small changes* note in Linked notes. Its related link associates it with the book without adding another work to the collection.",
-      "4. The Home shortcuts above MOC include this book for direct reading. Other in-progress works are not added automatically; add only the shortcuts you want.",
-      "5. Edit a work's title, tags or progress directly in Markdown and return to the library to see the update. When adding works, you can choose your own Markdown template.", "",
-      "No work has a finishedAt date, so the recent-completions chart has no dated results. A Finished status alone does not imply a completion date.", "",
-      "All six works, the excerpt and the reading note are fictional examples. No personal ratings or experience durations are supplied. Edit or remove them freely; no private data is included.", ""
-    ].join("\n");
-write("README.md", demoReadme);
-
-for (let index = 0; index < 90; index += 1) {
-  const date = shiftDate(anchorDate, index - 89);
-  write(`06_Diary/${date.slice(0, 4)}/${date}.md`, dailyNote(date, index));
-}
-
+// A weekly review links to the records behind its decisions, rather than copying tasks.
+const thursday=new Date(date+'T12:00:00Z');thursday.setUTCDate(thursday.getUTCDate()+4-(thursday.getUTCDay()||7));
+const isoYear=thursday.getUTCFullYear(),isoWeek=Math.ceil((((thursday-new Date(Date.UTC(isoYear,0,1)))/86400000)+1)/7);
+const week=`${isoYear}-W${String(isoWeek).padStart(2,'0')}`;
+note(`06_Diary/${isoYear}/${week}.md`,`## ${tx('This week','本周')}\n\n${tx('The portfolio is clearer after removing a weak case. The next review should focus on the explanation and mobile reading order, not more pages.','删去一个讲不清过程的案例以后，作品集主线清楚了。下一轮只检查取舍的说明和移动端阅读顺序，不继续加页。')}\n\n## ${tx('Weekly review','周复盘')}\n\n${tx('The feedback on','同事对')} [[${day(-2)}]] ${tx('pointed out a missing explanation. Two focus blocks today addressed it.','的反馈指出一段遗漏的解释，今天的两个专注时段围绕这段展开。')}\n\n${tx('The reader can save articles, but restoring reading position still needs work. Verify offline use before inviting the two beta readers. On Friday, share the portfolio preview before making more visual changes.','阅读应用已能保存文章，还要处理阅读位置恢复。断网流程验证通过后，再邀请两位读者试用。周五先发作品集预览，再决定是否继续修改视觉。')}`,-2,{tags:['weekly-review','noria-demo']});
+write('README.md',`# ${tx('Noria demonstration vault','Noria 展示库')}\n\n${tx('These are fictional records, written for documentation. They do not describe the plugin author or its user. Two active projects, three habits and fourteen dated notes share the same sources across Home, the calendar, timeline and statistics.','这是为文档编写的虚构记录，不代表作者或用户的真实生活。两个进行中的项目、三项习惯和十四篇日记，在主页、日历、时间轴与统计中共用同一份原文。')}\n\n## ${tx('Start here','从这里开始')}\n\n1. ${tx('Open Home and follow the portfolio project to its original note.','打开主页，从作品集项目进入原笔记。')}\n2. ${tx('Compare scheduled work, deadlines and undated next actions in Task Board and Timeline.','在任务看板和时间轴区分安排好的时段、截止日与未安排的下一步。')}\n3. ${tx('Read today’s note, then the weekly review; check the sources behind the next decision.','读今天的日记，再看周回顾，核对下一步决定来自什么记录。')}\n4. ${tx('Check the habits: strength training has rest days, and the history includes missed targets.','查看习惯：力量训练有休息日，历史也保留没有完成的目标。')}\n\n${tx('This public example does not include private media, RSS, health, finance, inventory, wardrobe or travel views. Interface language follows Obsidian.','公开示例不含自用的藏馆、RSS、健康、财务、物品、衣橱或旅行界面。界面语言跟随 Obsidian。')}\n`);
 console.log(`Noria release demo vault created: ${targetRoot}`);

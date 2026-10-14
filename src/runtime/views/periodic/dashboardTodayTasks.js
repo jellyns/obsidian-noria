@@ -375,8 +375,12 @@ const renderForPeriod = (periodKey) => {
   input?.summaryHost?.querySelector?.(".noria-task-totals")?.remove();
 
   if (tasks.length === 0) {
-    const empty = scroll.createDiv({ text: meta.empty });
-    empty.addClass("dashboard-period-task-empty");
+    const empty = scroll.createDiv({cls:'dashboard-period-task-empty noria-capture-empty'});
+    empty.createDiv({text:meta.empty});
+    const add=empty.createEl('button',{cls:'noria-capture-empty-action',text:String(bridge.locale||'en').startsWith('zh')?'添加待办':'Add a task',attr:{type:'button'}});
+    add.onclick=()=>addBtn.click();
+    empty.createEl('small',{text:String(bridge.locale||'en').startsWith('zh')?'保存到对应日记，之后也能直接在笔记中修改。':'Saved in the corresponding journal, where you can also edit it.'});
+    return;
   }
 
   const sorted = [...tasks].sort((a, b) => {

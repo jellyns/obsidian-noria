@@ -195,7 +195,7 @@ test("runtime scratch state no longer uses retired zb prefixes", () => {
   assert.doesNotMatch(timelineTest, /\^zb[0-9A-Za-z_-]+/);
 });
 
-test("fresh defaults use the Noria workspace, secret, and review skill", () => {
+test("fresh defaults use IPARA locations, secret, and review skill", () => {
   const plugin = makePlugin();
 
   const settings = plugin.normalizeSettings({});
@@ -204,12 +204,12 @@ test("fresh defaults use the Noria workspace, secret, and review skill", () => {
   assert.equal(Object.prototype.hasOwnProperty.call(settings, "viewNotePath"), false);
   assert.equal(settings.onboarding.workspaceRoot, "Noria");
   Object.values(settings.managedPaths).forEach((managedPath) => {
-    assert.match(managedPath, /^Noria\//);
+    assert.ok(!managedPath || /^(?:00_Inbox|01_Projects|02_Areas|06_Diary)(?:\/|$)/.test(managedPath));
   });
-  assert.equal(settings.managedPaths.inboxWorkflow, "Noria/Inbox workflow.md");
-  assert.equal(settings.managedPaths.inboxQueue, "Noria/Inbox queue.base");
-  assert.match(settings.home.identity.avatarPath, /^Noria\//);
-  assert.match(settings.home.identity.quoteListPath, /^Noria\//);
+  assert.equal(settings.managedPaths.inboxWorkflow, undefined);
+  assert.equal(settings.managedPaths.inboxQueue, "02_Areas/知识库管理/Inbox queue.base");
+  assert.equal(settings.home.identity.avatarPath, "");
+  assert.equal(settings.home.identity.quoteListPath, "");
   settings.homeDashboard.mocEntryPaths.forEach((mocPath) => {
     assert.match(mocPath, /^Noria\//);
   });
@@ -250,11 +250,11 @@ test("fresh starter content and generated diagnostics use Noria copy", () => {
     plugin.buildStarterProjectSeed({}, "setup"),
     plugin.getSupportSeedText("homeAvatar"),
     plugin.getManagedNoteSeed("importantDates"),
-    plugin.getManagedNoteSeed("unknown-seed"),
+    plugin.getManagedNoteSeed("habitRegistry"),
     JSON.stringify(plugin.getStarterProjectDefinitions())
   ].join("\n");
   const retiredBrand = new RegExp(["ca", "dence"].join(""), "i");
-  assert.match(english, /Noria/);
+  assert.match(english, /Active habits/);
   assert.match(english, /aria-label="Noria avatar"/);
   assert.match(english, /id="noriaAvatarFlow"/);
   assert.doesNotMatch(english, /<(?:rect|circle|text)\b/);

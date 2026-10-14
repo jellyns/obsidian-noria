@@ -86,56 +86,25 @@ function renderChart(host,result,config,{text,number,compactNumber=number,viewSt
    pick.setAttribute('aria-label',label(point)+' · '+(readOnly?text('查看来源','View sources'):text('编辑或查看来源','Edit or view sources')));updateSelection?.();};select(selected);
  const colorMin=Math.min(0,...values),colorMax=Math.max(0,...values);
  const shade=p=>p.value==null?'var(--background-secondary)':category?colorFor(p.value):`color-mix(in srgb,var(--noria-record-color,var(--interactive-accent)) ${25+75*(p.value-colorMin)/(colorMax-colorMin||1)}%,var(--background-primary))`;
- if(['heatmap','strip','states'].includes(style)){
-   const grid=host.createDiv({cls:`noria-stat-calendar noria-stat-calendar--${style}`});
-   const month=style==='heatmap'&&points.length<=62;
-   const annual=style==='heatmap'&&!month,leading=(new Date(points[0].date+'T12:00:00Z').getUTCDay()+6)%7,cells=[];
-   if(month)grid.addClass('is-month');
-   if(annual){grid.addClass('is-year');for(let i=0;i<7;i++){const day=grid.createSpan({cls:'noria-stat-weekday',text:text('一 二 三 四 五 六 日','M T W T F S S').split(' ')[i]});day.style.gridColumn='1';day.style.gridRow=String(i+2);}}
-   points.forEach((p,i)=>{
-     const boundary=i===0||p.date.slice(0,7)!==points[i-1].date.slice(0,7);
-     const nextMonth=i===0?points.findIndex(p=>p.date.slice(0,7)!==points[0].date.slice(0,7)):-1;
-     const crowdedFirst=annual&&i===0&&nextMonth>0&&Math.floor((leading+nextMonth)/7)<4;
-     if(boundary&&!crowdedFirst&&(month||style==='states'||annual)){
-       const heading=grid.createSpan({cls:'noria-stat-month-label',text:p.date.slice(0,7)});
-       if(annual){heading.style.gridRow='1';heading.style.gridColumn=`${Math.floor((leading+i)/7)+2} / span 4`;}
-       else{heading.style.gridColumn='1 / -1';if(month){for(const day of text('一 二 三 四 五 六 日','M T W T F S S').split(' '))grid.createSpan({cls:'noria-stat-weekday',text:day});const pad=(new Date(p.date+'T12:00:00Z').getUTCDay()+6)%7;for(let j=0;j<pad;j++)grid.createSpan({cls:'noria-stat-calendar-pad'});}}
-     }
-     const multi=p.multiple||p.ambiguous,b=button(grid,style==='states'||month?p.date.slice(8):multi?'⋯':'',b=>{select(i);activate(b,p.rows,p.date);},'noria-stat-day');cells.push(b);
-     b.style.background=shade(p);b.title=label(p);b.setAttribute('aria-label',label(p));b.dataset.date=p.date;b.dataset.missing=String(p.value==null&&!multi);b.dataset.multiple=String(multi);
-     if(style==='strip'){b.style.gridColumn=String(i+1);b.style.gridRow='1';}
-     if(annual){b.style.gridColumn=String(Math.floor((leading+i)/7)+2);b.style.gridRow=String((leading+i)%7+2);}
-     b.onfocus=()=>select(i);b.onpointerenter=()=>select(i);
-     b.onkeydown=e=>{let next;
-       if(e.key==='Home')next=0;else if(e.key==='End')next=points.length-1;
-       else if(e.key==='ArrowLeft'||e.key==='ArrowRight')next=i+(e.key==='ArrowLeft'?-1:1)*(annual?7:1);
-       else if(style==='heatmap'&&(e.key==='ArrowUp'||e.key==='ArrowDown'))next=i+(e.key==='ArrowUp'?-1:1)*(annual?1:7);
-       if(next==null)return;e.preventDefault();select(next);cells[selected].focus({preventScroll:true});cells[selected].scrollIntoView({block:'nearest',inline:'nearest'});
-     };
+ if(style==='calendar'){
+   caption.remove();
+   require('./statistic-calendar.js').renderStatisticCalendar(host,points,{text,value:pointValue,color:p=>category?colorFor(p.value):'var(--noria-record-color,var(--interactive-accent))',today,viewState,activate});return;
+ }
+ if(style==='strip'){
+   const grid=host.createDiv({cls:'noria-stat-calendar noria-stat-calendar--strip'}),cells=[];
+   points.forEach((p,i)=>{const b=button(grid,p.multiple||p.ambiguous?'⋯':'',b=>{select(i);activate(b,p.rows,p.date);},'noria-stat-day');cells.push(b);
+     b.style.background=shade(p);b.title=label(p);b.setAttribute('aria-label',label(p));b.dataset.date=p.date;b.dataset.missing=String(p.value==null&&!p.multiple&&!p.ambiguous);b.dataset.multiple=String(!!(p.multiple||p.ambiguous));
+     b.style.gridColumn=String(i+1);b.style.gridRow='1';b.onfocus=()=>select(i);b.onpointerenter=()=>select(i);
+     b.onkeydown=e=>{let next;if(e.key==='Home')next=0;else if(e.key==='End')next=points.length-1;else if(e.key==='ArrowLeft'||e.key==='ArrowRight')next=i+(e.key==='ArrowLeft'?-1:1);if(next==null)return;e.preventDefault();select(next);cells[selected].focus({preventScroll:true});cells[selected].scrollIntoView({block:'nearest',inline:'nearest'});};
    });
    updateSelection=()=>cells.forEach((b,i)=>{b.dataset.selected=String(i===selected);b.tabIndex=i===selected?0:-1;});select(selected);
-   if((month||style==='states')&&host.ownerDocument.defaultView){
-     const context=host.ownerDocument.createElement('canvas').getContext('2d',{willReadFrequently:true}),inks=new Map();
-     for(const b of cells){if(b.dataset.missing==='true'||b.dataset.multiple==='true')continue;
-       const background=host.ownerDocument.defaultView.getComputedStyle(b).backgroundColor;
-       if(!inks.has(background)){context.fillStyle=background;context.fillRect(0,0,1,1);const rgb=context.getImageData(0,0,1,1).data;
-         const linear=Array.from(rgb).slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}),luminance=linear[0]*.2126+linear[1]*.7152+linear[2]*.0722;
-         inks.set(background,(luminance+.05)/.05>=1.05/(luminance+.05)?'#000000':'#ffffff');}
-       b.style.color=inks.get(background);
-     }
-   }
    if(viewState.calendarScrollLeft!=null)grid.scrollLeft=viewState.calendarScrollLeft;
    else if(grid.clientWidth){const r=cells[selected].getBoundingClientRect(),g=grid.getBoundingClientRect();grid.scrollLeft=r.left-g.left-(grid.clientWidth-r.width)/2;}
    grid.onscroll=()=>{viewState.calendarScrollLeft=grid.scrollLeft;};
-   if(style==='strip'){
-     const acrossYears=points[0].date.slice(0,4)!==points.at(-1).date.slice(0,4),span=Math.min(6,Math.max(1,Math.floor(points.length/2)));
-     for(const i of [...new Set([0,points.length-1])]){
-       const date=points[i].date,tick=grid.createSpan({cls:'noria-stat-strip-date',text:acrossYears?date:date.slice(5),attr:{title:date}});
-       tick.style.gridRow='2';tick.style.gridColumn=(i===0?1:points.length-span+1)+' / span '+span;tick.style.justifySelf=i===0?'start':'end';
-     }
-   }
-   if(!category&&visual.showLegend&&values.length){const scale=host.createDiv({cls:'noria-stat-legend'});for(const value of [...new Set([colorMin,colorMax,null])]){const item=scale.createSpan(),swatch=item.createSpan({cls:'noria-stat-legend-swatch'});swatch.style.background=shade({value});item.createSpan({text:value===null?text('未记录','No record'):numeric(value)});}}
-   if(category&&visual.showLegend){let parent=host;if(categories.length>8){parent=host.createEl('details');parent.createEl('summary',{text:text('状态图例','State legend')});}const list=parent.createDiv({cls:'noria-stat-legend'});for(const key of categories){const item=list.createSpan(),swatch=item.createSpan({cls:'noria-stat-legend-swatch'});swatch.style.background=colorFor(key);item.createSpan({text:field?display(field,field.type==='toggle'?key==='true':key):key});}}
+   const span=Math.min(6,Math.max(1,Math.floor(points.length/2)));
+   for(const i of [...new Set([0,points.length-1])]){const date=points[i].date,tick=grid.createSpan({cls:'noria-stat-strip-date',text:points[0].date.slice(0,4)!==points.at(-1).date.slice(0,4)?date:date.slice(5),attr:{title:date}});tick.style.gridRow='2';tick.style.gridColumn=(i===0?1:points.length-span+1)+' / span '+span;tick.style.justifySelf=i===0?'start':'end';}
+   if(!category&&visual.showLegend&&values.length){const scale=host.createDiv({cls:'noria-stat-legend'});for(const value of [...new Set([colorMin,colorMax,null])]){const item=scale.createSpan();item.createSpan({cls:'noria-stat-legend-swatch'}).style.background=shade({value});item.createSpan({text:value===null?text('未记录','No record'):numeric(value)});}}
+   if(category&&visual.showLegend){const legend=host.createDiv({cls:'noria-stat-legend'});for(const key of categories){const item=legend.createSpan();item.createSpan({cls:'noria-stat-legend-swatch'}).style.background=colorFor(key);item.createSpan({text:field?display(field,field.type==='toggle'?key==='true':key):key});}}
    return;
  }
  const plot=button(host,'',b=>activate(b,points[selected].rows,points[selected].date),'noria-stat-plot');

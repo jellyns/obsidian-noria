@@ -22,6 +22,7 @@ function loadPluginClass(options = {}) {
   const timers = options.timers || [];
   const context = {
     console: options.console || console,
+    structuredClone,
     module,
     exports: module.exports,
     setTimeout(fn, delay) {
@@ -80,6 +81,8 @@ function loadPluginClass(options = {}) {
 function makePlugin(options = {}) {
   const Plugin = loadPluginClass(options);
   const plugin = new Plugin();
+  plugin.manifest={id:"noria"};
+  const disk=new Map();
   let triggerCount = 0;
   const triggers = [];
   plugin.app = {
@@ -95,6 +98,8 @@ function makePlugin(options = {}) {
       }
     },
     vault: {
+      configDir:".obsidian",
+      adapter:{exists:async p=>disk.has(p),read:async p=>disk.get(p),write:async(p,v)=>disk.set(p,v),mkdir:async p=>disk.set(p,"")},
       getAbstractFileByPath() {
         return null;
       }
@@ -136,12 +141,12 @@ test("fresh settings retire entry note and migrate legacy Chinese managed paths"
   assert.equal(settings.weather.cacheMinutes, 45);
   assert.equal(Object.prototype.hasOwnProperty.call(settings.managedPaths, "entryNote"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(settings, "viewNotePath"), false);
-  assert.equal(settings.managedPaths.timelineSettings, "02_Areas/知识库管理/Timeline settings.md");
+  assert.equal(settings.managedPaths.timelineSettings, undefined);
   assert.equal(settings.managedPaths.templateLibrary, "02_Areas/知识库管理/Event library.md");
   assert.equal(settings.managedPaths.importantDates, "02_Areas/知识库管理/Countdowns.md");
   assert.equal(settings.managedPaths.habitRegistry, "02_Areas/知识库管理/Habits.md");
   assert.equal(settings.managedPaths.projectRegistry, "02_Areas/知识库管理/Projects.md");
-  assert.equal(settings.managedPaths.inboxWorkflow, "02_Areas/知识库管理/Inbox workflow.md");
+  assert.equal(settings.managedPaths.inboxWorkflow, undefined);
   assert.equal(settings.managedPaths.inboxQueue, "02_Areas/知识库管理/Inbox queue.base");
   assert.equal(settings.home.identity.quoteListPath, "02_Areas/知识库管理/Quotes.md");
   assert.equal(Object.prototype.hasOwnProperty.call(settings.managedPaths, "taskRegistry"), false);
@@ -223,7 +228,7 @@ test("managed note seeds are minimal and parseable by current views", () => {
   assert.match(plugin.getManagedNoteSeed("templateLibrary"), /#tl\/template/);
   assert.match(plugin.getManagedNoteSeed("templateLibrary"), /\[default_tag:: #tl\/breakfast\]/);
   assert.doesNotMatch(plugin.getManagedNoteSeed("templateLibrary"), /\|\s*Name\s*\|\s*Start\s*\|\s*Duration\s*\|\s*Tag\s*\|/);
-  assert.match(plugin.getManagedNoteSeed("inboxWorkflow"), /Inbox|inbox/);
+  assert.throws(() => plugin.getManagedNoteSeed("inboxWorkflow"), /unsupported/i);
   assert.match(plugin.getManagedNoteSeed("inboxQueue"), /views:\n\s+- type: table/);
   assert.match(plugin.getManagedNoteSeed("inboxQueue"), /note\.inbox-work/);
   assert.doesNotMatch(plugin.getManagedNoteSeed("inboxQueue"), /inbox-(?:status|action|shape|next|review)/);
@@ -259,7 +264,7 @@ test("habit task exclusion defaults on but can be explicitly configured", () => 
 test("non-diary starter notes do not opt into diary styling", () => {
   const plugin = makePlugin({ language: "zh-CN" });
 
-  for (const key of ["timelineSettings", "templateLibrary", "importantDates", "habitRegistry", "projectRegistry", "inboxWorkflow", "inboxQueue"]) {
+  for (const key of ["templateLibrary", "importantDates", "habitRegistry", "projectRegistry", "inboxQueue"]) {
     assert.doesNotMatch(plugin.getManagedNoteSeed(key), /^---\n[\s\S]*cssclasses:/m, key);
   }
   for (const [key, pathText] of [
@@ -312,14 +317,14 @@ test("runtime bridge exposes managed paths, refresh bus, and performance default
 
   const bridge = plugin.buildRuntimeBridgeConfig();
 
-  assert.equal(bridge.paths.importantDatesPath, "Noria/Countdowns.md");
-  assert.equal(bridge.paths.habitRegistryPath, "Noria/Habits.md");
-  assert.equal(bridge.paths.projectRegistryPath, "Noria/Projects.md");
-  assert.equal(bridge.paths.inboxWorkflowPath, "Noria/Inbox workflow.md");
-  assert.equal(bridge.paths.inboxQueuePath, "Noria/Inbox queue.base");
+  assert.equal(bridge.paths.importantDatesPath, "02_Areas/知识库管理/Countdowns.md");
+  assert.equal(bridge.paths.habitRegistryPath, "02_Areas/知识库管理/Habits.md");
+  assert.equal(bridge.paths.projectRegistryPath, "02_Areas/知识库管理/Projects.md");
+  assert.equal(bridge.paths.inboxWorkflowPath, undefined);
+  assert.equal(bridge.paths.inboxQueuePath, "02_Areas/知识库管理/Inbox queue.base");
   assert.equal(Object.prototype.hasOwnProperty.call(bridge.paths, "entryNotePath"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(bridge.paths, "taskRegistryPath"), false);
-  assert.equal(bridge.paths.diaryRoot, "Noria/Diary");
+  assert.equal(bridge.paths.diaryRoot, "06_Diary");
   assert.equal(Object.prototype.hasOwnProperty.call(bridge.paths, "reviewArtifactBasePath"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(bridge, "runtimeFiles"), false);
   assert.equal(typeof bridge.refresh.requestRefresh, "function");
@@ -328,7 +333,7 @@ test("runtime bridge exposes managed paths, refresh bus, and performance default
   assert.equal(bridge.refresh.scopeFor("setting:calendar"), "calendar");
   assert.equal(bridge.refresh.scopeFor("writeback:task"), "tasks");
   assert.equal(bridge.calendarSettings.calendarIntegrationMode, "noria");
-  assert.equal(bridge.calendarSettings.calendarRootFolder, "Noria/Diary");
+  assert.equal(bridge.calendarSettings.calendarRootFolder, "06_Diary");
   assert.equal(typeof bridge.data.resolveRange, "function");
   assert.equal(typeof bridge.data.getSnapshot, "function");
   assert.equal(typeof bridge.data.getTasks, "function");
@@ -350,8 +355,8 @@ test("runtime bridge exposes managed paths, refresh bus, and performance default
   assert.equal(typeof bridge.runtime.scopeFor, "function");
   assert.equal(typeof bridge.runtime.pagesForScope, "function");
   assert.equal(typeof bridge.runtime.tasksForScope, "function");
-  assert.equal(bridge.runtime.scopeFor("tasks").query, '"Noria/Diary" or "Noria/Projects" or "Noria/Inbox"');
-  assert.equal(bridge.runtime.scopeFor("tasks").roots[0], "Noria/Diary");
+  assert.equal(bridge.runtime.scopeFor("tasks").query, '"06_Diary" or "01_Projects" or "00_Inbox"');
+  assert.equal(bridge.runtime.scopeFor("tasks").roots[0], "06_Diary");
   assert.deepEqual(plain(bridge.taskQueryContext.taskTagFilter.excludeTags), ["#habit"]);
   assert.equal(Object.prototype.hasOwnProperty.call(bridge.runtime.scopeFor("notes"), "isAllVault"), false);
   assert.equal(typeof bridge.taskSnapshots.get, "function");
@@ -616,6 +621,7 @@ test("Home performance summary save reports unavailable local write APIs", async
     }
   });
 
+  delete plugin.app.vault.adapter;
   const result = await plugin.saveHomePerformanceSummary();
 
   assert.equal(result.saved, false);
@@ -815,13 +821,17 @@ test("targeted Noria settings consume the requested tab before display", () => {
   assert.deepEqual(plain(result), { ok: true, tab: "home" });
   assert.deepEqual(observed, [["open", "home"], ["tab:noria", "home"]]);
 
+  observed.length = 0;
+  assert.deepEqual(plain(plugin.openNoriaSettings("general")), {ok:true,tab:"general"});
+  assert.deepEqual(observed, [["open", "general"], ["tab:noria", "general"]]);
+
   const source = fs.readFileSync(path.join(pluginRoot, "src/main.js"), "utf8");
   const displayStart = source.indexOf("  display() {");
   const displayEnd = source.indexOf("\n  }\n}\n\nclass NoriaPlugin", displayStart);
   const displayBody = source.slice(displayStart, displayEnd);
   assert.match(displayBody, /const preferredTab = this\.plugin\._settingsPreferredTab/);
   assert.match(displayBody, /this\.plugin\._settingsPreferredTab = ""/);
-  assert.match(displayBody, /this\.activeTab = this\.normalizeTabId\(preferredTab \|\| this\.activeTab\)/);
+  assert.match(displayBody, /this\.activeTab = this\.normalizeTabId\(preferredTab \|\| this\.activeTab \|\|/);
 });
 
 test("Home card settings open locally with the selected instance", () => {
@@ -878,17 +888,17 @@ test("Noria Calendar settings default to Noria paths and normalize custom values
   assert.equal(settings.calendar.calendarPlacement, "right-sidebar");
   assert.equal(settings.calendar.calendarConfirmBeforeCreate, false);
   assert.equal(settings.calendar.calendarIntegrationMode, "noria");
-  assert.equal(settings.calendar.calendarRootFolder, "Noria/Diary");
+  assert.equal(settings.calendar.calendarRootFolder, "06_Diary");
   assert.equal(settings.calendar.calendarCustomFilePattern, "YYYY/YYYY-MM-DD");
   assert.equal(settings.calendar.calendarCustomWeekPattern, "gggg/gggg-[W]ww");
   assert.equal(settings.calendar.calendarCustomMonthPattern, "YYYY/YYYY-MM");
   assert.equal(settings.calendar.calendarCustomQuarterPattern, "YYYY/YYYY-[Q]Q");
   assert.equal(settings.calendar.calendarCustomYearPattern, "YYYY/YYYY");
-  assert.equal(settings.calendar.calendarCustomFileTemplate, "Noria/Templates/Daily template.md");
-  assert.equal(settings.calendar.calendarCustomWeekTemplate, "Noria/Templates/Weekly template.md");
-  assert.equal(settings.calendar.calendarCustomMonthTemplate, "Noria/Templates/Monthly template.md");
+  assert.equal(settings.calendar.calendarCustomFileTemplate, "");
+  assert.equal(settings.calendar.calendarCustomWeekTemplate, "");
+  assert.equal(settings.calendar.calendarCustomMonthTemplate, "");
   assert.equal(settings.calendar.calendarCustomQuarterTemplate, "");
-  assert.equal(settings.calendar.calendarCustomYearTemplate, "Noria/Templates/Yearly template.md");
+  assert.equal(settings.calendar.calendarCustomYearTemplate, "");
 
   const normalized = plugin.normalizeSettings({
     features: { modules: { calendar: false, obsoleteModule: true } },
@@ -957,7 +967,7 @@ test("Noria Calendar settings default to Noria paths and normalize custom values
   assert.equal(legacyOnly.features.modules.calendar, true);
   assert.equal(Object.prototype.hasOwnProperty.call(legacyOnly.features.modules, "navigationCalendar"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(legacyOnly, "navigationCalendar"), false);
-  assert.equal(legacyOnly.calendar.calendarRootFolder, "Noria/Diary");
+  assert.equal(legacyOnly.calendar.calendarRootFolder, "06_Diary");
   assert.equal(legacyOnly.calendar.calendarIntegrationMode, "noria");
 
   const legacyDisabled = plugin.normalizeSettings({ calendar: { calendarEnabled: false } });
@@ -1092,23 +1102,23 @@ test("Noria Calendar resolves fresh periodic note paths from Noria patterns", ()
 
   assert.equal(
     plugin.resolveCalendarNoteSpec("daily", "2026-01-05").path,
-    "Noria/Diary/2026/2026-01-05.md"
+    "06_Diary/2026/2026-01-05.md"
   );
   assert.equal(
     plugin.resolveCalendarNoteSpec("weekly", "2026-01-05").path,
-    "Noria/Diary/2026/2026-W02.md"
+    "06_Diary/2026/2026-W02.md"
   );
   assert.equal(
     plugin.resolveCalendarNoteSpec("monthly", "2026-01-05").path,
-    "Noria/Diary/2026/2026-01.md"
+    "06_Diary/2026/2026-01.md"
   );
   assert.equal(
     plugin.resolveCalendarNoteSpec("quarterly", "2026-05-31").path,
-    "Noria/Diary/2026/2026-Q2.md"
+    "06_Diary/2026/2026-Q2.md"
   );
   assert.equal(
     plugin.resolveCalendarNoteSpec("yearly", "2026-05-31").path,
-    "Noria/Diary/2026/2026.md"
+    "06_Diary/2026/2026.md"
   );
 
   plugin.settings = plugin.normalizeSettings({
@@ -1177,8 +1187,8 @@ test("Noria Calendar picker models expose month and year note markers", async ()
   const plugin = makePlugin({ language: "zh-CN" });
   plugin.settings = plugin.normalizeSettings({});
   const files = new Set([
-    "Noria/Diary/2026/2026-05.md",
-    "Noria/Diary/2026/2026.md"
+    "06_Diary/2026/2026-05.md",
+    "06_Diary/2026/2026.md"
   ]);
   plugin.app.vault.getAbstractFileByPath = (pathText) => files.has(String(pathText || "")) ? { path: String(pathText || ""), stat: {} } : null;
 
@@ -1240,15 +1250,15 @@ test("Noria Calendar date task writeback creates daily notes and uses start due 
 
   const first = await plugin.addCalendarDateTask({ date: "2026-05-31", title: "写总结" });
   assert.equal(first.created, true);
-  assert.equal(first.path, "Noria/Diary/2026/2026-05-31.md");
-  let text = files.get("Noria/Diary/2026/2026-05-31.md");
+  assert.equal(first.path, "06_Diary/2026/2026-05-31.md");
+  let text = files.get("06_Diary/2026/2026-05-31.md");
   assert.match(text, /### 今日任务/);
   assert.match(text, /- \[ \] 写总结 \[start:: 2026-05-31\] \[due:: 2026-05-31\]/);
   assert.doesNotMatch(text, /scheduled::/);
 
   const second = await plugin.addCalendarDateTask({ date: "2026-05-31", title: "晚间推进", time: "23:45" });
   assert.equal(second.created, false);
-  text = files.get("Noria/Diary/2026/2026-05-31.md");
+  text = files.get("06_Diary/2026/2026-05-31.md");
   assert.match(text, /- \[ \] 晚间推进 \[start:: 2026-05-31 23:45\] \[due:: 2026-06-01 00:15\]/);
   assert.doesNotMatch(text, /scheduled::/);
 });
@@ -1256,7 +1266,7 @@ test("Noria Calendar date task writeback creates daily notes and uses start due 
 test("Noria Calendar date task writeback preserves a concurrent diary edit", async () => {
   const plugin = makePlugin({ language: "zh-CN" });
   plugin.settings = plugin.normalizeSettings({});
-  const diaryPath = "Noria/Diary/2026/2026-05-31.md";
+  const diaryPath = "06_Diary/2026/2026-05-31.md";
   const files = new Map([[diaryPath, "## 待办\n\n### 今日任务\n\n- [ ] 已有任务\n"]]);
   let processCalls = 0;
   plugin.app.vault = {
@@ -1365,8 +1375,8 @@ test("Home quick capture writes today's diary Inbox through shared diary block h
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.path, "Noria/Diary/2026/2026-06-08.md");
-  const text = files.get("Noria/Diary/2026/2026-06-08.md");
+  assert.equal(result.path, "06_Diary/2026/2026-06-08.md");
+  const text = files.get("06_Diary/2026/2026-06-08.md");
   assert.match(text, /## Inbox\n\n- \[09:05\] 整理 Dashboard 操作台\n/);
 
   const taskResult = await plugin.appendHomeQuickCapture({
@@ -1377,14 +1387,14 @@ test("Home quick capture writes today's diary Inbox through shared diary block h
 
   assert.equal(taskResult.ok, true);
   assert.equal(taskResult.target, "today-task");
-  const taskText = files.get("Noria/Diary/2026/2026-06-08.md");
+  const taskText = files.get("06_Diary/2026/2026-06-08.md");
   assert.match(taskText, /### 今日任务[\s\S]*- \[ \] 推进 Home 捕获命令条 \[start:: 2026-06-08\] \[due:: 2026-06-08\]/);
 });
 
 test("Home quick capture processes the latest diary text without overwriting a concurrent edit", async () => {
   const plugin = makePlugin({ language: "zh-CN" });
   plugin.settings = plugin.normalizeSettings({});
-  const diaryPath = "Noria/Diary/2026/2026-06-08.md";
+  const diaryPath = "06_Diary/2026/2026-06-08.md";
   const files = new Map([[diaryPath, "## Inbox\n\n- 已有记录\n"]]);
   let processCalls = 0;
   plugin.app.vault = {
@@ -1727,9 +1737,11 @@ test("task snapshot cache keys include task query scope but not note scope", () 
   const plugin = makePlugin();
   plugin.settings = plugin.normalizeSettings({});
 
+  const baseline=plain(plugin.settings);
   const defaultKey = plugin.getTaskSnapshotCacheKey({ scopeId: "tasks", view: "week" });
 
   plugin.settings = plugin.normalizeSettings({
+    ...baseline,
     performance: {
       queryScopes: {
         notes: { mode: "custom", customRoots: ["03_Resources"] }
@@ -1739,6 +1751,7 @@ test("task snapshot cache keys include task query scope but not note scope", () 
   assert.equal(plugin.getTaskSnapshotCacheKey({ scopeId: "tasks", view: "week" }), defaultKey);
 
   plugin.settings = plugin.normalizeSettings({
+    ...baseline,
     performance: {
       queryScopes: {
         tasks: { mode: "custom", customRoots: ["06_Diary"] }
@@ -2213,10 +2226,10 @@ test("refresh scope classification separates local task, home, and reload work",
   const plugin = makePlugin();
   plugin.settings = plugin.normalizeSettings({});
 
-  assert.equal(plugin.classifyChangedPath("Noria/Countdowns.md"), "home");
-  assert.equal(plugin.classifyChangedPath("Noria/Habits.md"), "home");
-  assert.equal(plugin.classifyChangedPath("Noria/Projects.md"), "home");
-  assert.equal(plugin.classifyChangedPath("Noria/Diary/2026/2026-05-02.md"), "tasks");
+  assert.equal(plugin.classifyChangedPath("02_Areas/知识库管理/Countdowns.md"), "home");
+  assert.equal(plugin.classifyChangedPath("02_Areas/知识库管理/Habits.md"), "home");
+  assert.equal(plugin.classifyChangedPath("02_Areas/知识库管理/Projects.md"), "home");
+  assert.equal(plugin.classifyChangedPath("06_Diary/2026/2026-05-02.md"), "tasks");
   assert.equal(plugin.classifyChangedPath(".obsidian/plugins/noria/views/tasks-calendar/runtime-core.js"), "reload");
 });
 
@@ -2227,7 +2240,7 @@ test("refresh scope map routes embedded review work through home", () => {
 
   assert.match(source, /NORIA_REFRESH_SCOPE_MAP/);
   assert.equal(plugin.getRefreshScopeForEvent("setting:managedPaths.importantDates"), "home");
-  assert.equal(plugin.getRefreshScopeForEvent("setting:managedPaths.timelineSettings"), "timeline");
+  assert.equal(plugin.getRefreshScopeForEvent("setting:timelineQuickSettings"), "all");
   assert.equal(plugin.getRefreshScopeForEvent("setting:managedPaths.diaryRoot"), "tasks");
   assert.equal(plugin.getRefreshScopeForEvent("writeback:task"), "tasks");
   assert.equal(plugin.getRefreshScopeForEvent("seed:create"), "reload");
@@ -2258,7 +2271,7 @@ function makeTaskInvalidationFixture() {
   const { EventEmitter } = require("node:events");
   const plugin = makePlugin();
   plugin.settings = plugin.normalizeSettings({});
-  const file = { path: "Noria/Projects/Launch/Launch.md", stat: { mtime: 1 } };
+  const file = { path: "01_Projects/Launch/Launch.md", stat: { mtime: 1 } };
   let text = "- [ ] Prepare introduction";
   const vault = Object.assign(new EventEmitter(), { cachedRead: async () => text });
   const metadataCache = Object.assign(new EventEmitter(), {
@@ -2275,7 +2288,7 @@ function makeTaskInvalidationFixture() {
     bridge: {
       runtimeBuildId: "task-invalidation-test",
       tasks: require('../src/task-document.js'),
-      paths: { projectsRoot: "Noria/Projects" },
+      paths: { projectsRoot: "01_Projects" },
       runtime: { filesForScope: () => [file] }
     }
   });
@@ -2352,7 +2365,7 @@ test("task snapshot cache honors TTL and invalidates task scopes", async () => {
   assert.equal(plugin.getTaskSnapshot(key), null);
 });
 
-test("settings implementation declares localized top-level panes with paths folded into overview", () => {
+test("settings implementation declares localized top-level panes with paths in Content", () => {
   const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
   const tabsStart = main.indexOf("const NORIA_SETTING_TABS");
   const tabsEnd = main.indexOf("];", tabsStart);
@@ -2360,19 +2373,19 @@ test("settings implementation declares localized top-level panes with paths fold
   assert.ok(tabsEnd > tabsStart);
   const tabsSource = main.slice(tabsStart, tabsEnd + 2);
 
-  for (const id of ["overview", "home", "tasks", "timeline", "appearance", "advanced"]) {
+  for (const id of ["general", "content", "features", "connections", "advanced"]) {
     assert.match(tabsSource, new RegExp(`id:\\s*"${id}"`));
   }
   assert.doesNotMatch(tabsSource, /id:\s*"ai"/);
   assert.doesNotMatch(tabsSource, /id:\s*"review"/);
   assert.doesNotMatch(tabsSource, /id:\s*"dataSources"/);
-  for (const method of ["renderOverviewTab", "renderOverviewDataSourcesSection", "renderHomeTab", "renderTasksTab", "renderTimelineTab", "renderAppearanceTab", "renderAdvancedTab"]) {
+  for (const method of ["renderOverviewTab", "renderHomeTab", "renderTasksTab", "renderTimelineTab", "renderAppearanceTab", "renderAdvancedTab"]) {
     assert.match(main, new RegExp(`${method}\\(containerEl\\)`));
   }
   assert.doesNotMatch(main, /renderAiTab\(containerEl\)/);
   assert.doesNotMatch(main, /renderReviewTab\(containerEl\)/);
   assert.match(main, /getNoriaLocale/);
-  assert.match(main, /settings\.tabs\.overview/);
+  assert.match(main, /settings\.tabs\.content/);
   assert.doesNotMatch(main, /settings\.tabs\.ai/);
   assert.match(main, /settings\.tabs\.appearance/);
   assert.match(main, /settings\.tabs\.advanced/);
@@ -2391,22 +2404,7 @@ test("settings chrome uses accessible flat tabs and keeps search in the compact 
   assert.match(main, /content\.setAttr\("aria-labelledby",\s*`noria-settings-tab-\$\{this\.activeTab\}`\)/);
 });
 
-test("complex JSON settings render the editor full-width below labels", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const styles = fs.readFileSync(pluginPath("styles.css"), "utf8");
 
-  assert.match(main, /noria-setting-full-width-control/);
-  assert.match(main, /noria-setting-json-textarea/);
-  assert.match(main, /renderAdvancedDisclosure\(containerEl,\s*"settings\.home\.widgetsJson"/);
-  assert.match(main, /renderAdvancedDisclosure\(containerEl,\s*"settings\.inboxWorkflow\.advancedJson"/);
-  assert.match(main, /settings\.home\.widgetsJson[\s\S]*applyFullWidthJsonSetting/);
-  assert.match(main, /settings\.inboxWorkflow\.statuses[\s\S]*settings\.inboxWorkflow\.homeViews[\s\S]*settings\.inboxWorkflow\.baseViews/);
-  assert.match(main, /settings\.inboxWorkflow\.baseViews[\s\S]*new obsidian\.Setting\(details\)[\s\S]*settings\.inboxWorkflow\.actions/);
-  assert.doesNotMatch(main, /new obsidian\.Setting\(containerEl\)\s*[\s\S]{0,160}\.setName\(this\.t\("settings\.inboxWorkflow\.actions"\)\)/);
-  assert.match(styles, /\.noria-setting-full-width-control\s*\{/);
-  assert.match(styles, /\.noria-setting-full-width-control\s+\.setting-item-control/);
-  assert.match(styles, /\.noria-setting-json-textarea/);
-});
 
 test("i18n defaults to English and switches to Chinese for Obsidian zh locales", () => {
   const enPlugin = makePlugin({ language: "en" });
@@ -2414,8 +2412,8 @@ test("i18n defaults to English and switches to Chinese for Obsidian zh locales",
 
   assert.equal(enPlugin.getNoriaLocale(), "en");
   assert.equal(zhPlugin.getNoriaLocale(), "zh");
-  assert.equal(enPlugin.t("settings.tabs.general"), "General");
-  assert.equal(zhPlugin.t("settings.tabs.general"), "通用");
+  assert.equal(enPlugin.t("settings.tabs.general"), "General & appearance");
+  assert.equal(zhPlugin.t("settings.tabs.general"), "常规与外观");
   assert.equal(enPlugin.t("commands.openHome"), "Open home");
   assert.equal(zhPlugin.t("commands.openHome"), "打开主页");
   assert.equal(enPlugin.t("ribbon.review"), "Review center");
@@ -2493,12 +2491,12 @@ test("settings save serialization keeps release schema and removes weather secre
   const saved = plugin.serializeSettingsForSave(settings);
 
   assert.equal(Object.prototype.hasOwnProperty.call(saved.managedPaths, "entryNote"), false);
-  assert.equal(saved.managedPaths.timelineSettings, "02_Areas/知识库管理/Timeline settings.md");
+  assert.equal(saved.managedPaths.timelineSettings, undefined);
   assert.equal(saved.managedPaths.templateLibrary, "02_Areas/知识库管理/Event library.md");
   assert.equal(saved.managedPaths.importantDates, "02_Areas/知识库管理/Countdowns.md");
   assert.equal(saved.managedPaths.habitRegistry, "02_Areas/知识库管理/Habits.md");
   assert.equal(saved.managedPaths.projectRegistry, "02_Areas/知识库管理/Projects.md");
-  assert.equal(saved.managedPaths.inboxWorkflow, "02_Areas/知识库管理/Inbox workflow.md");
+  assert.equal(saved.managedPaths.inboxWorkflow, undefined);
   assert.equal(saved.managedPaths.inboxQueue, "02_Areas/知识库管理/Inbox queue.base");
   assert.equal(saved.weather.manualCity, "Shanghai");
   assert.equal(Object.prototype.hasOwnProperty.call(saved.managedPaths, "reviewArtifactBase"), false);
@@ -2515,24 +2513,7 @@ test("settings save serialization keeps release schema and removes weather secre
   assert.equal(settings.reviewCenter.prompt.promptTemplate, "custom template");
 });
 
-test("only Overview edits managed paths while business tabs link to folded path details", () => {
-  const main = fs.readFileSync(pluginPath("src/main.js"), "utf8");
-  const bodyOf = (name) => {
-    const marker = `${name}(containerEl) {`;
-    const start = main.indexOf(marker);
-    assert.notEqual(start, -1, `${name} should exist`);
-    const next = main.indexOf("\n  render", start + marker.length);
-    return main.slice(start, next === -1 ? main.length : next);
-  };
 
-  assert.match(bodyOf("renderOverviewTab"), /renderOverviewDataSourcesSection/);
-  assert.match(bodyOf("renderOverviewDataSourcesSection"), /renderManagedPathGroup/);
-  for (const name of ["renderHomeTab", "renderTasksTab", "renderTimelineTab"]) {
-    const body = bodyOf(name);
-    assert.doesNotMatch(body, /renderManagedPathSetting/);
-    assert.doesNotMatch(body, /renderManagedPathStatusSummary/);
-  }
-});
 
 test("retired path fields are not exposed as editable settings", () => {
   const main = fs.readFileSync(pluginPath("main.js"), "utf8");
@@ -2624,7 +2605,7 @@ test("loadSettings auto-saves canonical data when top-level path aliases are pre
   assert.equal(saved[0].home.identity.quoteListPath, "02_Areas/知识库管理/Quotes.md");
 });
 
-test("sparse current settings inherit Noria defaults without losing explicit values", async () => {
+test("sparse legacy settings retain standard locations without losing explicit values", async () => {
   const plugin = makePlugin();
   const saved = [];
   plugin.loadData = async () => ({
@@ -2644,11 +2625,11 @@ test("sparse current settings inherit Noria defaults without losing explicit val
   assert.equal(saved[0].appearance.density, "compact");
   assert.equal(saved[0].onboarding.workspaceRoot, "Noria");
   assert.equal(saved[0].managedPaths.diaryRoot, "Noria/Diary");
-  assert.equal(saved[0].managedPaths.timelineSettings, "Custom/Timeline.md");
+  assert.equal(saved[0].managedPaths.timelineSettings, undefined);
   assert.equal(saved[0].managedPaths.templateLibrary, "Custom/Event library.md");
   assert.equal(saved[0].home.identity.avatarPath, "Noria/avatar.svg");
   assert.deepEqual(plain(saved[0].homeDashboard.mocEntryPaths), ["Noria/Workflow·MOC.md", "Noria/Knowledge Base·MOC.md"]);
-  assert.equal(saved[0].calendar.calendarRootFolder, "Noria/Diary");
+  assert.equal(plugin.getCalendarSettings().calendarRootFolder, "Noria/Diary");
   assert.equal(saved[0].weather.qweatherSecretName, "noria-weather-qweather-key");
   assert.equal(saved[0].reviewCenter.prompt.skillName, "custom-review");
 });
@@ -2665,7 +2646,7 @@ test("invalid non-empty current Noria data never falls back to legacy Noria sett
     },
     async read() {
       adapterReadCount += 1;
-      return JSON.stringify({ managedPaths: { diaryRoot: "Noria/Diary" } });
+      return JSON.stringify({ managedPaths: { diaryRoot: "06_Diary" } });
     }
   };
   plugin.loadData = async () => ["corrupt-current-data"];
@@ -2677,7 +2658,7 @@ test("invalid non-empty current Noria data never falls back to legacy Noria sett
 
   assert.equal(adapterReadCount, 0);
   assert.equal(saved.length, 0);
-  assert.equal(plugin.settings.managedPaths.diaryRoot, "Noria/Diary");
+  assert.equal(plugin.settings.managedPaths.diaryRoot, "06_Diary");
 });
 
 test("non-empty Noria settings never read or merge legacy Noria settings", async () => {
@@ -2699,7 +2680,7 @@ test("non-empty Noria settings never read or merge legacy Noria settings", async
   plugin.loadData = async () => ({
     onboarding: { profile: "custom", workspaceRoot: "Personal" },
     managedPaths: { diaryRoot: "Personal/Diary" },
-    inboxWorkflow: {}
+    migrations:{timelineInbox:1}
   });
   plugin.saveData = async (value) => {
     saved.push(value);

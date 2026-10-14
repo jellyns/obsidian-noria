@@ -5,7 +5,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 // Extract presentation independently of the note's chosen card definitions.
 function presentation(layout){
   const normalized=normalizeDiaryCards(layout);
-  return {order:normalized.order,cards:normalized.cards};
+  return {order:normalized.order,cards:normalized.cards,...(layout.deleted?.length?{deleted:[...layout.deleted]}:{})};
 }
 function applyPresentation(layout,saved){
   if(!saved)return layout;
@@ -16,7 +16,9 @@ function applyPresentation(layout,saved){
   }
   const cards=Object.fromEntries(layout.order.map(id=>[id,{...layout.cards[id],...saved.cards?.[id]}]));
   for(const widget of layout.widgets)if(widget.replaces&&cards[widget.replaces])cards[widget.replaces].hidden=true;
-  return normalizeDiaryCards({...layout,order,cards});
+  const deleted=saved.deleted||[];
+  for(const id of deleted)if(cards[id])cards[id]={hidden:true};
+  return {...normalizeDiaryCards({...layout,widgets:layout.widgets.filter(widget=>!deleted.includes(widget.id)),order,cards}),deleted};
 }
 function renamedNotes(notes,oldPath,newPath){
   return Object.fromEntries(Object.entries(notes||{}).map(([path,value])=>[

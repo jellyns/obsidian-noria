@@ -200,8 +200,8 @@ const parseDate = (value) => {
   d.setHours(0, 0, 0, 0);
   return Number.isNaN(d.getTime()) ? null : d;
 };
-const naturalRange = (mode) => {
-  const today = new Date();
+const naturalRange = (mode, anchor) => {
+  const today = parseDate(anchor) || new Date();
   today.setHours(0, 0, 0, 0);
   if (mode === "last30") {
     const start = new Date(today);
@@ -229,9 +229,10 @@ function readRangeState() {
     const mode = ["last30", "week", "month", "year", "custom"].includes(settingsRange.mode) ? settingsRange.mode : "last30";
     const base = mode === "custom" && parseDate(settingsRange.start) && parseDate(settingsRange.end)
       ? { start: settingsRange.start, end: settingsRange.end }
-      : naturalRange(mode);
+      : naturalRange(mode, settingsRange.anchor);
     return {
       mode,
+      anchor:settingsRange.anchor || "",
       start: base.start,
       end: base.end,
       yearGranularity: settingsRange.yearGranularity === "month" ? "month" : "week"
@@ -243,9 +244,10 @@ function readRangeState() {
       const mode = ["last30", "week", "month", "year", "custom"].includes(bridgeRange.mode) ? bridgeRange.mode : "last30";
       const base = mode === "custom" && parseDate(bridgeRange.start) && parseDate(bridgeRange.end)
         ? { start: bridgeRange.start, end: bridgeRange.end }
-        : naturalRange(mode);
+        : naturalRange(mode, bridgeRange.anchor);
       return {
         mode,
+      anchor:bridgeRange.anchor || "",
         start: base.start,
         end: base.end,
         yearGranularity: bridgeRange.yearGranularity === "month" ? "month" : "week"
@@ -257,9 +259,10 @@ function readRangeState() {
     const mode = ["last30", "week", "month", "year", "custom"].includes(raw.mode) ? raw.mode : "last30";
     const base = mode === "custom" && parseDate(raw.start) && parseDate(raw.end)
       ? { start: raw.start, end: raw.end }
-      : naturalRange(mode);
+      : naturalRange(mode, raw.anchor);
     return {
       mode,
+      anchor:raw.anchor || "",
       start: base.start,
       end: base.end,
       yearGranularity: raw.yearGranularity === "month" ? "month" : "week"
@@ -280,27 +283,7 @@ async function saveRangeState(next) {
   return next;
 }
 
-function readSavedCustomRange(fallback) {
-  try {
-    const settingsRange = noriaTrendsBridge?.homeSettings?.trendsRange;
-    if (settingsRange?.mode === "custom" && parseDate(settingsRange.start) && parseDate(settingsRange.end)) {
-      return { start: settingsRange.start, end: settingsRange.end };
-    }
-  } catch (_) {}
-  try {
-    const bridgeRange = typeof noriaTrendsBridge?.getHomeTrendsRange === "function" ? noriaTrendsBridge.getHomeTrendsRange() : null;
-    if (bridgeRange?.mode === "custom" && parseDate(bridgeRange.start) && parseDate(bridgeRange.end)) {
-      return { start: bridgeRange.start, end: bridgeRange.end };
-    }
-  } catch (_) {}
-  try {
-    const raw = JSON.parse(localStorage.getItem(RANGE_STORAGE_KEY) || "{}");
-    if (parseDate(raw.start) && parseDate(raw.end)) {
-      return { start: raw.start, end: raw.end };
-    }
-  } catch (_) {}
-  return fallback;
-}
+
 
 function getHomeTrendsRangeBus() {
   const pageId = noriaTrendsBridge.statisticsPageId || "home";
@@ -320,7 +303,7 @@ function clearElement(el) {
 
 function rangeContextFromState(state) {
   return {
-    range: { mode: state.mode, start: state.start, end: state.end },
+    range: { mode: state.mode, start: state.start, end: state.end, ...(state.anchor ? {anchor:state.anchor} : {}) },
     granularity: ["day", "week", "month"].includes(input?.statsGranularity) ? input.statsGranularity : state.mode === "year" ? state.yearGranularity : "day"
   };
 }
@@ -344,14 +327,6 @@ async function getHomeSnapshot(rangeContext) {
     }, { ctx });
   }
   return null;
-}
-
-function setModeButton(button, active) {
-  button.classList?.toggle("is-active", active);
-  button.style.background = active ? "var(--dash-panel-segment-active-bg, color-mix(in srgb,var(--interactive-accent) 14%,var(--background-primary)))" : "transparent";
-  button.style.color = active ? "var(--text-normal)" : "var(--text-muted)";
-  button.style.fontWeight = active ? "720" : "650";
-  button.setAttribute("aria-pressed", active ? "true" : "false");
 }
 
 function findScrollContainer(start) {
@@ -382,128 +357,75 @@ async function preserveScrollAnchor(anchorEl, fn) {
 }
 
 function createStatsRangeController(parent, onChange) {
-  let state = readRangeState();
-  const controlsParent = parent || root;
-  const controls = controlsParent.createDiv();
-  controls.className = "dashboard-home-trends-range-controls";
-  controls.style.cssText = "display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap;margin:0 0 0 auto;min-width:0;";
-  let saving = false;
-  const errorEl = controlsParent.createDiv({cls:"noria-card-error",attr:{role:"alert"}});
-  errorEl.hidden = true;
-  const commit = async (next) => {
-    if (saving) return;
-    if (!parseDate(next.start) || !parseDate(next.end) || next.start > next.end) {
-      errorEl.textContent = trendsT("runtime.home.trends.invalidRange", {}, "Start date must not be after end date.");
-      errorEl.hidden = false;
-      return;
-    }
-    saving = true; errorEl.hidden = true;
-    controls.querySelectorAll("button,input").forEach(el => el.disabled = true);
-    try {
-      await saveRangeState(next);
-      state = next;
-      renderControls();
-      if (typeof onChange === "function") await onChange(rangeContextFromState(state));
-    } catch (error) {
-      errorEl.textContent = trendsT("runtime.home.trends.saveFailed", {message:String(error?.message || error)}, "Could not save. Retry: {message}");
-      errorEl.hidden = false;
-    } finally {
-      saving = false;
-      controls.querySelectorAll("button,input").forEach(el => el.disabled = false);
-    }
-  };
-  const makeButton = (label, active, onClick) => {
-    const btn = controls.createEl("button", { text: label });
-    btn.type = "button";
-    btn.classList.add("dashboard-heatmap-mode-button", "dashboard-home-trends-range-button");
-    btn.style.cssText = "appearance:none;-webkit-appearance:none;min-height:28px;height:28px;padding:0 9px;border:0;border-radius:8px;box-shadow:none;outline:none;font-size:13px;line-height:1;cursor:pointer;white-space:nowrap;letter-spacing:0;";
-    setModeButton(btn, active);
-    btn.addEventListener("click", onClick);
-    return btn;
-  };
-  const createDateField = (key) => {
-    const field = controls.createDiv();
-    field.className = "dashboard-home-trends-date-field";
-    field.setAttr("role", "button");
-    field.setAttr("tabindex", "0");
-    field.style.cssText = "position:relative;height:24px;min-width:126px;display:inline-flex;align-items:center;gap:6px;padding:0 8px;border-radius:8px;background:color-mix(in srgb,var(--background-primary) 88%,rgba(99,102,241,.06));color:var(--text-muted);font-size:.82em;line-height:1.4;box-sizing:border-box;cursor:pointer;overflow:hidden;";
-    const icon = field.createSpan();
-    icon.className = "dashboard-home-trends-date-field__icon";
-    icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>';
-    icon.style.cssText = "display:inline-flex;align-items:center;justify-content:center;width:14px;min-width:14px;opacity:.78;";
-    const label = field.createSpan();
-    label.className = "dashboard-home-trends-date-field__label";
-    label.style.cssText = "font-variant-numeric:tabular-nums;white-space:nowrap;min-width:0;";
-    const inputEl = field.createEl("input");
-    inputEl.type = "date";
-    inputEl.value = state[key];
-    inputEl.setAttr("aria-label", key === "start" ? trendsT("runtime.home.trends.rangeStart", {}, "Start date") : trendsT("runtime.home.trends.rangeEnd", {}, "End date"));
-    inputEl.style.cssText = "position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;padding:0;pointer-events:none;";
-    const setLabel = () => {
-      label.textContent = String(inputEl.value || state[key] || "").replace(/-/g, "/");
-    };
-    const openPicker = () => {
-      try {
-        if (typeof inputEl.showPicker === "function") {
-          inputEl.showPicker();
-          return;
-        }
-      } catch (_) {}
-      inputEl.focus();
-      try { inputEl.click(); } catch (_) {}
-    };
-    field.addEventListener("click", openPicker);
-    field.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") {
-        ev.preventDefault();
-        openPicker();
-      }
-    });
-    inputEl.addEventListener("change", () => {
-      const dateInputs = [...controls.querySelectorAll('input[type="date"]')];
-      const next = { ...state, mode: "custom", start: dateInputs[0]?.value || state.start, end: dateInputs[1]?.value || state.end };
-      setLabel();
-      void commit(next);
-    });
-    setLabel();
-    return field;
-  };
-  function renderControls() {
-    clearElement(controls);
-    const modes = [
-      ["last30", trendsT("runtime.home.trends.rangeLast30", {}, "Last 30 days")],
-      ["week", trendsT("runtime.home.trends.rangeWeek", {}, "Week")],
-      ["month", trendsT("runtime.home.trends.rangeMonth", {}, "Month")],
-      ["year", trendsT("runtime.home.trends.rangeYear", {}, "Year")],
-      ["custom", trendsT("runtime.home.trends.rangeCustom", {}, "Custom")]
-    ];
-    for (const [mode, label] of modes) {
-      makeButton(label, state.mode === mode, () => {
-        const nextRange = mode === "custom"
-          ? readSavedCustomRange({ start: state.start, end: state.end })
-          : naturalRange(mode);
-        commit({ ...state, mode, ...nextRange });
-      });
-    }
-    if (state.mode === "year") {
-      for (const [granularity, label] of [["week", trendsT("runtime.stats.groupByWeek")], ["month", trendsT("runtime.stats.groupByMonth")]]) {
-        makeButton(label, state.yearGranularity === granularity, () => {
-          commit({ ...state, yearGranularity: granularity });
-        });
-      }
-    }
-    if (state.mode === "custom") {
-      for (const key of ["start", "end"]) {
-        createDateField(key);
-      }
+  let state=readRangeState(),saving=false,closePanel;
+  const controlsParent=parent||root;
+  const controls=controlsParent.createDiv({cls:'dashboard-home-trends-range-controls noria-page-date-controls'});
+  const dateUI=noriaTrendsBridge.dateControls;
+  const errorEl=controlsParent.createDiv({cls:'noria-card-error',attr:{role:'alert'}});errorEl.hidden=true;
+  const modes=[['last30',trendsT('runtime.home.trends.rangeLast30',{},'Last 30 days')],['week',trendsT('runtime.home.trends.rangeWeek',{},'Week')],['month',trendsT('runtime.home.trends.rangeMonth',{},'Month')],['year',trendsT('runtime.home.trends.rangeYear',{},'Year')]];
+  const zh=String(modes[1][1]).includes('周'),locale=zh?'zh':'en';
+  const segments=controls.createDiv({cls:'noria-stat-range-segments noria-segments',attr:{role:'group','aria-label':zh?'统计周期':'Statistics period'}}),buttons=new Map();
+  dateUI.bindSegments(segments);
+  const choose=mode=>{const anchor=mode==='last30'?'':state.anchor;return commit({...state,mode,anchor,...naturalRange(mode,anchor)});};
+  for(const [mode,label] of modes){const b=segments.createEl('button',{text:label,cls:'dashboard-home-trends-range-button',attr:{type:'button'}});buttons.set(mode,b);b.onclick=()=>void choose(mode);}
+  const compact=controls.createEl('select',{cls:'noria-stat-range-compact',attr:{'aria-label':zh?'统计周期':'Statistics period'}});
+  for(const [value,label] of [...modes,['custom',zh?'自选':'Custom']])compact.createEl('option',{text:label,value});
+  compact.onchange=()=>{if(compact.value==='custom'){openCustom(nav.date);compact.value=state.mode;}else void choose(compact.value);};
+  const nav=dateUI.mountDateNavigation(controls,{locale,onShift:shift,onCurrent:()=>void commit({...state,mode:state.mode==='custom'?'last30':state.mode,anchor:'',...naturalRange(state.mode==='custom'?'last30':state.mode)}),onOpen:open});
+  async function commit(next){
+    if(saving)return false;
+    if(!parseDate(next.start)||!parseDate(next.end)||next.start>next.end){errorEl.textContent=trendsT('runtime.home.trends.invalidRange',{},'Start date must not be after end date.');errorEl.hidden=false;return false;}
+    saving=true;errorEl.hidden=true;update();
+    try{await saveRangeState(next);state=next;update();if(typeof onChange==='function')await onChange(rangeContextFromState(state));return true;}
+    catch(error){errorEl.textContent=trendsT('runtime.home.trends.saveFailed',{message:String(error?.message||error)},'Could not save. Retry: {message}');errorEl.hidden=false;return false;}
+    finally{saving=false;update();}
+  }
+  function shift(n){
+    if(['week','month','year'].includes(state.mode)){
+      const anchor=dateUI.shiftDate(state.anchor||state.start,state.mode,n);void commit({...state,anchor,...naturalRange(state.mode,anchor)});
+    }else{
+      const days=Math.round((Date.parse(state.end)-Date.parse(state.start))/86400000)+1;
+      void commit({...state,mode:'custom',anchor:'',start:dateUI.shiftDate(state.start,'day',n*days),end:dateUI.shiftDate(state.end,'day',n*days)});
     }
   }
-  renderControls();
-  return {
-    controls,
-    setRangeContext: context => {state={...state,...context.range,yearGranularity:context.granularity};renderControls();},
-    getRangeContext: () => rangeContextFromState(state)
-  };
+  function update(){
+    for(const [mode,b]of buttons){b.classList.toggle('is-active',state.mode===mode);b.setAttribute('aria-pressed',String(state.mode===mode));b.disabled=saving;}
+    compact.value=state.mode;compact.disabled=saving;nav.update({period:state.mode,start:state.start,end:state.end,busy:saving});
+    if(state.mode==='custom'){nav.current.setText(zh?'最近':'Latest');nav.current.title=zh?'返回最近30天':'Return to last 30 days';nav.current.setAttribute('aria-label',nav.current.title);}
+  }
+  function open(anchor){
+    closePanel?.();
+    if(['custom','last30'].includes(state.mode))return openCustom(anchor);
+    closePanel=dateUI.openDatePicker(anchor,{locale,kind:state.mode==='week'?'day':state.mode,value:state.anchor||state.start,
+      onSelect:anchor=>void commit({...state,anchor,...naturalRange(state.mode,anchor)}),onCustom:openCustom});
+    return closePanel;
+  }
+  function openCustom(anchor){
+    closePanel?.();
+    closePanel=dateUI.openRangePicker(anchor,{locale,start:state.start,end:state.end,onApply:range=>commit({...state,mode:'custom',anchor:'',...range})});
+    return closePanel;
+  }
+  // Aggregation changes the chart, not the chosen dates.
+  controls._noriaRangeMenuItems=()=>[
+    {label:zh?'自选日期范围…':'Custom date range…',icon:'calendar-range',run:()=>{openCustom(nav.date);}},
+    ...(state.mode==='year'?['week','month'].map(value=>({label:zh?(value==='week'?'年度按周汇总':'年度按月汇总'):(value==='week'?'Group year by week':'Group year by month'),icon:'chart-column',checked:state.yearGranularity===value,run:()=>commit({...state,yearGranularity:value})})):[])
+  ];
+  if(!controls.closest('.dashboard-home-widget-shell,.noria-diary-card')){
+  const granularityButton=dateUI.button(controls,zh?'统计显示':'Chart display','ellipsis',()=>{
+    closePanel?.();
+    closePanel=dateUI.openPopover(granularityButton,(panel,close)=>{
+      panel.classList.add('noria-date-actions-menu');
+      for(const action of controls._noriaRangeMenuItems()){
+        const item=dateUI.button(panel,action.label,null,async()=>{close(true);await action.run();});
+        if(action.checked!==undefined)item.setAttribute('aria-pressed',String(action.checked));
+      }
+    },zh?'统计显示':'Chart display');
+  });
+  granularityButton.classList.add('noria-stat-display-options');
+  granularityButton.setAttribute('aria-haspopup','dialog');
+  }
+  const cleanup=()=>{closePanel?.();nav.destroy();};if(typeof input?.registerCleanup==='function')input.registerCleanup(cleanup);
+  update();return {controls,setRangeContext:context=>{state={...state,...context.range,yearGranularity:context.granularity};update();},getRangeContext:()=>rangeContextFromState(state)};
 }
 
 const renderMode = ["range", "block"].includes(String(input?.renderMode || "")) ? String(input.renderMode) : "legacy";
@@ -613,7 +535,7 @@ const runBlock = async (name, mount, rangeContext, statsSnapshot, blockCleanup) 
       await runCustomViewByPath(blockViewPath, { ...(input || {}), statsRange: rangeContext.range, statsGranularity: rangeContext.granularity, statsSnapshot, mount: habitShell.body, actionsHost: habitShell.actionsHost, registerCleanup: blockCleanup.add });
       return;
     }
-    await runCustomViewByPath(blockViewPath, { ...(input || {}), statsRange: rangeContext.range, statsGranularity: rangeContext.granularity, statsSnapshot, mount, registerCleanup: blockCleanup.add });
+    await runCustomViewByPath(blockViewPath, { ...(input || {}), independentRange:input?.independentRange??(!!input?.statsRange?.mode&&input.statsRange.mode!=='homeCurrent'), statsRange: rangeContext.range, statsGranularity: rangeContext.granularity, statsSnapshot, mount, registerCleanup: blockCleanup.add });
   } catch (e) {
     renderFallback(mount, name, e);
   }

@@ -3,7 +3,7 @@ const source=fs.readFileSync(require('node:path').join(__dirname,'../src/runtime
 const code=source.slice(source.indexOf('async function quickAddTimelineEvent('),source.indexOf('function setQuickTimelinePanel()'));
 function setup(resolveNote){
   const writes=[],hydrated=[];
-  const context={
+  const context={taskCalendarZone:null,
     ensureTimelineActionsAdapterLoaded:async()=>({buildTimelineTaskLine:()=>'- [ ] Event'}),
     moment:date=>({isValid:()=>true,format:()=>date,clone(){return this;}}),
     resolveNewTaskAppendTarget:()=>({filePath:'old/2026/2026/2026-10-06.md',sectionHeading:'### 今日任务'}),

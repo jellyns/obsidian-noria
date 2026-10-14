@@ -9,6 +9,7 @@ const {DiaryHabitStore} = require("./diary-habits.js");
 const {renderDiaryHabitRow} = require("./diary-habit-view.js");
 const {DiaryCardLayout} = require("./diary-card-layout.js");
 const {setActionIcon} = require("./workbench-controls.js");
+const {mountDateNavigation,bindSegments}=require('./date-controls.js');
 const {renderWorkbenchTaskRow} = require("./task-row.js");
 const {TaskAdoptionActions}=require("./task-adoption.js");
 const {openDiaryTaskCreate}=require("./diary-task-create.js");
@@ -193,23 +194,27 @@ class DiaryWorkspace {
   }
   get selection() { return this.session?.model.selection; }
   renderToolbar() {
+    this.dateNavigation?.destroy();
     this.toolbar.empty();
     const locale=this.plugin.getNoriaLocale()==="zh"?"zh-CN":"en-US";
     const nav=this.toolbar.createDiv({cls:"noria-diary-date-navigation"});
     const strip=nav.createDiv({cls:"noria-diary-date-strip",attr:{role:"group","aria-label":this.t("period")}});
     strip.dataset.mode=this.selection.mode;
     const controls=this.toolbar.createDiv({cls:"noria-diary-period-controls"});
-    const select=controls.createDiv({cls:"noria-diary-periods",attr:{role:"group","aria-label":this.t("period")}});
+    const select=controls.createDiv({cls:"noria-diary-periods noria-segments",attr:{role:"group","aria-label":this.t("period")}});
+    bindSegments(select);
     for(const mode of ["daily","weekly","monthly","yearly"]){
-      const b=this.button(select,this.plugin.getCalendarPeriodLabel(mode,true),()=>this.select({mode,anchorDate:this.selection.anchorDate}));
+      const b=this.button(select,this.plugin.getCalendarPeriodLabel(mode,true),async()=>{await this.select({mode,anchorDate:this.selection.anchorDate});this.toolbar.querySelector('[data-diary-mode="'+mode+'"]')?.focus({preventScroll:true});});
+      b.dataset.diaryMode=mode;
       if(locale!=="zh-CN") {const full=b.textContent;b.empty();b.setAttribute("aria-label",full);b.title=full;b.createSpan({cls:"noria-period-label-full",text:full});b.createSpan({cls:"noria-period-label-short",text:{daily:"D",weekly:"W",monthly:"M",yearly:"Y"}[mode]});}
       b.setAttribute("aria-pressed",String(mode===this.selection.mode));
     }
-    const dateControls=controls.createDiv({cls:'noria-diary-date-controls'});
-    this.previousButton=this.button(dateControls,this.t("previous"),()=>this.navigatePeriod(-1),'noria-period-arrow','chevron-left');
-    this.button(dateControls,this.t("current."+this.selection.mode),()=>this.select({mode:this.selection.mode,anchorDate:this.plugin.getLocalYmd()}),"noria-diary-current-period");
-    this.nextButton=this.button(dateControls,this.t("next"),()=>this.navigatePeriod(1),'noria-period-arrow','chevron-right');
-    dateControls.createSpan({cls:'noria-diary-range-context',text:require('./diary-navigation.js').rangeLabel(this.selection,locale)});
+    const compact=controls.createEl('select',{cls:'noria-diary-period-compact',attr:{'aria-label':this.t('period')}});
+    for(const mode of ['daily','weekly','monthly','yearly'])compact.createEl('option',{value:mode,text:this.plugin.getCalendarPeriodLabel(mode,true)});
+    compact.value=this.selection.mode;compact.onchange=async()=>{await this.select({mode:compact.value,anchorDate:this.selection.anchorDate});this.toolbar.querySelector('.noria-diary-period-compact')?.focus({preventScroll:true});};
+    this.dateNavigation=mountDateNavigation(controls,{locale,onShift:n=>this.navigatePeriod(n),onCurrent:async()=>{await this.select({mode:this.selection.mode,anchorDate:this.plugin.getLocalYmd()});this.dateNavigation.current.focus({preventScroll:true});},onSelect:async anchorDate=>{await this.select({mode:this.selection.mode,anchorDate});this.dateNavigation.date.focus({preventScroll:true});}});
+    this.dateNavigation.update({period:{daily:'day',weekly:'week',monthly:'month',yearly:'year'}[this.selection.mode],anchor:this.selection.anchorDate,...diaryRange(this.selection)});
+    this.previousButton=this.dateNavigation.prev;this.nextButton=this.dateNavigation.next;
     controls.appendChild(this.actions);
     for(const item of diaryNavigationItems(this.selection)){
       const date=new Date(item.anchorDate+"T12:00:00Z"),daily=item.mode==="daily";
@@ -649,6 +654,7 @@ class DiaryWorkspace {
     });
   }
   dispose() {
+    this.dateNavigation?.destroy();
     this.sourceEvents?.unload();clearTimeout(this.sourceTimer);++this.documentGeneration;
     this.moduleMenu?.hide();
     this.cards.dispose();

@@ -1,4 +1,4 @@
-let {pages, view, firstDayOfWeek, globalTaskFilter, dailyNoteFolder, dailyNoteFormat, startPosition, upcomingDays, css, options, timelineConfigPath, templateLibraryPath, noriaBridge, noriaPluginTabRole} = input || {};
+let {pages, view, firstDayOfWeek, globalTaskFilter, dailyNoteFolder, dailyNoteFormat, startPosition, upcomingDays, css, options, templateLibraryPath, noriaBridge, noriaPluginTabRole} = input || {};
 var bridgeCfg = (noriaBridge && typeof noriaBridge === "object") ? noriaBridge : {};
 var bridge = bridgeCfg;
 var taskCalendarZone = !resolveTimelineModeContract().isTimelineMode && bridgeCfg.tasksCalendar?.zone
@@ -693,42 +693,20 @@ var customInlineDraft = {
 	durationMin: "30",
 	saveToLibrary: false
 };
-var DEFAULT_TIMELINE_CONFIG_PATH = ".obsidian/plugins/noria/config/timeline-settings.md";
 var DEFAULT_TEMPLATE_LIBRARY_PATH = ".obsidian/plugins/noria/config/template-library.md";
 var TIMELINE_IO_ADAPTER_PATH = ".obsidian/plugins/noria/core/adapters/timeline-io-adapter.js";
 var TIMELINE_ACTIONS_ADAPTER_PATH = ".obsidian/plugins/noria/core/adapters/timeline-actions-adapter.js";
-var TIMELINE_SETTINGS_ADAPTER_PATH = ".obsidian/plugins/noria/core/adapters/timeline-settings-adapter.js";
 var adapterCache = {};
 var quickEventLibraryCache = {
 	path: "",
 	mtime: null,
 	signature: "",
-	templates: null,
-	source: "fallback",
+	templates: [],
+	all: [],
+	source: "loading",
 	promise: null
 };
-var DEFAULT_QUICK_EVENT_TEMPLATES = [
-	{ key:"breakfast", label:"早餐", timelineTag:"#tl/breakfast", startTime:"08:00", durationMin:20 },
-	{ key:"lunch", label:"午餐", timelineTag:"#tl/lunch", startTime:"12:30", durationMin:30 },
-	{ key:"dinner", label:"晚餐", timelineTag:"#tl/dinner", startTime:"18:30", durationMin:30 },
-	{ key:"nap", label:"午休", timelineTag:"#tl/nap", startTime:"13:00", durationMin:30 },
-	{ key:"sleep", label:"睡眠", timelineTag:"#tl/sleep", startTime:"23:30", durationMin:450, crossDay:true },
-	{ key:"focus", label:"深度工作", timelineTag:"#tl/focus", startTime:"09:00", durationMin:90 },
-	{ key:"review", label:"晚间复盘", timelineTag:"#tl/review", startTime:"21:30", durationMin:20 }
-];
-var timelineSettings = {
-	dayBucketHeight: 84,
-	laneHeight: 1080,
-	pregenSpanDays: 7,
-	pregenItems: ["sleep"],
-	items: {
-		breakfast: {label:"早餐", timelineTag:"#tl/breakfast", startTime:"08:00", durationMin:20},
-		lunch: {label:"午餐", timelineTag:"#tl/lunch", startTime:"12:30", durationMin:30},
-		dinner: {label:"晚餐", timelineTag:"#tl/dinner", startTime:"18:30", durationMin:30},
-		nap: {label:"午休", timelineTag:"#tl/nap", startTime:"13:00", durationMin:30},
-		sleep: {label:"睡眠", timelineTag:"#tl/sleep", startTime:"23:30", durationMin:450, crossDay:true}
-	}
-};
+var timelineSettings = Object.assign({}, bridgeCfg.timelineQuickSettings || {});
 function normalizeRuntimeStrategy(raw) {
 	var v = String(raw || "").trim().toLowerCase();
 	if (v == "daily") return "daily-only";
@@ -926,12 +904,6 @@ if (bridgeCfg.features && typeof bridgeCfg.features === "object") {
 	tcFeatureFlags.wrapperBridge = toBoolOr(bridgeCfg.features.wrapperBridge, tcFeatureFlags.wrapperBridge);
 	tcFeatureFlags.tasksNative = toBoolOr(bridgeCfg.features.tasksNative, tcFeatureFlags.tasksNative);
 }
-if (typeof bridgeCfg.timelineSettingsPath === "string" && bridgeCfg.timelineSettingsPath.trim()) {
-	DEFAULT_TIMELINE_CONFIG_PATH = normalizeNoriaPath(bridgeCfg.timelineSettingsPath) || DEFAULT_TIMELINE_CONFIG_PATH;
-}
-if (typeof timelineConfigPath === "string" && timelineConfigPath.trim()) {
-	DEFAULT_TIMELINE_CONFIG_PATH = normalizeNoriaPath(timelineConfigPath) || DEFAULT_TIMELINE_CONFIG_PATH;
-}
 if (typeof bridgeCfg.templateLibraryPath === "string" && bridgeCfg.templateLibraryPath.trim()) {
 	DEFAULT_TEMPLATE_LIBRARY_PATH = normalizeNoriaPath(bridgeCfg.templateLibraryPath) || DEFAULT_TEMPLATE_LIBRARY_PATH;
 }
@@ -943,9 +915,6 @@ if (typeof bridgePaths.timelineIoAdapterPath === "string" && bridgePaths.timelin
 }
 if (typeof bridgePaths.timelineActionsAdapterPath === "string" && bridgePaths.timelineActionsAdapterPath.trim()) {
 	TIMELINE_ACTIONS_ADAPTER_PATH = normalizeNoriaPath(bridgePaths.timelineActionsAdapterPath) || TIMELINE_ACTIONS_ADAPTER_PATH;
-}
-if (typeof bridgePaths.timelineSettingsAdapterPath === "string" && bridgePaths.timelineSettingsAdapterPath.trim()) {
-	TIMELINE_SETTINGS_ADAPTER_PATH = normalizeNoriaPath(bridgePaths.timelineSettingsAdapterPath) || TIMELINE_SETTINGS_ADAPTER_PATH;
 }
 var bridgeStrategy = normalizeRuntimeStrategy(bridgeCfg.defaultStrategy);
 if (bridgeStrategy) timelineQuickStrategy = bridgeStrategy;
@@ -1554,18 +1523,9 @@ async function ensureTimelineActionsAdapterLoaded() {
   );
 };
 
-async function ensureTimelineSettingsAdapterLoaded() {
-  return ensureAdapterLoaded(
-    "timelineSettings",
-    "timelineSettingsAdapter",
-    TIMELINE_SETTINGS_ADAPTER_PATH,
-    "[tasksCalendar] load timeline settings adapter failed:"
-  );
-};
-
 async function initialize() {
 	try {
-  await loadTimelineSettings();
+
   applyTimelineSettingsToRoot();
   tasks = getMeta(tasks);
 		if (!tasks.length) {
@@ -1592,27 +1552,7 @@ async function initialize() {
 	}
 }
 
-async function loadTimelineSettings() {
-	var adapter = await ensureTimelineSettingsAdapterLoaded();
-	if (adapter && typeof adapter.loadTimelineSettings === "function") {
-		var result = adapter.loadTimelineSettings({
-			app,
-			targetPath: String(timelineConfigPath || DEFAULT_TIMELINE_CONFIG_PATH),
-			defaultSettings: timelineSettings,
-			defaultStrategy: timelineQuickStrategy
-		});
-		if (result && result.settings) { timelineSettings = result.settings; }
-		if (result && typeof result.strategy === "string" && result.strategy.trim()) {
-			timelineQuickStrategy = result.strategy.trim();
-		}
-	}
-};
-
 function applyTimelineSettingsToRoot() {
-	var settingsAdapter = adapterCache.timelineSettings?.instance;
-	if (settingsAdapter && typeof settingsAdapter.applyTimelineSettingsToRoot === "function") {
-		return settingsAdapter.applyTimelineSettingsToRoot({ rootNode, timelineSettings });
-	}
 	var bucket = parseInt(timelineSettings.dayBucketHeight, 10);
 	var lane = parseInt(timelineSettings.laneHeight, 10);
 	if (!Number.isFinite(bucket) || bucket < 32) { bucket = 84; }
@@ -5948,12 +5888,7 @@ function getTaskCalendarRangeAnchor(m, granularity) {
 	return x.startOf("day");
 }
 function formatTaskCalendarRangeTitle(anchor, granularity) {
-	var g = normalizeTaskCalendarRangeGranularity(granularity);
-	var a = moment(anchor);
-	var title = g === "day" ? formatTasksCalendarDayTitle(a)
-		: g === "week" ? formatTasksCalendarWeekTitle(a)
-		: g === "month" ? formatTasksCalendarMonthTitle(a) : a.format("YYYY");
-	return "<span class='current-main'>" + title + "</span>";
+	return taskCalendarDateHeading(anchor, normalizeTaskCalendarRangeGranularity(granularity));
 }
 
 function createTaskCalendarRangeModel(anchor, granularity) {
@@ -6069,7 +6004,7 @@ function undockEisenGranularity() {
 }
 function dockEisenGranularityToolbar() {
 	var seg = rootNode.querySelector(".tc-eisen-granularity");
-	var slot = rootNode.querySelector(".tc-toolbar-planner-slot");
+	var slot = rootNode.querySelector(".tc-toolbar-start");
 	if (seg && slot) slot.appendChild(seg);
 }
 function paintEisenhowerGranularityUI() {
@@ -6078,16 +6013,11 @@ function paintEisenhowerGranularityUI() {
 		return;
 	}
 	var isList = rootNode.getAttribute("view") === "list";
-	seg.style.display = isList ? "grid" : "none";
+	seg.style.display = isList ? "block" : "none";
 	if (!isList) {
 		return;
 	}
-	seg.querySelectorAll("[data-eisen]").forEach(function (b) {
-		var on = b.getAttribute("data-eisen") === eisenhowerGranularity;
-		b.classList.toggle("active", on);
-		b.setAttribute("aria-pressed", on ? "true" : "false");
-		b.setAttribute("aria-selected", String(on));
-	});
+	seg.value = eisenhowerGranularity;
 }
 
 /** 月表拖改期依赖 data-start-date / data-due-*；ctx.el 扁条默认不带这些属性时补齐（含仅 scheduled 的任务） */
@@ -9401,125 +9331,22 @@ function normalizeQuickEventTemplatePath() {
 	return String(DEFAULT_TEMPLATE_LIBRARY_PATH || "").trim().replace(/[\\]+/g, "/").replace(/^\/+/, "");
 }
 
-function getQuickEventTemplateKey(templateObj, index) {
-	return String(templateObj && (templateObj.key || templateObj.timelineTag || templateObj.label) || ("event_" + index))
-		.toLowerCase()
-		.replace(/^#(?:tl|timeline)\//, "")
-		.replace(/[^\w\u4e00-\u9fa5]+/g, "_")
-		.replace(/^_+|_+$/g, "") || ("event_" + index);
-}
-
-function normalizeQuickEventTemplate(templateObj, index) {
-	var raw = templateObj || {};
-	var label = String(raw.label || raw.name || "").trim();
-	if (!label) { return null; }
-	var tag = String(raw.timelineTag || raw.tag || "").trim();
-	if (!tag) { tag = "#tl/" + getQuickEventTemplateKey(raw, index); }
-	if (!tag.startsWith("#")) { tag = "#" + tag.replace(/^#+/, ""); }
-	var duration = parseInt(String(raw.durationMin || raw.duration || 30), 10);
-	if (!Number.isFinite(duration) || duration <= 0) { duration = 30; }
-	var start = String(raw.startTime || raw.start || "").trim();
-	var key = getQuickEventTemplateKey({ ...raw, timelineTag: tag, label }, index);
-	return {
-		key: key,
-		label: label,
-		timelineTag: tag,
-		startTime: start,
-		durationMin: duration,
-		crossDay: raw.crossDay === true
-	};
-}
-
-function getFallbackQuickEventTemplates() {
-	try {
-		var actions = adapterCache.timelineActions?.instance;
-		if (actions && typeof actions.getDefaultEventTemplates === "function") {
-			var defaults = actions.getDefaultEventTemplates();
-			if (Array.isArray(defaults) && defaults.length) {
-				return defaults.map(normalizeQuickEventTemplate).filter(Boolean);
-			}
-		}
-	} catch (_) {}
-	return DEFAULT_QUICK_EVENT_TEMPLATES.map(normalizeQuickEventTemplate).filter(Boolean);
-}
-
 function getQuickEventTemplatesForRender() {
-	var cached = Array.isArray(quickEventLibraryCache.templates) ? quickEventLibraryCache.templates : [];
-	return cached.length ? cached : getFallbackQuickEventTemplates();
+	return quickEventLibraryCache.templates;
 }
 
 function getQuickEventTemplateByKey(key) {
-	var needle = String(key || "").trim();
-	if (!needle) { return null; }
-	var templates = getQuickEventTemplatesForRender();
-	for (var i=0; i<templates.length; i++) {
-		if (String(templates[i].key || "") === needle) { return templates[i]; }
-	}
-	return null;
-}
-
-async function readQuickEventLibraryText(libPath) {
-	var pathValue = String(libPath || "").trim();
-	if (!pathValue) { return { text: "", mtime: null, exists: false }; }
-	var file = null;
-	try { file = app.vault.getAbstractFileByPath(pathValue); } catch (_) { file = null; }
-	var mtime = null;
-	try {
-		if (file && file.stat && Number.isFinite(file.stat.mtime)) { mtime = file.stat.mtime; }
-	} catch (_) {}
-	if (mtime === null && app?.vault?.adapter?.stat) {
-		try {
-			var stat = await app.vault.adapter.stat(pathValue);
-			if (stat && Number.isFinite(stat.mtime)) { mtime = stat.mtime; }
-		} catch (_) {}
-	}
-	if (file) {
-		try { return { text: String(await app.vault.cachedRead(file) || ""), mtime: mtime, exists: true }; } catch (_) {}
-		if (typeof file.text === "string") { return { text: file.text, mtime: mtime, exists: true }; }
-		if (typeof file.content === "string") { return { text: file.content, mtime: mtime, exists: true }; }
-	}
-	if (app?.vault?.adapter?.read) {
-		try { return { text: String(await app.vault.adapter.read(pathValue) || ""), mtime: mtime, exists: true }; } catch (_) {}
-	}
-	return { text: "", mtime: mtime, exists: false };
-}
-
-function quickEventTemplateSignature(templates) {
-	return (Array.isArray(templates) ? templates : [])
-		.map((item) => [item.key, item.label, item.timelineTag, item.startTime, item.durationMin, item.crossDay ? "1" : "0"].join("|"))
-		.join("\n");
+	return getQuickEventTemplatesForRender().find(item => item.key === String(key || ""));
 }
 
 async function refreshQuickEventLibraryTemplates(force) {
-	var libPath = normalizeQuickEventTemplatePath();
-	if (!libPath) { return false; }
-	var actions = await ensureTimelineActionsAdapterLoaded();
-	var read = await readQuickEventLibraryText(libPath);
-	if (!force && quickEventLibraryCache.path === libPath && quickEventLibraryCache.mtime !== null && read.mtime !== null && quickEventLibraryCache.mtime === read.mtime) {
-		return false;
-	}
-	var parsed = [];
-	try {
-		if (actions && typeof actions.getEnabledEventTemplates === "function") {
-			parsed = actions.getEnabledEventTemplates(read.text, false);
-		}
-	} catch (err) {
-		console.error("[tasksCalendar] parse event library failed:", err);
-		parsed = [];
-	}
-	var templates = parsed.map(normalizeQuickEventTemplate).filter(Boolean);
-	var source = templates.length ? "library" : (read.exists && String(read.text || "").trim() ? "empty" : "fallback");
-	if (!templates.length) { templates = getFallbackQuickEventTemplates(); }
-	var signature = quickEventTemplateSignature(templates);
-	var changed = force
-		|| quickEventLibraryCache.path !== libPath
-		|| quickEventLibraryCache.signature !== signature
-		|| quickEventLibraryCache.source !== source;
-	quickEventLibraryCache.path = libPath;
-	quickEventLibraryCache.mtime = read.mtime;
-	quickEventLibraryCache.signature = signature;
-	quickEventLibraryCache.templates = templates;
-	quickEventLibraryCache.source = source;
+	const snapshot = await noriaBridge.eventLibrary.read(normalizeQuickEventTemplatePath());
+	const changed = force || quickEventLibraryCache.path !== snapshot.path || quickEventLibraryCache.signature !== snapshot.revision;
+	quickEventLibraryCache.path = snapshot.path;
+	quickEventLibraryCache.signature = snapshot.revision;
+	quickEventLibraryCache.all = snapshot.items;
+	quickEventLibraryCache.templates = snapshot.items.filter(item => item.enabled !== false);
+	quickEventLibraryCache.source = snapshot.source;
 	return changed;
 }
 
@@ -9559,13 +9386,7 @@ async function appendTemplateToLibrary(templateObj) {
 			+ " [default_start::" + (templateObj.defaultStart || "") + "]"
 			+ " [default_duration_min::" + String(normalizeMinutes(templateObj.defaultDuration || 30)) + "]"
 			+ " #tl/template";
-	var initialSeed = "# 事件库\n\n"
-		+ "> 勾选表示出现在任务面板「快捷」弹层；取消勾选则保留但隐藏。\n\n"
-		+ getFallbackQuickEventTemplates().map(function (item) {
-			return actions && typeof actions.buildEventTemplateLine === "function"
-				? actions.buildEventTemplateLine(item, true)
-				: "- [x] " + item.label + " [default_tag:: " + item.timelineTag + "] [default_start::" + item.startTime + "] [default_duration_min::" + item.durationMin + "]" + (item.crossDay ? " [default_cross_day:: true]" : "") + " #tl/template";
-		}).join("\n") + "\n";
+	var initialSeed = (await noriaBridge.eventLibrary.read(libPath)).text;
 	var adapter = await ensureTimelineIoAdapterLoaded();
 	if (adapter && typeof adapter.appendTemplateToLibrary === "function") {
 		var result = await adapter.appendTemplateToLibrary({
@@ -9655,6 +9476,7 @@ function setQuickTimelinePanel() {
 	if (!customInlineOpen) {
 	html += "<div class='row eventLibraryRow'>";
 	html += "<div class='seg librarySeg'>";
+	if (!quickEvents.length && quickEventLibraryCache.source === "library") html += "<div class='quickLibraryHint'>"+escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.libraryEmpty"))+"</div>";
 	quickEvents.forEach(function (item) {
 		var duration = tasksCalendarRuntimeLocale() === "zh-CN" ? formatDurationZh(item.durationMin) : formatDurationCompact(item.durationMin);
 		var meta = item.startTime ? (item.startTime + " · " + duration) : duration;
@@ -9664,13 +9486,14 @@ function setQuickTimelinePanel() {
 			+ "</button>";
 	});
 	html += "</div>";
-	if (quickEventLibraryCache.source !== "library") {
+	if (quickEventLibraryCache.source === "builtin") {
 		html += "<div class='quickLibraryHint'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.libraryFallback")) + "</div>";
 	}
 	html += "</div>";
 	html += "<div class='row row-main'>";
 	html += "<div class='seg toolSeg'>";
 	html += "<button class='qa' data-action='pregen'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.pregen")) + "</button>";
+	html += "<button class='qa' data-action='configure'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.configure")) + "</button>";
 	html += "<button class='qa' data-action='custom'>" + escapeHtmlText(tcRuntimeT("runtime.tasksCalendar.quick.custom")) + "</button>";
 	html += "</div>";
 	html += "</div>";
@@ -9783,7 +9606,7 @@ function getFallbackDateInView() {
 };
 
 function getTimelineStrategyLabel(strategy) {
-	return tcRuntimeT("runtime.tasksCalendar.quick." + (strategy==="weekly-all"?"scopeAll":strategy==="mixed"?"scopeMixed":"scopeDay"));
+	return tcRuntimeT("runtime.tasksCalendar.quick." + (strategy==="weekly-all"?"scopeAll":strategy==="mixed"?"scopeMixed":"scopeDay"), {days:timelineSettings.pregenSpanDays || 7});
 };
 
 function exitEditModeWithCheck() {
@@ -9834,27 +9657,11 @@ function toggleCustomInlinePanel() {
 
 async function runQuickAction(action, sourceEl) {
 	action = String(action || "");
-	if (action === "breakfast" || action === "lunch" || action === "dinner" || action === "nap" || action === "event-template" || action === "pregen" || action === "custom-submit") {
+	if (action === "event-template" || action === "pregen" || action === "custom-submit") {
 		showBriefNotice(tcRuntimeT("runtime.tasksCalendar.notice.writingTimeline"), 900);
 	}
-	if (action == "open-library") {
-		var libPath = String(DEFAULT_TEMPLATE_LIBRARY_PATH || "").trim().replace(/[\\]+/g, "/").replace(/^\/+/, "");
-		if (!libPath) {
-			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.libraryPathMissing"));
-			return;
-		}
-		try {
-			var libFile = app.vault.getAbstractFileByPath(libPath);
-			if (libFile) {
-				await app.workspace.getLeaf(true).openFile(libFile);
-			} else {
-				await app.workspace.openLinkText(libPath.replace(/\.md$/i, ""), "", true);
-			}
-		} catch (_) {
-			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.openManually", { path: libPath }));
-		}
-		return;
-	}
+	if (action === "open-library") return noriaBridge.eventLibrary.open(normalizeQuickEventTemplatePath());
+	if (action === "configure") return noriaBridge.eventLibrary.settings();
 	const preHandlers = {
 		"custom": async () => { toggleCustomInlinePanel(); },
 		"custom-save-toggle": async () => { customInlineDraft.saveToLibrary = !customInlineDraft.saveToLibrary; setQuickTimelinePanel(); },
@@ -9868,94 +9675,24 @@ async function runQuickAction(action, sourceEl) {
 	if (!actions) { throw new Error("timeline actions adapter unavailable"); }
 	var targetDate = getFallbackDateInView();
 	var weekDates = getVisibleWeekDates();
-	var dateTargets = (timelineQuickStrategy == "weekly-all") ? weekDates : [targetDate];
-	if (action == "breakfast" || action == "lunch" || action == "dinner" || action == "nap") {
-		var preset = actions.getItemPreset(timelineSettings, action);
-		if (!preset) { return; }
-		var affectedMealDates = [];
-		for (var i0=0; i0<dateTargets.length; i0++) {
-			var end0 = preset.startTime ? actions.addMinutesToTime(preset.startTime, preset.durationMin) : "";
-			var mealRes = await quickAddTimelineEvent(dateTargets[i0], {
-				label: preset.label,
-				startTime: preset.startTime,
-				dueTime: end0,
-				durationMin: preset.durationMin,
-				timelineTag: preset.timelineTag
-			});
-			if (mealRes && Array.isArray(mealRes.affectedDates)) { affectedMealDates = affectedMealDates.concat(mealRes.affectedDates); }
+	var dateTargets = actions.getPregenDates({selectedDate:targetDate,firstDayOfWeek,spanDays:timelineSettings.pregenSpanDays,strategy:timelineQuickStrategy});
+	if (action === "event-template" || action === "pregen") {
+		await refreshQuickEventLibraryTemplates(true);
+		const keys = action === "pregen" ? (timelineSettings.pregenItems || []) : [sourceEl?.getAttribute("data-event-key")];
+		const available = action === "pregen" ? quickEventLibraryCache.all : getQuickEventTemplatesForRender();
+		const chosen = keys.map(key => available.find(item => item.key === key));
+		if (chosen.some(item => !item)) throw Error(tcRuntimeT("runtime.tasksCalendar.notice.eventSelectionMissing"));
+		if (!chosen.length) { showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.eventSelectionEmpty")); return; }
+		var affectedDates = [];
+		for (const item of chosen) for (const date of dateTargets) {
+			const result = await quickAddTimelineEvent(date, item.startTime ? {
+				label:item.label,startDate:date,startTime:item.startTime,
+				dueDate:item.crossDay ? moment(date,"YYYY-MM-DD",true).add(1,"day").format("YYYY-MM-DD") : date,
+				dueTime:actions.addMinutesToTime(item.startTime,item.durationMin),durationMin:item.durationMin,timelineTag:item.timelineTag
+			} : {label:item.label,timelineDay:true});
+			affectedDates = affectedDates.concat(result?.affectedDates || [date]);
 		}
-		flushTimelineMutationAfterQuickAdd(affectedMealDates.length ? affectedMealDates : dateTargets, "quick-meal");
-		return;
-	}
-	if (action == "event-template") {
-		var eventKey = sourceEl && sourceEl.getAttribute ? sourceEl.getAttribute("data-event-key") : "";
-		var template = getQuickEventTemplateByKey(eventKey);
-		if (!template) {
-			showDebugNotice(tcRuntimeT("runtime.tasksCalendar.notice.quickAddFailed", { message: "event template not found" }));
-			return;
-		}
-		var affectedEventDates = [];
-		for (var te=0; te<dateTargets.length; te++) {
-			var eventDate = dateTargets[te];
-			var eventRes;
-			if (!template.startTime) {
-				eventRes = await quickAddTimelineEvent(eventDate, {
-					label: template.label,
-					timelineDay: true
-				});
-			} else {
-				var dueEventDate = template.crossDay === true
-					? moment(eventDate, "YYYY-MM-DD", true).add(1, "day").format("YYYY-MM-DD")
-					: eventDate;
-				var dueEventTime = actions.addMinutesToTime(template.startTime, template.durationMin);
-				eventRes = await quickAddTimelineEvent(eventDate, {
-					label: template.label,
-					startDate: eventDate,
-					startTime: template.startTime,
-					dueDate: dueEventDate,
-					dueTime: dueEventTime,
-					durationMin: template.durationMin,
-					timelineTag: template.timelineTag
-				});
-			}
-			if (eventRes && Array.isArray(eventRes.affectedDates)) { affectedEventDates = affectedEventDates.concat(eventRes.affectedDates); }
-		}
-		flushTimelineMutationAfterQuickAdd(affectedEventDates.length ? affectedEventDates : dateTargets, "quick-event-library");
-		return;
-	}
-	if (action == "pregen") {
-		var pregenDates = actions.getPregenDates({
-			selectedDate,
-			firstDayOfWeek,
-			spanDays: timelineSettings.pregenSpanDays
-		});
-		var keys = Array.isArray(timelineSettings.pregenItems) ? timelineSettings.pregenItems : ["sleep"];
-		var affectedPregenDates = [];
-		for (var pi=0; pi<keys.length; pi++) {
-			var key = String(keys[pi] || "").trim();
-			var p = actions.getItemPreset(timelineSettings, key);
-			if (!p) { continue; }
-			var targets = (timelineQuickStrategy == "daily-only") ? [targetDate] : pregenDates;
-			for (var i=0; i<targets.length; i++) {
-				var d = targets[i];
-				var dueDate = d;
-				var dueTime = p.startTime ? actions.addMinutesToTime(p.startTime, p.durationMin) : "";
-				if (p.crossDay === true) {
-					dueDate = moment(d, "YYYY-MM-DD", true).add(1, "day").format("YYYY-MM-DD");
-				}
-				var preRes = await quickAddTimelineEvent(d, {
-					label: p.label,
-					startDate: d,
-					startTime: p.startTime,
-					dueDate: dueDate,
-					dueTime: dueTime,
-					durationMin: p.durationMin,
-					timelineTag: p.timelineTag
-				});
-				if (preRes && Array.isArray(preRes.affectedDates)) { affectedPregenDates = affectedPregenDates.concat(preRes.affectedDates); }
-			}
-		}
-		flushTimelineMutationAfterQuickAdd(affectedPregenDates.length ? affectedPregenDates : pregenDates, "quick-pregen");
+		flushTimelineMutationAfterQuickAdd(affectedDates,"quick-event-library");
 		return;
 	}
 	if (action == "custom-submit") {
@@ -10041,12 +9778,15 @@ function tcPeriodPickerChevronHtml() {
 	return "<span class=\"tc-period-chevron\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg></span>";
 }
 function wrapToolbarPeriodLabelHtml(innerSpans) {
-	var html = String(innerSpans || "").replace(/<span class='current-main'>([^<]+)<\/span>/, function (whole, line) {
-		var parts = line.match(/^(.*?)(?: · (W\d+))? (\d{4}年?)$/);
-		if (!parts) return whole;
-		return "<span class='current-main'>" + parts[1] + "</span><span class='current-sub'>" + parts[3] + (parts[2] ? " · " + parts[2] : "") + "</span>";
-	});
-	return "<span class=\"tc-period-text\">" + html + "</span>" + tcPeriodPickerChevronHtml();
+	return "<span class=\"tc-period-text\">" + String(innerSpans || "") + "</span>" + tcPeriodPickerChevronHtml();
+}
+function taskCalendarDateHeading(anchor, period) {
+	var start=moment(anchor).clone(),end=start.clone();
+	if(period==='week'){var bounds=weekBoundsFromFirstDaySetting(start);start=bounds.start;end=bounds.end;}
+	else if(period==='month'){start.startOf('month');end.endOf('month');}
+	else if(period==='year'){start.startOf('year');end.endOf('year');}
+	var parts=bridgeCfg.dateControls.dateHeading(start.format('YYYY-MM-DD'),end.format('YYYY-MM-DD'),period,tasksCalendarRuntimeLocale());
+	return "<span class='current-main'>"+parts.primary+"</span>"+(parts.secondary?"<span class='current-sub'>"+parts.secondary+"</span>":'');
 }
 
 function weekBoundsFromFirstDaySetting(dayAnchor) {
@@ -10138,6 +9878,10 @@ function syncToolbarNavChevronTitles() {
 		period.title = label + " · " + tcRuntimeT("runtime.tasksCalendar.nav.pickDate");
 		period.setAttribute("aria-label", period.title);
 	}
+ const activePeriod=rootNode.getAttribute('view')==='list'?eisenhowerGranularity:rootNode.getAttribute('view');
+ const todayButton=rootNode.querySelector('.tcNavToday');if(todayButton){const currentPeriod=activePeriod==='week'&&toBoolOr(getWrapperTimelineCompat().focusOnTodayOpensDayView,false)?'day':activePeriod;const label=bridgeCfg.dateControls.currentLabel(currentPeriod,tasksCalendarRuntimeLocale());todayButton.querySelector('.tc-btn-label').textContent=label;todayButton.setAttribute('aria-label',label);}
+ rootNode.querySelectorAll('.tc-panel-segment-button').forEach(b=>{const on=b.classList.contains(rootNode.getAttribute('view')+'View');b.setAttribute('role','tab');b.setAttribute('aria-selected',String(on));});
+ var compactView=rootNode.querySelector('.tc-view-compact');if(compactView)compactView.value=rootNode.getAttribute('view')==='list'?'list:'+eisenhowerGranularity:rootNode.getAttribute('view');
 	void syncTaskCalendarWeather();
 	if (!rootNode || !rootNode.querySelector) { return; }
 	var prev = rootNode.querySelector("button.previous");
@@ -10177,133 +9921,11 @@ function syncToolbarNavChevronTitles() {
 	}
 }
 
-function resetToolbarNativeDateInputPlacement(inp) {
-	if (!inp) { return; }
-	inp.style.cssText = "position:fixed;opacity:0;width:1px;height:1px;left:-9999px;top:0;pointer-events:none;margin:0;padding:0;border:0;z-index:-1;";
-}
-function positionToolbarNativeDateInputBelowPeriodButton(inp, optPeriodAnchorEl) {
-	if (!inp || !rootNode) {
-		resetToolbarNativeDateInputPlacement(inp);
-		return;
-	}
-	var btn = optPeriodAnchorEl && optPeriodAnchorEl.isConnected ? optPeriodAnchorEl : rootNode.querySelector("button.current");
-	if (!btn) {
-		resetToolbarNativeDateInputPlacement(inp);
-		return;
-	}
-	/* 文案区比整块 button 更贴近用户看到的「胶囊」；过小则退回整钮 */
-	var anchorEl = btn.querySelector(".tc-period-text");
-	var r;
-	if (anchorEl && typeof anchorEl.getBoundingClientRect === "function") {
-		r = anchorEl.getBoundingClientRect();
-		if (r.width < 2 || r.height < 2) {
-			r = btn.getBoundingClientRect();
-		}
-	} else {
-		r = btn.getBoundingClientRect();
-	}
-	var win = getTasksCalendarDocument().defaultView || (typeof window !== "undefined" ? window : null);
-	var vw = (win && Number.isFinite(win.innerWidth)) ? win.innerWidth : 800;
-	var vh = (win && Number.isFinite(win.innerHeight)) ? win.innerHeight : 600;
-	/*
-	 * 原生 date 弹层按控件 border box 锚定；input 须挂 document.body，否则祖先 transform 会让 fixed 与 getBoundingClientRect 视口坐标错位。
-	 * 锚框与可见区同高、同顶，下缘对齐；向左扩宽使弹层略偏左（Chromium 常按框宽/中心微调）。
-	 */
-	var shiftL = 16;
-	var left = Math.max(8, r.left - shiftL);
-	var w = Math.max(1, r.right - left);
-	if (left + w > vw - 8) {
-		w = Math.max(1, vw - 8 - left);
-	}
-	var top = Math.max(8, Math.min(r.top, vh - 24));
-	var ht = Math.max(1, r.height);
-	/* pointer-events:none + 低 z-index：不抢工具栏点击；opacity:0 仍参与布局锚定 */
-	inp.style.cssText =
-		"position:fixed;box-sizing:border-box;opacity:0;width:" +
-		w +
-		"px;height:" +
-		ht +
-		"px;left:" +
-		left +
-		"px;top:" +
-		top +
-		"px;pointer-events:none;margin:0;padding:0;border:0;outline:0;z-index:0;";
-}
-function getToolbarNativeDateInput() {
-	var doc = getTasksCalendarDocument();
-	var id = "tc-nav-native-date-" + tid;
-	var inp = doc.getElementById(id);
-	if (!inp && rootNode) {
-		inp = rootNode.querySelector("#" + id);
-	}
-	if (!inp) {
-		inp = doc.createElement("input");
-		inp.type = "date";
-		inp.className = "tc-nav-native-date";
-		inp.id = id;
-		inp.setAttribute("aria-hidden", "true");
-		inp.setAttribute("tabindex", "-1");
-		resetToolbarNativeDateInputPlacement(inp);
-	}
-	var mount = doc.body || doc.documentElement;
-	if (mount && inp.parentNode !== mount) {
-		try {
-			mount.appendChild(inp);
-		} catch (_) {}
-	}
-	return inp;
-}
 function openToolbarNativeDatePicker(optPeriodAnchorEl) {
-	var inp = getToolbarNativeDateInput();
-	var m = moment(selectedDate || calendarNow());
-	var activeView = rootNode.getAttribute("view");
-	var ymd;
-	if (activeView === "month") {
-		ymd = m.clone().startOf("month").format("YYYY-MM-DD");
-	} else if (activeView === "week") {
-		var wb = weekBoundsFromFirstDaySetting(m);
-		ymd = wb.start.format("YYYY-MM-DD");
-	} else {
-		ymd = m.format("YYYY-MM-DD");
-	}
-	inp.value = ymd;
-	var cleanup = function () {
-		try { resetToolbarNativeDateInputPlacement(inp); } catch (_) {}
-	};
-	var onCh = function () {
-		var v = String(inp.value || "").trim();
-		if (v) {
-			applyNavigationFromPickedYmd(v);
-		}
-		cleanup();
-	};
-	inp.addEventListener("change", onCh, { once: true });
-	inp.addEventListener("blur", cleanup, { once: true });
-	function openPickerAfterLayout() {
-		positionToolbarNativeDateInputBelowPeriodButton(inp, optPeriodAnchorEl);
-		try {
-			if (typeof inp.focus === "function") {
-				inp.focus({ preventScroll: true });
-			}
-		} catch (_) {
-			try {
-				inp.focus();
-			} catch (_) {}
-		}
-		try {
-			if (typeof inp.showPicker === "function") {
-				inp.showPicker();
-			} else {
-				inp.click();
-			}
-		} catch (_) {
-			try { inp.click(); } catch (_) {}
-		}
-	}
-	/* 双帧：flex/字体布局后再量 rect，减少弹层与胶囊水平错位 */
-	requestAnimationFrame(function () {
-		requestAnimationFrame(openPickerAfterLayout);
-	});
+ const anchor=optPeriodAnchorEl||rootNode.querySelector('button.current');
+ rootNode._datePickerClose?.();
+ const mode=rootNode.getAttribute('view'),period=mode==='list'?eisenhowerGranularity:mode;
+ rootNode._datePickerClose=bridgeCfg.dateControls.openDatePicker(anchor,{locale:tasksCalendarRuntimeLocale(),kind:period==='month'?'month':period==='year'?'year':'day',value:moment(selectedDate||calendarNow()).format('YYYY-MM-DD'),onSelect:applyNavigationFromPickedYmd});
 }
 function navigatePeriodToToday() {
 	var activeView = rootNode.getAttribute("view");
@@ -10593,7 +10215,7 @@ function setButtons() {
 	var taskTimelineMode = !!tcTaskTimelineMode;
 	var buttonsNode = document.createElement("div");
 	buttonsNode.className = "buttons";
-	buttonsNode.setAttribute("data-layout", "toolbar-v4");
+	buttonsNode.setAttribute("data-layout", "toolbar-v6");
 	function mkBtn(cls, title, iconHtml, labelText) {
 		if (ui && typeof ui.createToolbarButton === "function") {
 			var viaUi = ui.createToolbarButton({
@@ -10618,7 +10240,7 @@ function setButtons() {
 		}
 		return decorateTaskCalendarToolbarAction(b);
 	}
-	/* 主行居中切换视图；上下文行独立容纳日期与周期工具。 */
+	/* One toolbar: date, view, then actions. Grid range belongs to the grid. */
 	var left = (ui && typeof ui.createButtonGroup === "function")
 		? ui.createButtonGroup({ doc: document, className: "btn-group left tc-toolbar-start" })
 		: null;
@@ -10648,6 +10270,13 @@ function setButtons() {
 			seg.appendChild(mkBtn("listView tc-panel-segment-button", tcRuntimeT("runtime.tasksCalendar.eisenhower.viewTitle"), "", tcRuntimeT("runtime.tasksCalendar.eisenhower.short")));
 	}
 	left.appendChild(seg);
+  bridgeCfg.dateControls.bindSegments(seg);
+	if(!taskTimelineMode){
+		var compactView=document.createElement('select');compactView.className='tc-view-compact';compactView.setAttribute('aria-label',tcRuntimeT('runtime.tasksCalendar.toolbar.calendarView'));
+		[['month','monthView'],['week','weekView'],['day','dayView']].forEach(function(pair){var option=document.createElement('option');option.value=pair[0];option.textContent=seg.querySelector('.'+pair[1]).textContent;compactView.appendChild(option);});
+		['day','week','month','year'].forEach(function(period){var option=document.createElement('option');option.value='list:'+period;option.textContent=tcRuntimeT('runtime.tasksCalendar.eisenhower.short')+' · '+tcRuntimeT('runtime.tasksCalendar.view.short'+period[0].toUpperCase()+period.slice(1));compactView.appendChild(option);});
+		compactView.addEventListener('change',function(){const [view,period]=compactView.value.split(':');if(view==='list'){eisenhowerGranularity=period;initializeEisenhowerFocusDateFromView(rootNode.getAttribute('view'));saveTasksCalendarRuntimePreference('eisenhowerGranularity',period,'noria.eisen.granularity');getList(tasks,getEisenhowerFocusDate());}else seg.querySelector('.'+({month:'monthView',week:'weekView',day:'dayView'}[view])).click();compactView.focus({preventScroll:true});});left.appendChild(compactView);
+	}
 	var navArrows = null;
 	navArrows = (ui && typeof ui.createNavArrowsGroup === "function")
 		? ui.createNavArrowsGroup({
@@ -10680,6 +10309,7 @@ function setButtons() {
 		right = document.createElement("div");
 		right.className = "btn-group right tc-toolbar-end";
 	}
+	if(taskTimelineMode){
 	var stat = (ui && typeof ui.createStatisticButton === "function")
 		? ui.createStatisticButton({ mkBtn: mkBtn, glyph: tcStatisticGlyphIcon })
 		: null;
@@ -10690,26 +10320,28 @@ function setButtons() {
 		stat.innerHTML = "<span class='tc-stat-glyph'>" + tcStatisticGlyphIcon + "</span><span class='tc-stat-pct'>—</span>";
 	}
 	right.appendChild(stat);
+	}
 	if (!taskTimelineMode) {
+		var filter=mkBtn('tc-toolbar-filter clickable-icon',tasksCalendarRuntimeLocale()==='zh-CN'?'筛选':'Filters','','');
+		bridge.setTaskEditorIcon(filter,'filter',filter.title);filter.setAttribute('aria-haspopup','dialog');filter.onclick=function(event){event.stopPropagation();toggleStatisticPopupForButton(filter);};right.appendChild(filter);
 		var more = mkBtn("tc-toolbar-more clickable-icon", tasksCalendarRuntimeLocale() === "zh-CN" ? "更多" : "More", "", "");
 		bridge.setTaskEditorIcon(more, "ellipsis", more.title);
 		more.setAttribute("aria-haspopup", "menu");
 		more.addEventListener("click", function (event) {
 			event.stopPropagation();
-			bridgeCfg.tasksCalendar?.openMore(more, function () { void syncTaskCalendarWeather(); });
+			bridgeCfg.tasksCalendar?.openMore(more, function () { void syncTaskCalendarWeather(); },{
+				statistics:function(){setTimeout(function(){toggleStatisticPopupForButton(more);},0);},
+				hours:isTimelineCalendarView()?function(){setTimeout(function(){openPlannerHoursSettings(more);},0);}:null
+			});
 		});
 		right.appendChild(more);
 	}
 
 	var row = document.createElement("div");
 	row.className = "tc-button-row";
-	row.appendChild(navArrows);
-	row.appendChild(left);
-	row.appendChild(right);
-	buttonsNode.appendChild(row);
-	var contextRow = document.createElement("div");
-	contextRow.className = "tc-context-row";
-	contextRow.appendChild(navPeriod);
+	const dateNav = document.createElement('div'); dateNav.className='tc-date-navigation noria-date-navigation';
+ dateNav.appendChild(curBtn);dateNav.appendChild(navArrows.querySelector('.previous'));dateNav.appendChild(navArrows.querySelector('.next'));dateNav.appendChild(navArrows.querySelector('.tcNavToday'));
+ navPeriod.prepend(dateNav);row.appendChild(navPeriod);row.appendChild(left);
 
 	var contextTools = document.createElement("div");
 	contextTools.className = "tc-context-tools";
@@ -10718,23 +10350,10 @@ function setButtons() {
 		plannerSlot0.className = "tc-toolbar-planner-slot";
 		contextTools.appendChild(plannerSlot0);
 	}
-	contextRow.appendChild(contextTools);
-	buttonsNode.appendChild(contextRow);
+	right.prepend(contextTools);row.appendChild(right);buttonsNode.appendChild(row);
 	host.appendChild(buttonsNode);
 	if (!taskTimelineMode) {
-	var eisenSeg = (ui && typeof ui.createSegmentedContainer === "function")
-		? ui.createSegmentedContainer({
-			doc: document,
-			className: "tc-segmented tc-panel-segment-group tc-eisen-granularity",
-			ariaLabel: tcRuntimeT("runtime.tasksCalendar.eisenhower.rangeAria")
-		})
-		: null;
-	if (!eisenSeg) {
-		eisenSeg = document.createElement("div");
-		eisenSeg.className = "tc-segmented tc-panel-segment-group tc-eisen-granularity";
-		eisenSeg.setAttribute("role", "tablist");
-		eisenSeg.setAttribute("aria-label", tcRuntimeT("runtime.tasksCalendar.eisenhower.rangeAria"));
-	}
+	var eisenSeg=document.createElement('select');eisenSeg.className='tc-eisen-granularity';eisenSeg.setAttribute('aria-label',tcRuntimeT('runtime.tasksCalendar.eisenhower.rangeAria'));
 	[
 		["day", tcRuntimeT("runtime.tasksCalendar.view.shortDay")],
 		["week", tcRuntimeT("runtime.tasksCalendar.view.shortWeek")],
@@ -10743,29 +10362,12 @@ function setButtons() {
 	].forEach((pair) => {
 		var ek = pair[0];
 		var elab = pair[1];
-		var eb = document.createElement("button");
-		eb.type = "button";
-		eb.className = "tc-eisen-gran-btn tc-panel-segment-button";
-		eb.setAttribute("data-eisen", ek);
-		eb.setAttribute("role", "tab");
+		var eb = document.createElement("option");
+		eb.value=ek;
 		eb.textContent = elab;
-		eb.title = tcRuntimeT("runtime.tasksCalendar.eisenhower.summaryBy", { granularity: elab });
-		eb.addEventListener("click", (ev) => {
-			ev.preventDefault();
-			ev.stopPropagation();
-			if (rootNode.getAttribute("view") !== "list") {
-				return;
-			}
-			if (eisenhowerGranularity === ek) {
-				return;
-			}
-			eisenhowerGranularity = ek;
-			saveTasksCalendarRuntimePreference("eisenhowerGranularity", ek, "noria.eisen.granularity");
-			getList(tasks, getEisenhowerFocusDate());
-			eb.focus({ preventScroll: true });
-		});
 		eisenSeg.appendChild(eb);
 	});
+	eisenSeg.addEventListener('change',function(){eisenhowerGranularity=eisenSeg.value;saveTasksCalendarRuntimePreference('eisenhowerGranularity',eisenSeg.value,'noria.eisen.granularity');getList(tasks,getEisenhowerFocusDate());eisenSeg.focus({preventScroll:true});});
 	eisenSeg.style.display = "none";
 		var eisenPool = document.createElement("div");
 		eisenPool.className = "tc-eisen-granularity-pool";
@@ -11058,7 +10660,8 @@ function setStatisticPopupOpenState(open, anchorBtn) {
 			comp.classList.toggle("tc-stat-open", isOpen);
 		}
 	} catch (_) {}
-	var btn = anchorBtn || rootNode.querySelector("button.statistic");
+	if(anchorBtn)rootNode._noriaStatAnchor=anchorBtn;
+	var btn = anchorBtn || rootNode._noriaStatAnchor || rootNode.querySelector("button.statistic");
 	if (btn) {
 		try {
 			btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
@@ -11440,7 +11043,7 @@ function renderStatisticScope(popup) {
 		details.appendChild(button);
 	}
 	details.addEventListener("toggle", function () {
-		if (rootNode.classList.contains("stat-open")) positionStatisticPopup(rootNode.querySelector("button.statistic"));
+		if (rootNode.classList.contains("stat-open")) positionStatisticPopup(rootNode._noriaStatAnchor||rootNode.querySelector("button.statistic"));
 	});
 	item.appendChild(details); popup.appendChild(item);
 }
@@ -11530,15 +11133,13 @@ function setWeekViewContext() {
 function applyWeekCurrentTitle(week) {
 	var currentBtn = rootNode.querySelector("button.current");
 	if (!currentBtn) { return; }
-	var line = formatTasksCalendarWeekTitle(week);
-	var inner = "<span class='current-main'>" + line + "</span>";
+	var inner = taskCalendarDateHeading(week,'week');
 	currentBtn.innerHTML = wrapToolbarPeriodLabelHtml(inner);
 }
 function applyDayCurrentTitle(day) {
 	var currentBtn = rootNode.querySelector("button.current");
 	if (!currentBtn) { return; }
-	var line = formatTasksCalendarDayTitle(day);
-	var inner = "<span class='current-main'>" + line + "</span>";
+	var inner = taskCalendarDateHeading(day,'day');
 	currentBtn.innerHTML = wrapToolbarPeriodLabelHtml(inner);
 }
 function unbindPlannerChromeNowNeedleListeners() {
@@ -13124,7 +12725,7 @@ function runPlannerChromeWeekLanesFinalize(forceRun) {
 var weekLanesFinalizeForcePending = false;
 var weekLanesFinalizeLastRunTs = 0;
 var weekLanesFinalizeLastStamp = "";
-/** 视图工具共用第二行右侧；不挤占主导航或改变日期行高度。 */
+/** View actions share the toolbar end; the range toggle lives in the grid. */
 function ensureTcToolbarPlannerSlot() {
 	if (!rootNode) {
 		return null;
@@ -13155,7 +12756,7 @@ function ensureTcToolbarPlannerSlot() {
 		}
 	}
 	try {
-		left.querySelectorAll(".tc-planner-axis-toggle, .tc-timeline-quick-drawer").forEach(function (b) {
+		left.querySelectorAll(".tc-timeline-quick-drawer").forEach(function (b) {
 			if (b && b.parentNode !== slot) {
 				slot.appendChild(b);
 			}
@@ -13233,29 +12834,31 @@ function tcPlannerChromeChromeBtnSetLayoutVisible(btn, visible) {
 		}
 	} catch (_) {}
 }
-/** 始终挂晨轴按钮进槽（月/四象亦创建），仅 visibility 切换可见性 */
+/** Expand the visible time range without covering tasks or changing their times. */
 function ensurePlannerChromeToolbarChromeButtonsExist() {
 	bindPlannerHoursActions();
-	var slot = ensureTcToolbarPlannerSlot();
-	if (!slot || !rootNode) {
-		return;
-	}
-	try {
-		slot.querySelectorAll(".tc-planner-" + "daybucket-toggle").forEach(function (b) { try { b.remove(); } catch (_) {} });
-	} catch (_) {}
-	var ax = dedupeTimelineChromeButtons(slot, "tc-planner-axis-toggle") || queryTimelineChromeButton("tc-planner-axis-toggle");
+	ensureTimelineQuickDrawerChrome();
+	var grid=rootNode?.querySelector(':scope > .grid');
+	if(!grid||!isPlannerChromeTimelineView(rootNode,['week','day']))return;
+	var ax=grid.querySelector('.tc-planner-axis-toggle');
 	if (!ax) {
 		ax = document.createElement("button");
 		ax.type = "button";
-		ax.className = "tc-planner-axis-toggle tc-toolbar-planner";
-		slot.appendChild(ax);
-		ax.addEventListener("click", function (e) {
+		ax.className = "tc-planner-axis-toggle tc-hours-view-toggle";
+		grid.prepend(ax);
+		ax.addEventListener("click", async function (e) {
 			e.preventDefault();
 			e.stopPropagation();
-			openPlannerHoursSettings(ax);
+			if(ax.disabled)return;ax.disabled=true;
+			var fullDay=!(showEarlyHours||plannerHoursExpanded);
+			try{
+				var saved=await bridgeCfg.tasksCalendar.savePreference('activeHours',{...plannerActiveHours,fullDay:fullDay});
+				if(!saved||saved.ok===false)throw new Error(plannerHoursText('saveFailed'));
+				bridgeCfg.tasksCalendarSettings=saved.settings;showEarlyHours=fullDay;plannerHoursExpanded=false;
+				rerenderCalendarViewNow();syncPlannerChromeAxisToggleChrome();rootNode.querySelector('.tc-hours-view-toggle')?.focus({preventScroll:true});
+			}catch(error){ax.disabled=false;showDebugNotice(plannerHoursText('saveFailed'));}
 		});
 	}
-	ensureTimelineQuickDrawerChrome();
 }
 function ensurePlannerChromePlannerLabPanel() {
 	if (!rootNode) { return null; }
@@ -14460,7 +14063,7 @@ function ensureTimelineQuickDrawerChrome() {
 		dr.setAttribute("aria-expanded", "false");
 		dr.setAttribute("aria-haspopup", "dialog");
 		dr.setAttribute("title", tcRuntimeT("runtime.tasksCalendar.quickTimeline.drawerTitle"));
-		dr.innerHTML = "<span class=\"tc-timeline-quick-drawer-glyph\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14\"/><path d=\"M5 12h14\"/></svg></span><span class=\"tc-timeline-quick-drawer-label\">" + tcRuntimeT("runtime.tasksCalendar.quickTimeline.button") + "</span>";
+		bridge.setTaskEditorIcon(dr,'plus',tcRuntimeT('runtime.tasksCalendar.quickTimeline.drawerTitle'));
 		if (ax && ax.parentNode === slot) {
 			slot.insertBefore(dr, ax.nextSibling);
 		} else {
@@ -14679,14 +14282,13 @@ function syncPlannerChromeAxisToggleChrome() {
 		tcPlannerChromeChromeBtnSetLayoutVisible(btn, false);
 		return;
 	}
-	if (btn) {
-		tcPlannerChromeChromeBtnSetLayoutVisible(btn, true);
-		btn.classList.add("tc-toolbar-planner");
-	}
-	btn.textContent = showEarlyHours ? plannerHoursText("fullDay") : plannerHoursText("active");
-	btn.style.setProperty("--tc-axis-label-width", tasksCalendarRuntimeLocale() === "zh-CN" ? "3.5em" : "5.5em");
-	btn.setAttribute("aria-haspopup", "dialog");
-	btn.setAttribute("title", plannerHoursText("title") + " · " + minutesToTimeStr(getPlannerChromeTimelineStartMin()) + "–" + minutesToTimeStr(getPlannerChromeTimelineEndMin()));
+	if(!btn)return;
+	var expanded=showEarlyHours||plannerHoursExpanded;
+	var label=tasksCalendarRuntimeLocale()==='zh-CN'?(expanded?'收起至活跃时段':'展开全天'):(expanded?'Show active hours':'Show full day');
+	bridge.setTaskEditorIcon(btn,expanded?'minus':'plus',label);
+	btn.setAttribute('aria-expanded',String(expanded));btn.setAttribute('aria-label',label);
+	btn.title=label+' · '+(expanded?minutesToTimeStr(plannerActiveHours.start)+'–'+minutesToTimeStr(plannerActiveHours.end):'00:00–24:00');
+	btn.hidden=plannerActiveHours.start===0&&plannerActiveHours.end===1440;
 }
 
 function syncPlannerChromeDayBucketChrome() {
@@ -15103,7 +14705,7 @@ function getMonth(tasks, month) {
 	rootNode.querySelector(".statisticPopup")?.classList.remove("active");
 	rootNode.setAttribute("view", "month");
 	setTaskStoreView("month", moment(month).format("YYYY-MM-DD"));
-	var currentTitle = "<span class='current-main'>" + formatTasksCalendarMonthTitle(month) + "</span>";
+	var currentTitle = taskCalendarDateHeading(month,'month');
 	rootNode.querySelector("button.current").innerHTML = wrapToolbarPeriodLabelHtml(currentTitle);
 	var gridContent = "";
 	var rangeOpenTasks = new Map(), rangeCompletedTasks = new Map();

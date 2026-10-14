@@ -20,6 +20,7 @@ function mocNavigationPlugin(overrides = {}) {
   plugin.settings = {homeDashboard:{mocEntries:[],mocEntryPaths:[]}};
   plugin.saveSettings = async () => {};
   plugin.requestNoriaRefresh = () => {};
+  plugin.syncRuntimeBridgeConfig = () => {};
   return plugin;
 }
 
@@ -202,7 +203,8 @@ function loadPluginClass(obsidianOverrides = {}) {
       if (id === "crypto") return require("node:crypto");
       if (id === "./home-focus-defaults.js") return require("../src/home-focus-defaults.js");
       if (id === "./task-calendar-zone.js") return require("../src/task-calendar-zone.js");
-      if (id === "./pane-popover.js") return {};
+      if (id === "./build-profile.js") return require("../src/build-profile.js");
+      if (id === "./pane-popover.js" || id === "./date-controls.js") return {};
       throw new Error(`Unexpected require: ${id}`);
     },
     globalThis: null
@@ -217,13 +219,13 @@ function homeMenuHarness(widgets) {
   let menu;
   const module={exports:{}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../src/card-system.js"),"utf8"),{
-    module,require:id=>id==="./card-controls.js"?{openCardMenu:options=>{menu=options;return()=>{};}}:id==="./card-direct-controls.js"?{notifyHidden(){}}:{},crypto:require("node:crypto")
+    module,require:id=>id==="./card-controls.js"?{openCardMenu:options=>{menu=options;return()=>{};}}:id==="./card-composition-view.js"?{applyLiveWidgetComposition(){}}:id==="./card-composition.js"?require("../src/card-composition.js"):id==="./settings-change.js"?require("../src/settings-change.js"):id==="./card-direct-controls.js"?{notifyHidden(){}}:{},crypto:require("node:crypto")
   });
-  const plugin={settings:{home:{widgets}},getNoriaLocale:()=>"en"},calls=[];
+  const plugin={settings:{home:{widgets}},getNoriaLocale:()=>"en",saveSettings:async()=>{}},calls=[];
   plugin.cards=Object.create(module.exports.CardSystem.prototype);plugin.cards.plugin=plugin;
   plugin.cards.providers=new Map();
   plugin.cards.catalog=(context,id)=>calls.push(["configure",context.page,id]);
-  plugin.cards.changeHomeCards=async change=>change(plugin.settings.home);
+  plugin.cards.changeHomeCards=async change=>change(plugin.settings.home);plugin.cards.emit=()=>{};
   plugin.setHomeWidgetCollapsed=async(id,value)=>calls.push(["collapse",id,value]);
   plugin.editHomeWidget=async(request)=>calls.push(plain(request));
   const anchor={closest(){return {querySelectorAll:()=>[]};},ownerDocument:{}};
@@ -239,20 +241,20 @@ test("opening shared Home card controls does not change records or layout",()=>{
 
 test("card settings, collapse, width and removal preserve the selected instance",async()=>{
   const h=homeMenuHarness([{id:"tasks",size:"medium",enabled:true}]),menu=h.open("tasks",["tasks"]);
-  await menu.actions[0].run();await menu.collapse(true);await menu.size("wide");await menu.remove();
-  assert.deepEqual(h.calls,[["configure","home","tasks"],["collapse","tasks",true],
-    {widgetId:"tasks",action:"size",value:"wide"}]);
+  await menu.actions[0].run();await menu.collapse(true);await menu.width(8);await menu.remove();
+  assert.deepEqual(h.calls,[["configure","home","tasks"],["collapse","tasks",true]]);
   assert.equal(h.plugin.settings.home.widgets[0].enabled,false);
+  assert.equal(h.plugin.settings.home.widgets[0].layout.span,8);
 });
 
 test("moving cards targets the next visible neighbour and removal can be undone without losing later changes",async()=>{
   const h=homeMenuHarness([{id:"a",enabled:true},{id:"hidden",enabled:false},{id:"b",enabled:true}]);
   await h.open("a",["a","b"]).move("down");const undo=await h.plugin.cards.removeHome('a');
-  h.plugin.settings.home.widgets[0].props={filter:'book'};await undo();
-  assert.deepEqual(h.calls,[{widgetId:"a",action:"move",value:"down",targetId:"b"}]);
-  assert.equal(h.plugin.settings.home.widgets[0].enabled,true);
-  assert.deepEqual(h.plugin.settings.home.widgets[0].props,{filter:'book'});
-  assert.equal(h.plugin.settings.home.widgets[1].enabled,false);
+  h.plugin.settings.home.widgets.find(w=>w.id==='a').props={filter:'book'};await undo();
+  assert.deepEqual(h.plugin.settings.home.widgets.filter(w=>w.enabled!==false).map(w=>w.id),["b","a"]);
+  assert.equal(h.plugin.settings.home.widgets.find(w=>w.id==="a").enabled,true);
+  assert.deepEqual(h.plugin.settings.home.widgets.find(w=>w.id==="a").props,{filter:'book'});
+  assert.equal(h.plugin.settings.home.widgets.find(w=>w.id==="hidden").enabled,false);
 });
 
 test("moving to a visible neighbour keeps hidden and future widget data intact", () => {
@@ -418,17 +420,17 @@ test("home settings discard the retired focus strip and retain source-less daily
   });
 });
 
-test("home settings migrate only the retired default habit-card position above projects", () => {
+test("home settings preserve saved habit positions instead of resetting them", () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
   const legacy = plain(plugin.normalizeSettings({}));
   legacy.home.widgets.find((widget) => widget.id === "habit-history-card").order = 73;
 
   const migrated = plugin.normalizeSettings(legacy);
-  assert.equal(migrated.home.widgets.find((widget) => widget.id === "habit-history-card").order, 53);
+  assert.equal(migrated.home.widgets.find((widget) => widget.id === "habit-history-card").order, 73);
   assert.ok(
     migrated.home.widgets.findIndex((widget) => widget.id === "habit-history-card")
-      < migrated.home.widgets.findIndex((widget) => widget.id === "projects-card")
+      > migrated.home.widgets.findIndex((widget) => widget.id === "projects-card")
   );
 
   legacy.home.widgets.find((widget) => widget.id === "habit-history-card").order = 17;
@@ -561,7 +563,7 @@ test("flat Home cards reuse shared renderers through native root adapters", () =
   const trends = read("views/dashboard/home/sections/trends-and-stats/view.js");
   const heatmaps = read("views/dashboard/home/sections/trends-and-stats/blocks/heatmaps/view.js");
 
-  for (const id of FLAT_HOME_WIDGET_IDS.slice(4).filter(id=>!id.startsWith("focus-"))) {
+  for (const id of FLAT_HOME_WIDGET_IDS.slice(4).filter(id=>!id.startsWith("focus-")&&id!=="quick-access")) {
     assert.match(home, new RegExp(`["']?${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?\\s*:`));
   }
   assert.match(home, /const HOME_WIDGET_SCHEMA_VERSION = 3/);
@@ -653,15 +655,15 @@ test("home settings normalize configurable dashboard widgets", () => {
   assert.deepEqual(plain(defaults.home.widgets.map((w) => w.id)), FLAT_HOME_WIDGET_IDS);
   assert.deepEqual(
     plain(defaults.home.widgets.map((w) => w.type)),
-    FLAT_HOME_WIDGET_IDS.map((id) => id === "daily-advice" ? "markdown" : id.startsWith("focus-") ? "extension" : "builtin")
+    FLAT_HOME_WIDGET_IDS.map((id) => id === "daily-advice" ? "markdown" : (id.startsWith("focus-") || id === "quick-access") ? "extension" : "builtin")
   );
   assert.deepEqual(plain(defaults.home.widgets.map((w) => w.schemaVersion)), FLAT_HOME_WIDGET_IDS.map(() => 3));
   assert.deepEqual(plain(defaults.home.trendsRange), { mode: "last30", start: "", end: "", yearGranularity: "week" });
   assert.equal(defaults.home.widgets.find((w) => w.id === "today-actions").size, "full");
   assert.equal(defaults.home.widgets.find((w) => w.id === "today-actions").source, "today-actions");
-  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").size, "full");
-  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").enabled, false);
-  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").order, 40);
+  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").size, "medium");
+  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").enabled, true);
+  assert.equal(defaults.home.widgets.find((w) => w.id === "daily-advice").order, 100);
   assert.equal(defaults.home.widgets.find((w) => w.id === "trends-range").size, "full");
   assert.equal(defaults.home.widgets.find((w) => w.id === "trends-range").title, "");
   assert.equal(defaults.home.widgets.find((w) => w.id === "trends-range").titleKey, "runtime.home.facade.trends");
@@ -683,7 +685,7 @@ test("home settings normalize configurable dashboard widgets", () => {
   assert.equal(legacyCollision.home.widgets.some((w) => ["workbench", "guide", "trends"].includes(w.id)), false);
   assert.ok(legacyCollision.home.widgets.find((w) => w.id === "today-tasks-card"));
   assert.equal(legacyCollision.home.widgets.some((w) => w.id === "focus-strip"), false);
-  assert.equal(legacyCollision.home.widgets.find((w) => w.id === "daily-advice").enabled, false);
+  assert.equal(legacyCollision.home.widgets.find((w) => w.id === "daily-advice").enabled, true);
 
   const custom = plugin.normalizeSettings({
     home: {
@@ -1076,22 +1078,23 @@ test("home widget manager can duplicate widgets without editing JSON", () => {
     }
   });
 
+  const originalIds=plugin.settings.home.widgets.map(w=>w.id);
   const duplicated = plugin.duplicateHomeWidgetInSettings("project-stats");
   assert.equal(duplicated.id, "project-stats-copy");
   assert.equal(duplicated.type, "stat");
   assert.equal(duplicated.enabled, false);
-  assert.equal(duplicated.order, 80);
+  assert.equal(duplicated.order, 210);
   assert.equal(duplicated.title, "Project stats copy");
   assert.deepEqual(plain(duplicated.layout), { span: 6 });
   assert.deepEqual(plain(duplicated.props.metrics), ["projects.active", "projects.open"]);
   const duplicatedIds = plugin.settings.home.widgets.map((w) => w.id);
   assert.equal(duplicatedIds.at(-1), "project-stats-copy");
-  assert.ok(FLAT_HOME_WIDGET_IDS.every((id) => duplicatedIds.includes(id)));
+  assert.ok(originalIds.every((id) => duplicatedIds.includes(id)));
   assert.equal(duplicatedIds.some((id) => ["workbench", "guide", "trends"].includes(id)), false);
 
   const second = plugin.duplicateHomeWidgetInSettings("project-stats");
   assert.equal(second.id, "project-stats-copy-2");
-  assert.equal(second.order, 90);
+  assert.equal(second.order, 220);
   assert.equal(plugin.duplicateHomeWidgetInSettings("missing"), null);
 });
 
@@ -1138,7 +1141,7 @@ test("home widget duplication preserves future schema and extension fields", () 
   });
 });
 
-test("home widget reorder and profile presets preserve future custom widget fields", () => {
+test("home widget reorder and settings serialization preserve future custom widget fields", () => {
   const Plugin = loadPluginClass();
   const plugin = new Plugin();
   plugin.settings = plugin.normalizeSettings({
@@ -1175,7 +1178,7 @@ test("home widget reorder and profile presets preserve future custom widget fiel
   assert.deepEqual(plain(future.capabilities), { opensCommands: true, future: { pinned: true } });
   assert.deepEqual(plain(future.props.future), { drawer: "right" });
 
-  plugin.applyHomeProfilePresetToSettings("review");
+  plugin.settings=plugin.normalizeSettings(plugin.serializeSettingsForSave(plugin.settings));
   future = plugin.settings.home.widgets.find((w) => w.id === "future-actions");
   assert.equal(future.schemaVersion, 5);
   assert.equal(future.enabled, true);
@@ -1320,23 +1323,7 @@ test("home widget manager summaries expose scan-friendly configuration facts", (
   );
 });
 
-test("home widget manager exposes readable layout labels instead of raw size codes", () => {
-  const Plugin = loadPluginClass();
-  const plugin = new Plugin();
-  const main = read("src/main.js");
 
-  assert.equal(plugin.getHomeWidgetSizeLabel("small"), "Narrow");
-  assert.equal(plugin.getHomeWidgetSizeLabel("medium"), "Standard");
-  assert.equal(plugin.getHomeWidgetSizeLabel("wide"), "Wide");
-  assert.equal(plugin.getHomeWidgetSizeLabel("full"), "Full row");
-  assert.equal(plugin.getHomeWidgetSizeLabel("huge"), "Standard");
-  assert.match(main, /settings\.home\.widgetSizeSmall/);
-  assert.match(main, /settings\.home\.widgetSizeMedium/);
-  assert.match(main, /settings\.home\.widgetSizeWide/);
-  assert.match(main, /settings\.home\.widgetSizeFull/);
-  assert.match(main, /dd\.addOption\(size,\s*this\.plugin\.getHomeWidgetSizeLabel\(size\)\)/);
-  assert.doesNotMatch(main, /`size:\$\{size\}`/);
-});
 
 test("home widget manager can add action and stat presets without editing JSON", () => {
   const Plugin = loadPluginClass();
@@ -1346,19 +1333,19 @@ test("home widget manager can add action and stat presets without editing JSON",
   const action = plugin.addHomeWidgetPresetToSettings("action");
   assert.equal(action.type, "action");
   assert.equal(action.id, "actions");
-  assert.equal(action.order, 80);
+  assert.equal(action.order, 210);
   assert.deepEqual(plain(action.props.actions.map((item) => item.view)), ["tasks", "calendar", "review"]);
   assert.equal(action.props.actions.some((item) => item.view === "timeline"), false);
 
   const stat = plugin.addHomeWidgetPresetToSettings("stat");
   assert.equal(stat.type, "stat");
   assert.equal(stat.id, "stats");
-  assert.equal(stat.order, 90);
+  assert.equal(stat.order, 220);
   assert.deepEqual(plain(stat.props.metrics), ["tasks.completed", "tasks.open", "projects.open", "habits.completionRate"]);
 
   const secondAction = plugin.addHomeWidgetPresetToSettings("action");
   assert.equal(secondAction.id, "actions-2");
-  assert.equal(secondAction.order, 100);
+  assert.equal(secondAction.order, 230);
 
   assert.equal(plugin.addHomeWidgetPresetToSettings("markdown"), null);
   assert.deepEqual(plain(plugin.settings.home.widgets.slice(-3).map((w) => w.id)), ["actions", "stats", "actions-2"]);
@@ -1509,147 +1496,9 @@ test("home widget manager can add a configurable daily-note section card", () =>
   });
 });
 
-test("home profile-lite presets reshape built-in widgets without dropping custom widgets", () => {
-  const Plugin = loadPluginClass();
-  const plugin = new Plugin();
-  plugin.settings = plugin.normalizeSettings({
-    home: {
-      guidePanels: {
-        inbox: true,
-        projects: true,
-        moc: true,
-        reviewCenter: true,
-        reviewCenterExpanded: true
-      },
-      widgets: [
-        { id: "identity", type: "builtin", enabled: true, order: 90, size: "small", source: "home-identity", props: {} },
-        { id: "metrics", type: "builtin", enabled: false, order: 80, size: "small", source: "overview-metrics", props: {} },
-        { id: "guide", type: "builtin", enabled: true, order: 60, size: "full", source: "guide-panels", collapsed: true, props: {} },
-        { id: "trends", type: "builtin", enabled: true, order: 70, size: "full", source: "trends-and-stats", collapsed: true, props: {} },
-        {
-          id: "custom-lab",
-          type: "view",
-          enabled: true,
-          order: 333,
-          size: "wide",
-          title: "Custom lab",
-          source: "Dashboard/custom-lab.js",
-          props: { owner: "user" }
-        }
-      ]
-    }
-  });
 
-  const result = plugin.applyHomeProfilePresetToSettings("research");
-  assert.equal(result.id, "research");
-  assert.equal(plugin.settings.home.profilePreset, "research");
 
-  const widgets = plugin.settings.home.widgets;
-  const byId = Object.fromEntries(widgets.map((widget) => [widget.id, widget]));
-  assert.equal(byId.identity.enabled, true);
-  assert.equal(byId.identity.order, 10);
-  assert.equal(byId.identity.size, "wide");
-  assert.equal(byId.metrics.enabled, true);
-  assert.equal(byId["today-actions"].enabled, true);
-  assert.equal(byId["daily-advice"].enabled, false);
-  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", ...FLAT_HOME_WIDGET_IDS.slice(FLAT_HOME_WIDGET_IDS.indexOf("trends-range"))]) {
-    assert.equal(byId[widgetId].enabled, true, `${widgetId} should be enabled in research`);
-    assert.equal(byId[widgetId].collapsed, false);
-  }
-  assert.equal(byId["review-focus"].enabled, false);
-  assert.equal(byId["review-focus"].props.defaultExpanded, false);
-  assert.deepEqual(plain(plugin.settings.home.guidePanels), {
-    inbox: false,
-    projects: true,
-    moc: true,
-    reviewCenter: false,
-    reviewCenterExpanded: false
-  });
 
-  assert.equal(byId["custom-lab"].type, "view");
-  assert.equal(byId["custom-lab"].source, "Dashboard/custom-lab.js");
-  assert.deepEqual(plain(byId["custom-lab"].props), { owner: "user" });
-
-  const briefing = widgets.find((widget) => widget.type === "markdown" && widget.props?.mode === "briefing");
-  assert.ok(briefing, "research profile should add one default briefing widget when missing");
-  assert.equal(briefing.id, "markdown-briefing");
-  assert.equal(briefing.enabled, true);
-  assert.equal(briefing.order, 60);
-  assert.deepEqual(plain(briefing.props.sources), [
-    { label: "每日简报", path: "00_Inbox/daily-brief.md", role: "daily", maxAgeHours: 36 },
-    { label: "当前建议", path: "00_Inbox/current-suggestions.md", role: "current", maxAgeHours: 72 },
-    { label: "每周回顾", path: "00_Inbox/weekly-review.md", role: "weekly", maxAgeHours: 240 },
-    { label: "项目监控", path: "00_Inbox/github-radar-latest.md", role: "project", maxAgeHours: 72 }
-  ]);
-
-  plugin.applyHomeProfilePresetToSettings("review");
-  const reviewById = Object.fromEntries(plugin.settings.home.widgets.map((widget) => [widget.id, widget]));
-  assert.equal(plugin.settings.home.profilePreset, "review");
-  assert.equal(reviewById["projects-card"].enabled, false);
-  assert.equal(reviewById["moc-strip"].enabled, false);
-  assert.equal(reviewById["review-focus"].enabled, true, "review profile should keep the same-leaf Review Focus surface available");
-  assert.equal(reviewById["review-focus"].collapsed, false);
-  assert.equal(reviewById["review-focus"].props.defaultExpanded, true);
-  for (const widgetId of FLAT_HOME_WIDGET_IDS.slice(FLAT_HOME_WIDGET_IDS.indexOf("trends-range"))) assert.equal(reviewById[widgetId].enabled, true);
-  assert.deepEqual(plain(plugin.settings.home.guidePanels), {
-    inbox: false,
-    projects: false,
-    moc: false,
-    reviewCenter: true,
-    reviewCenterExpanded: true
-  });
-});
-
-test("home profile-lite presets are conservative and do not duplicate existing briefing widgets", () => {
-  const Plugin = loadPluginClass();
-  const plugin = new Plugin();
-  plugin.settings = plugin.normalizeSettings({
-    home: {
-      widgets: [
-        {
-          id: "markdown-briefing",
-          type: "markdown",
-          enabled: false,
-          order: 140,
-          size: "full",
-          title: "My briefing",
-          source: "Dashboard/Daily.md",
-          props: {
-            mode: "briefing",
-            sources: [{ label: "Daily", path: "Dashboard/Daily.md", role: "daily" }]
-          }
-        }
-      ]
-    }
-  });
-
-  plugin.applyHomeProfilePresetToSettings("review");
-  plugin.applyHomeProfilePresetToSettings("review");
-  const briefings = plugin.settings.home.widgets.filter((widget) => widget.type === "markdown" && widget.props?.mode === "briefing");
-  assert.equal(briefings.length, 1);
-  assert.equal(briefings[0].title, "My briefing");
-  assert.equal(briefings[0].enabled, true);
-  assert.equal(briefings[0].order, 60);
-
-  plugin.applyHomeProfilePresetToSettings("minimal");
-  const byId = Object.fromEntries(plugin.settings.home.widgets.map((widget) => [widget.id, widget]));
-  assert.equal(plugin.settings.home.profilePreset, "minimal");
-  assert.equal(byId.identity.enabled, true);
-  assert.equal(byId.metrics.enabled, true);
-  assert.equal(byId["today-actions"].enabled, true);
-  assert.equal(byId["daily-advice"].enabled, false);
-  for (const widgetId of ["today-tasks-card", "inbox-card", "countdown-card", "projects-card", "moc-strip", "review-focus", ...FLAT_HOME_WIDGET_IDS.slice(FLAT_HOME_WIDGET_IDS.indexOf("trends-range"))]) {
-    assert.equal(byId[widgetId].enabled, false, `${widgetId} should be disabled in minimal`);
-  }
-  assert.equal(byId["markdown-briefing"].enabled, false);
-  assert.deepEqual(plain(plugin.settings.home.guidePanels), {
-    inbox: false,
-    projects: false,
-    moc: false,
-    reviewCenter: false,
-    reviewCenterExpanded: false
-  });
-});
 
 test("home widget manager can edit markdown briefing sources without JSON", () => {
   const Plugin = loadPluginClass();
@@ -1792,57 +1641,9 @@ test("home widget source suggestions filter markdown and base files by preset ty
   assert.equal(baseScans, 1);
 });
 
-test("home widget add preset setting uses a wide stacked layout", () => {
-  const main = read("src/main.js");
 
-  assert.match(main, /noria-home-widget-add-setting/);
-  assert.match(main, /noria-home-widget-add-controls/);
-  assert.match(main, /addPresetSetting\.settingEl\.style\.display\s*=\s*"block"/);
-  assert.match(main, /addPresetSetting\.settingEl\.style\.alignItems\s*=\s*"stretch"/);
-  assert.match(main, /addPresetSetting\.settingEl\.style\.flexDirection\s*=\s*"column"/);
-  assert.match(main, /addPresetSetting\.infoEl\.style\.maxWidth\s*=\s*"none"/);
-  assert.match(main, /addPresetSetting\.controlEl\.style\.width\s*=\s*"100%"/);
-  assert.match(main, /addPresetSetting\.controlEl\.style\.marginInlineStart\s*=\s*"0"/);
-  assert.match(main, /class NoriaHomeWidgetSourceSuggest extends obsidian\.AbstractInputSuggest/);
-  assert.match(main, /getHomeWidgetSourceSuggestionPaths\(getType\(\),\s*query\)/);
-  assert.match(main, /attachHomeWidgetSourceSuggest\(inputEl,\s*\(\)\s*=>\s*isDailySectionWidgetPreset\(\)\s*\?\s*""\s*:\s*widgetPresetType\)/);
-  assert.match(main, /widgetPresetVariant/);
-  assert.match(main, /settings\.home\.widgetPresetVariant/);
-  assert.match(main, /settings\.home\.widgetStatPresetVault/);
-  assert.match(main, /settings\.home\.widgetActionPresetVault/);
-  assert.match(main, /settings\.home\.widgetMarkdownPresetBriefing/);
-  assert.match(main, /settings\.home\.widgetMarkdownPresetDailySection/);
-  assert.match(main, /let variantDropdown = null/);
-  assert.match(main, /const renderPresetVariantOptions = \(\) =>/);
-  assert.match(main, /variantDropdown\.selectEl\.innerHTML = ""/);
-  assert.match(main, /renderPresetVariantOptions\(\);/);
-  assert.match(main, /let sourceTextInput = null/);
-  assert.match(main, /const isPathBackedWidgetPreset = \(\) =>/);
-  assert.match(main, /const isDailySectionWidgetPreset = \(\) =>/);
-  assert.match(main, /const renderPresetSourceInput = \(\) =>/);
-  assert.match(main, /sourceTextInput\.inputEl\.disabled = !usesPresetTextInput\(\)/);
-  assert.match(main, /noria-home-widget-editor/);
-  assert.match(main, /formatHomeMarkdownWidgetSourceLines\(widget\)/);
-  assert.match(main, /updateHomeMarkdownWidgetSourcesInSettings\(id,/);
-  assert.match(main, /updateHomeWidgetTitleInSettings\(id,/);
-  assert.match(main, /settings\.home\.widgetEditorMarkdown/);
-  assert.match(main, /settings\.home\.widgetEditorSources/);
-  assert.match(main, /settings\.home\.widgetSectionHeading/);
-});
 
-test("home widget manager exposes one low-noise profile preset apply control", () => {
-  const main = read("src/main.js");
 
-  assert.match(main, /settings\.home\.widgetProfilePreset/);
-  assert.match(main, /settings\.home\.widgetProfilePresetDesc/);
-  assert.match(main, /NORIA_HOME_PROFILE_PRESET_IDS\.forEach/);
-  assert.match(main, /applyHomeProfilePresetToSettings\(homeProfilePreset\)/);
-  assert.match(main, /requestNoriaRefresh\("home",\s*"settings:home-widget-profile"/);
-  assert.match(main, /decorateSettingsActionButton\(btn,\s*"settings-home",\s*"apply-profile-preset",\s*homeProfilePreset\)/);
-  assert.match(main, /runSettingsActionButton\(btn,\s*async \(\) => \{/);
-  assert.match(main, /return \{ ok: false, error: "profile-preset-not-applied" \}/);
-  assert.doesNotMatch(main, /settings\.home\.widgetProfileMinimal[\s\S]{0,240}addButton[\s\S]{0,240}settings\.home\.widgetProfileExecution/);
-});
 
 test("home widget shells expose one quiet native menu in place of separate controls", () => {
   const home = read("views/dashboard/home/view.js");
@@ -1932,35 +1733,9 @@ test("Home layout edit mode stays transient and exposes reversible schema-safe c
   assert.match(lucide, /"chevron-down"\s*:/);
 });
 
-test("home widget manager targets a requested row and omits duplicate for builtins", () => {
-  const main = read("src/main.js");
 
-  assert.match(main, /_settingsHomeWidgetFocusId/);
-  assert.match(main, /data-noria-widget-target/);
-  assert.match(main, /is-noria-widget-target/);
-  assert.match(main, /scrollIntoView\?\.\(\{ block: "center"/);
-  assert.match(main, /querySelectorAll\?\.\("\.noria-home-widget-manager-row"\)/);
-  assert.match(main, /setTimeout\(\(\) => \{[\s\S]*_settingsHomeWidgetFocusId = ""/);
-  assert.match(main, /if \(!isDefaultWidget\)\s*\{[\s\S]*decorateHomeWidgetManagerControl\(btn\.buttonEl,\s*"duplicate"/);
-});
 
-test("home widget manager exposes Trends block controls outside the JSON editor", () => {
-  const main = read("src/main.js");
 
-  assert.match(main, /settings\.home\.trendsBlocks/);
-  assert.match(main, /settings\.home\.trendsBlocksDesc/);
-  assert.match(main, /renderHomeTrendsBlockControls/);
-  assert.match(main, /getHomeTrendsBlockLayout/);
-  assert.match(main, /updateHomeTrendsBlockGroupInSettings/);
-  assert.match(main, /moveHomeTrendsBlockInSettings/);
-  assert.match(main, /data-noria-trends-block-id/);
-  assert.match(main, /data-noria-trends-block-control/);
-  assert.match(main, /settings:home-trends-blocks/);
-  assert.match(main, /row\.settingEl\?\.addClass\?\.\("noria-home-trends-block-row"\)/);
-  assert.match(main, /setDesc\(this\.t\(groupLabelKeys\[group\]\)\)/);
-  assert.doesNotMatch(main, /setDesc\(`\$\{this\.t\(groupLabelKeys\[group\]\)\} · \$\{blockId\}`\)/);
-  assert.doesNotMatch(main, /noria-home-trends-block-card/);
-});
 
 test("home runtime receives default widget metadata from the plugin bridge", () => {
   const home = read("views/dashboard/home/view.js");
@@ -1972,96 +1747,7 @@ test("home runtime receives default widget metadata from the plugin bridge", () 
   assert.doesNotMatch(home, /const DEFAULT_HOME_WIDGETS = \[/);
 });
 
-test("home facade renders widgets through registry and supports markdown or view custom widgets", () => {
-  const home = read("views/dashboard/home/view.js");
-  const main = read("src/main.js");
 
-  assert.match(home, /HOME_WIDGET_REGISTRY/);
-  assert.match(home, /renderConfiguredWidgets/);
-  assert.match(home, /renderMarkdownWidget/);
-  assert.match(home, /renderCustomViewWidget/);
-  assert.match(home, /homeBridge\.allowCustomJsViews !== true/);
-  assert.match(main, /allowCustomJsViews:\s*this\.settings\.security\?\.allowCustomJsViews === true/);
-  assert.match(main, /settings\.advanced\.allowCustomViews/);
-  assert.match(home, /renderActionWidget/);
-  assert.match(home, /renderTodayActionStrip/);
-  assert.match(home, /getHomeDailySectionSource/);
-  assert.match(home, /extractHomeMarkdownH2Section/);
-  assert.match(home, /renderStatWidget/);
-  assert.match(home, /renderEntryWidget/);
-  assert.match(home, /function homeActionBoolean/);
-  assert.match(home, /const openFirst = homeActionBoolean\(props\.openFirst\)/);
-  assert.match(home, /data-noria-markdown-open-default/);
-  assert.match(home, /item\.open = homeActionBoolean\(source\.open\) \|\| \(openFirst && index === 0\)/);
-  assert.doesNotMatch(home, /props\.openFirst !== false/);
-  assert.match(home, /getHomeWidgetSpan/);
-  assert.match(home, /shouldUseHomeHeroStrip/);
-  assert.match(home, /HOME_STAT_METRIC_REGISTRY/);
-  assert.match(home, /HOME_WIDGET_SCHEMA_VERSION/);
-  assert.match(home, /HOME_WIDGET_DEFAULT_SOURCE/);
-  assert.match(home, /copyWidgetExtensionFields/);
-  assert.match(home, /homeSettings\?\.widgets/);
-  assert.match(main, /NORIA_HOME_WIDGET_SCHEMA_VERSION/);
-  assert.match(main, /migrateHomeWidget/);
-  assert.match(main, /copyHomeWidgetExtensionFields/);
-  assert.match(main, /settings\.home\.widgets/);
-  assert.match(main, /id:\s*"today-actions"[\s\S]*order:\s*30/);
-  assert.match(main, /id:\s*"daily-advice"[\s\S]*sourceMode:\s*"daily-section"/);
-  assert.match(main, /runtime\.home\.todayActions\.capture/);
-  assert.match(main, /settings\.home\.widgetsManager/);
-  assert.match(main, /moveHomeWidgetInSettings/);
-  assert.match(main, /addHomeWidgetPresetToSettings/);
-  assert.match(main, /settings\.home\.widgetAddPreset/);
-  assert.match(main, /settings\.home\.widgetAddAction/);
-  assert.match(main, /settings\.home\.widgetAddStat/);
-  assert.match(main, /settings\.home\.widgetAddMarkdown/);
-  assert.match(main, /settings\.home\.widgetAddBase/);
-  assert.match(main, /settings\.home\.widgetAddList/);
-  assert.match(main, /settings\.home\.widgetSourcePath/);
-  assert.match(main, /settings\.home\.widgetMoveUp/);
-  assert.match(main, /settings\.home\.widgetMoveDown/);
-  assert.match(main, /settings\.home\.widgetVisible/);
-  assert.match(main, /settings\.home\.widgetCollapsed/);
-  assert.match(main, /updateHomeWidgetCollapsedInSettings/);
-  assert.match(main, /settings:home-widgets-collapsed/);
-  assert.match(main, /settings\.home\.widgetDuplicate/);
-  assert.match(main, /settings\.home\.widgetRemove/);
-  assert.match(main, /settings\.home\.widgetRemoveConfirm/);
-  assert.match(main, /getHomeWidgetSettingSummary\(widget,\s*index\)/);
-  assert.match(main, /duplicateHomeWidgetInSettings/);
-  assert.match(main, /removeHomeWidgetInSettings/);
-  assert.match(main, /noria-home-widget-manager-row/);
-  assert.match(main, /getHomeWidgetSettingDataset\(widget,\s*index\)/);
-  assert.match(main, /data-noria-widget-id/);
-  assert.match(main, /data-noria-widget-type/);
-  assert.match(main, /data-noria-widget-kind/);
-  assert.match(main, /data-noria-widget-order/);
-  assert.match(main, /data-noria-widget-source/);
-  assert.match(main, /data-noria-widget-schema-version/);
-  assert.match(main, /data-noria-widget-collapsed/);
-  assert.match(main, /data-noria-widget-enabled/);
-  assert.match(main, /decorateHomeWidgetManagerControl/);
-  assert.match(main, /data-noria-widget-control/);
-  assert.match(main, /"visibility"/);
-  assert.match(main, /"collapsed"/);
-  assert.match(main, /"move-up"/);
-  assert.match(main, /"move-down"/);
-  assert.match(main, /"duplicate"/);
-  assert.match(main, /"remove"/);
-  assert.match(main, /"size"/);
-  assert.doesNotMatch(main, /noria-home-widget-button-rail/);
-  assert.match(home, /function applyHomeWidgetCollapsedState/);
-  assert.match(home, /data-noria-widget-collapsed/);
-  assert.match(home, /dashboard-home-widget-collapsed-label/);
-  assert.match(home, /shell\.content\.hidden = true/);
-  assert.match(home, /if \(widget\.collapsed === true\) continue/);
-  assert.match(home, /function getHomeWidgetShellDataset/);
-  assert.match(home, /function applyHomeWidgetShellDataset/);
-  assert.match(home, /data-noria-widget-order/);
-  assert.match(home, /data-noria-widget-source/);
-  assert.match(home, /data-noria-widget-schema-version/);
-  assert.match(home, /data-noria-widget-title/);
-});
 
 test("Home keeps the capture workbench independent from optional daily-section cards", () => {
   const home = read("views/dashboard/home/view.js");
@@ -2599,6 +2285,7 @@ test("home trends range controls render in the widget title and update locally",
 
   assert.match(home, /dashboard-home-widget-title-actions/);
   assert.match(home, /titleActionsHost/);
+  assert.match(trends, /noriaTrendsBridge\.dateControls/);
   assert.match(trends, /input\?\.controlsHost/);
   assert.match(trends, /renderTrendsContent/);
   assert.match(trends, /renderToken/);
@@ -2608,36 +2295,13 @@ test("home trends range controls render in the widget title and update locally",
   assert.match(trends, /preserveScrollAnchor/);
   assert.match(trends, /data-noria-trends-slot/);
   assert.match(trends, /dashboard-home-trends-block-stage/);
-  assert.match(trends, /dashboard-home-trends-date-field/);
-  assert.match(trends, /dashboard-home-trends-range-button/);
-  assert.match(trends, /dashboard-heatmap-mode-button/);
-  assert.match(trends, /button\.style\.fontWeight = active \? "720" : "650"/);
-  assert.match(trends, /min-height:28px;height:28px/);
-  assert.match(trends, /font-size:13px/);
-  assert.match(trends, /createDateField/);
-  assert.match(trends, /type\s*=\s*"date"/);
   assert.doesNotMatch(trends, /clearElement\(contentHost\)/);
   assert.doesNotMatch(trends, /inputEl\.style\.cssText\s*=\s*"width:118px/);
   assert.doesNotMatch(trends, /requestHomeRefresh/);
   assert.doesNotMatch(trends, /requestRefresh\?\.\(\s*["']home["']/);
 });
 
-test("home trends custom range restore prefers synced settings before legacy localStorage", () => {
-  const trends = read("views/dashboard/home/sections/trends-and-stats/view.js");
-  const readCustomStart = trends.indexOf("function readSavedCustomRange");
-  const readCustomEnd = trends.indexOf("function clearElement", readCustomStart);
-  assert.ok(readCustomStart > 0 && readCustomEnd > readCustomStart, "readSavedCustomRange should be present");
-  const readCustomBlock = trends.slice(readCustomStart, readCustomEnd);
 
-  assert.match(readCustomBlock, /noriaTrendsBridge\?\.homeSettings\?\.trendsRange/);
-  assert.match(readCustomBlock, /noriaTrendsBridge\?\.getHomeTrendsRange/);
-  assert.match(readCustomBlock, /mode\s*===\s*"custom"/);
-  assert.match(readCustomBlock, /localStorage\.getItem\(RANGE_STORAGE_KEY\)/);
-  assert.ok(
-    readCustomBlock.indexOf("homeSettings?.trendsRange") < readCustomBlock.indexOf("localStorage.getItem"),
-    "synced settings should be consulted before legacy localStorage"
-  );
-});
 
 test("home trends custom view runner cache is scoped by runtime build", () => {
   const trends = read("views/dashboard/home/sections/trends-and-stats/view.js");
@@ -2729,11 +2393,11 @@ test("home habit history uses MOC-entry typography and native cards stretch natu
   assert.match(styles, /\.dashboard-home-root\s*\{[\s\S]*align-items:\s*stretch/);
   assert.match(
     styles,
-    /\.dashboard-home-root\s*>\s*\.dashboard-home-widget-shell-native:not\(\[data-noria-widget-collapsed="true"\]\)\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/
+    /:is\(\.dashboard-home-root,\.noria-card-stack\)\s*>\s*\.dashboard-home-widget-shell-native:not\(\[data-noria-widget-collapsed="true"\]\)\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/
   );
   assert.match(
     styles,
-    /\.dashboard-home-root\s*>\s*\.dashboard-home-widget-shell-native:not\(\[data-noria-widget-collapsed="true"\]\)\s*>\s*\.dashboard-home-widget-native-content\s*\{[\s\S]*flex:\s*1 1 auto;/
+    /:is\(\.dashboard-home-root,\.noria-card-stack\)\s*>\s*\.dashboard-home-widget-shell-native:not\(\[data-noria-widget-collapsed="true"\]\)\s*>\s*\.dashboard-home-widget-native-content\s*\{[\s\S]*flex:\s*1 1 auto;/
   );
   assert.match(
     trends,

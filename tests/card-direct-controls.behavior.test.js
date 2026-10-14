@@ -25,7 +25,7 @@ test('drag insertion moves one card and preserves intervening and hidden cards',
 test('diary drag is restricted to available target cards and persists across normalization',()=>{
  const layout=normalizeDiaryCards({order:['tasks','focus','habits'],cards:{focus:{hidden:true}}});
  const next=changeDiaryCardLayout(layout,'habits','reorder',{target:'tasks',after:false},['tasks','habits']);
- assert.deepEqual(next.order,['habits','tasks','focus','record','review']);
+ assert.deepEqual(next.order,['habits','tasks','record','review']);
  assert.deepEqual(normalizeDiaryCards(JSON.parse(JSON.stringify(next))),next);
  assert.deepEqual(changeDiaryCardLayout(layout,'habits','reorder',{target:'focus'},['tasks','habits']),layout);
 });

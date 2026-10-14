@@ -66,46 +66,71 @@ review. No self-use loader or separate self-use build is provided by this check.
 
 ## Release demo vault
 
-After building, generate a **new, empty** vault outside your personal vault:
+After building the public profile, generate a **new, empty** vault outside your
+personal vault. The generator refuses a non-empty destination.
 
 ```powershell
-node scripts/prepare-release-demo-vault.mjs C:/NoriaDemo-zh --locale=zh-CN --date=2026-10-09
-node scripts/prepare-release-demo-vault.mjs C:/NoriaDemo-en --locale=en --date=2026-10-09
+node scripts/prepare-release-demo-vault.mjs C:/NoriaDemo-zh --locale=zh-CN --date=2026-10-14
+node scripts/prepare-release-demo-vault.mjs C:/NoriaDemo-en --locale=en --date=2026-10-14
 node --test tests/release-demo-vault.behavior.test.js
 ```
 
-The generator copies the current plugin build. Both locales use the built-in Media
-library page and its shared default statistics, six explicitly fictional works, one
-selected Home shortcut, a local Markdown reading destination and a dated linked note.
-It must not create the retired custom `page-media` page or import personal collections.
-Completion history stays empty until an explicit `finishedAt` date is supplied.
+The bilingual story is maintained in `scripts/demo-assets/workspace-story.mjs`:
+two active projects (a portfolio and an offline-reader app), one completed project,
+three habits, fourteen distinct daily notes, and a weekly review. These are fictional
+documentation records, not personal data or the onboarding starter examples.
 
-The behavior test generates both vaults, scans their Markdown with the media catalog,
-checks the built-in page configuration and included links, and rejects a non-empty
-target. It does not launch Obsidian. For desktop acceptance, open a generated vault as
-a separate vault and follow its README: open the library, read the included excerpt,
-change page 36 to 40, inspect the source note and dated linked note, and use the Home
-shortcut. Also edit a work externally and check that the visible collection updates.
-Record native results separately; bundle smoke and file checks do not establish them.
+Use the following editorial checks before taking screenshots:
 
-### Documentation screenshot coverage
+- Give each project an outcome and concrete next actions. Schedule selected work;
+  keep undated actions and real deadlines distinct. Image preparation must precede
+  sharing the portfolio preview.
+- Keep project tasks in the project note. Diary, calendar and timeline read those
+  same tasks. A completed focus session does not complete its task automatically.
+- Give strength training rest days. Leave missed targets incomplete, rather than
+  filling a perfect streak for a screenshot.
+- Let notes describe events and observations. Reviews use those observations to
+  change the next action; they do not repeat the task list or an identical daily slogan.
+- The software project has prototype, development, beta and release stages. Exclude
+  private collection, RSS, health, finance, inventory, wardrobe and travel views.
 
-The 2026-10-09 refresh replaces `home-dashboard.png`, `home-card-menu.png` and
-`card-catalog.png` in both `docs/assets/en` and `docs/assets/zh-CN`. These are native
-Obsidian 1.14.4 captures of the development build in the generated demo vaults,
-using the light theme and a 1580 × 1040 window. Captures are cropped to the visible
-workspace, open menu pair or card catalog; they do not include personal vault content.
+The behavioral check verifies both locales, source links, task dates, habit schedules,
+focus record parsing and non-empty target protection. It does not establish native UI
+quality. Open the generated vault, follow its README and inspect the actual views.
 
-To reproduce, open Home, inspect the MOC card's **… → Layout** submenu, then use
-**Page settings → Add a card to this page**. Switch Obsidian's interface language
-to match each demo and restore it afterward. Verify every captured label, submenu
-and card edge in the resulting image. The sample dates, counts and weather are not
-acceptance targets and may differ on another day.
+The workflow borrows specific practices from [Things projects and areas](https://culturedcode.com/things/support/articles/6378414/),
+[Things scheduling](https://culturedcode.com/things/support/articles/2803579/),
+[Streaks weekday schedules](https://streaksapp.com/) and
+[Day One journal templates](https://dayoneapp.com/guides/tips-and-tutorials/templates/).
+The example prose is original; these references do not imply product endorsement.
 
-This batch shows the current icon navigation, Inbox filters, shared layout submenu
-and Statistics templates entry. Other existing screenshots still require comparison
-with the current interface; this refresh does not establish full documentation,
-theme or release acceptance.
+### Documentation screenshots
+
+Capture the real installed public plugin in the isolated vault. Keep the same date,
+data and viewport for both languages; use Obsidian's matching interface language.
+Preserve existing documentation image slots unless their purpose has changed. Frame
+the relevant view, including enough context to explain the action; verify the saved
+image, not just the screenshot command. Never splice in a different task, hide an
+error with image editing, or describe a custom layout as the default.
+
+Before replacing a documentation image, confirm that the expected vault and view are
+active, the visible data matches its source note, no unrelated modal covers the view,
+and labels and card edges are legible. Check the saved pixels for source pickers,
+other windows, menus and dimmed backdrops; a DOM selector alone cannot prove that
+the image is unobstructed. Menus and dialogs should be shown only when
+they are the subject. A missing translation or stale view is a product issue to record,
+not a reason to publish a misleading screenshot. Retain native capture provenance in
+ignored `evidence/`; keep only selected images in `docs/assets/en` and
+`docs/assets/zh-CN`.
+
+The 2026-10-14 revision replaces the existing views and adds five interaction images
+per language: the Inbox list, assignment chooser, saved assignment with Undo,
+task drag target, and running Focus card (50 images in total). Capture date: 2026-10-14; Obsidian: 1.14.4;
+light theme; 1400 px window width, with height adjusted to the view. Weekly/daily
+calendars show 08:00–18:00, the project overview spans two weeks, and the hourly
+Timeline shows 08:00–17:00. Home is cropped after the upper card rows. Source
+provenance, dimensions and image hashes are in ignored
+`evidence/docs-story-20261014/selected-captures.json`.
 
 ## Reusable installed Timeline smoke
 
@@ -154,10 +179,10 @@ requested range (at most 367 days). Keep these call sites counted in the guard a
 preserve the behavior tests for date bounds, moved links and conflict protection.
 Do not add a whole module to an unrestricted exception list.
 
-Card and calendar owners expose their layout state directly instead of querying
-changing descendants from parent CSS selectors. The one local Bases empty-heading
-selector adapts markup owned asynchronously by Obsidian; do not add an observer only
-to reproduce that decoration. Reviewed hidden-state enforcement and the ordinary
-Bases link hover affordance have exact exceptions. Decorative button overrides and
-new parent queries remain checked. Verify changed layouts in the installed host;
-passing these static guards alone does not confirm appearance.
+Card and calendar owners expose layout state directly where possible. A finite
+selector allowlist covers local content-dependent settings controls, cards, task
+handles and the Bases empty heading; it does not exempt whole stylesheets. Hidden
+state, completed-task strike-through and the structural date-control wrapper also
+have exact exceptions. New parent queries and decorative overrides remain checked.
+Verify changed layouts in the installed host; passing these static guards alone
+does not confirm appearance.
