@@ -27,7 +27,8 @@ function summarize(rows,config={}){
     if(numeric&&config.unitProperty&&(units.size>1||missing(row.properties[config.unitProperty]))){invalid.push({...row,error:"Incompatible or missing unit"});continue;}
     if(numeric&&(typeof value!=="number"||!Number.isFinite(value))){invalid.push({...row,reason:'non-numeric'});continue;}
     valid.push({...row,value});
-    const keys=config.group==="folder"?[row.path.slice(0,row.path.lastIndexOf("/"))||"/"]:config.group==="tag"?[...new Set((row.tags||[]).map(tag=>String(tag).replace(/^#/,'')))]:
+    const slash=row.path.lastIndexOf('/');
+    const keys=config.group==="folder"?[slash<0?'/':row.path.slice(0,slash)||'/']:config.group==="tag"?[...new Set((row.tags||[]).map(tag=>String(tag).replace(/^#/,'')))]:
       config.display==="trend"?[row.date]:config.calculate==="distribution"?categories:[];
     for(const key of keys){if(missing(key))continue;if(typeof key==="object"){invalid.push(row);continue;}const label=String(key);if(!groups.has(label))groups.set(label,[]);groups.get(label).push({...row,value});}
   }

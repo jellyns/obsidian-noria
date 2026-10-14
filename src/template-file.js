@@ -2,8 +2,10 @@
 async function openMarkdownTemplate(plugin,path){
   const zh=plugin.getNoriaLocale()==='zh';
   if(!path)throw Error(zh?'请先选择模板文件':'Choose a template file first');
-  const normalized=plugin.normalizePath(path),file=plugin.app.vault.getAbstractFileByPath(/\.md$/i.test(normalized)?normalized:normalized+'.md');
-  if(!file||file.extension!=='md')throw Error(zh?'模板文件不存在，请重新选择':'Template file not found; choose it again');
+  const normalized=plugin.normalizePath(path),selected=plugin.app.vault.getAbstractFileByPath(normalized);
+  if(/\.base$/i.test(normalized)||selected&&selected.extension?.toLowerCase()!=='md')throw Error(zh?'请选择 .md 模板文件':'Choose a .md template file');
+  const file=selected||plugin.app.vault.getAbstractFileByPath(/\.md$/i.test(normalized)?normalized:normalized+'.md');
+  if(!file||file.extension?.toLowerCase()!=='md')throw Error(zh?'模板文件不存在，请重新选择':'Template file not found; choose it again');
   return plugin.app.workspace.getLeaf('tab').openFile(file,{state:{mode:'source'}});
 }
 function diaryTemplateSettingsTarget(integration,period){

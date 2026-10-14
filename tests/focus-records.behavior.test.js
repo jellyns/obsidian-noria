@@ -18,7 +18,7 @@ function setup(initial){
 }
 test('finished sessions become ordinary diary records and native edits drive the displayed duration',async()=>{
   const h=setup();await h.timer.start(meta,{mode:'stopwatch'});h.setNow('09:10:00');await h.timer.stop();
-  const path='Diary/2026-10-10.md',raw=h.files.get(path);assert.match(raw,/## 记录\n原有文字。/);assert.match(raw,/09:00:00–09:10:00/);
+  const path='Diary/2026-10-10.md',raw=h.files.get(path);assert.match(raw,/## 记录\n原有文字。/);assert.match(raw,/09:00:00[+-]\d{2}:\d{2}–09:10:00[+-]\d{2}:\d{2}/);
   assert.equal(h.timer.read().tasks.zp_test.sessions[0].durationMs,600000);
   h.files.set(path,raw.replace('09:10:00','09:12:00'));await h.timer.records.load(path,'2026-10-10');
   assert.equal(h.timer.read().tasks.zp_test.sessions[0].durationMs,720000);
@@ -29,6 +29,25 @@ test('note write failure retains the stopped timer and retries exactly once with
   assert.equal(h.timer.read().active,null);assert.equal(h.timer.read().tasks.zp_test.sessions[0].recording,true);assert.match(h.timer.recordError,/Note disk full/);
   h.failNote(false);await h.timer.retryRecords();await h.timer.retryRecords();
   assert.equal((h.files.get('Diary/2026-10-10.md').match(/\^focus-/g)||[]).length,1);assert.equal(h.timer.recordError,'');
+});
+
+test('failed readback keeps a pending session until the persisted record is readable',async()=>{
+  const h=setup();await h.timer.start(meta);h.setNow('09:05:00');
+  const read=h.plugin.app.vault.read;h.plugin.app.vault.read=async()=>{throw Error('Readback failed');};await h.timer.stop();
+  assert.equal(h.plugin.settings.pomodoro.tasks.zp_test.sessions[0].recording,true);
+  assert.equal(h.plugin.settings.pomodoro.tasks.zp_test.sessions[0].recordRef,undefined);assert.match(h.timer.recordError,/Readback failed/);
+  h.plugin.app.vault.read=read;await h.timer.retryRecords();
+  assert.equal(h.timer.recordError,'');assert.equal(h.plugin.settings.pomodoro.tasks.zp_test.sessions[0].recording,undefined);
+  assert.equal((h.files.get('Diary/2026-10-10.md').match(/\^focus-/g)||[]).length,1);
+});
+
+test('unreadable persisted content is not marked saved or overwritten on retry',async()=>{
+  const h=setup();await h.timer.start(meta);h.setNow('09:05:00');
+  const write=h.plugin.processTextAtVaultPath;
+  h.plugin.processTextAtVaultPath=async function(path,fn){await write.call(this,path,fn);h.files.set(path,h.files.get(path).replace('09:05:00','08:00:00'));};
+  await h.timer.stop();assert.equal(h.plugin.settings.pomodoro.tasks.zp_test.sessions[0].recording,true);assert.match(h.timer.recordError,/end must follow start/i);
+  const raw=h.files.get('Diary/2026-10-10.md');h.plugin.processTextAtVaultPath=write;await h.timer.retryRecords();
+  assert.equal(h.files.get('Diary/2026-10-10.md'),raw);assert.equal(h.plugin.settings.pomodoro.tasks.zp_test.sessions[0].recording,true);
 });
 test('retry after a saved note but failed reference save preserves a native edit',async()=>{
   const h=setup();await h.timer.start(meta);h.setNow('09:05:00');h.failRefs(true);await h.timer.stop();

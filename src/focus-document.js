@@ -5,13 +5,28 @@ const dayOf=value=>{const d=new Date(value);return `${d.getFullYear()}-${pad(d.g
 function stamp(value,day){
   const d=new Date(value);if(!Number.isFinite(d.getTime()))throw Error('Invalid focus time');
   const time=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  return (dayOf(value)===day?'':dayOf(value)+' ')+time;
+  const offset=-d.getTimezoneOffset(),zone=`${offset<0?'-':'+'}${pad(Math.floor(Math.abs(offset)/60))}:${pad(Math.abs(offset)%60)}`;
+  return (dayOf(value)===day?'':dayOf(value)+' ')+time+zone;
 }
 function parseStamp(value,day){
-  const match=/^(?:(\d{4}-\d{2}-\d{2}) )?(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?$/.exec(value.trim());
+  const match=/^(?:(\d{4}-\d{2}-\d{2}) )?(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/.exec(value.trim());
   if(!match||+match[2]>23||+match[3]>59||+(match[4]||0)>59)throw Error('Invalid focus time');
-  const date=match[1]||day,iso=`${date}T${match[2]}:${match[3]}:${match[4]||'00'}${match[5]||''}`;
-  const parsed=new Date(iso);if(!Number.isFinite(parsed.getTime())||dayOf(parsed)!==date)throw Error('Invalid focus date');return parsed.toISOString();
+  const date=match[1]||day,clock=`${date}T${match[2]}:${match[3]}:${match[4]||'00'}`,iso=clock+(match[5]||''),zone=match[6]||'';
+  // Validate the written calendar date independently of the reader's time zone.
+  const wall=new Date(iso+'Z');
+  if(!Number.isFinite(wall.getTime())||wall.toISOString().slice(0,19)!==clock)throw Error('Invalid focus date');
+  if(zone&&zone!=='Z'&&(+zone.slice(1,3)>23||+zone.slice(4)>59))throw Error('Invalid focus offset');
+  const parsed=new Date(iso+zone);if(!Number.isFinite(parsed.getTime()))throw Error('Invalid focus time');
+  if(!zone){
+    const sameClock=d=>dayOf(d)===date&&d.getHours()===+match[2]&&d.getMinutes()===+match[3]&&d.getSeconds()===+(match[4]||0);
+    if(!sameClock(parsed))throw Error('Invalid focus time');
+    // Old local-only records cannot identify which occurrence of a repeated
+    // clock was intended. Check nearby offsets, including non-hour transitions.
+    const offsets=new Set([-86400000,86400000].map(delta=>new Date(parsed.getTime()+delta).getTimezoneOffset()));
+    for(const offset of offsets){const alternate=new Date(parsed.getTime()+(offset-parsed.getTimezoneOffset())*60000);
+      if(alternate.getTime()!==parsed.getTime()&&sameClock(alternate))throw Error('Ambiguous focus time; add a UTC offset');}
+  }
+  return parsed.toISOString();
 }
 function anchor(session){return 'focus-'+new Date(session.start).toISOString().replace(/\D/g,'');}
 const encode=value=>String(value||'').replace(/&/g,'&amp;').replace(/\|/g,'&#124;').replace(/\[/g,'&#91;').replace(/\]/g,'&#93;').replace(/[\r\n]+/g,' ');
@@ -55,6 +70,8 @@ function appendFocusRecord(raw,{record,session,day,heading='专注'}){
   // An existing anchor is the user's entry, even if its content has been edited.
   if(existing.records.has(id))return raw;
   const line=focusLine(record,session,day);if(!line)return raw;
+  const parsed=parseFocusLine(line,day),expected=session.segments.filter(span=>Math.floor(Date.parse(span.end)/1000)>Math.floor(Date.parse(span.start)/1000));
+  if(parsed.segments.length!==expected.length||parsed.segments.some((span,i)=>['start','end'].some(key=>Date.parse(span[key])!==Math.floor(Date.parse(expected[i][key])/1000)*1000)))throw Error('Focus record did not round trip');
   const headings=scanAtxHeadings(raw),matches=headings.filter(h=>h.level===2&&h.title===heading);
   if(matches.length>1)throw Error('Duplicate focus headings');
   const eol=raw.includes('\r\n')?'\r\n':'\n';

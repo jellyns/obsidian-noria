@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.5.0 - Unreleased
+## 0.5.0 - 2026-10-14
+
+- Preserve UTC offsets in focus records across daylight-saving changes and time zones. Verify written records before marking them saved, retain failed writes for retry, and report ambiguous older local times without guessing.
+- Group vault-root notes correctly in folder statistics. Require real Markdown files for diary templates while preserving Base support in other sources.
 
 - Keep the public build focused on the core workbench; media, RSS, health, finance, inventory, wardrobe and travel remain outside the release bundle.
 - Start with a shared location chooser, root-level IPARA defaults and optional starter examples. Keep setup guidance inside the plugin and preserve existing notes, templates and custom paths.

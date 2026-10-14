@@ -3,6 +3,14 @@ const {filterNotes,summarize}=require("../src/property-statistics.js");
 const {readProperty,writeProperty}=require("../src/record-properties.js");
 const note=(path,value,date="2026-09-17")=>({path,date,tags:["#reading"],properties:{value}});
 
+test('folder groups keep root, single-level and nested notes with correct drilldown',()=>{
+  const stats=summarize(['A.md','B.md','Projects/C.md','Projects/D.md','Projects/Sub/E.md'].map(path=>note(path,1)),{group:'folder',calculate:'count'});
+  assert.equal(stats.value,5);
+  assert.deepEqual(stats.groups.map(g=>[g.key,g.value,g.rows.map(r=>r.path)]),[
+    ['/',2,['A.md','B.md']],['Projects',2,['Projects/C.md','Projects/D.md']],['Projects/Sub',1,['Projects/Sub/E.md']]
+  ]);
+});
+
 test('daily summary preserves sources and distinguishes multiple states, duplicate notes and missing days',()=>{
   const {alignDailyRecords}=require('../src/property-statistics.js');
   const rows=[note('A.md',['read','saved'],'2026-09-01'),note('B.md',['read','read'],'2026-09-02'),note('C.md',false,'2026-09-03'),note('D.md','read','2026-09-04'),note('E.md','saved','2026-09-04')];

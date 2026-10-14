@@ -154,11 +154,12 @@ function renderPath(tab, container, key, name, obsidian) {
       for(const button of actions.querySelectorAll('button'))button.disabled=true;feedback.setText("");
       try {
         const next=validatePath(input.value,{optional:optionalKeys.includes(key),folder:isRoot});
+        if(isTemplate && next && !/\.md$/i.test(next))throw Error(text(plugin,"请选择 .md 模板文件","Choose a .md template file"));
         if(create && !next)throw Error(text(plugin,"请填写模板保存路径","Enter a template path"));
         if(create){
           if(await plugin.app.vault.adapter.exists(next))throw Error(text(plugin,"该位置已有文件，请选择它或另取名称","File exists. Select it or choose another name."));
           await plugin.ensureVaultParent(next);await plugin.app.vault.create(next,plugin.getManagedNoteSeed(key));
-        } else if(isTemplate && next && !await plugin.app.vault.adapter.exists(next))throw Error(text(plugin,"模板不存在，请选择已有文件，或另存内置模板","Template not found. Choose an existing file or save a built-in copy."));
+        } else if(isTemplate && next && plugin.app.vault.getAbstractFileByPath(next)?.extension?.toLowerCase()!=='md')throw Error(text(plugin,"模板不存在，请选择已有 Markdown 文件，或另存内置模板","Template not found. Choose an existing Markdown file or save a built-in copy."));
         const previous=plugin.settings.managedPaths[key];plugin.settings.managedPaths[key]=next;
         try{await plugin.saveSettings();}catch(e){plugin.settings.managedPaths[key]=previous;throw e;}
         tab.display();

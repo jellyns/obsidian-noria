@@ -30,6 +30,14 @@ test('template settings route to the owning source and selected period without c
  openDiaryTemplateSettings(p,'yearly');assert.deepEqual(calls.pop(),['overview','managedPaths.yearlyTemplate']);
 });
 
+test('template preview rejects an old Base selection and still opens extensionless Markdown paths',async()=>{
+ const {openMarkdownTemplate}=require('../src/template-file.js'),opened=[];
+ const files={'Templates/day.base':{extension:'base'},'Templates/day.base.md':{extension:'md'},'Templates/day.md':{extension:'md'}};
+ const p={normalizePath:p=>p,getNoriaLocale:()=> 'en',app:{vault:{getAbstractFileByPath:path=>files[path]},workspace:{getLeaf:()=>({openFile:file=>opened.push(file)})}}};
+ await assert.rejects(openMarkdownTemplate(p,'Templates/day.base'),/\.md template/);assert.deepEqual(opened,[]);
+ await openMarkdownTemplate(p,'Templates/day');assert.equal(opened[0],files['Templates/day.md']);
+});
+
 test('template suggestions include Markdown outside note query scopes and notify the input owner window',()=>{
  const module={exports:{}},events=[];
  const api={AbstractInputSuggest:class{constructor(app,input){this.input=input;}close(){this.closed=true;}}};

@@ -5,7 +5,7 @@ const record={titleSnapshot:'阅读与摘录',path:'Projects/阅读.md'};
 const session={start:at('09:00:00'),end:at('09:40:00'),mode:'WORK',timerMode:'stopwatch',segments:[{start:at('09:00:00'),end:at('09:10:00')},{start:at('09:30:00'),end:at('09:40:00')}]};
 test('ordinary Markdown retains actual spans, task source and pause gaps',()=>{
   const raw=appendFocusRecord('## 记录\n今天的文字。\n',{record,session,day:'2026-10-10'});
-  assert.match(raw,/09:00:00–09:10:00 \/ 09:30:00–09:40:00 · \[\[Projects\/阅读\|阅读与摘录\]\]/);
+  assert.match(raw,/09:00:00[+-]\d{2}:\d{2}–09:10:00[+-]\d{2}:\d{2} \/ 09:30:00[+-]\d{2}:\d{2}–09:40:00[+-]\d{2}:\d{2} · \[\[Projects\/阅读\|阅读与摘录\]\]/);
   const parsed=[...readFocusDocument(raw,'2026-10-10').records.values()][0];
   assert.equal(parsed.durationMs,1200000);assert.equal(parsed.sourcePath,record.path);assert.equal(parsed.timerMode,'stopwatch');assert.equal(parsed.completed,false);
 });
@@ -20,7 +20,7 @@ test('native edits change the duration derived from Markdown',()=>{
 test('cross-midnight entries preserve dates and precise seconds',()=>{
   const start=new Date('2026-10-09T23:59:40.123').toISOString(),end=at('00:00:20.456');
   const s={...session,start,end,segments:[{start,end}]},raw=focusLine(record,s,'2026-10-09');
-  assert.match(raw,/2026-10-10 00:00:20 /);assert.doesNotMatch(raw,/\d{2}:\d{2}:\d{2}\.\d/);assert.equal([...readFocusDocument(raw,'2026-10-09').records.values()][0].durationMs,40000);assert.equal(dayOf(start),'2026-10-09');
+  assert.match(raw,/2026-10-10 00:00:20[+-]\d{2}:\d{2}/);assert.doesNotMatch(raw,/\d{2}:\d{2}:\d{2}\.\d/);assert.equal([...readFocusDocument(raw,'2026-10-09').records.values()][0].durationMs,40000);assert.equal(dayOf(start),'2026-10-09');
 });
 test('legacy milliseconds remain readable and collapsed subsecond fragments are omitted',()=>{
   const legacy='- 09:00:00.123–09:00:20.456 · 阅读 · 自由 ^focus-legacy';

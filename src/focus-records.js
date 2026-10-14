@@ -98,8 +98,10 @@ class FocusRecords {
       const day=dayOf(session.start),spec=await this.plugin.resolveCalendarNoteSpecAsync('daily',day);
       await this.plugin.createCalendarNoteIfMissing(spec);
       await this.plugin.processTextAtVaultPath(spec.path,current=>appendFocusRecord(current,{record,session,day,heading:state.recordHeading||'专注'}));
-      session.recordRef={path:spec.path,id:anchor(session),day};delete session.recording;changed=true;
-      await this.load(spec.path,day);
+      const id=anchor(session),document=await this.load(spec.path,day);
+      const error=document.errors.get(id)||document.errors.get('');
+      if(error||!document.records.has(id))throw Error(error||'Focus record could not be read back');
+      session.recordRef={path:spec.path,id,day};delete session.recording;changed=true;
     }
     return {state,changed};
   }
